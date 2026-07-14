@@ -27,7 +27,22 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: node -e "const expected=process.env.RELEASE_TAG.replace(/^v/,'');const actual=require('./package.json').version;if(actual!==expected){throw new Error('package version '+actual+' does not match release '+expected)}"
-      - run: npm publish --access public
+      - name: Check whether npm version already exists
+        id: npm_version
+        shell: bash
+        run: |
+          package="$(node -p "const value=require('./package.json'); value.name+'@'+value.version")"
+          if npm view "$package" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Keep the existing npm release
+        if: steps.npm_version.outputs.published == 'true'
+        run: echo "This version is already available on npm; desktop builds will continue."
+      - name: Publish npm package
+        if: steps.npm_version.outputs.published != 'true'
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

@@ -22,16 +22,20 @@
 
 > AI 会话记录始终保留在你的电脑上。LoadToAgent 只读取你已经在使用的 AI 工具生成的本地会话文件。
 
-## 安装
+## 安装与运行
 
-LoadToAgent 已在 npm 以 [`loadtoagent`](https://www.npmjs.com/package/loadtoagent) 发布。无需通过 Git 下载仓库，直接全局安装桌面应用及其命令：
+你可以使用 npm，也可以直接下载可运行的桌面文件。两种方式都不需要通过 Git 下载仓库。
+
+### 方式一：npm
+
+LoadToAgent 已在 npm 以 [`loadtoagent`](https://www.npmjs.com/package/loadtoagent) 发布。全局安装后，运行 `loadtoagent` 命令即可打开桌面应用：
 
 ```bash
 npm install -g loadtoagent
 loadtoagent
 ```
 
-第一条命令把 LoadToAgent 安装到当前 Node.js 环境，第二条命令打开桌面仪表盘。如果应用已经运行，同一命令会把窗口切换到前台。
+npm 安装方式不会创建桌面或应用程序快捷方式。每次需要打开应用时，请在终端运行 `loadtoagent`。如果安装后终端暂时找不到该命令，请关闭并重新打开终端。
 
 ```bash
 # 更新
@@ -41,12 +45,22 @@ npm install -g loadtoagent@latest
 npm uninstall -g loadtoagent
 ```
 
-带标签的 [GitHub Releases](https://github.com/minjund/LodeToAgent/releases) 也会附带 macOS 和 Windows 构建文件。
+### 方式二：直接下载桌面文件
+
+打开[最新 GitHub Release](https://github.com/minjund/LodeToAgent/releases/latest)，下载与你的电脑匹配的文件。此方式不需要 Node.js。
+
+| 系统 | 下载文件 | 启动方式 |
+|---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | 双击下载的文件。它是无需安装的便携版程序。 |
+| Apple 芯片 Mac | `LoadToAgent-<version>-arm64.dmg` | 打开 DMG，将 LoadToAgent 拖入“应用程序”，然后从“应用程序”中打开。 |
+| Intel Mac | `LoadToAgent-<version>-x64.dmg` | 打开 DMG，将 LoadToAgent 拖入“应用程序”，然后从“应用程序”中打开。 |
+
+当前桌面文件尚未进行代码签名，因此 Windows SmartScreen 或 macOS Gatekeeper 可能显示未知开发者警告。只有在文件来自本仓库官方 Releases 页面时才继续。macOS 用户可按住 Control 键点按 LoadToAgent，然后选择**打开**；Windows 用户可选择**更多信息 → 仍要运行**。
 
 ### 环境要求
 
 - macOS 或 Windows
-- 通过 npm 安装时需要 Node.js 18 或更高版本
+- 仅通过 npm 安装时需要 Node.js 18 或更高版本
 - 至少安装并登录一个 CLI：Claude Code、Codex CLI、Gemini CLI 或 Grok CLI
 - 只有使用 tmux 工作区地图时才需要安装 tmux
 

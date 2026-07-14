@@ -22,16 +22,20 @@ Monitor Claude, Codex, Gemini, and Grok sessions, follow parent–subagent relat
 
 > Your agent transcripts stay on your computer. LoadToAgent reads the local session files created by the AI tools you already use.
 
-## Install
+## Install and run
 
-LoadToAgent is published on npm as [`loadtoagent`](https://www.npmjs.com/package/loadtoagent). No Git checkout is required—install the desktop app and its command globally:
+Choose npm if you already use Node.js, or download a ready-to-run desktop file. Neither option requires a Git checkout.
+
+### Option 1: npm
+
+LoadToAgent is published on npm as [`loadtoagent`](https://www.npmjs.com/package/loadtoagent). Install it globally, then run the command to open the desktop dashboard:
 
 ```bash
 npm install -g loadtoagent
 loadtoagent
 ```
 
-The first command installs LoadToAgent for the current Node.js environment. The second opens the desktop dashboard. Use the same command to bring an existing LoadToAgent window to the front.
+The npm method does not create a desktop shortcut. Run `loadtoagent` whenever you want to open the app. If your terminal cannot find the command immediately after installation, close and reopen the terminal once.
 
 ```bash
 # Update
@@ -41,12 +45,22 @@ npm install -g loadtoagent@latest
 npm uninstall -g loadtoagent
 ```
 
-Prebuilt macOS and Windows files are also attached to tagged [GitHub Releases](https://github.com/minjund/LodeToAgent/releases).
+### Option 2: desktop download
+
+Open the [latest GitHub Release](https://github.com/minjund/LodeToAgent/releases/latest) and download the file for your computer. Node.js is not required for these files.
+
+| System | Download | Start the app |
+|---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | Double-click the downloaded file. It is portable and does not run an installer. |
+| Apple silicon Mac | `LoadToAgent-<version>-arm64.dmg` | Open the DMG, drag LoadToAgent into Applications, then open it from Applications. |
+| Intel Mac | `LoadToAgent-<version>-x64.dmg` | Open the DMG, drag LoadToAgent into Applications, then open it from Applications. |
+
+The current desktop files are not code-signed. Windows SmartScreen or macOS Gatekeeper may show an unknown-developer warning. Continue only when the file came from this repository's official Releases page. On macOS, Control-click LoadToAgent and choose **Open**. On Windows, choose **More info → Run anyway**.
 
 ### Requirements
 
 - macOS or Windows
-- Node.js 18 or newer for npm installation
+- Node.js 18 or newer only when installing through npm
 - At least one installed and authenticated CLI: Claude Code, Codex CLI, Gemini CLI, or Grok CLI
 - tmux only if you want the optional tmux workspace map
 

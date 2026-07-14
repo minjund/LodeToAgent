@@ -492,6 +492,25 @@ test('제품 소스와 파일명에 이전 프로그램 명칭이 남아 있지 
   targets.forEach(visit);
 });
 
+test('README와 릴리스 워크플로가 npm·Windows·macOS 실행 경로를 안내한다', () => {
+  for (const file of ['README.md', 'README.ko.md', 'README.zh-CN.md']) {
+    const readme = fs.readFileSync(path.join(root, file), 'utf8');
+    for (const contract of [
+      'npm install -g loadtoagent',
+      'loadtoagent',
+      'https://github.com/minjund/LodeToAgent/releases/latest',
+      'LoadToAgent-<version>-portable.exe',
+      'LoadToAgent-<version>-arm64.dmg',
+      'LoadToAgent-<version>-x64.dmg',
+    ]) assert.ok(readme.includes(contract), `${file}에 ${contract} 안내가 없습니다.`);
+  }
+
+  const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
+  for (const contract of ['release/*.exe', 'release/*.dmg', 'release/*.zip', 'LoadToAgent-Windows', 'LoadToAgent-macOS', 'npm_version.outputs.published']) {
+    assert.ok(workflow.includes(contract), `release.yml에 ${contract} 계약이 없습니다.`);
+  }
+});
+
 async function runTests() {
   for (const { name, fn } of tests) {
     try {

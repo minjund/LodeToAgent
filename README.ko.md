@@ -22,16 +22,20 @@ Claude, Codex, Gemini, Grok 세션을 모니터링하고, 메인 AI와 도움 AI
 
 > AI 대화 기록은 내 컴퓨터에 그대로 남습니다. LoadToAgent는 이미 사용 중인 AI 도구가 만든 로컬 세션 파일을 직접 읽습니다.
 
-## 설치
+## 설치와 실행
 
-LoadToAgent는 npm에 [`loadtoagent`](https://www.npmjs.com/package/loadtoagent)로 공개되어 있습니다. Git으로 저장소를 받을 필요 없이 데스크톱 앱과 명령을 전역 설치하세요.
+npm을 사용하거나, 바로 실행할 수 있는 프로그램 파일을 내려받을 수 있습니다. 어느 방식이든 Git으로 저장소를 받을 필요는 없습니다.
+
+### 방법 1: npm
+
+LoadToAgent는 npm에 [`loadtoagent`](https://www.npmjs.com/package/loadtoagent)로 공개되어 있습니다. 전역 설치한 뒤 `loadtoagent` 명령으로 데스크톱 앱을 여세요.
 
 ```bash
 npm install -g loadtoagent
 loadtoagent
 ```
 
-첫 번째 명령은 현재 Node.js 환경에 LoadToAgent를 설치하고, 두 번째 명령은 데스크톱 대시보드를 엽니다. 이미 앱이 열려 있으면 같은 명령으로 창을 앞으로 가져올 수 있습니다.
+npm 방식은 바탕 화면이나 응용 프로그램 바로가기를 만들지 않습니다. 앱을 열 때마다 터미널에서 `loadtoagent`를 실행하세요. 설치 직후 명령을 찾지 못하면 터미널을 한 번 닫았다가 다시 여세요.
 
 ```bash
 # 업데이트
@@ -41,12 +45,22 @@ npm install -g loadtoagent@latest
 npm uninstall -g loadtoagent
 ```
 
-태그가 붙은 [GitHub Releases](https://github.com/minjund/LodeToAgent/releases)에는 macOS·Windows용 설치 파일도 함께 제공됩니다.
+### 방법 2: 프로그램 파일 직접 다운로드
+
+[최신 GitHub Release](https://github.com/minjund/LodeToAgent/releases/latest)에서 내 컴퓨터에 맞는 파일을 내려받으세요. 이 방식은 Node.js가 필요하지 않습니다.
+
+| 운영체제 | 받을 파일 | 실행 방법 |
+|---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | 받은 파일을 더블클릭하세요. 설치 과정이 없는 포터블 실행 파일입니다. |
+| Apple Silicon Mac | `LoadToAgent-<version>-arm64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
+| Intel Mac | `LoadToAgent-<version>-x64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
+
+현재 배포 파일에는 코드 서명이 없어 Windows SmartScreen 또는 macOS Gatekeeper가 알 수 없는 개발자 경고를 표시할 수 있습니다. 이 저장소의 공식 Releases 페이지에서 받은 파일일 때만 계속하세요. macOS에서는 LoadToAgent를 Control-클릭하고 **열기**를 선택합니다. Windows에서는 **추가 정보 → 실행**을 선택합니다.
 
 ### 필요한 환경
 
 - macOS 또는 Windows
-- npm 설치에는 Node.js 18 이상
+- npm으로 설치할 때만 Node.js 18 이상
 - Claude Code, Codex CLI, Gemini CLI, Grok CLI 중 하나 이상 설치 및 로그인
 - tmux 작업 지도를 사용할 때만 tmux 필요
 
