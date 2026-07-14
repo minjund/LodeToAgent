@@ -1,581 +1,448 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, Notification, nativeImage } = require('electron');
-const path = require('path');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard } = require('electron');
 const fs = require('fs');
+const path = require('path');
 const os = require('os');
-const crypto = require('crypto');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
-const { scanProject, scanAgentDetail, scanSessionDetail } = require('./src/scanner');
-const {
-  injectAnswer,
-  previewInjection,
-  previewTask,
-  runTask,
-  listClaudeSkills,
-  listClaudeCommands,
-  listBackgroundTasks,
-  getBackgroundTask,
-  stopBackgroundTask,
-} = require('./src/claudeRunner');
+const { pathToFileURL } = require('url');
+const { Worker } = require('worker_threads');
+const { execFileSync } = require('child_process');
+const { AgentRunner, probeProviders } = require('./src/agentRunner');
+const { providerList, blankUsage } = require('./src/providerRegistry');
+const { TerminalManager } = require('./src/terminalManager');
+const { TmuxController } = require('./src/tmuxController');
+const { normalizeWslList } = require('./src/tmuxMonitor');
+const { BridgeServer } = require('./src/bridgeServer');
 
 let mainWindow = null;
-const taskWindowPayloads = new Map();
-const taskWindowIndex = new Map();
-const execFileP = promisify(execFile);
-const attentionSources = new Map();
-let attentionKeys = new Set();
-let attentionCount = 0;
-let lastAttentionNotifyAt = 0;
+let monitorWorker = null;
+let runner = null;
+let terminalManager = null;
+let bridgeServer = null;
+let bridgeLauncher = null;
+const tmuxController = new TmuxController({ platform: process.platform });
+let availability = {};
+let detailRequestId = 0;
+const pendingDetails = new Map();
+let lastSnapshot = {
+  generatedAt: new Date().toISOString(),
+  sessions: [],
+  tmux: { generatedAt: new Date().toISOString(), available: false, status: '확인 중', distros: [], summary: { distros: 0, sessions: 0, windows: 0, panes: 0, aiPanes: 0, linked: 0 } },
+  summary: {
+    providers: providerList().map(provider => ({ ...provider, installed: false, sessions: 0, active: 0, waiting: 0, subagents: 0, usage: blankUsage() })),
+    totals: { sessions: 0, active: 0, waiting: 0, subagents: 0, usage: blankUsage() },
+  },
+};
 
-// 선택한 프로젝트 폴더 목록을 userData 에 영속화 (재실행 시 복원)
-function storeFile() {
-  return path.join(app.getPath('userData'), 'projects.json');
-}
-function taskDir() {
-  return path.join(app.getPath('userData'), 'background-tasks');
-}
-function branchWorktreeRoot() {
-  return path.join(app.getPath('userData'), 'branch-worktrees');
-}
-function loadProjects() {
-  try { return JSON.parse(fs.readFileSync(storeFile(), 'utf8')); } catch { return []; }
-}
-function saveProjects(list) {
-  try { fs.writeFileSync(storeFile(), JSON.stringify(list, null, 2), 'utf8'); } catch {}
-}
+const singleInstance = app.requestSingleInstanceLock();
+if (!singleInstance) app.quit();
+else app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
-function backgroundTaskMatchesBranch(task, project) {
-  const branch = project && project.git && project.git.isRepo ? (project.git.branch || 'detached') : null;
-  if (!branch || !task || !task.branch) return true;
-  return task.branch === branch;
-}
-
-function registeredProjectPath(projectPath) {
-  const target = path.resolve(String(projectPath || ''));
-  return loadProjects().some(p => path.resolve(p) === target) ? target : null;
+function userFile(name) {
+  return path.join(app.getPath('userData'), name);
 }
 
-async function gitRun(projectPath, args, timeout = 12000) {
-  const safePath = registeredProjectPath(projectPath);
-  if (!safePath) return { ok: false, error: '등록된 프로젝트 경로가 아닙니다.' };
+function readJson(file, fallback) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return fallback; }
+}
+
+function writeJson(file, value) {
   try {
-    const r = await execFileP('git', ['-C', safePath, ...args], {
-      encoding: 'utf8',
-      timeout,
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-    return { ok: true, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
-  } catch (e) {
-    return { ok: false, error: String(e.message || e), stdout: e.stdout || '', stderr: e.stderr || '' };
-  }
-}
-
-async function gitRunUnchecked(cwd, args, timeout = 12000) {
-  try {
-    const r = await execFileP('git', ['-C', cwd, ...args], {
-      encoding: 'utf8',
-      timeout,
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-    return { ok: true, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
-  } catch (e) {
-    return { ok: false, error: String(e.message || e), stdout: e.stdout || '', stderr: e.stderr || '' };
-  }
-}
-
-function validGitRefName(ref) {
-  const target = String(ref || '').trim();
-  return !!target
-    && !/[\r\n]/.test(target)
-    && !target.startsWith('-')
-    && target.length <= 200
-    && /^[A-Za-z0-9._/-]+$/.test(target)
-    && !target.includes('..')
-    && !target.startsWith('/');
-}
-
-function worktreeSafeName(projectPath, branch) {
-  const safeBranch = String(branch || 'branch').replace(/[^A-Za-z0-9._-]+/g, '__').slice(0, 80) || 'branch';
-  const hash = crypto.createHash('sha1').update(`${path.resolve(projectPath)}|${branch}`).digest('hex').slice(0, 12);
-  return `${safeBranch}-${hash}`;
-}
-
-function parseGitWorktrees(text) {
-  return String(text || '').split(/\r?\n\r?\n/).map(block => {
-    const row = {};
-    for (const line of block.split(/\r?\n/)) {
-      const i = line.indexOf(' ');
-      const key = i >= 0 ? line.slice(0, i) : line;
-      const value = i >= 0 ? line.slice(i + 1) : '';
-      if (key) row[key] = value;
-    }
-    return row;
-  }).filter(row => row.worktree);
-}
-
-async function listGitRefs(projectPath) {
-  const current = await gitRun(projectPath, ['branch', '--show-current']);
-  const branches = await gitRun(projectPath, ['branch', '--all', '--format=%(refname:short)', '--sort=-committerdate']);
-  if (!branches.ok) return branches;
-  const seen = new Set();
-  const refs = [];
-  for (const raw of branches.stdout.split(/\r?\n/).map(x => x.trim()).filter(Boolean)) {
-    if (raw === 'HEAD' || raw.endsWith('/HEAD')) continue;
-    const localName = raw.replace(/^remotes\//, '');
-    if (seen.has(localName)) continue;
-    seen.add(localName);
-    refs.push(localName);
-  }
-  return { ok: true, current: current.ok ? current.stdout : '', branches: refs.slice(0, 80) };
-}
-
-async function switchGitRef(projectPath, ref) {
-  const target = String(ref || '').trim();
-  if (!target || /[\r\n]/.test(target) || target.startsWith('-') || target.length > 200) {
-    return { ok: false, error: '유효하지 않은 Git ref입니다.' };
-  }
-  const remoteTrack = target.match(/^(?:remotes\/)?(origin|upstream)\/(.+)$/);
-  let res = await gitRun(projectPath, ['switch', target], 30000);
-  if (!res.ok && remoteTrack) {
-    res = await gitRun(projectPath, ['switch', '--track', `${remoteTrack[1]}/${remoteTrack[2]}`], 30000);
-  }
-  if (!res.ok) res = await gitRun(projectPath, ['checkout', target], 30000);
-  if (!res.ok && /^[A-Za-z0-9._/-]+$/.test(target) && !target.includes('..') && !target.startsWith('/') && !/^origin\//.test(target)) {
-    res = await gitRun(projectPath, ['switch', '-c', target], 30000);
-  }
-  if (res.ok) {
-    notifyChanged('git-switch');
-    startWatchers();
-  }
-  return res;
-}
-
-async function createGitBranch(projectPath, ref) {
-  const target = String(ref || '').trim();
-  if (!target || /[\r\n]/.test(target) || target.startsWith('-') || target.length > 200) {
-    return { ok: false, error: '유효하지 않은 Git branch 이름입니다.' };
-  }
-  if (!/^[A-Za-z0-9._/-]+$/.test(target) || target.includes('..') || target.startsWith('/') || /^origin\//.test(target)) {
-    return { ok: false, error: '유효하지 않은 Git branch 이름입니다.' };
-  }
-  const res = await gitRun(projectPath, ['branch', target], 30000);
-  if (res.ok) {
-    notifyChanged('git-branch-create');
-    startWatchers();
-  }
-  return res;
-}
-
-async function ensureBranchWorktree(projectPath, ref) {
-  const safePath = registeredProjectPath(projectPath);
-  if (!safePath) return { ok: false, error: '등록된 프로젝트 경로가 아닙니다.' };
-  const target = String(ref || '').trim();
-  if (!validGitRefName(target)) return { ok: false, error: '유효하지 않은 Git branch 이름입니다.' };
-
-  const current = await gitRun(safePath, ['branch', '--show-current']);
-  if (current.ok && current.stdout === target) {
-    return { ok: true, projectPath: safePath, baseProjectPath: safePath, branch: target, usingWorktree: false };
-  }
-
-  const remoteTrack = target.match(/^(?:remotes\/)?([^/]+)\/(.+)$/);
-  const localBranch = remoteTrack ? remoteTrack[2] : target;
-  if (!validGitRefName(localBranch) || /^origin\//.test(localBranch)) {
-    return { ok: false, error: 'worktree로 만들 수 없는 브랜치 이름입니다.' };
-  }
-
-  const worktrees = await gitRun(safePath, ['worktree', 'list', '--porcelain'], 12000);
-  if (worktrees.ok) {
-    for (const wt of parseGitWorktrees(worktrees.stdout)) {
-      const branchRef = String(wt.branch || '').replace(/^refs\/heads\//, '');
-      if (branchRef === target || branchRef === localBranch) {
-        return { ok: true, projectPath: wt.worktree, baseProjectPath: safePath, branch: branchRef, usingWorktree: true };
-      }
-    }
-  }
-
-  const parent = path.join(branchWorktreeRoot(), crypto.createHash('sha1').update(path.resolve(safePath)).digest('hex').slice(0, 16));
-  const workspace = path.join(parent, worktreeSafeName(safePath, localBranch));
-  fs.mkdirSync(parent, { recursive: true });
-
-  const existing = await gitRunUnchecked(workspace, ['rev-parse', '--is-inside-work-tree'], 3000);
-  if (existing.ok) {
-    return { ok: true, projectPath: workspace, baseProjectPath: safePath, branch: localBranch, usingWorktree: true };
-  }
-
-  const localExists = await gitRun(safePath, ['show-ref', '--verify', '--quiet', `refs/heads/${target}`], 12000);
-  let res;
-  if (localExists.ok) {
-    res = await gitRun(safePath, ['worktree', 'add', workspace, target], 60000);
-  } else if (remoteTrack) {
-    const remoteRef = `${remoteTrack[1]}/${remoteTrack[2]}`;
-    res = await gitRun(safePath, ['worktree', 'add', '-b', localBranch, workspace, remoteRef], 60000);
-  } else {
-    res = await gitRun(safePath, ['worktree', 'add', workspace, target], 60000);
-  }
-  if (!res.ok) return res;
-  notifyChanged('git-worktree');
-  return { ok: true, projectPath: workspace, baseProjectPath: safePath, branch: localBranch, usingWorktree: true };
-}
-
-// ---------- 자동 감시 (WCC 진행 실시간 감지) ----------
-// 각 프로젝트의 .planning(산출물 변화) + .git/HEAD·index(브랜치·커밋 변화)를 감시.
-// 변화가 생기면 debounce 후 렌더러에 알려 자동 재스캔하게 한다. (읽기 전용)
-const watchers = [];
-let watchDebounce = null;
-
-function sendToAll(channel, payload) {
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win || win.isDestroyed()) continue;
-    win.webContents.send(channel, payload);
-  }
-}
-
-function attentionBadgeImage(count) {
-  const label = count > 9 ? '9+' : String(Math.max(1, count));
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><circle cx="32" cy="32" r="30" fill="#ef4444"/><text x="32" y="42" text-anchor="middle" font-family="Arial, sans-serif" font-size="${label.length > 1 ? 28 : 34}" font-weight="700" fill="white">${label}</text></svg>`;
-  return nativeImage.createFromDataURL(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
-}
-
-function normalizeAttentionItems(items) {
-  if (!Array.isArray(items)) return [];
-  const out = [];
-  for (const it of items) {
-    const key = String(it && it.key || '').trim();
-    if (!key) continue;
-    out.push({
-      key,
-      title: String(it.title || '답변 필요').trim(),
-      body: String(it.body || '').trim(),
-    });
-  }
-  return out;
-}
-
-function updateAttentionSource(source, items) {
-  attentionSources.set(source || 'default', normalizeAttentionItems(items));
-  const merged = [];
-  const seen = new Set();
-  for (const list of attentionSources.values()) {
-    for (const it of list) {
-      if (seen.has(it.key)) continue;
-      seen.add(it.key);
-      merged.push(it);
-    }
-  }
-  const nextKeys = new Set(merged.map(it => it.key));
-  const newItems = merged.filter(it => !attentionKeys.has(it.key));
-  attentionKeys = nextKeys;
-  attentionCount = merged.length;
-
-  const titlePrefix = attentionCount ? `(${attentionCount}) ` : '';
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win || win.isDestroyed()) continue;
-    try { win.setTitle(`${titlePrefix}Lodestar`); } catch {}
-    try { win.setOverlayIcon(attentionCount ? attentionBadgeImage(attentionCount) : null, attentionCount ? `${attentionCount}개 답변 필요` : ''); } catch {}
-    if (!attentionCount) {
-      try { win.flashFrame(false); } catch {}
-    }
-  }
-  try { app.setBadgeCount(attentionCount); } catch {}
-
-  if (attentionCount && newItems.length) {
-    const now = Date.now();
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win || win.isDestroyed()) continue;
-      try { win.flashFrame(true); } catch {}
-    }
-    if (now - lastAttentionNotifyAt > 15000 && Notification.isSupported()) {
-      lastAttentionNotifyAt = now;
-      const first = newItems[0];
-      new Notification({
-        title: attentionCount > 1 ? `답변 필요 ${attentionCount}개` : first.title,
-        body: first.body || 'Claude가 사용자 답변을 기다리고 있습니다.',
-        silent: false,
-      }).show();
-    }
-  }
-  sendToAll('attention:changed', { count: attentionCount, items: merged });
-}
-
-function projectAttentionItems(projects) {
-  const items = [];
-  for (const p of projects || []) {
-    const act = p && p.activity ? p.activity : null;
-    if (act && act.awaiting && !act.blocked) {
-      items.push({
-        key: `${p.path}|${act.sessionId || 'no-session'}|awaiting`,
-        title: `${p.name || path.basename(p.path || '')} 답변 필요`,
-        body: act.awaitingText || 'Claude가 사용자 답변을 기다리고 있습니다.',
-      });
-    }
-  }
-  return items;
-}
-
-function notifyChanged(reason) {
-  if (watchDebounce) clearTimeout(watchDebounce);
-  watchDebounce = setTimeout(() => {
-    sendToAll('projects:changed', reason);
-  }, 1200);
-}
-
-function closeWatchers() {
-  while (watchers.length) { try { watchers.pop().close(); } catch {} }
-}
-
-function startWatchers() {
-  closeWatchers();
-  try {
-    fs.mkdirSync(taskDir(), { recursive: true });
-    watchers.push(fs.watch(taskDir(), { recursive: false }, () => notifyChanged('background-task')));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value, null, 2), 'utf8');
   } catch {}
-  const list = loadProjects();
-  for (const proj of list) {
-    // .planning 재귀 감시 (Windows fs.watch recursive 지원)
-    const planning = path.join(proj, '.planning');
-    if (fs.existsSync(planning)) {
-      try {
-        watchers.push(fs.watch(planning, { recursive: true }, () => notifyChanged('planning')));
-      } catch {}
-    }
-    // .git 감시 (HEAD·index 변화 = 브랜치 전환·커밋·스테이징)
-    const gitDir = path.join(proj, '.git');
-    if (fs.existsSync(gitDir)) {
-      try {
-        watchers.push(fs.watch(gitDir, { recursive: false }, (_e, fn) => {
-          if (!fn || /HEAD|index|ORIG_HEAD/.test(String(fn))) notifyChanged('git');
-        }));
-      } catch {}
-    }
-    // Claude Code 세션 로그 감시 (서브에이전트 진행 = jsonl 추가)
-    const logDir = path.join(os.homedir(), '.claude', 'projects', pathToSlug(proj));
-    if (fs.existsSync(logDir)) {
-      try {
-        watchers.push(fs.watch(logDir, { recursive: false }, () => notifyChanged('activity')));
-      } catch {}
-    }
+}
+
+function shellQuote(value) {
+  return `'${String(value || '').replace(/'/g, `'"'"'`)}'`;
+}
+
+function installBridgeLauncher() {
+  const directory = path.join(os.homedir(), '.lodestar', 'bin');
+  fs.mkdirSync(directory, { recursive: true });
+  const script = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'bin', 'lodestar.js')
+    : path.join(__dirname, 'bin', 'lodestar.js');
+  if (process.platform === 'win32') {
+    const launcher = path.join(directory, 'lodestar.cmd');
+    const content = `@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${process.execPath}" "${script}" %*\r\n`;
+    fs.writeFileSync(launcher, content, 'utf8');
+    return { path: launcher, directory, commandPrefix: `& "${launcher}"`, simpleCommand: 'lodestar' };
+  }
+  const launcher = path.join(directory, 'lodestar');
+  const content = `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${shellQuote(process.execPath)} ${shellQuote(script)} "$@"\n`;
+  fs.writeFileSync(launcher, content, { encoding: 'utf8', mode: 0o755 });
+  fs.chmodSync(launcher, 0o755);
+  return { path: launcher, directory, commandPrefix: shellQuote(launcher), simpleCommand: 'lodestar' };
+}
+
+function listWorkspaces() {
+  return readJson(userFile('workspaces.json'), [])
+    .filter(item => item && item.path && fs.existsSync(item.path))
+    .map(item => ({ ...item, name: item.name || path.basename(item.path) }));
+}
+
+function saveWorkspaces(items) {
+  const unique = [];
+  const seen = new Set();
+  for (const item of items) {
+    const target = path.resolve(String(item.path || ''));
+    const key = target.toLowerCase();
+    if (!target || seen.has(key) || !fs.existsSync(target)) continue;
+    seen.add(key);
+    unique.push({ path: target, name: item.name || path.basename(target) });
+  }
+  writeJson(userFile('workspaces.json'), unique);
+  return unique;
+}
+
+function listWslDistros() {
+  if (process.platform === 'darwin') return ['macOS'];
+  if (process.platform !== 'win32') return ['로컬'];
+  try {
+    return normalizeWslList(execFileSync('wsl.exe', ['--list', '--quiet'], {
+      windowsHide: true,
+      timeout: 5_000,
+      maxBuffer: 256 * 1024,
+    }));
+  } catch {
+    return [];
   }
 }
 
-// 경로 → Claude Code 세션 폴더 슬러그. 정규식 [:\\/] 가 백슬래시를 못 잡는 환경이 있어 명시 치환.
-function pathToSlug(p) {
-  const bs = String.fromCharCode(92);
-  return String(p).split(bs).join('-').split('/').join('-').split(':').join('-').split('_').join('-');
+function hydratePlatformPath() {
+  if (process.platform !== 'darwin') return;
+  const additions = ['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin')];
+  try {
+    const shellPath = process.env.SHELL || '/bin/zsh';
+    const loginPath = execFileSync(shellPath, ['-lic', 'printf %s "$PATH"'], { encoding: 'utf8', timeout: 5_000 }).trim();
+    additions.unshift(...loginPath.split(path.delimiter));
+  } catch {}
+  process.env.PATH = [...new Set([...additions, ...String(process.env.PATH || '').split(path.delimiter)].filter(Boolean))].join(path.delimiter);
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 860,
-    backgroundColor: '#0f1117',
-    title: 'Lodestar — WCC 상황판',
+    width: 1600,
+    height: 980,
+    minWidth: 1080,
+    minHeight: 700,
+    title: 'Lodestar · AI Agent Observatory',
+    backgroundColor: '#080b12',
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
   });
-  mainWindow.removeMenu();
+  mainWindow.setMenuBarVisibility(false);
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+  mainWindow.webContents.on('will-navigate', (event, url) => { if (url !== allowedUrl) event.preventDefault(); });
+  mainWindow.once('ready-to-show', () => mainWindow && mainWindow.show());
+  mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-function taskLaneKeyFromPayload(payload = {}) {
-  const lane = payload.lane || (payload.task && payload.task.lane) || null;
-  if (lane && lane.kind === 'workstream') return `workstream:${lane.name || 'workstream'}`;
-  if (payload.session && payload.session.laneId) return payload.session.laneId;
-  if (payload.task && payload.task.laneId) return payload.task.laneId;
-  if (payload.backgroundTask && payload.backgroundTask.workstream && payload.backgroundTask.workstream.name) {
-    return `workstream:${payload.backgroundTask.workstream.name}`;
-  }
-  return 'main';
+function trustedSender(event) {
+  if (!mainWindow || mainWindow.isDestroyed() || !event || !event.sender || event.sender.id !== mainWindow.webContents.id) return false;
+  const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
+  const senderUrl = event.senderFrame && event.senderFrame.url || event.sender.getURL();
+  return senderUrl === allowedUrl;
 }
 
-function taskWindowIdentity(payload = {}) {
-  const projectPath = (payload.project && payload.project.path) || (payload.task && payload.task.projectPath) || '';
-  const branch = payload.branch
-    || (payload.task && payload.task.branch)
-    || (payload.backgroundTask && payload.backgroundTask.branch)
-    || (payload.session && payload.session.branch)
-    || '';
-  const sessionId = (payload.session && payload.session.sessionId)
-    || (payload.task && payload.task.sessionId)
-    || (payload.activity && payload.activity.sessionId)
-    || (payload.backgroundTask && payload.backgroundTask.sessionId)
-    || '';
-  if (sessionId) return `session:${projectPath}|${sessionId}`;
-  const backgroundTaskId = (payload.backgroundTask && payload.backgroundTask.id)
-    || (payload.task && payload.task.backgroundTaskId)
-    || '';
-  if (backgroundTaskId) return `background:${projectPath}|${backgroundTaskId}`;
-  const taskKey = payload.task && payload.task.key;
-  if (taskKey) return `task:${projectPath}|${taskKey}`;
-  if (payload.mode === 'phase-running') {
-    const phase = payload.phase && (payload.phase.num || payload.phase.title || payload.phase.stage);
-    return `phase:${projectPath}|${branch}|${taskLaneKeyFromPayload(payload)}|${phase || 'current'}`;
-  }
-  return `new:${projectPath}|${branch}|${taskLaneKeyFromPayload(payload)}|${payload.mode || 'new'}|${payload.openedAt || ''}`;
+function requireTrustedSender(event) {
+  if (!trustedSender(event)) throw new Error('허용되지 않은 터미널 요청입니다.');
 }
 
-function focusTaskWindow(win) {
-  if (!win || win.isDestroyed()) return false;
-  try {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
-    if (process.platform === 'win32') {
-      win.setAlwaysOnTop(true);
-      win.setAlwaysOnTop(false);
+function sendTerminal(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.webContents.send(channel, payload); } catch {}
+}
+
+function refreshMonitor() {
+  if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
+}
+
+function sendSnapshot(snapshot) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.webContents.send('agents:snapshot', snapshot); } catch {}
+}
+
+function setupRuntime() {
+  const runsDir = userFile('agent-runs');
+  runner = new AgentRunner({ runsDir });
+  terminalManager = new TerminalManager();
+  try { bridgeLauncher = installBridgeLauncher(); } catch { bridgeLauncher = null; }
+  terminalManager.on('data', payload => sendTerminal('terminals:data', payload));
+  terminalManager.on('state', payload => {
+    sendTerminal('terminals:state', payload);
+    if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
+  });
+  bridgeServer = new BridgeServer({ terminalManager, home: os.homedir(), platform: process.platform });
+  bridgeServer.start().catch(error => sendTerminal('terminals:error', { id: '', message: `외부 터미널 브리지를 열지 못했습니다: ${error.message}` }));
+  availability = probeProviders();
+  monitorWorker = new Worker(path.join(__dirname, 'src', 'monitorWorker.js'), {
+    workerData: { runsDir, home: os.homedir(), intervalMs: 1200, availability },
+  });
+  monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
+  monitorWorker.on('message', message => {
+    if (message && message.type === 'snapshot') {
+      lastSnapshot = message.snapshot;
+      sendSnapshot(lastSnapshot);
     }
-  } catch {}
-  return true;
+    if (message && message.type === 'detail-result') {
+      const pending = pendingDetails.get(message.requestId);
+      if (pending) {
+        pendingDetails.delete(message.requestId);
+        pending.resolve(message.session);
+      }
+    }
+  });
+  monitorWorker.on('error', error => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agents:monitor-error', error.message);
+  });
+  runner.on('changed', () => monitorWorker && monitorWorker.postMessage({ type: 'scan' }));
 }
 
-function createTaskWindow(payload = {}) {
-  const identity = taskWindowIdentity(payload);
-  const existing = taskWindowIndex.get(identity);
-  if (existing && existing.win && !existing.win.isDestroyed()) {
-    taskWindowPayloads.set(existing.id, { ...payload, windowId: existing.id, windowIdentity: identity });
-    focusTaskWindow(existing.win);
-    return { ok: true, windowId: existing.id, reused: true };
-  }
-  if (existing) taskWindowIndex.delete(identity);
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-  taskWindowPayloads.set(id, { ...payload, windowId: id, windowIdentity: identity });
-  const projectName = payload.project && payload.project.name ? payload.project.name : 'Claude';
-  const win = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 860,
-    minHeight: 620,
-    backgroundColor: '#20232b',
-    title: `Lodestar Session — ${projectName}`,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
+function bridgePresence() {
+  if (!terminalManager) return [];
+  const environment = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
+  return terminalManager.list()
+    .filter(session => session.type === 'agent' && session.status === 'running')
+    .map(session => ({
+      id: session.bridgeId || session.id,
+      bridgeId: session.bridgeId || '',
+      terminalId: session.id,
+      provider: session.provider,
+      pid: session.pid,
+      cwd: session.cwd,
+      startedAt: session.createdAt,
+      environment,
+      kind: 'bridge',
+      label: 'Lodestar 외부 터미널 브리지',
+    }));
+}
+
+ipcMain.handle('app:bootstrap', () => ({
+  providers: providerList(),
+  availability,
+  workspaces: listWorkspaces(),
+  snapshot: lastSnapshot,
+  activeRuns: runner ? runner.listActive() : [],
+  versions: { app: app.getVersion(), electron: process.versions.electron, node: process.versions.node },
+  platform: {
+    id: process.platform,
+    label: process.platform === 'darwin' ? 'macOS' : (process.platform === 'win32' ? 'Windows' : 'Linux'),
+    localShell: process.platform === 'win32' ? 'powershell' : 'shell',
+    localShellLabel: process.platform === 'darwin' ? 'Mac 명령창' : (process.platform === 'win32' ? 'Windows 명령창' : 'Linux 명령창'),
+    nativeTmux: process.platform !== 'win32',
+  },
+  bridgeCli: bridgeLauncher,
+}));
+
+ipcMain.handle('agents:snapshot', () => {
+  if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
+  return lastSnapshot;
+});
+ipcMain.handle('agents:detail', (_event, sessionId) => new Promise(resolve => {
+  if (!monitorWorker) return resolve(null);
+  const requestId = ++detailRequestId;
+  const timer = setTimeout(() => {
+    const pending = pendingDetails.get(requestId);
+    if (!pending) return;
+    pendingDetails.delete(requestId);
+    resolve(null);
+  }, 4000);
+  pendingDetails.set(requestId, {
+    resolve: value => {
+      clearTimeout(timer);
+      resolve(value);
     },
   });
-  win.removeMenu();
-  win.loadFile(path.join(__dirname, 'renderer', 'session.html'), { query: { id } });
-  taskWindowIndex.set(identity, { id, win });
-  win.on('closed', () => {
-    taskWindowPayloads.delete(id);
-    const current = taskWindowIndex.get(identity);
-    if (current && current.id === id) taskWindowIndex.delete(identity);
-  });
-  return { ok: true, windowId: id };
-}
+  monitorWorker.postMessage({ type: 'detail', requestId, sessionId: String(sessionId || '') });
+}));
+ipcMain.handle('agents:run', (_event, opts) => runner.start(opts));
+ipcMain.handle('agents:stop', (_event, runId) => runner.stop(runId));
+ipcMain.handle('agents:active-runs', () => runner.listActive());
+ipcMain.handle('providers:probe', () => {
+  availability = probeProviders();
+  if (monitorWorker) monitorWorker.postMessage({ type: 'availability', availability });
+  if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
+  return availability;
+});
+
+ipcMain.handle('terminals:list', event => {
+  requireTrustedSender(event);
+  return terminalManager ? terminalManager.list() : [];
+});
+ipcMain.handle('wsl:list-distros', event => {
+  requireTrustedSender(event);
+  return listWslDistros();
+});
+ipcMain.handle('terminals:get', (event, id) => {
+  requireTrustedSender(event);
+  return terminalManager ? terminalManager.get(id, true) : null;
+});
+ipcMain.handle('terminals:create', (event, options) => {
+  requireTrustedSender(event);
+  if (!terminalManager) throw new Error('터미널 관리자가 준비되지 않았습니다.');
+  return terminalManager.create(options || {});
+});
+ipcMain.on('terminals:write', (event, id, data) => {
+  if (!trustedSender(event) || !terminalManager) return;
+  try { terminalManager.write(id, data); } catch (error) { sendTerminal('terminals:error', { id: String(id || ''), message: error.message }); }
+});
+ipcMain.handle('terminals:command', (event, id, command) => {
+  requireTrustedSender(event);
+  return terminalManager.command(id, command);
+});
+ipcMain.on('terminals:resize', (event, id, cols, rows) => {
+  if (!trustedSender(event) || !terminalManager) return;
+  try { terminalManager.resize(id, cols, rows); } catch {}
+});
+ipcMain.handle('terminals:signal', (event, id, signal) => {
+  requireTrustedSender(event);
+  return terminalManager.signal(id, signal);
+});
+ipcMain.handle('terminals:restart', (event, id) => {
+  requireTrustedSender(event);
+  return terminalManager.restart(id);
+});
+ipcMain.handle('terminals:close', (event, id) => {
+  requireTrustedSender(event);
+  return terminalManager.close(id);
+});
+
+ipcMain.handle('tmux:send-text', async (event, options) => {
+  requireTrustedSender(event);
+  return tmuxController.sendText(options || {});
+});
+ipcMain.handle('tmux:send-key', async (event, options) => {
+  requireTrustedSender(event);
+  return tmuxController.sendKey(options || {});
+});
+ipcMain.handle('tmux:capture', async (event, options) => {
+  requireTrustedSender(event);
+  return tmuxController.capture(options || {});
+});
+ipcMain.handle('tmux:new-session', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.newSession(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:new-window', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.newWindow(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:split-pane', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.splitPane(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:rename-session', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.renameSession(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:rename-window', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.renameWindow(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:select-layout', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.selectLayout(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:kill-pane', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.killPane(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:kill-window', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.killWindow(options || {});
+  refreshMonitor();
+  return result;
+});
+ipcMain.handle('tmux:kill-session', async (event, options) => {
+  requireTrustedSender(event);
+  const result = await tmuxController.killSession(options || {});
+  refreshMonitor();
+  return result;
+});
+
+ipcMain.handle('workspaces:list', () => listWorkspaces());
+ipcMain.handle('workspaces:add', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: 'AI 작업 폴더 선택' });
+  if (result.canceled) return listWorkspaces();
+  return saveWorkspaces([...listWorkspaces(), ...result.filePaths.map(folder => ({ path: folder, name: path.basename(folder) }))]);
+});
+ipcMain.handle('workspaces:remove', (_event, folder) => saveWorkspaces(listWorkspaces().filter(item => path.resolve(item.path) !== path.resolve(String(folder || '')))));
+ipcMain.handle('workspaces:pick', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: '작업 폴더 선택' });
+  return result.canceled ? null : result.filePaths[0];
+});
+ipcMain.handle('external:open', (_event, target) => {
+  const value = String(target || '');
+  if (!/^https:\/\//i.test(value)) return { ok: false };
+  shell.openExternal(value);
+  return { ok: true };
+});
+ipcMain.handle('clipboard:write', (event, value) => {
+  requireTrustedSender(event);
+  clipboard.writeText(String(value || '').slice(0, 8_000));
+  return { ok: true };
+});
+ipcMain.handle('bridge:command', (event, provider) => {
+  requireTrustedSender(event);
+  const id = String(provider || '').toLowerCase();
+  if (!['claude', 'codex', 'gemini', 'grok'].includes(id)) return { ok: false };
+  const prefix = bridgeLauncher && bridgeLauncher.commandPrefix || 'lodestar';
+  return { ok: true, command: `${prefix} run ${id}`, launcher: bridgeLauncher };
+});
+ipcMain.handle('agents:open-origin', async (event, session) => {
+  requireTrustedSender(event);
+  const provider = String(session && session.provider || '');
+  const externalId = String(session && session.externalId || '');
+  const clientKind = String(session && session.clientKind || '');
+  if (provider !== 'codex' || clientKind !== 'codex-desktop' || !/^[0-9a-f-]{20,80}$/i.test(externalId)) return { ok: false };
+  await shell.openExternal(`codex://threads/${encodeURIComponent(externalId)}`);
+  return { ok: true };
+});
 
 app.whenReady().then(() => {
+  hydratePlatformPath();
+  setupRuntime();
   createWindow();
-  startWatchers();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
 app.on('window-all-closed', () => {
-  closeWatchers();
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ---------- IPC ----------
-
-// 저장된 프로젝트 목록 반환
-ipcMain.handle('projects:list', () => loadProjects());
-
-// 폴더 선택 (다중)
-ipcMain.handle('projects:add', async () => {
-  const res = await dialog.showOpenDialog(mainWindow, {
-    title: 'GSD 프로젝트 폴더 선택 (여러 개 가능)',
-    properties: ['openDirectory', 'multiSelections'],
-  });
-  if (res.canceled) return loadProjects();
-  const cur = loadProjects();
-  for (const p of res.filePaths) {
-    if (!cur.includes(p)) cur.push(p);
+app.on('before-quit', () => {
+  if (bridgeServer) bridgeServer.dispose();
+  if (terminalManager) terminalManager.dispose();
+  if (monitorWorker) {
+    monitorWorker.postMessage({ type: 'stop' });
+    monitorWorker.terminate();
   }
-  saveProjects(cur);
-  startWatchers();
-  return cur;
 });
-
-// 프로젝트 제거
-ipcMain.handle('projects:remove', (_e, projectPath) => {
-  const cur = loadProjects().filter(p => p !== projectPath);
-  saveProjects(cur);
-  startWatchers();
-  return cur;
-});
-
-// 전체 스캔 (새로고침) — 프로젝트별 비동기 병렬 (git 비블로킹)
-ipcMain.handle('projects:scan', async () => {
-  const list = loadProjects();
-  const bgTasks = listBackgroundTasks(taskDir());
-  const projects = await Promise.all(list.map(async (p) => {
-    try {
-      const project = await scanProject(p);
-      project.backgroundTasks = bgTasks
-        .filter(t => t.projectPath === p || t.baseProjectPath === p)
-        .slice(0, 24);
-      return project;
-    }
-    catch (e) { return { path: p, name: path.basename(p), isGsd: false, error: String(e) }; }
-  }));
-  // Renderer owns attention counting because it can apply local "checked" state.
-  // Keep the scan source empty so stale scan alerts cannot keep the app badge alive.
-  updateAttentionSource('scan', []);
-  return projects;
-});
-
-ipcMain.handle('attention:update', (_e, payload = {}) => {
-  updateAttentionSource(payload.source || 'renderer', payload.items || []);
-  return { ok: true, count: attentionCount };
-});
-
-// claude -p 주입 미리보기 (확인 게이트용)
-ipcMain.handle('inject:preview', (_e, opts) => {
-  return previewInjection(opts);
-});
-
-// claude -p 주입 실행 (확인 후)
-ipcMain.handle('inject:run', async (_e, opts) => {
-  return injectAnswer(opts, (chunk) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('inject:progress', chunk);
-    }
-  });
-});
-
-// 범용 작업 요청 (claude -p 로 프로젝트에서 직접 작업)
-// 서브에이전트 상세 실행 내용 (클릭 시 on-demand)
-ipcMain.handle('agent:detail', (_e, opts) => {
-  try { return scanAgentDetail(opts.projectPath, opts.sessionId, opts.toolUseId); }
-  catch (e) { return { ok: false, error: String(e) }; }
-});
-ipcMain.handle('session:detail', (_e, opts) => {
-  try { return scanSessionDetail(opts.projectPath, opts.sessionId); }
-  catch (e) { return { ok: false, error: String(e) }; }
-});
-
-ipcMain.handle('task:preview', (_e, opts) => previewTask(opts));
-ipcMain.handle('task:run', async (_e, opts) => {
-  return runTask({ ...opts, taskDir: taskDir() }, (chunk) => {
-    sendToAll('task:progress', { clientRunId: opts && opts.clientRunId, chunk });
-  });
-});
-ipcMain.handle('tasks:list', () => listBackgroundTasks(taskDir()));
-ipcMain.handle('tasks:get', (_e, id) => getBackgroundTask(taskDir(), id));
-ipcMain.handle('tasks:stop', (_e, id) => stopBackgroundTask(taskDir(), id));
-ipcMain.handle('task-window:open', (_e, payload) => createTaskWindow(payload));
-ipcMain.handle('task-window:init', (_e, id) => taskWindowPayloads.get(id) || null);
-ipcMain.handle('skills:list', () => listClaudeSkills());
-ipcMain.handle('commands:list', (_e, opts = {}) => listClaudeCommands(opts.projectPath));
-ipcMain.handle('git:refs', (_e, projectPath) => listGitRefs(projectPath));
-ipcMain.handle('git:switch', (_e, opts = {}) => switchGitRef(opts.projectPath, opts.ref));
-ipcMain.handle('git:create-branch', (_e, opts = {}) => createGitBranch(opts.projectPath, opts.ref));
-ipcMain.handle('git:ensure-branch-worktree', (_e, opts = {}) => ensureBranchWorktree(opts.projectPath, opts.ref));

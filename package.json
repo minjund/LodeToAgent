@@ -1,18 +1,29 @@
 {
   "name": "lodestar",
-  "version": "1.0.8",
-  "description": "WCC/GSD 프로젝트 상황판 — 여러 GSD 프로젝트의 phase·진행도를 한 화면에 보고, 논의 단계 질문에 claude -p로 의견을 주입한다.",
+  "version": "3.0.0",
+  "description": "Claude, GPT, Gemini, Grok이 맡은 일과 도움 AI, 토큰, 기억 공간을 쉬운 말로 보여주는 로컬 데스크톱 프로그램.",
   "main": "main.js",
   "author": "wincube AX",
   "license": "UNLICENSED",
+  "bin": {
+    "lodestar": "bin/lodestar.js"
+  },
   "scripts": {
     "start": "electron .",
     "test": "node scripts/regression-test.js",
-    "dist": "electron-builder --win portable",
+    "test:terminal": "electron scripts/terminal-integration-test.js",
+    "test:bridge": "electron scripts/bridge-integration-test.js",
+    "test:tmux": "node scripts/tmux-integration-test.js",
+    "test:visual": "electron scripts/visual-check.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win portable",
+    "dist:mac": "electron-builder --mac --publish never",
     "pack": "electron-builder --dir"
   },
   "dependencies": {
-    "js-yaml": "^4.2.0"
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -27,9 +38,14 @@
     "files": [
       "main.js",
       "preload.js",
+      "bin/**/*",
       "src/**/*",
       "renderer/**/*",
       "package.json"
+    ],
+    "asarUnpack": [
+      "bin/**/*",
+      "node_modules/node-pty/**/*"
     ],
     "win": {
       "target": [
@@ -40,6 +56,20 @@
           ]
         }
       ]
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64", "x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["arm64", "x64"]
+        }
+      ],
+      "artifactName": "Lodestar-${version}-${arch}.${ext}"
     },
     "portable": {
       "artifactName": "Lodestar-${version}-portable.exe"

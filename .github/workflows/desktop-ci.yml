@@ -1,0 +1,52 @@
+name: Desktop CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run test:terminal
+      - run: npm run test:bridge
+      - if: runner.os == 'macOS'
+        run: brew install tmux
+      - if: runner.os == 'macOS'
+        run: npm run test:tmux -- macOS
+      - run: npm run pack
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+  mac-artifacts:
+    # Intel runner can package both x64 and arm64 Electron targets.
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run dist:mac
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Lodestar-macOS
+          path: |
+            release/*.dmg
+            release/*.zip
