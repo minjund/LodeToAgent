@@ -15,7 +15,16 @@ const manifestSeen = new Set();
 const manifestUnknown = new Set();
 
 const ACTION_MANIFEST = [
-  ...['all', 'active', 'waiting', 'terminal', 'tmux'].map(view => ({ selector: `[data-view="${view}"]`, action: `nav:${view}` })),
+  ...['all', 'active', 'waiting', 'terminal', 'tmux', 'settings'].map(view => ({ selector: `[data-view="${view}"]`, action: `nav:${view}` })),
+  { selector: '#guideBtn', action: 'guide:toggle' },
+  { selector: '#dismissGuideBtn', action: 'guide:dismiss' },
+  { selector: '[data-guide-action]', action: 'guide:step' },
+  { selector: '#mobileMoreBtn', action: 'mobile:more' },
+  { selector: '[data-mobile-view]', action: 'mobile:view' },
+  { selector: '#updateNoticeBtn', action: 'update:notice-open' },
+  { selector: '#checkUpdateBtn', action: 'update:check' },
+  { selector: '#installUpdateBtn', action: 'update:download' },
+  { selector: '#openReleaseBtn', action: 'update:release-open' },
   { selector: '#probeBtn', action: 'dashboard:probe' },
   { selector: '#addWorkspaceBtn', action: 'workspace:add' },
   { selector: '#newRunBtn', action: 'run:open' },
@@ -158,7 +167,7 @@ async function installPageGuards(win) {
 
 async function exerciseNavigation(win, round) {
   let scrollResets = 0;
-  for (const view of ['active', 'waiting', 'terminal', 'all']) {
+  for (const view of ['active', 'waiting', 'terminal', 'settings', 'all']) {
     const before = await win.webContents.executeJavaScript(`(() => { const stage = document.querySelector('.main-stage'); stage.scrollTop = stage.scrollHeight; return stage.scrollTop; })()`);
     await click(win, `[data-view="${view}"]`, `nav:${view}`);
     await waitFor(win, `state.view === ${JSON.stringify(view)} && document.querySelector('[data-view="${view}"]').classList.contains('active')`, `${view} 화면 전환 실패`);
@@ -175,6 +184,46 @@ async function exerciseNavigation(win, round) {
   round.observed.navScrollResets = scrollResets;
 }
 
+async function exerciseGuideAndMobileTools(win, round) {
+  await click(win, '[data-view="all"]', 'nav:all');
+  await click(win, '#dismissGuideBtn', 'guide:dismiss');
+  await waitFor(win, `document.querySelector('#beginnerGuide').classList.contains('hidden')`, '시작 가이드 접기 실패');
+  await click(win, '#guideBtn', 'guide:toggle');
+  await waitFor(win, `!document.querySelector('#beginnerGuide').classList.contains('hidden')`, '시작 가이드 다시 열기 실패');
+  await click(win, '[data-guide-action="active"]', 'guide:step');
+  await waitFor(win, `state.view === 'active' && document.querySelector('[data-guide-step="active"]').classList.contains('completed')`, '가이드 단계가 화면 이동과 완료 상태를 반영하지 않았습니다.');
+  await click(win, '#mobileMoreBtn', 'mobile:more');
+  await waitFor(win, `!document.querySelector('#mobileToolsMenu').classList.contains('hidden')`, '모바일 더보기 메뉴 열기 실패');
+  await click(win, '[data-mobile-view="settings"]', 'mobile:view');
+  await waitFor(win, `state.view === 'settings' && document.querySelector('#mobileToolsMenu').classList.contains('hidden')`, '모바일 더보기에서 설정 이동 실패');
+  await click(win, '[data-view="all"]', 'nav:all');
+  round.observed.guide = { persisted: true, mobileTools: true };
+}
+
+async function exerciseUpdates(win, round) {
+  await win.webContents.executeJavaScript('window.interactionTest.restoreCurrentUpdate()');
+  await click(win, '[data-view="settings"]', 'nav:settings');
+  await waitFor(win, `state.update.status === 'current' && document.querySelector('#currentVersion').textContent === 'v3.0.0' && document.querySelector('#sidebarAppVersion').textContent === 'v3.0.0' && document.querySelector('#updateStateTitle').textContent === '현재 최신 버전입니다.' && document.querySelector('#checkUpdateBtn').textContent === '업데이트 확인'`, '현재 버전과 최신 상태가 설정 화면에 명확히 표시되지 않았습니다.');
+  await clearCalls(win);
+  await click(win, '#checkUpdateBtn', 'update:check');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'checkForUpdate') && state.update.status === 'available'`, '업데이트 확인 버튼이 최신 릴리스를 확인하지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  await waitFor(win, `state.update.status === 'available' && !document.querySelector('#updateNotice').classList.contains('hidden') && !document.querySelector('#navUpdateBadge').classList.contains('hidden')`, '새 버전 알림이 표시되지 않았습니다.');
+  await click(win, '#updateNoticeBtn', 'update:notice-open');
+  await waitFor(win, `state.view === 'settings' && !document.querySelector('#settingsSection').classList.contains('hidden') && document.querySelector('#latestVersion').textContent === 'v3.1.0'`, '업데이트 알림이 설정 화면을 열지 못했습니다.');
+  await clearCalls(win);
+  await click(win, '#installUpdateBtn', 'update:download');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'downloadUpdate') && state.update.status === 'downloaded' && document.querySelector('#installUpdateBtn').textContent.includes('설치 파일 열기')`, '업데이트 파일 다운로드 완료 상태가 반영되지 않았습니다.');
+  await clearCalls(win);
+  await click(win, '#installUpdateBtn', 'update:open-installer');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'openDownloadedUpdate')`, '설치 파일 열기가 호출되지 않았습니다.');
+  await clearCalls(win);
+  await click(win, '#openReleaseBtn', 'update:release-open');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'openUpdateRelease')`, 'GitHub 릴리스 페이지 열기가 호출되지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  round.observed.update = { available: true, downloaded: true, installerOpened: true };
+}
+
 async function exerciseDashboardControls(win, round) {
   await click(win, '[data-view="all"]', 'nav:all');
   const runtimeSplit = await win.webContents.executeJavaScript(`(() => ({ segments: document.querySelectorAll('.runtime-segment').length, tmuxCards: document.querySelectorAll('.live-tmux-card').length, standardVisible: Boolean(document.querySelector('.standard-runtime')), tmuxVisible: Boolean(document.querySelector('.tmux-runtime')) }))()`);
@@ -189,6 +238,10 @@ async function exerciseDashboardControls(win, round) {
   await clearCalls(win);
   await click(win, '#addWorkspaceBtn', 'workspace:add');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'addWorkspaces')`, 'workspace 추가가 호출되지 않았습니다.');
+  await waitFor(win, `Boolean(document.querySelector('[data-workspace="__projectless__"]')) && document.querySelector('[data-workspace="__projectless__"] small')?.textContent === '1'`, '프로젝트 없는 세션 필터와 개수가 표시되지 않았습니다.');
+  await click(win, '[data-workspace="__projectless__"]', 'workspace:select-projectless');
+  await waitFor(win, `state.workspace === '__projectless__' && document.querySelectorAll('#sessionGrid [data-session-id]').length === 1 && document.querySelector('[data-session-id="fixture-projectless"] .card-subtitle')?.textContent.includes('프로젝트 없음')`, '프로젝트 없는 세션만 필터되지 않았습니다.');
+  await click(win, '[data-workspace="all"]', 'workspace:select');
   await click(win, '[data-workspace="D:\\\\fixture"]', 'workspace:select');
   await waitFor(win, `state.workspace === 'D:\\\\fixture'`, 'workspace 선택이 적용되지 않았습니다.');
   await click(win, '[data-workspace="all"]', 'workspace:select');
@@ -511,7 +564,7 @@ async function exerciseAgentControls(win, round) {
   await click(win, '[data-subagent-completed-toggle="fixture-root"]', 'subagent:toggle-completed');
   await waitFor(win, `document.querySelectorAll('.child-session.work-working').length === 1 && document.querySelectorAll('.child-session.work-resting').length === 1 && Boolean(document.querySelector('[data-open-subagent-chat="fixture-resting"]'))`, '완료된 서브에이전트 펼치기가 정확히 동작하지 않았습니다.');
   await click(win, '[data-open-subagent-chat="fixture-resting"]', 'subagent:open-conversation');
-  await waitFor(win, `state.graphFocusId === 'fixture-root' && state.drawerMode === 'subagent' && document.querySelector('[data-subagent-dialog-count="3"]') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent="fixture-resting"]')`, '서브카드 클릭이 관계 이동 없이 메인↔서브 대화를 열지 않았습니다.');
+  await waitFor(win, `state.graphFocusId === 'fixture-root' && state.drawerMode === 'subagent' && document.querySelector('[data-subagent-dialog-count="4"]') && document.querySelector('.subagent-dialog-list').innerText.includes('보호된 추가 작업 지시를 전달했습니다.') && !document.querySelector('.subagent-dialog-list').innerText.includes('gAAAA') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent="fixture-resting"]')`, '서브카드 클릭이 보호된 본문을 숨긴 메인↔서브 대화를 열지 않았습니다.');
   await clearCalls(win);
   await click(win, '[data-resume-agent="fixture-resting"]', 'subagent:resume-terminal');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0].type === 'agent' && item.args[0].provider === 'codex' && item.args[0].args.join(' ') === 'resume fixture-resting-external')`, '쉬는 Codex 서브에이전트가 정확한 세션 ID로 재개되지 않았습니다.');
@@ -711,7 +764,9 @@ async function runRound(win, index) {
   await recordManifest(win);
   const round = { index, passed: [], failed: [], observed: {} };
   rounds.push(round);
+  await step(round, 'guide-mobile-tools', () => exerciseGuideAndMobileTools(win, round));
   await step(round, 'navigation', () => exerciseNavigation(win, round));
+  await step(round, 'updates', () => exerciseUpdates(win, round));
   await step(round, 'dashboard-controls', () => exerciseDashboardControls(win, round));
   await step(round, 'new-run-modal', () => exerciseRunModal(win, round));
   await step(round, 'drawer', () => exerciseDrawer(win, round));

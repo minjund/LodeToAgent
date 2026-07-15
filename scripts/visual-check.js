@@ -3,6 +3,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const localTerminalType = process.platform === 'win32' ? 'powershell' : 'shell';
+
+function markerCommand(marker) {
+  return process.platform === 'win32' ? `Write-Output ${marker}` : `printf '${marker}\\n'`;
+}
+
 const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-visual-${process.pid}-`));
 process.env.LOADTOAGENT_TEST_INSTANCE = '1';
 process.env.LOADTOAGENT_BRIDGE_HOME = isolatedBridgeHome;
@@ -85,7 +91,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 3 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('내 확인 필요') || !beginnerMetrics.navLabels.includes('세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 작업') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('내 확인 필요') || !beginnerMetrics.navLabels.includes('세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 작업') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -114,18 +120,18 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript("document.querySelector('[data-view=\"terminal\"]')?.click(); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 300));
       await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
-      const powerShellId = await waitForRenderer(win, "document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''", 50, 200);
-      if (!powerShellId) throw new Error('PowerShell PTY 터미널이 생성되지 않았습니다.');
-      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = 'Write-Output LOADTOAGENT_PTY_OK'; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
-      const powerShellReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(powerShellId)}); return value && value.replay.includes('LOADTOAGENT_PTY_OK') ? value.replay : ''; })()`, 50, 200);
-      if (!powerShellReplay) throw new Error('PowerShell PTY에 보낸 명령 결과를 수신하지 못했습니다.');
+      const firstTerminalId = await waitForRenderer(win, "document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''", 50, 200);
+      if (!firstTerminalId) throw new Error('로컬 PTY 터미널이 생성되지 않았습니다.');
+      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${JSON.stringify(markerCommand('LOADTOAGENT_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
+      const firstTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(firstTerminalId)}); return value && value.replay.includes('LOADTOAGENT_PTY_OK') ? value.replay : ''; })()`, 50, 200);
+      if (!firstTerminalReplay) throw new Error('로컬 PTY에 보낸 명령 결과를 수신하지 못했습니다.');
 
-      await win.webContents.executeJavaScript("document.querySelector('#newWslBtn')?.click()");
-      const wslId = await waitForRenderer(win, `(() => { const id = document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''; return id && id !== ${JSON.stringify(powerShellId)} ? id : ''; })()`, 50, 200);
-      if (!wslId) throw new Error('WSL PTY 터미널이 생성되지 않았습니다.');
-      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = 'printf LOADTOAGENT_WSL_OK'; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
-      const wslReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(wslId)}); return value && value.replay.includes('LOADTOAGENT_WSL_OK') ? value.replay : ''; })()`, 50, 200);
-      if (!wslReplay) throw new Error('WSL PTY에 보낸 명령 결과를 수신하지 못했습니다.');
+      await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
+      const secondTerminalId = await waitForRenderer(win, `(() => { const id = document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''; return id && id !== ${JSON.stringify(firstTerminalId)} ? id : ''; })()`, 50, 200);
+      if (!secondTerminalId) throw new Error('두 번째 로컬 PTY 터미널이 생성되지 않았습니다.');
+      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${JSON.stringify(markerCommand('LOADTOAGENT_SECOND_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
+      const secondTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(secondTerminalId)}); return value && value.replay.includes('LOADTOAGENT_SECOND_PTY_OK') ? value.replay : ''; })()`, 50, 200);
+      if (!secondTerminalReplay) throw new Error('두 번째 로컬 PTY에 보낸 명령 결과를 수신하지 못했습니다.');
       const terminalMetrics = await win.webContents.executeJavaScript(`(async () => {
         const terminalSessions = await window.loadtoagent.terminalList();
         return {
@@ -272,8 +278,8 @@ app.whenReady().then(() => {
         const sessions = state.snapshot && state.snapshot.sessions || [];
         const base = sessions.find(item => !item.parentId && isLiveSession(item)) || sessions[0];
         if (!base) return { focusId: '', terminalId: '' };
-        const directTerminal = await window.loadtoagent.terminalCreate({ type: 'powershell', title: 'AI 직접 지시 검증', cols: 120, rows: 32 });
-        const alternateTerminal = await window.loadtoagent.terminalCreate({ type: 'powershell', title: 'AI 지시 대상 선택 검증', cols: 120, rows: 32 });
+        const directTerminal = await window.loadtoagent.terminalCreate({ type: ${JSON.stringify(localTerminalType)}, title: 'AI 직접 지시 검증', cols: 120, rows: 32 });
+        const alternateTerminal = await window.loadtoagent.terminalCreate({ type: ${JSON.stringify(localTerminalType)}, title: 'AI 지시 대상 선택 검증', cols: 120, rows: 32 });
         await window.LoadToAgentTerminal.refresh();
         const providerIds = state.providers.map(item => item.id);
         const now = Date.now();
@@ -415,12 +421,13 @@ app.whenReady().then(() => {
           moreButtons: document.querySelectorAll('[data-graph-provider-more]').length,
           runtimeSegments: document.querySelectorAll('.runtime-segment').length,
           tmuxRuntimeCards: document.querySelectorAll('.tmux-runtime .live-tmux-card').length,
+          tmuxAiPanes: Number(state.snapshot?.tmux?.summary?.aiPanes || 0),
           tmuxFirst: document.querySelector('.runtime-segment:first-child')?.classList.contains('tmux-runtime') || false,
           noHorizontalOverflow: grid ? grid.scrollWidth <= grid.clientWidth + 2 : false,
           subagentTabRemoved: !document.querySelector('[data-view="subagents"]'),
         };
       })()`);
-      if (!densityMetrics.subagentTabRemoved || densityMetrics.runtimeSegments !== 2 || densityMetrics.tmuxRuntimeCards !== 4 || !densityMetrics.tmuxFirst || densityMetrics.lanes < 4 || densityMetrics.visibleFlows > densityMetrics.lanes * 6 || densityMetrics.moreButtons < 1 || densityMetrics.expandedFlows <= densityMetrics.visibleFlows || !densityMetrics.noHorizontalOverflow) {
+      if (!densityMetrics.subagentTabRemoved || densityMetrics.runtimeSegments !== 2 || densityMetrics.tmuxRuntimeCards !== densityMetrics.tmuxAiPanes || !densityMetrics.tmuxFirst || densityMetrics.lanes < 4 || densityMetrics.visibleFlows > densityMetrics.lanes * 6 || densityMetrics.moreButtons < 1 || densityMetrics.expandedFlows <= densityMetrics.visibleFlows || !densityMetrics.noHorizontalOverflow) {
         throw new Error(`대규모 에이전트 지도 밀도 조절이 올바르지 않습니다: ${JSON.stringify(densityMetrics)}`);
       }
       if (densityFocusId) {
@@ -447,7 +454,7 @@ app.whenReady().then(() => {
           picker.dispatchEvent(new Event('change', { bubbles: true }));
         }
         if (input) {
-          input.value = ${JSON.stringify(`Write-Output ${directMarker}`)};
+          input.value = ${JSON.stringify(markerCommand(directMarker))};
           input.dispatchEvent(new Event('input', { bubbles: true }));
           form.requestSubmit();
         }
@@ -489,6 +496,11 @@ app.whenReady().then(() => {
         inputCopy: document.querySelector('#terminalCommandLabel')?.textContent || '',
         inputEnabled: !document.querySelector('#terminalCommandInput')?.disabled,
         composerVisible: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 0 && rect.bottom <= window.innerHeight + 2); })(),
+        composerRect: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        layoutRect: (() => { const rect = document.querySelector('#terminalSection .terminal-layout')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        viewportHeight: window.innerHeight,
+        stageScrollTop: document.querySelector('.main-stage')?.scrollTop || 0,
+        currentView: document.body.dataset.currentView || '',
         consoleVisible: (() => { const rect = document.querySelector('.terminal-console-pane')?.getBoundingClientRect(); return Boolean(rect && rect.width > 500 && rect.height > 400); })(),
       }))()`);
       if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('기존 AI 세션 유지 중') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || sessionTerminalMetrics.inputCopy !== 'AI에게 이어서 지시' || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible) {
@@ -859,7 +871,10 @@ app.whenReady().then(() => {
         state.expandedCompletedSubagents.add(${JSON.stringify(densityFocusId)});
         const root = state.snapshot.sessions.find(item => item.id === ${JSON.stringify(densityFocusId)});
         const longEvent = root?.collaboration?.communications?.find(item => item.childId === 'visual-density:child:2' && item.kind === 'assignment');
-        if (longEvent) longEvent.text = '아주 긴 서브에이전트 작업 지시 내용 '.repeat(80);
+        if (longEvent) {
+          longEvent.text = '아주 긴 서브에이전트 작업 지시 내용 '.repeat(80);
+          longEvent.protected = false;
+        }
         renderSessions();
         document.querySelector('.downstream-column [data-open-subagent-chat="visual-density:child:2"]')?.click();
       })()`, `state.graphFocusId === ${JSON.stringify(densityFocusId)} && state.drawerMode === 'subagent' && document.querySelector('[data-subagent-dialog-count="3"]') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent]')`);

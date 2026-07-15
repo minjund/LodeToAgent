@@ -54,11 +54,16 @@ Open the [latest GitHub Release](https://github.com/minjund/LodeToAgent/releases
 
 | System | Download | Start the app |
 |---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-Setup-<version>.exe` | Recommended installer for first-time setup and in-app updates. |
 | Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | Double-click the downloaded file. It is portable and does not run an installer. |
 | Apple silicon Mac | `LoadToAgent-<version>-arm64.dmg` | Open the DMG, drag LoadToAgent into Applications, then open it from Applications. |
 | Intel Mac | `LoadToAgent-<version>-x64.dmg` | Open the DMG, drag LoadToAgent into Applications, then open it from Applications. |
 
 The current desktop files are not code-signed. Windows SmartScreen or macOS Gatekeeper may show an unknown-developer warning. Continue only when the file came from this repository's official Releases page. On macOS, Control-click LoadToAgent and choose **Open**. On Windows, choose **More info → Run anyway**.
+
+### Update from the app
+
+On startup, LoadToAgent compares its package version with the newest stable GitHub Release tag. When a newer version exists, a notice appears at the top of the app and under **Settings → Program update**. The app downloads the matching Windows Setup EXE or macOS DMG, verifies its GitHub file size and SHA-256 digest when available, and then lets you open the installer. npm installations can also use `npm install -g loadtoagent@latest`.
 
 ### Requirements
 
@@ -66,6 +71,15 @@ The current desktop files are not code-signed. Windows SmartScreen or macOS Gate
 - Node.js 18 or newer only when installing through npm
 - At least one installed and authenticated CLI: Claude Code, Codex CLI, Gemini CLI, or Grok CLI
 - tmux only if you want the optional tmux workspace map
+
+## Your first 10 minutes
+
+1. From **Home**, choose `New AI task`, describe the outcome, and select a workspace. If no supported AI is installed, follow the official setup link shown in the app first.
+2. Open **In progress** to see every AI with a green status. Expand `View detailed flow` only when you need the subagent breakdown.
+3. When **Needs your input** shows a count, handle those replies or decisions first.
+4. Open any task to inspect its **conversation, progress, and usage**, then continue a connected task from **Session terminal**.
+
+The `10-minute start guide` on Home lets you practice the same four steps. Progress is saved on this computer and the guide can be reopened at any time.
 
 ## What LoadToAgent shows
 
@@ -128,7 +142,7 @@ npm run dist:mac
 npm run dist:win
 ```
 
-`dist:mac` produces Apple Silicon and Intel DMG/ZIP files. `dist:win` produces a portable Windows executable. Production macOS releases still require the maintainer's Apple signing and notarization credentials.
+`dist:mac` produces Apple Silicon and Intel DMG/ZIP files. `dist:win` produces Windows Setup and portable executables. Production macOS releases still require the maintainer's Apple signing and notarization credentials.
 
 ## Supported session sources
 
@@ -143,7 +157,16 @@ Provider event mappings and context-window rules are documented in [Provider Con
 
 ## Release
 
-Tagged GitHub releases run the full test suite, publish the npm package with provenance, build macOS and Windows artifacts, and attach them to the release. The package version and release tag must match.
+Pushing a `v*` Git tag runs the full test suite, publishes the npm package with provenance, builds the macOS and Windows artifacts, and creates the GitHub Release with those files attached. The `package.json` version and tag must match.
+
+```bash
+npm version patch --no-git-tag-version
+git add package.json package-lock.json
+VERSION=$(node -p 'require("./package.json").version')
+git commit -m "release: v$VERSION"
+git tag "v$VERSION"
+git push origin HEAD --follow-tags
+```
 
 ---
 

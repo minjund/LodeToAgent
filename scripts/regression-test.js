@@ -7,8 +7,9 @@ const path = require('path');
 const net = require('net');
 const { EventEmitter } = require('events');
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const { providerList, normalizeProvider, modelContextWindow } = require('../src/providerRegistry');
-const { parseClaude, parseCodex, parseGeneric, buildSummary, attachHierarchy } = require('../src/agentMonitor');
+const { parseClaude, parseCodex, parseGeneric, buildSummary, attachHierarchy, isProjectlessSession } = require('../src/agentMonitor');
 const { commandSpec } = require('../src/agentRunner');
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../src/tmuxMonitor');
 const { processRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, bridgeLinkScore, applyRuntimePresence } = require('../src/processMonitor');
@@ -16,6 +17,7 @@ const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsComma
 const { TmuxController, safeName, safeTarget } = require('../src/tmuxController');
 const { BridgeServer } = require('../src/bridgeServer');
 const { parseArguments, parseCliArguments, desktopLaunchSpec } = require('../bin/loadtoagent');
+const { UpdateManager, compareVersions, normalizeVersion, selectReleaseAsset } = require('../src/updateManager');
 
 const root = path.resolve(__dirname, '..');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-test-'));
@@ -66,6 +68,60 @@ test('npm 설치본과 패키지 앱의 데스크톱 실행 경로를 만든다'
   assert.equal(packagedSpec.executable, '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
   assert.deepStrictEqual(packagedSpec.args, []);
   assert.equal('ELECTRON_RUN_AS_NODE' in packagedSpec.env, false);
+});
+
+test('Git 태그 버전을 SemVer 순서로 비교한다', () => {
+  assert.equal(normalizeVersion('refs/tags/v3.2.1').raw, '3.2.1');
+  assert.equal(compareVersions('3.10.0', '3.9.9'), 1);
+  assert.equal(compareVersions('3.1.0-beta.2', '3.1.0-beta.10'), -1);
+  assert.equal(compareVersions('3.1.0', '3.1.0-beta.10'), 1);
+  assert.equal(compareVersions('v3.0.0', '3.0.0'), 0);
+  assert.throws(() => compareVersions('latest', '3.0.0'), /버전 형식/);
+});
+
+test('운영체제와 CPU에 맞는 신뢰된 GitHub Release 파일을 고른다', () => {
+  const base = 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/';
+  const assets = [
+    { name: 'LoadToAgent-3.1.0-portable.exe', browser_download_url: `${base}LoadToAgent-3.1.0-portable.exe`, state: 'uploaded' },
+    { name: 'LoadToAgent-Setup-3.1.0.exe', browser_download_url: `${base}LoadToAgent-Setup-3.1.0.exe`, state: 'uploaded' },
+    { name: 'LoadToAgent-3.1.0-arm64.dmg', browser_download_url: `${base}LoadToAgent-3.1.0-arm64.dmg`, state: 'uploaded' },
+    { name: 'LoadToAgent-3.1.0-x64.dmg', browser_download_url: `${base}LoadToAgent-3.1.0-x64.dmg`, state: 'uploaded' },
+    { name: 'LoadToAgent-Setup-9.9.9.exe', browser_download_url: 'https://example.com/fake.exe', state: 'uploaded' },
+  ];
+  assert.equal(selectReleaseAsset(assets, { platform: 'win32', arch: 'x64', version: '3.1.0' }).name, 'LoadToAgent-Setup-3.1.0.exe');
+  assert.equal(selectReleaseAsset(assets, { platform: 'darwin', arch: 'arm64', version: '3.1.0' }).name, 'LoadToAgent-3.1.0-arm64.dmg');
+  assert.equal(selectReleaseAsset(assets, { platform: 'linux', arch: 'x64', version: '3.1.0' }), null);
+});
+
+test('최신 정식 태그를 확인하고 검증한 업데이트 파일을 저장한다', async () => {
+  const downloadDir = path.join(temp, 'updates');
+  const payload = Buffer.from('fixture installer payload');
+  const digest = `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
+  const asset = {
+    name: 'LoadToAgent-Setup-3.1.0.exe', size: payload.length, digest, state: 'uploaded',
+    browser_download_url: 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/LoadToAgent-Setup-3.1.0.exe',
+  };
+  const release = {
+    tag_name: 'v3.1.0', draft: false, prerelease: false, published_at: '2026-07-16T00:00:00Z', body: 'fixture notes',
+    html_url: 'https://github.com/minjund/LodeToAgent/releases/tag/v3.1.0', assets: [asset],
+  };
+  const opened = [];
+  const manager = new UpdateManager({
+    currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+    fetch: async url => String(url).includes('/releases/latest')
+      ? new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json' } })
+      : new Response(payload, { status: 200, headers: { 'content-length': String(payload.length) } }),
+    shell: { openPath: async file => { opened.push(file); return ''; }, openExternal: async () => {} },
+  });
+  const available = await manager.check();
+  assert.equal(available.status, 'available');
+  assert.equal(available.latestVersion, '3.1.0');
+  assert.equal(available.asset.name, asset.name);
+  const downloaded = await manager.download();
+  assert.equal(downloaded.status, 'downloaded');
+  assert.equal(fs.readFileSync(downloaded.downloadedPath, 'utf8'), payload.toString());
+  await manager.openDownloaded();
+  assert.deepStrictEqual(opened, [downloaded.downloadedPath]);
 });
 
 test('관측값을 우선해 컨텍스트 창을 계산한다', () => {
@@ -145,6 +201,19 @@ test('Codex thread, turn, item, token_count를 정규화한다', () => {
   assert.equal(session.context.window, 258400);
   assert.equal(session.status, 'idle');
   assert.equal(session.clientKind, 'codex-desktop');
+});
+
+test('Codex 데스크톱의 new-chat 임시 경로를 프로젝트 없는 세션으로 분류한다', () => {
+  const projectless = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-projectless.jsonl'), [
+    { timestamp: '2026-07-16T00:00:00Z', type: 'session_meta', payload: { id: 'projectless', cwd: '/Users/test/Documents/Codex/2026-07-16/new-chat', originator: 'Codex Desktop' } },
+    { timestamp: '2026-07-16T00:00:01Z', type: 'event_msg', payload: { type: 'user_message', message: '프로젝트 없이 시작한 대화' } },
+  ]));
+  const namedProject = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-named-project.jsonl'), [
+    { timestamp: '2026-07-16T00:00:00Z', type: 'session_meta', payload: { id: 'named-project', cwd: '/Users/test/Documents/Codex/2026-07-16/my-project', originator: 'Codex Desktop' } },
+  ]));
+  assert.equal(isProjectlessSession(projectless), true);
+  assert.equal(isProjectlessSession(namedProject), false);
+  assert.equal(isProjectlessSession({ provider: 'claude', clientKind: 'claude-cli', cwd: '' }), true);
 });
 
 test('Codex event와 response_item에 함께 기록된 같은 채팅은 한 번만 표시한다', () => {
@@ -229,6 +298,23 @@ test('암호화된 spawn 지시는 직전 메인 AI 설명으로 복원한다', 
   assert.equal(assignment.text, spawn.assignment);
   assert.equal(assignment.protected, false);
   assert.equal(assignment.assignmentSource, 'parent-narration');
+});
+
+test('암호화된 서브에이전트 메시지를 통신·도구 기록에 노출하지 않는다', () => {
+  const sendToken = 'gAAAAABprotectedSendPayload==';
+  const followupToken = 'gAAAAABprotectedFollowupPayload==';
+  const parent = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-encrypted-messages.jsonl'), [
+    { timestamp: '2026-07-14T02:16:00Z', type: 'session_meta', payload: { id: 'encrypted-messages', cwd: 'D:\\repo' } },
+    { timestamp: '2026-07-14T02:16:01Z', type: 'response_item', payload: { type: 'function_call', name: 'send_message', namespace: 'collaboration', call_id: 'send-encrypted', arguments: JSON.stringify({ target: '/root/worker', message: sendToken }) } },
+    { timestamp: '2026-07-14T02:16:02Z', type: 'response_item', payload: { type: 'function_call', name: 'followup_task', namespace: 'collaboration', call_id: 'followup-encrypted', arguments: JSON.stringify({ target: '/root/worker', message: followupToken }) } },
+  ]));
+  const protectedEvents = parent.collaboration.communications.filter(item => item.kind === 'message' || item.kind === 'followup');
+  assert.deepStrictEqual(protectedEvents.map(item => [item.kind, item.text, item.protected]), [
+    ['message', '', true],
+    ['followup', '', true],
+  ]);
+  assert.equal(JSON.stringify(parent).includes(sendToken), false);
+  assert.equal(JSON.stringify(parent).includes(followupToken), false);
 });
 
 test('기존 서브에이전트 interrupt 이벤트를 새 생성으로 중복 집계하지 않는다', () => {
@@ -645,11 +731,11 @@ test('메인과 렌더러 JavaScript 문법이 유효하다', () => {
 test('필수 UI 영역과 초보자용 안내 계약이 존재한다', () => {
   const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
   const monitorWorker = fs.readFileSync(path.join(root, 'src', 'monitorWorker.js'), 'utf8');
-  for (const id of ['beginnerGuide', 'providerOverview', 'liveSection', 'liveSessionGrid', 'graphBreadcrumbs', 'graphResetBtn', 'terminalSection', 'terminalWorkbench', 'terminalWorkbenchMount', 'terminalStage', 'terminalHistoryPanel', 'terminalHistoryList', 'terminalViewport', 'terminalCommandForm', 'terminalSessionList', 'terminalTmuxList', 'tmuxCreateModal', 'tmuxSection', 'tmuxControlSection', 'tmuxWorkbenchMount', 'tmuxStats', 'tmuxBreadcrumbs', 'tmuxResetBtn', 'tmuxMap', 'sessionGrid', 'loadMoreBtn', 'detailDrawer', 'runModal', 'drawerContent']) assert.ok(html.includes(`id="${id}"`));
+  for (const id of ['mainContent', 'beginnerGuide', 'guideBtn', 'guideProgressBar', 'dismissGuideBtn', 'mobileMoreBtn', 'mobileToolsMenu', 'providerOverview', 'liveSection', 'liveSessionGrid', 'graphBreadcrumbs', 'graphResetBtn', 'terminalSection', 'terminalWorkbench', 'terminalWorkbenchMount', 'terminalStage', 'terminalHistoryPanel', 'terminalHistoryList', 'terminalViewport', 'terminalCommandForm', 'terminalSessionList', 'terminalTmuxList', 'tmuxCreateModal', 'tmuxSection', 'tmuxControlSection', 'tmuxWorkbenchMount', 'tmuxStats', 'tmuxBreadcrumbs', 'tmuxResetBtn', 'tmuxMap', 'sessionGrid', 'loadMoreBtn', 'detailDrawer', 'runModal', 'drawerContent', 'sidebarAppVersion', 'settingsSection', 'currentVersion', 'latestVersion', 'checkUpdateBtn', 'updateStateTitle']) assert.ok(html.includes(`id="${id}"`));
   for (const id of ['runPromptCount', 'runWorkspaceSuggestions']) assert.ok(html.includes(`id="${id}"`));
-  for (const label of ['처음이라면 이렇게 보세요', '>홈<', '>진행 중<', '>내 확인 필요<', '기존 세션에 이어서 입력', '>세션 터미널<', 'tmux 전용', '>tmux 작업<', '내 터미널 세션', 'AI 대화 기록', '이 대화가 오른쪽 터미널과 연결되어 있습니다', '실시간 터미널', 'Enter 전송 · Shift+Enter 줄바꿈', 'tmux 안의 명령창만', 'AI에게 새 일 맡기기', 'AI들이 맡은 일', 'tmux 작업 만들기']) assert.ok(html.includes(label), `${label} 문구가 없습니다.`);
+  for (const label of ['첫 10분 코스', '이 네 가지만 익히면 충분해요', 'AI에게 일 맡기기', '진행 상황 확인', '확인할 일 찾기', '작업 자세히 보기', '>홈<', '>진행 중<', '>내 확인 필요<', '기존 세션에 이어서 입력', '>세션 터미널<', 'tmux 전용', '>tmux 작업<', '내 터미널 세션', 'AI 대화 기록', '이 대화가 오른쪽 터미널과 연결되어 있습니다', '실시간 터미널', 'Enter 전송 · Shift+Enter 줄바꿈', 'tmux 안의 명령창만', 'AI에게 새 일 맡기기', 'AI들이 맡은 일', 'tmux 작업 만들기', '현재 설치 버전', '업데이트 확인']) assert.ok(html.includes(label), `${label} 문구가 없습니다.`);
   for (const jargon of ['AI AGENT OBSERVATORY', 'SESSION STREAM', 'AGENT MIND MAP', 'NEW TMUX SESSION']) assert.equal(html.includes(jargon), false, `${jargon} 전문 용어가 기본 화면에 남아 있습니다.`);
-  for (const contract of ['function cardCollaboration', 'collaboration: cardCollaboration(session.collaboration)', 'taskName: session.taskName', 'completionObserved: Boolean(session.completionObserved)', 'session.collaboration && session.collaboration.metrics', 'session.collaboration && session.collaboration.communications']) assert.ok(monitorWorker.includes(contract), `${contract} 협업 전송 계약이 없습니다.`);
+  for (const contract of ['function cardCollaboration', 'collaboration: cardCollaboration(session.collaboration)', 'taskName: session.taskName', 'completionObserved: Boolean(session.completionObserved)', 'projectless: Boolean(session.projectless)', 'session.collaboration && session.collaboration.metrics', 'session.collaboration && session.collaboration.communications']) assert.ok(monitorWorker.includes(contract), `${contract} 협업 전송 계약이 없습니다.`);
   const terminalBlock = html.slice(html.indexOf('id="terminalSection"'), html.indexOf('id="tmuxSection"'));
   const tmuxBlock = html.slice(html.indexOf('id="tmuxSection"'), html.indexOf('id="liveSection"'));
   for (const tmuxOnlyId of ['newTmuxSessionBtn', 'terminalTmuxList', 'tmuxControlSection']) {
@@ -659,7 +745,7 @@ test('필수 UI 영역과 초보자용 안내 계약이 존재한다', () => {
   assert.equal(html.includes('data-view="subagents"'), false);
   assert.equal(html.includes('id="navSubagentCount"'), false);
   const app = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
-  for (const contract of ['function readablePreview', 'function roadmapHtml', 'function runWorkspaceSuggestionsHtml', 'function syncRunComposer']) assert.ok(app.includes(contract));
+  for (const contract of ['function readablePreview', 'function roadmapHtml', 'function runWorkspaceSuggestionsHtml', 'function syncRunComposer', 'function renderUpdateSettings', 'function renderGuide', 'function markGuideStep', 'function trapDialogFocus', 'function selectView', 'sidebarAppVersion', '현재 최신 버전입니다.']) assert.ok(app.includes(contract));
   for (const contract of ['function renderAgentMap', 'function connectedGraphSessions', 'function providerFlowLane', 'function focusedGraph', 'function workflowCompactNode', 'function workflowChildrenSummary', 'function workflowMetrics', 'function workflowCommunicationPanel', 'function subagentWorkState', 'function splitSubagents', 'function completedSubagentDisclosure', 'function agentExecutionMode', 'function executionModeBadge', 'function subagentTextPreview', 'function subagentConversationHtml', 'function openSubagentConversation', 'function resumeAgentTerminal', 'data-collaboration-metric', 'data-collaboration-communications', 'data-open-subagent-chat', 'data-subagent-completed-toggle', 'data-resume-agent', 'data-subagent-message-preview', 'data-truncated', '이 작업에서 누적 생성', '동시에 유지 가능', '현재 실행 중', '작업 완료 기록', '메인 AI ↔ 서브에이전트 소통', 'TMUX 사용', 'TMUX 미사용', '완료된 서브에이전트', 'child-session', 'agent-flow-session-title', 'agent-flow-outcome-copy', 'children-group-input', 'function drawAgentWorkflowConnections', 'function workflowCurve', 'data-workflow-edge-kind', 'function captureMotionLayout', 'function playMotionLayout', 'function motionEnterOffset', 'function animateVisibleSections', 'function agentCommandComposer', 'function originAppInfo', 'function agentControlMode', 'function dispatchAgentCommand', 'function openAgentTerminal', 'function copyBridgeCommand', 'function openSessionOrigin', 'data-agent-command-form', 'data-agent-command-draft', 'data-agent-terminal-open', 'data-agent-bridge-copy', 'data-agent-open-origin', '직접 입력 가능', '외부 터미널에서 실행 중 · 같은 대화로 이어받기 가능', '원래 터미널이 종료됨 · 같은 세션으로 복구 가능', '쉬는 데스크톱 작업 · 백그라운드 터미널로 이어가기 가능', '백그라운드 터미널로 이어서 보내기', '보기 전용 · 원래 앱에서 계속', '종료된 세션', '바로 보내기', 'data-motion-key', 'data-motion-value', 'dataset.lastMotion', 'motion-connect', 'pathLength="1"', 'prefers-reduced-motion: reduce', 'data-graph-provider-more', 'agent-flow-overview', 'agent-workflow-canvas', 'data-workflow-port', '이 일을 맡긴 AI', '지금 선택한 AI', '서브에이전트 세션', 'function renderTmuxMap', 'function tmuxPaneCard', 'function messageContentHtml', 'function memoryCandidatesHtml', 'data-scroll-latest', 'data-graph-focus', 'data-tmux-type', 'data-open-session']) assert.ok(app.includes(contract));
   assert.equal(app.includes('agent-focus-layout'), false);
   assert.equal(app.includes("state.view === 'subagents'"), false);
@@ -669,9 +755,9 @@ test('필수 UI 영역과 초보자용 안내 계약이 존재한다', () => {
   const terminal = fs.readFileSync(path.join(root, 'renderer', 'terminal.js'), 'utf8');
   for (const contract of ['window.Terminal', 'FitAddon.FitAddon', 'wslDistros', 'terminalWrite', 'terminalResize', 'tmuxSendText', 'tmuxCapture', 'tmuxSplitPane', 'tmuxKillSession', 'function modeSessions', 'function moveWorkbench', 'function terminalTypeLabel', 'function terminalTypeMark', 'function setConnectionState', 'function agentTargets', 'terminal.bridgeId === agentSession.id', '백그라운드 유지', 'AI 백그라운드', 'function requiredAgentTarget', 'function resumeSupport', 'function resumeForAgent', "provider === 'codex' ? ['resume', sessionId] : ['--resume', sessionId]", 'function dispatchAgentCommand', 'function openForAgent', 'function bindAgent', 'function renderHistoryPanel', 'function queueHistoryRefresh', 'selectTmuxById', 'window.LoadToAgentTerminal']) assert.ok(terminal.includes(contract));
   const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-  for (const contract of ['function backgroundAgentSessions', 'function ensureBackgroundTray', 'function updateBackgroundTrayMenu', "ipcMain.handle('app:background-state'", "ipcMain.handle('app:show'", '프로그램 끝내기 · AI 세션도 종료', 'event.preventDefault()', 'mainWindow.hide()']) assert.ok(main.includes(contract), `${contract} 백그라운드 유지 계약이 없습니다.`);
+  for (const contract of ['function backgroundAgentSessions', 'function ensureBackgroundTray', 'function updateBackgroundTrayMenu', "ipcMain.handle('app:background-state'", "ipcMain.handle('app:show'", "ipcMain.handle('app:update-check'", "ipcMain.handle('app:update-download'", "ipcMain.handle('app:update-open'", '프로그램 끝내기 · AI 세션도 종료', 'event.preventDefault()', 'mainWindow.hide()']) assert.ok(main.includes(contract), `${contract} 메인 프로세스 계약이 없습니다.`);
   const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
-  for (const contract of ['backgroundState', 'showApp']) assert.ok(preload.includes(contract), `${contract} 백그라운드 IPC 계약이 없습니다.`);
+  for (const contract of ['backgroundState', 'showApp', 'checkForUpdate', 'downloadUpdate', 'openDownloadedUpdate', 'onUpdateState']) assert.ok(preload.includes(contract), `${contract} 렌더러 IPC 계약이 없습니다.`);
   assert.ok(html.includes('Content-Security-Policy'));
   assert.ok(html.includes('@xterm/xterm/lib/xterm.js'));
   const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -724,6 +810,7 @@ test('README와 릴리스 워크플로가 npm·Windows·macOS 실행 경로를 �
       'npm install -g loadtoagent',
       'loadtoagent',
       'https://github.com/minjund/LodeToAgent/releases/latest',
+      'LoadToAgent-Setup-<version>.exe',
       'LoadToAgent-<version>-portable.exe',
       'LoadToAgent-<version>-arm64.dmg',
       'LoadToAgent-<version>-x64.dmg',
@@ -731,7 +818,7 @@ test('README와 릴리스 워크플로가 npm·Windows·macOS 실행 경로를 �
   }
 
   const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release.yml'), 'utf8');
-  for (const contract of ['release/*.exe', 'release/*.dmg', 'release/*.zip', 'LoadToAgent-Windows', 'LoadToAgent-macOS', 'npm_version.outputs.published']) {
+  for (const contract of ['tags:', '"v*"', 'actions/checkout@v6', 'actions/setup-node@v6', 'gh release create', 'release/*.exe', 'release/*.dmg', 'release/*.zip', 'LoadToAgent-Windows', 'LoadToAgent-macOS', 'npm_version.outputs.published']) {
     assert.ok(workflow.includes(contract), `release.yml에 ${contract} 계약이 없습니다.`);
   }
 });

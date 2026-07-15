@@ -97,6 +97,12 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
         }
       ]
     },
@@ -116,6 +122,12 @@
     },
     "portable": {
       "artifactName": "LoadToAgent-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "LoadToAgent-Setup-${version}.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
     }
   }
 }

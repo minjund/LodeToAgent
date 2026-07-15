@@ -270,17 +270,19 @@ async function workflowMetrics(win) {
         }
       }
     }
-    const stacked = window.innerWidth <= 1400;
+    const stacked = window.innerWidth <= 900;
+    const hybrid = window.innerWidth > 900 && window.innerWidth <= 1450;
     return {
       width: window.innerWidth,
       stacked,
+      hybrid,
       canvasOverflow: Boolean(canvas && canvas.scrollWidth > canvas.clientWidth + 2),
       bodyOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       selectedBeforeCommand: Boolean(selectedRect && commandRect && selectedRect.bottom <= commandRect.top + 1),
       commandBeforeDownstream: Boolean(commandRect && downstreamRect && commandRect.bottom <= downstreamRect.top + 1),
       outputAfterCommand: Boolean(outputRect && commandRect && outputRect.top >= commandRect.bottom - 1),
       verticalOrder: !stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.bottom <= selectedRect.top + 1 && selectedRect.bottom <= commandRect.top + 1 && commandRect.bottom <= downstreamRect.top + 1),
-      horizontalOrder: stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.right <= selectedRect.left + 1 && selectedRect.right <= downstreamRect.left + 1),
+      horizontalOrder: stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.right <= selectedRect.left + 1 && (hybrid || selectedRect.right <= downstreamRect.left + 1)),
       pathCrossesCommand,
       identityClipped: Boolean(identity && (identity.scrollWidth > identity.clientWidth + 1 || identity.scrollHeight > identity.clientHeight + 1)),
       helpCardInsideColumn: Boolean(helpCard && helpCard.getBoundingClientRect().right <= downstream.getBoundingClientRect().right + 1),
@@ -300,7 +302,7 @@ async function workflowMetrics(win) {
 }
 
 function assertWorkflow(metrics) {
-  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || (metrics.stacked && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
+  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
     throw new Error(`선택 AI 작업 흐름 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }

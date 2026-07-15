@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -13,6 +13,7 @@ const { TerminalManager } = require('./src/terminalManager');
 const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
 const { BridgeServer } = require('./src/bridgeServer');
+const { UpdateManager } = require('./src/updateManager');
 
 const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
 let mainWindow = null;
@@ -22,6 +23,7 @@ let terminalManager = null;
 let bridgeServer = null;
 let bridgeLauncher = null;
 let backgroundTray = null;
+let updateManager = null;
 let isQuitting = false;
 const tmuxController = new TmuxController({ platform: process.platform });
 let availability = {};
@@ -224,10 +226,31 @@ function sendSnapshot(snapshot) {
   try { mainWindow.webContents.send('agents:snapshot', snapshot); } catch {}
 }
 
+function sendUpdateState(update) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try { mainWindow.webContents.send('app:update-state', update); } catch {}
+}
+
+function installationType() {
+  if (app.isPackaged) return 'desktop';
+  return fs.existsSync(path.join(__dirname, '.git')) ? 'source' : 'npm';
+}
+
 function setupRuntime() {
   const runsDir = userFile('agent-runs');
   runner = new AgentRunner({ runsDir });
   terminalManager = new TerminalManager();
+  updateManager = new UpdateManager({
+    currentVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    installType: installationType(),
+    fetch: (...args) => net.fetch(...args),
+    shell,
+    downloadsDir: path.join(app.getPath('userData'), 'updates'),
+  });
+  updateManager.on('state', sendUpdateState);
+  updateManager.check().catch(() => {});
   if (demoCapture) {
     availability = Object.fromEntries(providerList().map(provider => [provider.id, true]));
     return;
@@ -299,6 +322,7 @@ ipcMain.handle('app:bootstrap', () => ({
     nativeTmux: process.platform !== 'win32',
   },
   bridgeCli: bridgeLauncher,
+  update: updateManager ? updateManager.getState() : null,
 }));
 ipcMain.handle('app:background-state', event => {
   requireTrustedSender(event);
@@ -312,6 +336,26 @@ ipcMain.handle('app:show', event => {
   requireTrustedSender(event);
   showMainWindow();
   return { ok: true };
+});
+ipcMain.handle('app:update-check', event => {
+  requireTrustedSender(event);
+  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  return updateManager.check();
+});
+ipcMain.handle('app:update-download', event => {
+  requireTrustedSender(event);
+  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  return updateManager.download();
+});
+ipcMain.handle('app:update-open', event => {
+  requireTrustedSender(event);
+  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  return updateManager.openDownloaded();
+});
+ipcMain.handle('app:update-open-release', event => {
+  requireTrustedSender(event);
+  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  return updateManager.openReleasePage();
 });
 
 ipcMain.handle('agents:snapshot', () => {

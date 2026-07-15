@@ -1,8 +1,9 @@
 name: Release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -14,8 +15,8 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -25,7 +26,7 @@ jobs:
       - run: npm test
       - name: Verify release version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ github.ref_name }}
         run: node -e "const expected=process.env.RELEASE_TAG.replace(/^v/,'');const actual=require('./package.json').version;if(actual!==expected){throw new Error('package version '+actual+' does not match release '+expected)}"
       - name: Check whether npm version already exists
         id: npm_version
@@ -65,8 +66,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
@@ -82,7 +83,7 @@ jobs:
           if-no-files-found: error
 
   attach-desktop-files:
-    needs: build-desktop
+    needs: [publish-npm, build-desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -92,8 +93,14 @@ jobs:
           pattern: LoadToAgent-*
           path: release-assets
           merge-multiple: true
-      - name: Attach files to GitHub Release
+      - name: Create GitHub Release and attach files
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release-assets/* --verify-tag --generate-notes --title "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"
+          fi

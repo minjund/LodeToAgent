@@ -416,6 +416,7 @@
       cursorStyle: 'bar',
       disableStdin: readOnly,
       convertEol: readOnly,
+      screenReaderMode: true,
       fontFamily: '"Cascadia Code", Consolas, monospace',
       fontSize: 13,
       lineHeight: 1.22,
@@ -719,6 +720,7 @@
   }
 
   function openTmuxModal() {
+    window.LoadToAgentA11y?.rememberDialogTrigger();
     const distros = state.snapshot && state.snapshot.tmux && state.snapshot.tmux.distros || [];
     $('#tmuxCreateDistro').innerHTML = distros.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('');
     $('#tmuxCreateError').classList.add('hidden');
@@ -729,6 +731,7 @@
   function closeTmuxModal() {
     $('#tmuxCreateModal').classList.add('hidden');
     $('#tmuxCreateForm').reset();
+    window.LoadToAgentA11y?.restoreDialogTrigger();
   }
 
   async function refreshSnapshot() {

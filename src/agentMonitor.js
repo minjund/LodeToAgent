@@ -641,12 +641,14 @@ function parseCodex(fileInfo) {
         const collaborationTool = payload.namespace === 'collaboration' || ['spawn_agent', 'followup_task', 'send_message', 'interrupt_agent', 'wait_agent', 'list_agents'].includes(name);
         if (collaborationTool && !ownCollaborationRow) continue;
         collaborationCalls.set(String(callId || ''), { name, args, timestamp: row.timestamp });
+        const rawCollaborationMessage = compactText(args.message, 6000);
+        const collaborationMessageProtected = encryptedCollaborationText(rawCollaborationMessage);
         if (name === 'spawn_agent') {
           const record = ensureSpawn(callId);
           record.taskName = compactText(args.task_name, 180);
           record.agentPath = record.taskName ? `${session.agentPath || '/root'}/${record.taskName}`.replace(/\/+/g, '/') : record.agentPath;
-          const rawAssignment = compactText(args.message, 6000);
-          record.assignmentProtected = encryptedCollaborationText(rawAssignment);
+          const rawAssignment = rawCollaborationMessage;
+          record.assignmentProtected = collaborationMessageProtected;
           const directAssignment = rawAssignment && !record.assignmentProtected ? rawAssignment : '';
           record.assignment = directAssignment || (record.assignmentProtected ? latestDelegationNarration : '');
           record.assignmentObserved = Boolean(record.assignment);
@@ -674,16 +676,17 @@ function parseCodex(fileInfo) {
             from: session.agentPath || '/root',
             to: target,
             taskName: collaborationTaskName(target),
-            text: compactText(args.message, 6000),
-            protected: encryptedCollaborationText(args.message),
+            text: collaborationMessageProtected ? '' : rawCollaborationMessage,
+            protected: collaborationMessageProtected,
             timestamp: row.timestamp,
           });
         } else if (name === 'interrupt_agent') {
           const target = compactText(args.target, 180);
           addCommunication({ id: `interrupt:${callId}`, kind: 'interrupt', label: '작업 중단 요청', from: session.agentPath || '/root', to: target, taskName: collaborationTaskName(target), timestamp: row.timestamp });
         }
+        const protectedToolText = name === 'followup_task' ? '보호된 추가 작업 지시' : '보호된 메시지 전달';
         const toolText = collaborationTool
-          ? (name === 'spawn_agent' ? `담당 작업: ${args.task_name || '이름 미상'}` : compactText(args.message || args.target || '', 1000))
+          ? (name === 'spawn_agent' ? `담당 작업: ${args.task_name || '이름 미상'}` : (collaborationMessageProtected ? protectedToolText : compactText(args.message || args.target || '', 1000)))
           : compactText(payload.arguments || payload.input, 1000);
         addMessage(session, { id: callId, role: 'tool', type: 'tool', title: name, text: toolText, status: payload.status || 'started', timestamp: row.timestamp });
         addLifecycle(session, { id: callId, type: collaborationTool ? 'collaboration' : 'tool', label: name, detail: toolText, status: payload.status === 'completed' ? 'done' : 'running', timestamp: row.timestamp });
@@ -954,6 +957,14 @@ function workspaceLabel(cwd) {
   return normalized.split('/').filter(Boolean).pop() || cwd;
 }
 
+function isProjectlessSession(session) {
+  if (!session || !session.cwd) return true;
+  const normalized = String(session.cwd).replace(/\\/g, '/').replace(/\/+$/, '');
+  return session.provider === 'codex'
+    && session.clientKind === 'codex-desktop'
+    && /(?:^|\/)Documents\/Codex\/\d{4}-\d{2}-\d{2}\/new-chat$/i.test(normalized);
+}
+
 function attachHierarchy(sessions) {
   const byId = new Map(sessions.map(session => [session.id, session]));
   for (const session of sessions) session.childIds = [];
@@ -999,6 +1010,7 @@ function attachHierarchy(sessions) {
         child.model = parent.model;
         child.cwd = parent.cwd;
         child.workspace = parent.workspace;
+        child.projectless = parent.projectless;
         child.environment = parent.environment;
         if (child.result) addMessage(child, { id: `${child.id}:result`, role: 'assistant', text: child.result, timestamp: child.completedAt || child.updatedAt });
         trimSession(child);
@@ -1274,7 +1286,10 @@ class AgentMonitor extends EventEmitter {
       }
       for (const session of managed) byId.set(session.id, session);
       const merged = [...byId.values()]
-        .map(session => ({ ...session, workspace: workspaceLabel(session.cwd) }))
+        .map(session => {
+          const projectless = isProjectlessSession(session);
+          return { ...session, projectless, workspace: projectless ? '프로젝트 없음' : workspaceLabel(session.cwd) };
+        })
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
       attachHierarchy(merged);
       this.lastSnapshot = {
@@ -1307,6 +1322,7 @@ module.exports = {
   parseClaude,
   parseCodex,
   parseGeneric,
+  isProjectlessSession,
   readJsonLines,
   buildSummary,
   contextInfo,

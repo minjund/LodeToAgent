@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
 </head>
 <body>
+  <a class="skip-link" href="#mainContent">본문으로 바로가기</a>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
@@ -17,51 +18,116 @@
       </div>
 
       <nav class="view-nav" aria-label="화면 선택">
-        <button class="nav-item active" data-view="all"><span class="nav-icon">⌂</span><span>홈</span><b id="navAllCount">0</b></button>
-        <button class="nav-item" data-view="active"><span class="nav-icon live-dot"></span><span>진행 중</span><b id="navActiveCount">0</b></button>
-        <button class="nav-item" data-view="waiting"><span class="nav-icon">!</span><span>내 확인 필요</span><b id="navWaitingCount">0</b></button>
+        <button class="nav-item active" type="button" data-view="all"><span class="nav-icon">⌂</span><span>홈</span><b id="navAllCount">0</b></button>
+        <button class="nav-item" type="button" data-view="active"><span class="nav-icon live-dot"></span><span>진행 중</span><b id="navActiveCount">0</b></button>
+        <button class="nav-item" type="button" data-view="waiting"><span class="nav-icon">!</span><span>내 확인 필요</span><b id="navWaitingCount">0</b></button>
         <div class="nav-group-label">기존 세션에 이어서 입력</div>
-        <button class="nav-item" data-view="terminal"><span class="nav-icon">›_</span><span>세션 터미널</span><b id="navTerminalCount">0</b></button>
+        <button class="nav-item" type="button" data-view="terminal"><span class="nav-icon">›_</span><span>세션 터미널</span><b id="navTerminalCount">0</b></button>
         <div class="nav-group-label tmux-only">tmux 전용</div>
-        <button class="nav-item tmux-nav-item" data-view="tmux"><span class="nav-icon">▦</span><span>tmux 작업</span><b id="navTmuxCount">0</b></button>
+        <button class="nav-item tmux-nav-item" type="button" data-view="tmux"><span class="nav-icon">▦</span><span>tmux 작업</span><b id="navTmuxCount">0</b></button>
+        <div class="nav-group-label">프로그램</div>
+        <button class="nav-item settings-nav-item" type="button" data-view="settings"><span class="nav-icon">⚙</span><span>설정</span><b id="navUpdateBadge" class="hidden">NEW</b></button>
+        <button id="mobileMoreBtn" class="nav-item mobile-more-nav" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mobileToolsMenu"><span class="nav-icon">•••</span><span>더보기</span></button>
       </nav>
 
       <section class="sidebar-section">
-        <div class="section-title"><span>사용 가능한 AI</span><button id="probeBtn" class="icon-button" title="AI 연결 상태 다시 확인">↻</button></div>
+        <div class="section-title"><span>사용 가능한 AI</span><button id="probeBtn" class="icon-button" type="button" title="AI 연결 상태 다시 확인" aria-label="AI 연결 상태 다시 확인">↻</button></div>
         <div id="providerRail" class="provider-rail"></div>
       </section>
 
       <section class="sidebar-section workspace-section">
-        <div class="section-title"><span>작업 폴더</span><button id="addWorkspaceBtn" class="icon-button" title="작업 폴더 추가">＋</button></div>
+        <div class="section-title"><span>작업 폴더</span><button id="addWorkspaceBtn" class="icon-button" type="button" title="작업 폴더 추가" aria-label="작업 폴더 추가">＋</button></div>
         <div id="workspaceList" class="workspace-list"></div>
       </section>
 
       <div class="sidebar-footer">
         <span class="privacy-light"></span>
         <div><strong>내 컴퓨터에서 안전하게</strong><small>대화 기록은 이 PC에서만 읽습니다</small></div>
+        <span id="sidebarAppVersion" class="sidebar-app-version">v—</span>
       </div>
     </aside>
 
-    <main class="main-stage">
+    <main id="mainContent" class="main-stage" tabindex="-1">
       <header class="topbar">
         <div>
-          <p class="eyebrow">AI 작업 현황</p>
-          <h1>AI들이 지금 무엇을 하는지 확인하세요.</h1>
-          <p class="subtitle">어떤 AI가 무슨 일을 맡았고, 어디까지 진행했으며, 내 확인이 필요한지 쉬운 말로 보여줍니다.</p>
+          <p id="pageEyebrow" class="eyebrow">AI 작업 현황</p>
+          <h1 id="pageTitle">AI 작업을 한눈에 확인하세요.</h1>
+          <p id="pageSubtitle" class="subtitle">진행 중인 일과 내 확인이 필요한 일을 먼저 보여주고, 나머지 기록은 아래에서 찾을 수 있습니다.</p>
         </div>
         <div class="top-actions">
+          <button id="guideBtn" class="guide-toggle" type="button" aria-controls="beginnerGuide" aria-expanded="true"><span aria-hidden="true">?</span><span><b>10분 시작 가이드</b><small id="guideButtonProgress">0 / 4 완료</small></span></button>
           <div class="sync-state"><span></span><div><b>LIVE</b><small id="lastSync">연결 중</small></div></div>
           <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="AI에게 새 일 맡기기" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b>새 AI 작업</b><small><kbd>⌘N</kbd></small></span></button>
         </div>
       </header>
 
-      <section id="beginnerGuide" class="beginner-guide" aria-label="화면 보는 순서">
-        <div class="beginner-guide-intro"><b>처음이라면 이렇게 보세요</b><span>복잡한 용어를 몰라도 괜찮아요.</span></div>
+      <section id="updateNotice" class="update-notice hidden" aria-live="polite">
+        <span class="update-notice-signal" aria-hidden="true"><i></i></span>
+        <div><b id="updateNoticeTitle">새 버전을 사용할 수 있습니다.</b><small id="updateNoticeText">설정에서 업데이트 파일을 받을 수 있습니다.</small></div>
+        <button id="updateNoticeBtn" type="button">업데이트 보기 <span>→</span></button>
+      </section>
+
+      <section id="settingsSection" class="settings-section hidden" aria-labelledby="settingsTitle">
+        <header class="settings-head">
+          <div class="settings-emblem" aria-hidden="true"><span>↟</span><i></i></div>
+          <div><p class="eyebrow">업데이트</p><h2 id="settingsTitle">프로그램 설정</h2><p>현재 설치된 버전과 GitHub의 최신 정식 태그를 비교하고, 이 컴퓨터에 맞는 업데이트 파일을 준비합니다.</p></div>
+        </header>
+
+        <div id="updatePanel" class="update-panel" data-update-status="idle">
+          <div class="version-route" aria-label="설치 버전과 최신 버전 비교">
+            <article class="version-node local-version-node">
+              <span>현재 설치 버전</span>
+              <strong id="currentVersion">v—</strong>
+              <small id="installationType">설치 방식 확인 중</small>
+            </article>
+            <div class="version-connector" aria-hidden="true"><i></i><span>버전 비교</span><i></i></div>
+            <article class="version-node remote-version-node">
+              <span>GitHub 최신 태그</span>
+              <strong id="latestVersion">확인 전</strong>
+              <small id="releasePublishedAt">정식 릴리스 기준</small>
+            </article>
+          </div>
+
+          <div class="update-console">
+            <div class="update-state-mark" aria-hidden="true"><span id="updateStateGlyph">·</span></div>
+            <div class="update-state-copy"><span id="updateStateLabel">버전 상태</span><h3 id="updateStateTitle">업데이트를 확인하고 있습니다.</h3><p id="updateStateText">GitHub의 최신 정식 릴리스 태그를 읽는 중입니다.</p></div>
+            <div class="update-actions">
+              <button id="checkUpdateBtn" class="ghost-button" type="button">업데이트 확인</button>
+              <button id="installUpdateBtn" class="primary-button hidden" type="button">업데이트 파일 받기</button>
+            </div>
+          </div>
+
+          <div id="updateProgress" class="update-progress hidden" aria-live="polite">
+            <div><span>업데이트 파일 다운로드</span><b id="updateProgressLabel">0%</b></div>
+            <div class="update-progress-track" role="progressbar" aria-label="업데이트 파일 다운로드" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><i id="updateProgressBar"></i></div>
+            <small id="updateProgressBytes">준비 중</small>
+          </div>
+
+          <div id="updateError" class="update-error hidden" role="status"></div>
+          <div id="releaseNotes" class="release-notes hidden"><div><span>변경 사항</span><button id="openReleaseBtn" type="button">GitHub에서 전체 보기 ↗</button></div><pre id="releaseNotesText"></pre></div>
+        </div>
+
+        <div class="settings-meta-grid">
+          <article><span>업데이트 기준</span><b>GitHub 정식 릴리스</b><p>초안과 프리릴리스는 제외하고, 패키지 버전보다 높은 태그만 안내합니다.</p></article>
+          <article><span>파일 검증</span><b>SHA-256 · 크기 확인</b><p>GitHub가 제공하는 해시와 파일 크기가 다르면 설치 파일을 열지 않습니다.</p></article>
+          <article><span>런타임</span><b id="runtimeVersions">Electron — · Node —</b><p>운영체제와 CPU에 맞는 Windows 설치 파일 또는 macOS DMG를 선택합니다.</p></article>
+        </div>
+      </section>
+
+      <section id="beginnerGuide" class="beginner-guide" aria-labelledby="beginnerGuideTitle">
+        <div class="beginner-guide-intro">
+          <span class="guide-time">첫 10분 코스</span>
+          <b id="beginnerGuideTitle">이 네 가지만 익히면 충분해요</b>
+          <span id="guideProgressText">하나씩 눌러 직접 둘러보세요.</span>
+          <div class="guide-progress" role="progressbar" aria-label="시작 가이드 진행률" aria-valuemin="0" aria-valuemax="4" aria-valuenow="0"><i id="guideProgressBar"></i></div>
+        </div>
         <ol>
-          <li><i>1</i><span><b>진행 중인 일 확인</b><small>초록 점이 있는 일은 AI가 지금 처리하고 있어요.</small></span></li>
-          <li><i>2</i><span><b>내 확인 필요 확인</b><small>노란 표시가 보이면 내 답변이나 선택이 필요해요.</small></span></li>
-          <li><i>3</i><span><b>일을 눌러 자세히 보기</b><small>누가 일을 맡겼고 다른 AI에게 무엇을 나눴는지 볼 수 있어요.</small></span></li>
+          <li data-guide-step="create"><button type="button" data-guide-action="create"><i>1</i><span><b>AI에게 일 맡기기</b><small>할 일과 작업 폴더를 고르면 바로 시작돼요.</small><em>직접 해보기 →</em></span></button></li>
+          <li data-guide-step="active"><button type="button" data-guide-action="active"><i>2</i><span><b>진행 상황 확인</b><small>초록 표시가 있는 AI는 지금 일하고 있어요.</small><em>진행 중 보기 →</em></span></button></li>
+          <li data-guide-step="waiting"><button type="button" data-guide-action="waiting"><i>3</i><span><b>확인할 일 찾기</b><small>‘내 확인 필요’ 상태에는 답변이나 선택이 필요해요.</small><em>확인할 일 보기 →</em></span></button></li>
+          <li data-guide-step="detail"><button type="button" data-guide-action="detail"><i>4</i><span><b>작업 자세히 보기</b><small>대화, 진행 과정, 사용량을 한곳에서 확인해요.</small><em>작업 열어보기 →</em></span></button></li>
         </ol>
+        <button id="dismissGuideBtn" class="guide-dismiss" type="button">가이드 접기</button>
       </section>
 
       <section id="terminalSection" class="terminal-section hidden" aria-label="명령창 직접 다루기">
@@ -119,7 +185,7 @@
                   <div class="terminal-command-label"><label id="terminalCommandLabel" for="terminalCommandInput">터미널에 명령 보내기</label><span>Enter 전송 · Shift+Enter 줄바꿈</span></div>
                   <div class="terminal-command-composer"><textarea id="terminalCommandInput" rows="2" placeholder="먼저 왼쪽에서 세션을 선택하세요" spellcheck="false"></textarea><button type="submit"><span>보내기</span><b>↵</b></button></div>
                 </form>
-                <div id="terminalNotice" class="terminal-notice"><span class="terminal-notice-dot"></span><span>세션을 선택하면 바로 입력할 수 있습니다.</span></div>
+                <div id="terminalNotice" class="terminal-notice" role="status" aria-live="polite" aria-atomic="true"><span class="terminal-notice-dot"></span><span>세션을 선택하면 바로 입력할 수 있습니다.</span></div>
               </section>
             </div>
           </div></div>
@@ -168,7 +234,7 @@
         <div class="sessions-heading">
           <div><p class="eyebrow">지난 기록</p><h2 id="viewTitle">최근 대화와 작업</h2></div>
           <div class="session-tools">
-            <label class="search-box"><span>⌕</span><input id="searchInput" type="search" placeholder="작업 이름, AI, 폴더 찾기" autocomplete="off" /></label>
+            <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" aria-label="작업 검색" placeholder="작업 이름, AI, 폴더 찾기" autocomplete="off" /></label>
             <select id="providerFilter" aria-label="AI 제공사 필터"><option value="all">모든 AI</option></select>
             <select id="sortSelect" aria-label="정렬"><option value="recent">최근에 움직인 순서</option><option value="tokens">많이 사용한 순서</option><option value="context">기억 공간을 많이 쓴 순서</option></select>
           </div>
@@ -185,8 +251,15 @@
     </main>
   </div>
 
+  <nav id="mobileToolsMenu" class="mobile-tools-menu hidden" aria-label="고급 기능과 설정">
+    <div><b>더보기</b><span>필요할 때만 여는 고급 기능이에요.</span></div>
+    <button type="button" data-mobile-view="terminal"><i aria-hidden="true">›_</i><span><b>세션 터미널</b><small>기존 AI 대화를 직접 이어서 입력</small></span></button>
+    <button type="button" data-mobile-view="tmux"><i aria-hidden="true">▦</i><span><b>tmux 작업</b><small>여러 명령창을 묶어 관리</small></span></button>
+    <button type="button" data-mobile-view="settings"><i aria-hidden="true">⚙</i><span><b>프로그램 설정</b><small>버전과 업데이트 확인</small></span></button>
+  </nav>
+
   <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
-  <aside id="detailDrawer" class="detail-drawer" aria-hidden="true">
+  <aside id="detailDrawer" class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" tabindex="-1" inert>
     <div class="drawer-head">
       <div id="drawerProviderMark" class="provider-mark">AI</div>
       <div class="drawer-title"><span id="drawerProvider">AI 작업</span><h2 id="drawerTitle">작업 자세히 보기</h2></div>
@@ -194,52 +267,54 @@
     </div>
     <div id="drawerMeta" class="drawer-meta"></div>
     <div class="drawer-tabs" role="tablist">
-      <button class="drawer-tab active" role="tab" aria-selected="true" data-tab="chat">대화 내용</button>
-      <button class="drawer-tab" role="tab" aria-selected="false" data-tab="lifecycle">진행 과정</button>
-      <button class="drawer-tab" role="tab" aria-selected="false" data-tab="tokens">사용량</button>
+      <button id="drawerTabChat" class="drawer-tab active" role="tab" aria-selected="true" aria-controls="drawerContent" tabindex="0" data-tab="chat">대화 내용</button>
+      <button id="drawerTabLifecycle" class="drawer-tab" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle">진행 과정</button>
+      <button id="drawerTabTokens" class="drawer-tab" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens">사용량</button>
     </div>
-    <div id="drawerContent" class="drawer-content"></div>
+    <div id="drawerContent" class="drawer-content" role="tabpanel" aria-labelledby="drawerTabChat" tabindex="0"></div>
   </aside>
 
-  <div id="runModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="runModalTitle">
+  <div id="runModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="runModalTitle" aria-describedby="runModalDescription">
     <form id="runForm" class="run-modal run-composer">
       <div class="modal-head">
-        <div><p class="eyebrow">AI 작업 시작</p><h2 id="runModalTitle">무슨 일을 맡길까요?</h2><p class="run-modal-intro">할 일을 먼저 적고, 어떤 AI가 어디서 작업할지 선택하세요.</p></div>
+        <div><p class="eyebrow">AI 작업 시작</p><h2 id="runModalTitle">무슨 일을 맡길까요?</h2><p id="runModalDescription" class="run-modal-intro">할 일을 먼저 적고, 어떤 AI가 어디서 작업할지 선택하세요.</p></div>
         <button type="button" id="closeRunModalBtn" class="close-button" aria-label="새 작업 창 닫기">×</button>
       </div>
       <section class="run-step run-request-step" aria-labelledby="runRequestLabel">
         <div class="run-step-head"><i>1</i><span><b id="runRequestLabel">할 일 적기</b><small>결과와 제약을 함께 적으면 더 정확해요.</small></span></div>
         <label class="run-prompt-field"><span class="sr-only">AI에게 맡길 일</span><textarea id="runPrompt" required rows="5" maxlength="8000" placeholder="예: 로그인 화면의 오류를 찾아 고치고, 관련 테스트까지 실행해줘"></textarea></label>
-        <div class="run-prompt-tools"><div class="run-prompt-examples" aria-label="빠른 요청 예시"><button type="button" data-run-prompt-example="문제의 원인을 찾아 고치고 관련 테스트까지 실행해줘">오류 수정</button><button type="button" data-run-prompt-example="현재 코드를 검토하고 중요도 순으로 개선해줘">코드 검토</button><button type="button" data-run-prompt-example="현재 기능을 검증하는 테스트를 추가하고 실행해줘">테스트 추가</button></div><span id="runPromptCount" class="run-prompt-count" aria-live="polite">0 / 8,000</span></div>
+        <div class="run-prompt-tools"><div class="run-prompt-examples" aria-label="빠른 요청 예시"><button type="button" data-run-prompt-example="문제의 원인을 찾아 고치고 관련 테스트까지 실행해줘">오류 수정</button><button type="button" data-run-prompt-example="현재 코드를 검토하고 중요도 순으로 개선해줘">코드 검토</button><button type="button" data-run-prompt-example="현재 기능을 검증하는 테스트를 추가하고 실행해줘">테스트 추가</button></div><span id="runPromptCount" class="run-prompt-count">0 / 8,000</span></div>
       </section>
       <section class="run-step run-setup-step" aria-labelledby="runSetupLabel">
         <div class="run-step-head"><i>2</i><span><b id="runSetupLabel">실행 방법 선택</b><small>AI와 작업 폴더만 고르면 준비가 끝납니다.</small></span></div>
-        <label class="field-label">어떤 AI에게 맡길까요?</label>
-        <div id="runProviderPicker" class="run-provider-picker"></div>
-        <label class="run-folder-field"><span>작업 폴더</span><div class="path-field"><input id="runCwd" required placeholder="프로젝트 폴더를 선택하세요" /><button type="button" id="pickRunCwdBtn">폴더 찾기</button></div></label>
+        <div id="runProviderLabel" class="field-label">어떤 AI에게 맡길까요?</div>
+        <div id="runProviderPicker" class="run-provider-picker" role="group" aria-labelledby="runProviderLabel"></div>
+        <div id="runProviderHelp" class="run-provider-help hidden" role="status"></div>
+        <div class="run-folder-field"><label class="field-label" for="runCwd">작업 폴더</label><div class="path-field"><input id="runCwd" required placeholder="프로젝트 폴더를 선택하세요" /><button type="button" id="pickRunCwdBtn">폴더 찾기</button></div></div>
         <div id="runWorkspaceSuggestions" class="run-workspace-suggestions" aria-label="최근 작업 폴더"></div>
         <label class="permission-toggle"><input id="allowWrites" type="checkbox" /><span class="toggle-track"></span><div><strong>AI가 파일을 고칠 수 있게 허용</strong><small>켜면 선택한 폴더의 파일을 직접 수정합니다.</small></div></label>
+        <div id="runPermissionHint" class="run-permission-hint hidden" role="status">이 요청은 파일 수정이 필요해 보여요. 위의 수정 허용을 켜지 않으면 AI가 코드 변경 없이 검토만 합니다.</div>
       </section>
       <details class="run-advanced">
         <summary><span><b>고급 설정</b><small>특정 모델을 직접 지정할 때만 사용</small></span><i aria-hidden="true">↓</i></summary>
         <label><span>사용 모델 <small>몰라도 비워두세요</small></span><input id="runModel" placeholder="비워두면 AI가 알아서 선택합니다" /></label>
       </details>
-      <div id="runError" class="form-error hidden"></div>
+      <div id="runError" class="form-error hidden" role="alert" aria-live="assertive"></div>
       <div class="modal-actions run-modal-actions"><span class="run-shortcut-hint"><kbd>⌘</kbd><kbd>Enter</kbd> 시작</span><button type="button" id="cancelRunBtn" class="ghost-button">취소</button><button type="submit" class="primary-button run-submit-button"><span class="run-submit-icon" aria-hidden="true">↗</span><span id="runSubmitLabel">AI에게 맡기기</span></button></div>
     </form>
   </div>
 
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="tmuxCreateModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="tmuxCreateTitle">
     <form id="tmuxCreateForm" class="run-modal terminal-modal">
-      <div class="modal-head"><div><p class="eyebrow">고급 작업</p><h2 id="tmuxCreateTitle">여러 창 작업 만들기</h2></div><button type="button" id="closeTmuxCreateBtn" class="close-button">×</button></div>
+      <div class="modal-head"><div><p class="eyebrow">고급 작업</p><h2 id="tmuxCreateTitle">여러 창 작업 만들기</h2></div><button type="button" id="closeTmuxCreateBtn" class="close-button" aria-label="여러 창 작업 만들기 닫기">×</button></div>
       <div class="form-grid">
         <label><span id="tmuxEnvironmentLabel">tmux 환경</span><select id="tmuxCreateDistro" required></select></label>
         <label><span>작업 묶음 이름</span><input id="tmuxCreateName" required pattern="[A-Za-z0-9_.\-]+" placeholder="my-work" /></label>
       </div>
       <label><span>시작 폴더 <small>선택 사항</small></span><input id="tmuxCreateCwd" placeholder="프로젝트의 절대 경로" /></label>
       <label><span>처음 실행할 명령 <small>선택 사항</small></span><textarea id="tmuxCreateCommand" rows="4" placeholder="예: claude 또는 codex"></textarea></label>
-      <div id="tmuxCreateError" class="form-error hidden"></div>
+      <div id="tmuxCreateError" class="form-error hidden" role="alert" aria-live="assertive"></div>
       <div class="modal-actions"><button type="button" id="cancelTmuxCreateBtn" class="ghost-button">취소</button><button type="submit" class="primary-button">작업 묶음 만들기</button></div>
     </form>
   </div>

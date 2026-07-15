@@ -6,6 +6,10 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
   backgroundState: () => ipcRenderer.invoke('app:background-state'),
   showApp: () => ipcRenderer.invoke('app:show'),
+  checkForUpdate: () => ipcRenderer.invoke('app:update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
+  openDownloadedUpdate: () => ipcRenderer.invoke('app:update-open'),
+  openUpdateRelease: () => ipcRenderer.invoke('app:update-open-release'),
   snapshot: () => ipcRenderer.invoke('agents:snapshot'),
   sessionDetail: sessionId => ipcRenderer.invoke('agents:detail', sessionId),
   runAgent: options => ipcRenderer.invoke('agents:run', options),
@@ -61,5 +65,10 @@ contextBridge.exposeInMainWorld('loadtoagent', {
     const handler = (_event, snapshot) => callback(snapshot);
     ipcRenderer.on('agents:snapshot', handler);
     return () => ipcRenderer.removeListener('agents:snapshot', handler);
+  },
+  onUpdateState: callback => {
+    const handler = (_event, update) => callback(update);
+    ipcRenderer.on('app:update-state', handler);
+    return () => ipcRenderer.removeListener('app:update-state', handler);
   },
 });

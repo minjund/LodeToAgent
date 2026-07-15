@@ -54,11 +54,16 @@ npm uninstall -g loadtoagent
 
 | 운영체제 | 받을 파일 | 실행 방법 |
 |---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-Setup-<version>.exe` | 권장 설치본입니다. 처음 설치하거나 앱 안에서 업데이트할 때 사용하세요. |
 | Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | 받은 파일을 더블클릭하세요. 설치 과정이 없는 포터블 실행 파일입니다. |
 | Apple Silicon Mac | `LoadToAgent-<version>-arm64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
 | Intel Mac | `LoadToAgent-<version>-x64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
 
 현재 배포 파일에는 코드 서명이 없어 Windows SmartScreen 또는 macOS Gatekeeper가 알 수 없는 개발자 경고를 표시할 수 있습니다. 이 저장소의 공식 Releases 페이지에서 받은 파일일 때만 계속하세요. macOS에서는 LoadToAgent를 Control-클릭하고 **열기**를 선택합니다. Windows에서는 **추가 정보 → 실행**을 선택합니다.
+
+### 앱에서 업데이트
+
+LoadToAgent는 시작할 때 현재 패키지 버전과 GitHub의 최신 정식 Release 태그를 비교합니다. 더 높은 버전이 있으면 화면 위쪽과 **설정 → 프로그램 업데이트**에 안내가 나타납니다. 업데이트 파일 받기를 누르면 운영체제와 CPU에 맞는 파일을 다운로드하고, GitHub가 제공한 파일 크기와 SHA-256을 검증한 뒤 설치 파일을 열 수 있습니다. Windows는 Setup EXE, macOS는 DMG가 우선 선택됩니다. npm 설치본은 위의 `npm install -g loadtoagent@latest` 명령으로 갱신할 수도 있습니다.
 
 ### 필요한 환경
 
@@ -66,6 +71,15 @@ npm uninstall -g loadtoagent
 - npm으로 설치할 때만 Node.js 18 이상
 - Claude Code, Codex CLI, Gemini CLI, Grok CLI 중 하나 이상 설치 및 로그인
 - tmux 작업 지도를 사용할 때만 tmux 필요
+
+## 처음 10분 사용법
+
+1. **홈**에서 `새 AI 작업`을 누르고 할 일과 작업 폴더를 고릅니다. 설치된 AI가 없으면 화면의 공식 설치 안내를 먼저 따르세요.
+2. **진행 중**에서 초록 상태의 AI를 확인합니다. 도움 AI를 함께 쓰는 작업은 접힌 `상세 흐름 보기`에서 펼칠 수 있습니다.
+3. **내 확인 필요**에 숫자가 생기면 답변이나 선택이 필요한 작업부터 처리합니다.
+4. 작업 카드를 열어 **대화·진행 과정·사용량**을 확인하고, 연결된 작업은 **세션 터미널**에서 이어서 입력합니다.
+
+홈의 `10분 시작 가이드`도 같은 네 단계를 직접 눌러 연습하게 해 줍니다. 완료 상태는 이 컴퓨터에 저장되며 언제든 다시 펼칠 수 있습니다.
 
 ## 한눈에 볼 수 있는 것
 
@@ -128,7 +142,7 @@ npm run dist:mac
 npm run dist:win
 ```
 
-`dist:mac`은 Apple Silicon·Intel용 DMG/ZIP을 만들고, `dist:win`은 Windows 포터블 실행 파일을 만듭니다. 실제 macOS 배포에는 관리자의 Apple 서명·notarization 인증 정보가 필요합니다.
+`dist:mac`은 Apple Silicon·Intel용 DMG/ZIP을 만들고, `dist:win`은 Windows Setup과 포터블 실행 파일을 만듭니다. 실제 macOS 배포에는 관리자의 Apple 서명·notarization 인증 정보가 필요합니다.
 
 ## 지원하는 세션 소스
 
@@ -143,7 +157,16 @@ AI별 이벤트 매핑과 컨텍스트 계산 원칙은 [Provider Contracts](doc
 
 ## 릴리스
 
-GitHub 태그 릴리스가 만들어지면 전체 테스트를 실행하고, 출처 증명이 포함된 npm 패키지를 발행하며, macOS·Windows 배포 파일을 빌드해 릴리스에 첨부합니다. 패키지 버전과 릴리스 태그는 같아야 합니다.
+`v*` 형식의 Git 태그를 원격 저장소에 푸시하면 전체 테스트를 실행하고, 출처 증명이 포함된 npm 패키지를 발행하며, macOS·Windows 배포 파일이 첨부된 GitHub Release를 자동 생성합니다. `package.json` 버전과 태그는 반드시 같아야 합니다.
+
+```bash
+npm version patch --no-git-tag-version
+git add package.json package-lock.json
+VERSION=$(node -p 'require("./package.json").version')
+git commit -m "release: v$VERSION"
+git tag "v$VERSION"
+git push origin HEAD --follow-tags
+```
 
 ---
 

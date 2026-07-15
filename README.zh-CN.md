@@ -54,11 +54,16 @@ npm uninstall -g loadtoagent
 
 | 系统 | 下载文件 | 启动方式 |
 |---|---|---|
+| Windows 10/11 (x64) | `LoadToAgent-Setup-<version>.exe` | 推荐用于首次安装和应用内更新。 |
 | Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | 双击下载的文件。它是无需安装的便携版程序。 |
 | Apple 芯片 Mac | `LoadToAgent-<version>-arm64.dmg` | 打开 DMG，将 LoadToAgent 拖入“应用程序”，然后从“应用程序”中打开。 |
 | Intel Mac | `LoadToAgent-<version>-x64.dmg` | 打开 DMG，将 LoadToAgent 拖入“应用程序”，然后从“应用程序”中打开。 |
 
 当前桌面文件尚未进行代码签名，因此 Windows SmartScreen 或 macOS Gatekeeper 可能显示未知开发者警告。只有在文件来自本仓库官方 Releases 页面时才继续。macOS 用户可按住 Control 键点按 LoadToAgent，然后选择**打开**；Windows 用户可选择**更多信息 → 仍要运行**。
+
+### 在应用内更新
+
+LoadToAgent 启动时会比较当前包版本与最新的稳定 GitHub Release 标签。如果存在更高版本，应用顶部以及**设置 → 程序更新**中会显示提示。应用会下载对应的 Windows Setup EXE 或 macOS DMG，并校验 GitHub 提供的文件大小和 SHA-256（如有），随后可直接打开安装文件。npm 安装仍可使用 `npm install -g loadtoagent@latest` 更新。
 
 ### 环境要求
 
@@ -66,6 +71,15 @@ npm uninstall -g loadtoagent
 - 仅通过 npm 安装时需要 Node.js 18 或更高版本
 - 至少安装并登录一个 CLI：Claude Code、Codex CLI、Gemini CLI 或 Grok CLI
 - 只有使用 tmux 工作区地图时才需要安装 tmux
+
+## 前 10 分钟上手
+
+1. 在**首页**点击`新建 AI 任务`，填写目标并选择工作目录。如果尚未安装受支持的 AI，请先按照应用中显示的官方安装链接完成设置。
+2. 打开**进行中**，查看所有绿色状态的 AI。只有需要检查子代理分工时，再展开`查看详细流程`。
+3. 当**需要你确认**出现数字时，优先处理需要回复或选择的任务。
+4. 打开任务卡片，查看**对话、进度和用量**；对于已连接的任务，可在**会话终端**中继续输入。
+
+首页的`10 分钟入门指南`可以带你实际完成同样的四个步骤。进度只保存在本机，并且可随时重新打开。
 
 ## LoadToAgent 可以展示什么
 
@@ -128,7 +142,7 @@ npm run dist:mac
 npm run dist:win
 ```
 
-`dist:mac` 会生成 Apple Silicon 和 Intel 的 DMG/ZIP 文件；`dist:win` 会生成 Windows 便携版可执行文件。正式的 macOS 发行仍需要维护者提供 Apple 签名与 notarization 凭据。
+`dist:mac` 会生成 Apple Silicon 和 Intel 的 DMG/ZIP 文件；`dist:win` 会生成 Windows Setup 和便携版可执行文件。正式的 macOS 发行仍需要维护者提供 Apple 签名与 notarization 凭据。
 
 ## 支持的会话来源
 
@@ -143,7 +157,16 @@ npm run dist:win
 
 ## 发布
 
-创建带标签的 GitHub Release 后，工作流会运行完整测试、发布带来源证明的 npm 包、构建 macOS 与 Windows 文件，并把它们附加到 Release。包版本必须与 Release 标签一致。
+将 `v*` Git 标签推送到远程仓库后，工作流会运行完整测试、发布带来源证明的 npm 包、构建 macOS 与 Windows 文件，并自动创建附带这些文件的 GitHub Release。`package.json` 版本必须与标签一致。
+
+```bash
+npm version patch --no-git-tag-version
+git add package.json package-lock.json
+VERSION=$(node -p 'require("./package.json").version')
+git commit -m "release: v$VERSION"
+git tag "v$VERSION"
+git push origin HEAD --follow-tags
+```
 
 ---
 

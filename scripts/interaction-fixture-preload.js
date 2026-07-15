@@ -31,6 +31,7 @@ const rootSession = {
   collaboration: {
     communications: [
       { id: 'resting-assignment', kind: 'assignment', label: '새 작업 배정', from: '/root', to: '/root/resting_check', taskName: 'resting_check', childId: 'fixture-resting', text: '완료된 테스트를 다시 검토해줘', timestamp: now },
+      { id: 'resting-protected-followup', kind: 'followup', label: '추가 작업 지시', from: '/root', to: '/root/resting_check', taskName: 'resting_check', childId: 'fixture-resting', text: 'gAAAAABfixtureProtectedPayload==', protected: true, timestamp: now },
       { id: 'resting-started', kind: 'started', label: '서브에이전트 실행 시작', from: 'Codex 런타임', to: '/root/resting_check', taskName: 'resting_check', childId: 'fixture-resting', text: 'started', timestamp: now },
       { id: 'resting-result', kind: 'result', label: '결과 반환', from: '/root/resting_check', to: '/root', taskName: 'resting_check', childId: 'fixture-resting', text: '검토 결과 이상이 없습니다.', timestamp: now },
     ],
@@ -112,6 +113,17 @@ const originSession = {
   clientKind: 'codex-desktop',
 };
 
+const projectlessSession = {
+  ...endedSession,
+  id: 'fixture-projectless',
+  externalId: 'fixture-projectless-external',
+  provider: 'codex',
+  title: '프로젝트 없이 시작한 Codex 대화',
+  cwd: 'C:\\Users\\fixture\\Documents\\Codex\\2026-07-16\\new-chat',
+  workspace: 'new-chat',
+  clientKind: 'codex-desktop',
+};
+
 const extraEndedSessions = Array.from({ length: 34 }, (_, index) => ({
   ...endedSession,
   id: `fixture-history-${index}`,
@@ -132,7 +144,7 @@ const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 't
 
 const snapshot = {
   generatedAt: now,
-  sessions: [rootSession, childSession, grandchildSession, restingSession, originSession, ...extraLiveSessions, endedSession, waitingSession, ...extraEndedSessions],
+  sessions: [rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession, ...extraLiveSessions, endedSession, waitingSession, ...extraEndedSessions],
   summary: {
     totals: { sessions: 48, active: 10, waiting: 1, subagents: 3, usage },
     providers: providers.map(provider => ({ ...provider, sessions: 1, active: provider.id === 'claude' ? 8 : (provider.id === 'gpt' || provider.id === 'codex' ? 1 : 0), usage })),
@@ -148,7 +160,21 @@ const initialTerminals = [
   { id: 'terminal-ended', type: 'powershell', title: 'Fixture Ended', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
 ];
 
+const availableUpdate = {
+  status: 'available', currentVersion: '3.0.0', latestVersion: '3.1.0', tag: 'v3.1.0',
+  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v3.1.0', publishedAt: now,
+  notes: '설정 화면과 업데이트 흐름 상호작용 검증', progress: 0, downloadedBytes: 0, totalBytes: 8_192,
+  downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop',
+  asset: { name: 'LoadToAgent-Setup-3.1.0.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/LoadToAgent-Setup-3.1.0.exe', digest: '' },
+};
+
+const currentUpdate = {
+  ...availableUpdate, status: 'current', latestVersion: '3.0.0', tag: 'v3.0.0', asset: null,
+  notes: '현재 설치된 버전이 최신 정식 버전입니다.', totalBytes: 0,
+};
+
 let terminals = clone(initialTerminals);
+let update = clone(availableUpdate);
 let calls = [];
 let failures = new Map();
 let delays = new Map();
@@ -157,6 +183,7 @@ const snapshotListeners = new Set();
 const terminalDataListeners = new Set();
 const terminalStateListeners = new Set();
 const terminalErrorListeners = new Set();
+const updateStateListeners = new Set();
 
 function record(name, args = []) {
   calls.push({ name, args: clone(args), at: Date.now() });
@@ -181,8 +208,21 @@ const api = {
       providers: clone(providers), availability: Object.fromEntries(providers.map(provider => [provider.id, true])),
       workspaces: [{ name: 'fixture', path: 'D:\\fixture' }], snapshot: clone(snapshot), activeRuns: [],
       platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows 명령창', nativeTmux: false },
+      versions: { app: '3.0.0', electron: '31.0.0', node: '20.0.0' }, update: clone(update),
     };
   },
+  checkForUpdate: async () => {
+    update = clone(availableUpdate);
+    return controlled('checkForUpdate', [], update);
+  },
+  downloadUpdate: async () => {
+    await controlled('downloadUpdate', []);
+    update = { ...clone(availableUpdate), status: 'downloaded', progress: 100, downloadedBytes: 8_192, downloadedPath: 'D:\\fixture\\LoadToAgent-Setup-3.1.0.exe' };
+    updateStateListeners.forEach(listener => listener(clone(update)));
+    return clone(update);
+  },
+  openDownloadedUpdate: () => controlled('openDownloadedUpdate'),
+  openUpdateRelease: () => controlled('openUpdateRelease'),
   snapshot: async () => controlled('snapshot', [], snapshot),
   sessionDetail: id => controlled('sessionDetail', [id], snapshot.sessions.find(session => session.id === id) || null),
   runAgent: options => controlled('runAgent', [options], { ok: true, runId: 'fixture-new-run' }),
@@ -246,6 +286,7 @@ const api = {
   onTerminalState: callback => { terminalStateListeners.add(callback); return () => terminalStateListeners.delete(callback); },
   onTerminalError: callback => { terminalErrorListeners.add(callback); return () => terminalErrorListeners.delete(callback); },
   onSnapshot: callback => { snapshotListeners.add(callback); return () => snapshotListeners.delete(callback); },
+  onUpdateState: callback => { updateStateListeners.add(callback); return () => updateStateListeners.delete(callback); },
 };
 
 const testApi = {
@@ -259,6 +300,8 @@ const testApi = {
   },
   clearControls: () => { failures = new Map(); delays = new Map(); },
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
+  restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
+  restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
 };
 
 contextBridge.exposeInMainWorld('loadtoagent', api);

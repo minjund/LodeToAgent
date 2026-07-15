@@ -2,6 +2,7 @@
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
+const PROJECTLESS_WORKSPACE = '__projectless__';
 
 const state = {
   providers: [],
@@ -10,6 +11,8 @@ const state = {
   workspaces: [],
   snapshot: null,
   activeRuns: [],
+  versions: {},
+  update: null,
   view: 'all',
   provider: 'all',
   workspace: 'all',
@@ -32,6 +35,8 @@ const state = {
   agentCommandSending: new Set(),
   stopRequests: new Set(),
   detailErrors: new Map(),
+  guideCompleted: new Set(),
+  guideExpanded: true,
   platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows 명령창', nativeTmux: false },
 };
 
@@ -43,6 +48,8 @@ const motionState = {
   drawerTimer: 0,
   drawerContentTimer: 0,
   drawerRenderKey: '',
+  drawerTab: '',
+  activeDialogTrigger: null,
 };
 
 document.documentElement.dataset.motion = motionPreference.matches ? 'reduced' : 'full';
@@ -141,13 +148,165 @@ const VIEW_TITLES = {
   waiting: '내 확인이 필요한 작업',
   terminal: '세션 터미널',
   tmux: 'tmux 작업',
+  settings: '프로그램 설정',
 };
+
+const VIEW_META = {
+  all: {
+    eyebrow: 'AI 작업 현황',
+    title: 'AI 작업을 한눈에 확인하세요.',
+    subtitle: '진행 중인 일과 내 확인이 필요한 일을 먼저 보여주고, 나머지 기록은 아래에서 찾을 수 있습니다.',
+  },
+  active: {
+    eyebrow: '지금 진행 중',
+    title: '현재 일하고 있는 AI를 확인하세요.',
+    subtitle: '무슨 일을 처리 중인지 보고, 작업을 누르면 AI 사이의 역할과 최신 진행 상황을 자세히 볼 수 있습니다.',
+  },
+  waiting: {
+    eyebrow: '내 차례',
+    title: '내 확인이 필요한 일을 먼저 처리하세요.',
+    subtitle: '답변이나 선택을 기다리는 작업만 모았습니다. 항목을 열어 필요한 내용을 확인하세요.',
+  },
+  terminal: {
+    eyebrow: '기존 대화 이어가기',
+    title: 'AI 세션을 터미널에서 이어가세요.',
+    subtitle: '이전 대화와 실시간 명령창을 나란히 보며 같은 작업을 계속할 수 있습니다.',
+  },
+  tmux: {
+    eyebrow: '고급 작업 도구',
+    title: '여러 명령창 작업을 한곳에서 관리하세요.',
+    subtitle: 'tmux를 이미 사용하는 경우에만 필요한 화면입니다. 일반 작업은 홈과 세션 터미널만으로 충분합니다.',
+  },
+  settings: {
+    eyebrow: '프로그램 관리',
+    title: '버전과 업데이트를 확인하세요.',
+    subtitle: '현재 설치 버전과 최신 정식 버전을 비교하고, 안전하게 검증된 설치 파일을 받을 수 있습니다.',
+  },
+};
+
+const GUIDE_STORAGE_KEY = 'loadtoagent:start-guide:v1';
+const GUIDE_STEPS = ['create', 'active', 'waiting', 'detail'];
 
 function esc(value) {
   return String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
+
+function loadGuideState() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(GUIDE_STORAGE_KEY) || '{}');
+    state.guideCompleted = new Set((saved.completed || []).filter(step => GUIDE_STEPS.includes(step)));
+    state.guideExpanded = saved.expanded !== false;
+  } catch {
+    state.guideCompleted = new Set();
+    state.guideExpanded = true;
+  }
+}
+
+function saveGuideState() {
+  try {
+    localStorage.setItem(GUIDE_STORAGE_KEY, JSON.stringify({ completed: [...state.guideCompleted], expanded: state.guideExpanded }));
+  } catch {}
+}
+
+function renderGuide() {
+  const completed = state.guideCompleted.size;
+  GUIDE_STEPS.forEach(step => {
+    const item = document.querySelector(`[data-guide-step="${step}"]`);
+    const done = state.guideCompleted.has(step);
+    item?.classList.toggle('completed', done);
+    item?.querySelector('button')?.setAttribute('aria-pressed', done ? 'true' : 'false');
+  });
+  const percent = completed / GUIDE_STEPS.length * 100;
+  $('#guideProgressBar').style.width = `${percent}%`;
+  const progress = $('.guide-progress');
+  progress.setAttribute('aria-valuenow', String(completed));
+  $('#guideButtonProgress').textContent = completed === GUIDE_STEPS.length ? '기본 사용법 완료' : `${completed} / ${GUIDE_STEPS.length} 완료`;
+  $('#guideProgressText').textContent = completed === GUIDE_STEPS.length
+    ? '기본 사용법을 모두 익혔어요. 언제든 다시 열어볼 수 있습니다.'
+    : `${GUIDE_STEPS.length - completed}단계 남았어요. 하나씩 눌러 직접 둘러보세요.`;
+  $('#guideBtn').setAttribute('aria-expanded', state.guideExpanded ? 'true' : 'false');
+}
+
+function markGuideStep(step) {
+  if (!GUIDE_STEPS.includes(step) || state.guideCompleted.has(step)) return;
+  state.guideCompleted.add(step);
+  saveGuideState();
+  renderGuide();
+}
+
+function syncViewChrome() {
+  const meta = VIEW_META[state.view] || VIEW_META.all;
+  document.body.dataset.currentView = state.view;
+  $('#pageEyebrow').textContent = meta.eyebrow;
+  $('#pageTitle').textContent = meta.title;
+  $('#pageSubtitle').textContent = meta.subtitle;
+  document.title = `${VIEW_TITLES[state.view] || 'LoadToAgent'} · LoadToAgent`;
+  $$('.nav-item[data-view]').forEach(item => {
+    const active = item.dataset.view === state.view;
+    item.classList.toggle('active', active);
+    if (active) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  });
+  const advancedView = ['terminal', 'tmux', 'settings'].includes(state.view);
+  $('#mobileMoreBtn')?.classList.toggle('active', advancedView);
+  if (advancedView) $('#mobileMoreBtn')?.setAttribute('aria-current', 'page');
+  else $('#mobileMoreBtn')?.removeAttribute('aria-current');
+}
+
+function selectView(view, options = {}) {
+  state.view = view;
+  state.visibleLimit = 30;
+  if (view === 'active' || view === 'waiting') markGuideStep(view);
+  syncViewChrome();
+  renderSessions(options.motionKind || 'view');
+  $('#mobileToolsMenu')?.classList.add('hidden');
+  $('#mobileMoreBtn')?.setAttribute('aria-expanded', 'false');
+  document.querySelector('.main-stage')?.scrollTo({ top: 0, behavior: 'auto' });
+  if (options.focusMain) $('#mainContent')?.focus({ preventScroll: true });
+}
+
+function currentDialog() {
+  if (!$('#runModal').classList.contains('hidden')) return $('#runModal');
+  if (!$('#tmuxCreateModal').classList.contains('hidden')) return $('#tmuxCreateModal');
+  if ($('#detailDrawer').classList.contains('open')) return $('#detailDrawer');
+  return null;
+}
+
+function dialogFocusable(dialog) {
+  return [...dialog.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+    .filter(element => !element.closest('.hidden') && !element.hidden && element.getClientRects().length);
+}
+
+function trapDialogFocus(event) {
+  if (event.key !== 'Tab') return;
+  const dialog = currentDialog();
+  if (!dialog) return;
+  const focusable = dialogFocusable(dialog);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function rememberDialogTrigger() {
+  motionState.activeDialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+}
+
+function restoreDialogTrigger() {
+  const trigger = motionState.activeDialogTrigger;
+  motionState.activeDialogTrigger = null;
+  if (trigger && trigger.isConnected) trigger.focus();
+}
+
+window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger };
 
 function readablePreview(value, maxCharacters = 120) {
   const full = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
@@ -365,59 +524,161 @@ function renderProviderRail() {
     const available = !!state.availability[provider.id];
     return `<div class="provider-rail-item ${available ? 'connected' : ''}" style="${providerStyle(provider.id)}">
       <span class="provider-mini-mark">${esc(provider.mark)}</span><strong>${esc(provider.label)}</strong>
-      <small>${available ? '사용 가능' : '설치 필요'}</small><span class="connection-dot"></span>
+      <small>${available ? 'CLI 발견됨' : '설치 필요'}</small><span class="connection-dot"></span>
     </div>`;
   }).join('');
 }
 
+function isProjectlessSession(session) {
+  if (!session || !session.cwd) return true;
+  if (typeof session.projectless === 'boolean') return session.projectless;
+  const normalized = String(session.cwd).replace(/\\/g, '/').replace(/\/+$/, '');
+  return session.provider === 'codex'
+    && session.clientKind === 'codex-desktop'
+    && /(?:^|\/)Documents\/Codex\/\d{4}-\d{2}-\d{2}\/new-chat$/i.test(normalized);
+}
+
+function sessionWorkspaceLabel(session) {
+  return isProjectlessSession(session) ? '프로젝트 없음' : (session && session.workspace || '작업 폴더 미상');
+}
+
+function matchesWorkspaceFilter(session) {
+  if (state.workspace === 'all') return true;
+  if (state.workspace === PROJECTLESS_WORKSPACE) return isProjectlessSession(session);
+  return !isProjectlessSession(session)
+    && String(session && session.cwd || '').toLowerCase().startsWith(state.workspace.toLowerCase());
+}
+
 function renderWorkspaces() {
   const list = $('#workspaceList');
-  if (!state.workspaces.length) {
-    list.innerHTML = '<div class="workspace-empty">＋ 버튼으로 자주 쓰는 작업 폴더를 등록할 수 있습니다.</div>';
-    return;
-  }
-  list.innerHTML = `<div class="workspace-item ${state.workspace === 'all' ? 'selected' : ''}" data-workspace="all"><strong>모든 작업 폴더</strong></div>`
-    + state.workspaces.map(item => `<div class="workspace-item ${state.workspace === item.path ? 'selected' : ''}" data-workspace="${esc(item.path)}" title="${esc(item.path)}"><strong>${esc(item.name)}</strong><button data-remove-workspace="${esc(item.path)}" title="목록에서 제거">×</button></div>`).join('');
+  const projectlessCount = (state.snapshot && state.snapshot.sessions || [])
+    .filter(session => !session.parentId && isProjectlessSession(session)).length;
+  list.innerHTML = `<button type="button" class="workspace-item ${state.workspace === 'all' ? 'selected' : ''}" data-workspace="all" aria-pressed="${state.workspace === 'all' ? 'true' : 'false'}"><strong>모든 작업 폴더</strong></button>`
+    + (projectlessCount ? `<button type="button" class="workspace-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? 'selected' : ''}" data-workspace="${PROJECTLESS_WORKSPACE}" title="특정 프로젝트에 연결되지 않은 세션" aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? 'true' : 'false'}"><strong>프로젝트 없음</strong><small>${projectlessCount}</small></button>` : '')
+    + state.workspaces.map(item => `<div class="workspace-row"><button type="button" class="workspace-item ${state.workspace === item.path ? 'selected' : ''}" data-workspace="${esc(item.path)}" title="${esc(item.path)}" aria-pressed="${state.workspace === item.path ? 'true' : 'false'}"><strong>${esc(item.name)}</strong></button><button type="button" class="workspace-remove" data-remove-workspace="${esc(item.path)}" aria-label="${esc(item.name)} 작업 폴더를 목록에서 제거" title="목록에서 제거">×</button></div>`).join('')
+    + (!state.workspaces.length ? '<div class="workspace-empty">＋ 버튼으로 자주 쓰는 작업 폴더를 등록할 수 있습니다.</div>' : '');
 }
 
 function renderGlobalStats() {
   const totals = state.snapshot && state.snapshot.summary && state.snapshot.summary.totals || {};
+  const sessions = state.snapshot && state.snapshot.sessions || [];
+  const rootCount = sessions.filter(session => !session.parentId).length;
+  const helperCount = sessions.filter(session => session.parentId).length;
   const items = [
-    ['전체 대화와 작업', totals.sessions || 0, '개', ''],
+    ['전체 작업', rootCount, '개', ''],
     ['지금 일하는 AI', totals.active || 0, '개', 'live'],
     ['내 확인 기다림', totals.waiting || 0, '개', 'alert'],
-    ['서브에이전트 기록', totals.subagents || 0, '개', ''],
+    ['도움 AI 기록', helperCount, '개', ''],
     ['사용한 토큰', compact(totals.usage && totals.usage.total), '개', ''],
   ];
   $('#globalStats').innerHTML = items.map(([label, value, unit, cls], index) => `<div class="global-stat ${cls}" data-motion-key="stat:${index}" data-motion-value="${esc(value)}"><span>${label}</span><strong>${esc(value)}</strong><em>${unit}</em></div>`).join('');
-  $('#navAllCount').textContent = totals.sessions || 0;
+  $('#navAllCount').textContent = rootCount;
   $('#navActiveCount').textContent = totals.active || 0;
   $('#navWaitingCount').textContent = totals.waiting || 0;
   $('#navTmuxCount').textContent = state.snapshot && state.snapshot.tmux && state.snapshot.tmux.summary && state.snapshot.tmux.summary.aiPanes || 0;
 }
 
+function formatBytes(value) {
+  const bytes = Math.max(0, Number(value || 0));
+  if (!bytes) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const amount = bytes / 1024 ** index;
+  return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`;
+}
+
+function installationTypeLabel(value) {
+  return ({ desktop: '데스크톱 설치 파일', npm: 'npm 전역 설치본', source: '로컬 개발 실행본' })[value] || '설치 방식 확인 중';
+}
+
+function updatePresentation(update) {
+  const status = update && update.status || 'idle';
+  const hasAsset = Boolean(update && update.asset);
+  const labels = {
+    idle: ['·', '버전 상태', '업데이트 확인을 준비하고 있습니다.', 'GitHub의 최신 정식 릴리스를 확인합니다.'],
+    checking: ['↻', '최신 버전 확인 중', '최신 버전을 확인하고 있습니다.', 'GitHub의 최신 정식 릴리스 태그를 읽는 중입니다.'],
+    current: ['✓', '최신 버전', '현재 최신 버전입니다.', `설치된 v${update && update.currentVersion || '—'}이 GitHub의 최신 정식 버전과 같습니다.`],
+    available: ['↟', '업데이트 있음', `v${update && update.latestVersion || '—'} 업데이트가 있습니다.`, hasAsset ? '이 컴퓨터에 맞는 설치 파일을 앱에서 안전하게 받을 수 있습니다.' : '릴리스는 확인했지만 맞는 설치 파일이 아직 준비되지 않았습니다.'],
+    downloading: ['↓', '다운로드 중', '업데이트 파일을 받고 있습니다.', '다운로드가 끝날 때까지 앱을 종료하지 마세요.'],
+    downloaded: ['✓', '설치 준비 완료', '업데이트 파일이 준비됐습니다.', '설치 파일을 열고 화면의 안내에 따라 업데이트를 마무리하세요.'],
+    error: ['!', '확인 실패', '업데이트를 확인하지 못했습니다.', '인터넷 연결을 확인한 뒤 다시 시도할 수 있습니다.'],
+    unsupported: ['—', '수동 업데이트', '이 운영체제는 수동 업데이트가 필요합니다.', 'GitHub 릴리스에서 최신 파일을 직접 확인하세요.'],
+  };
+  return labels[status] || labels.idle;
+}
+
+function renderUpdateSettings() {
+  const update = state.update || { status: 'idle', currentVersion: state.versions.app || '' };
+  const [glyph, label, title, text] = updatePresentation(update);
+  const available = ['available', 'downloading', 'downloaded'].includes(update.status);
+  const downloading = update.status === 'downloading';
+  const downloaded = update.status === 'downloaded';
+  const current = update.currentVersion || state.versions.app || '';
+  $('#sidebarAppVersion').textContent = current ? `v${current}` : 'v—';
+  $('#updatePanel').dataset.updateStatus = update.status || 'idle';
+  $('#currentVersion').textContent = current ? `v${current}` : 'v—';
+  $('#latestVersion').textContent = update.latestVersion ? `v${update.latestVersion}` : '확인 전';
+  $('#installationType').textContent = installationTypeLabel(update.installType);
+  $('#releasePublishedAt').textContent = update.publishedAt ? `${new Date(update.publishedAt).toLocaleDateString('ko-KR')} 공개` : '정식 릴리스 기준';
+  $('#runtimeVersions').textContent = `Electron ${state.versions.electron || '—'} · Node ${state.versions.node || '—'}`;
+  $('#updateStateGlyph').textContent = glyph;
+  $('#updateStateLabel').textContent = label;
+  $('#updateStateTitle').textContent = title;
+  $('#updateStateText').textContent = text;
+  $('#checkUpdateBtn').disabled = update.status === 'checking' || downloading;
+  $('#checkUpdateBtn').textContent = update.status === 'checking' ? '확인 중…' : '업데이트 확인';
+  const install = $('#installUpdateBtn');
+  install.classList.toggle('hidden', !(available && (update.asset || downloaded)));
+  install.disabled = downloading;
+  install.textContent = downloading ? '다운로드 중…' : (downloaded ? '설치 파일 열기' : '업데이트 파일 받기');
+  const progress = $('#updateProgress');
+  progress.classList.toggle('hidden', !downloading && !downloaded);
+  $('#updateProgressLabel').textContent = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
+  $('#updateProgressBar').style.width = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
+  $('.update-progress-track').setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, Number(update.progress || 0)))));
+  $('#updateProgressBytes').textContent = downloaded
+    ? `${formatBytes(update.totalBytes || update.downloadedBytes)} · 파일 검증 완료`
+    : `${formatBytes(update.downloadedBytes)} / ${update.totalBytes ? formatBytes(update.totalBytes) : '크기 확인 중'}`;
+  const error = $('#updateError');
+  error.classList.toggle('hidden', !update.error);
+  error.textContent = update.error || '';
+  const notes = $('#releaseNotes');
+  notes.classList.toggle('hidden', !update.latestVersion);
+  $('#releaseNotesText').textContent = update.notes && update.notes.trim() || '이 릴리스에 작성된 변경 사항이 없습니다.';
+  const notice = $('#updateNotice');
+  notice.classList.toggle('hidden', !available || state.view !== 'all');
+  $('#updateNoticeTitle').textContent = `새 버전 v${update.latestVersion || '—'}을 사용할 수 있습니다.`;
+  $('#updateNoticeText').textContent = downloaded ? '설치 파일 준비가 끝났습니다.' : '설정에서 업데이트 파일을 받을 수 있습니다.';
+  $('#navUpdateBadge').classList.toggle('hidden', !available);
+}
+
 function renderProviderOverview() {
   const summaries = state.snapshot && state.snapshot.summary && state.snapshot.summary.providers || state.providers;
-  $('#providerOverview').innerHTML = summaries.map(provider => `<article class="provider-overview-card" data-provider-card="${esc(provider.id)}" data-motion-key="provider:${esc(provider.id)}" data-motion-value="${provider.active || 0}:${provider.sessions || 0}:${provider.usage && provider.usage.total || 0}" style="${providerStyle(provider.id)}">
+  const sessions = state.snapshot && state.snapshot.sessions || [];
+  $('#providerOverview').innerHTML = summaries.map(provider => {
+    const rootCount = sessions.filter(session => session.provider === provider.id && !session.parentId).length;
+    return `<button type="button" class="provider-overview-card ${state.provider === provider.id ? 'selected' : ''}" data-provider-card="${esc(provider.id)}" data-motion-key="provider:${esc(provider.id)}" data-motion-value="${provider.active || 0}:${rootCount}:${provider.usage && provider.usage.total || 0}" style="${providerStyle(provider.id)}" aria-pressed="${state.provider === provider.id ? 'true' : 'false'}">
     <div class="poc-head">
       <span class="provider-mark">${esc(provider.mark)}</span>
       <div><strong>${esc(provider.label)}</strong><small>${esc(provider.company)}</small></div>
       <span class="poc-state ${provider.installed ? 'online' : ''}">${provider.installed ? '사용 가능' : '설치 필요'}</span>
     </div>
     <div class="poc-metrics">
-      <div><b>${provider.active || 0}</b><span>일하는 중</span></div>
-      <div><b>${provider.sessions || 0}</b><span>전체 작업</span></div>
+      <div><b>${provider.active || 0}</b><span>활동 AI</span></div>
+      <div><b>${rootCount}</b><span>메인 작업</span></div>
       <div><b>${compact(provider.usage && provider.usage.total)}</b><span>사용 토큰</span></div>
     </div>
-  </article>`).join('');
+  </button>`;
+  }).join('');
 }
 
 function filteredSessions() {
-  let sessions = [...(state.snapshot && state.snapshot.sessions || [])].filter(session => !session.parentId);
+  const allSessions = [...(state.snapshot && state.snapshot.sessions || [])];
+  let sessions = state.view === 'waiting' ? allSessions : allSessions.filter(session => !session.parentId);
   if (state.view === 'active') sessions = sessions.filter(session => session.status === 'running' || session.status === 'starting');
   if (state.view === 'waiting') sessions = sessions.filter(session => session.status === 'waiting');
   if (state.provider !== 'all') sessions = sessions.filter(session => session.provider === state.provider);
-  if (state.workspace !== 'all') sessions = sessions.filter(session => String(session.cwd || '').toLowerCase().startsWith(state.workspace.toLowerCase()));
+  sessions = sessions.filter(matchesWorkspaceFilter);
   const query = state.search.trim().toLowerCase();
   if (query) {
     sessions = sessions.filter(session => [session.title, session.model, session.cwd, session.agentName, ...(session.messages || []).slice(-12).map(item => item.text)].join(' ').toLowerCase().includes(query));
@@ -435,7 +696,7 @@ function filteredSessions() {
 function graphFilteredSessions() {
   let sessions = [...(state.snapshot && state.snapshot.sessions || [])];
   if (state.provider !== 'all') sessions = sessions.filter(session => session.provider === state.provider);
-  if (state.workspace !== 'all') sessions = sessions.filter(session => String(session.cwd || '').toLowerCase().startsWith(state.workspace.toLowerCase()));
+  sessions = sessions.filter(matchesWorkspaceFilter);
   const query = state.search.trim().toLowerCase();
   if (query) sessions = sessions.filter(session => [session.title, session.model, session.cwd, session.agentName, session.agentRole, ...(session.messages || []).map(item => item.text)].join(' ').toLowerCase().includes(query));
   return sessions;
@@ -950,7 +1211,8 @@ function renderAgentMap(sessions, motionKind = 'refresh') {
   } else {
     const tmuxEntries = liveTmuxEntries();
     const standardRoots = roots.filter(root => agentExecutionMode(root).kind !== 'tmux');
-    $('#liveSessionGrid').innerHTML = runtimeSeparatedOverview(roots, model);
+    const activeCount = model.nodes.filter(isLiveSession).length + tmuxEntries.filter(entry => !entry.agent.linkedSessionId).length;
+    $('#liveSessionGrid').innerHTML = `<details class="runtime-disclosure" ${state.view === 'active' ? 'open' : ''}><summary><span><b>${activeCount}개 AI가 작업 중입니다</b><small>일반 실행과 tmux의 세부 흐름은 필요할 때 펼쳐보세요.</small></span><em>상세 흐름 보기 <i aria-hidden="true">↓</i></em></summary>${runtimeSeparatedOverview(roots, model)}</details>`;
     $('#graphBreadcrumbs').innerHTML = `<span class="map-hint">일반 실행 <b>${standardRoots.length}</b>개 · TMUX AI <b>${tmuxEntries.length}</b>개 · <b>${model.nodes.filter(item => item.parentId).length}</b>개 도움 AI</span>`;
     $('#graphResetBtn').classList.add('hidden');
   }
@@ -1095,16 +1357,17 @@ function sessionCard(session, opts = {}) {
   const titlePreview = readablePreview(session.title, 96);
   const activityCopy = latestWorkCopy(session) || session.statusDetail || '새 이벤트 대기';
   const activityPreview = readablePreview(activityCopy, 116);
-  return `<article class="session-card ${opts.live ? 'live-card' : ''} ${statusClass(session.status)} ${session.parentId ? 'subagent' : ''}" data-session-id="${esc(session.id)}" data-motion-key="session:${esc(session.id)}" data-motion-value="${esc(session.updatedAt || '')}:${usage.total || 0}:${esc(session.status || '')}" style="${providerStyle(session.provider)}" role="button" tabindex="0" aria-label="${esc(session.title)} 작업 상세 보기">
+  const accessibleId = `session-${String(session.id || '').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+  return `<article class="session-card ${opts.live ? 'live-card' : ''} ${statusClass(session.status)} ${session.parentId ? 'subagent' : ''}" data-session-id="${esc(session.id)}" data-motion-key="session:${esc(session.id)}" data-motion-value="${esc(session.updatedAt || '')}:${usage.total || 0}:${esc(session.status || '')}" style="${providerStyle(session.provider)}" role="button" tabindex="0" aria-labelledby="${accessibleId}-title" aria-describedby="${accessibleId}-summary">
     <div class="card-head">
       <span class="provider-mark">${esc(provider.mark)}</span>
       <div class="card-head-main"><div class="card-provider-line"><b>${esc(provider.label)}</b><span>${esc(provider.company)}</span></div></div>
       ${executionModeBadge(session, true)}
       <span class="status-pill ${statusClass(session.status)}">${esc(STATUS[session.status] || session.status)}</span>
     </div>
-    <h3 class="card-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</h3>
-    <div class="card-subtitle"><span>${esc(model)}</span><i></i><span title="${esc(session.cwd)}">${esc(session.workspace || '작업 폴더 미상')}</span>${session.agentName ? `<i></i><span>${esc(session.agentName)}</span>` : ''}</div>
-    <div class="now-strip ${running ? 'is-live' : ''}">
+    <h3 id="${accessibleId}-title" class="card-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</h3>
+    <div class="card-subtitle"><span>${esc(model)}</span><i></i><span title="${esc(isProjectlessSession(session) ? '특정 프로젝트에 연결되지 않은 세션' : session.cwd)}">${esc(sessionWorkspaceLabel(session))}</span>${session.agentName ? `<i></i><span>${esc(session.agentName)}</span>` : ''}</div>
+    <div id="${accessibleId}-summary" class="now-strip ${running ? 'is-live' : ''}">
       <span class="now-strip-icon">${statusIcon(activity.type)}</span>
       <div><b>${running ? '지금: ' : ''}${esc(activity.title)}</b><span title="${esc(activityPreview.full)}">${esc(activityPreview.text)}</span></div>
       ${running ? '<span class="activity-wave"><i></i><i></i><i></i><i></i><i></i></span>' : ''}
@@ -1128,14 +1391,28 @@ function sessionCard(session, opts = {}) {
 
 function renderSessions(motionKind = 'refresh', deferMotion = false) {
   const previousLayout = deferMotion ? null : captureMotionLayout();
+  syncViewChrome();
+  renderGuide();
   const tmuxView = state.view === 'tmux';
   const terminalView = state.view === 'terminal';
+  const settingsView = state.view === 'settings';
   $('#terminalSection').classList.toggle('hidden', !terminalView);
   $('#tmuxSection').classList.toggle('hidden', !tmuxView);
-  $('#globalStats').classList.toggle('hidden', tmuxView || terminalView);
-  $('#providerOverview').classList.toggle('hidden', tmuxView || terminalView);
-  $('#sessionSection').classList.toggle('hidden', tmuxView || terminalView);
-  $('#beginnerGuide').classList.toggle('hidden', tmuxView || terminalView || Boolean(state.graphFocusId));
+  $('#settingsSection').classList.toggle('hidden', !settingsView);
+  $('#globalStats').classList.toggle('hidden', tmuxView || terminalView || settingsView);
+  $('#providerOverview').classList.toggle('hidden', tmuxView || terminalView || settingsView);
+  $('#sessionSection').classList.toggle('hidden', tmuxView || terminalView || settingsView);
+  const guideVisible = state.view === 'all' && state.guideExpanded && !state.graphFocusId;
+  $('#beginnerGuide').classList.toggle('hidden', !guideVisible);
+  $('#guideBtn').setAttribute('aria-expanded', guideVisible ? 'true' : 'false');
+  renderUpdateSettings();
+  if (settingsView) {
+    $('#liveSection').classList.add('hidden');
+    if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
+    if (!deferMotion) playMotionLayout(previousLayout, motionKind);
+    if (motionKind === 'view') animateVisibleSections();
+    return;
+  }
   if (terminalView) {
     $('#liveSection').classList.add('hidden');
     if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(state.snapshot, state.workspaces, 'general');
@@ -1164,6 +1441,17 @@ function renderSessions(motionKind = 'refresh', deferMotion = false) {
   $('#loadMoreBtn').classList.toggle('hidden', regular.length <= state.visibleLimit);
   $('#loadMoreBtn').textContent = `작업 더 보기 · ${regular.length - state.visibleLimit}개 남음`;
   $('#emptyState').classList.toggle('hidden', graphLiveCount + regular.length !== 0);
+  if (graphLiveCount + regular.length === 0) {
+    const emptyCopy = state.search
+      ? ['검색 결과가 없습니다', '검색어를 지우거나 AI와 작업 폴더 필터를 바꿔보세요.']
+      : state.view === 'active'
+        ? ['현재 진행 중인 작업이 없습니다', '새 일을 맡기면 진행 상황이 이곳에 바로 표시됩니다.']
+        : state.view === 'waiting'
+          ? ['모두 확인했습니다', '지금은 내 답변이나 선택을 기다리는 작업이 없습니다.']
+          : ['아직 보여줄 작업이 없습니다', 'AI 준비 상태를 확인한 뒤 첫 작업을 시작해보세요.'];
+    $('#emptyState h3').textContent = emptyCopy[0];
+    $('#emptyState p').textContent = emptyCopy[1];
+  }
   if (!deferMotion) playMotionLayout(previousLayout, motionKind);
   if (motionKind === 'view') animateVisibleSections();
 }
@@ -1205,10 +1493,8 @@ async function resumeAgentTerminal(sessionId, sendDraft = false) {
   if (!support.supported) return toast(support.reason || '이 AI 세션은 터미널에서 다시 연결할 수 없습니다.');
   state.agentCommandSending.add(sessionId);
   try {
-    if ($('#detailDrawer').classList.contains('open')) closeDrawer();
-    state.view = 'terminal';
-    $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'terminal'));
-    renderSessions('view');
+    if ($('#detailDrawer').classList.contains('open')) closeDrawer(false);
+    selectView('terminal');
     const draft = state.agentCommandDrafts.get(sessionId) || '';
     await window.LoadToAgentTerminal.resumeForAgent(session, draft, sendDraft);
     if (sendDraft && draft.trim()) state.agentCommandDrafts.delete(sessionId);
@@ -1271,9 +1557,7 @@ async function openAgentTerminal(sessionId) {
   if (!session || !window.LoadToAgentTerminal) return toast('선택한 AI의 터미널 정보를 찾지 못했습니다.');
   const target = chosenAgentCommandTarget(session);
   if (!target) return toast(agentCommandTargets(session).length ? '열어볼 터미널을 먼저 선택하세요.' : '이 AI에 연결된 입력 가능한 터미널이 없습니다.');
-  state.view = target.kind === 'tmux' ? 'tmux' : 'terminal';
-  $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === state.view));
-  renderSessions('view');
+  selectView(target.kind === 'tmux' ? 'tmux' : 'terminal');
   try {
     await window.LoadToAgentTerminal.openForAgent(session, target.id, state.agentCommandDrafts.get(sessionId) || '');
     document.querySelector('.main-stage')?.scrollTo({ top: 0, behavior: 'auto' });
@@ -1329,6 +1613,8 @@ async function loadSessionDetail(id, force = false) {
 }
 
 function openDrawer(id) {
+  rememberDialogTrigger();
+  markGuideStep('detail');
   state.selectedId = id;
   state.drawerMode = 'session';
   state.drawerTab = 'chat';
@@ -1337,9 +1623,11 @@ function openDrawer(id) {
   $('#drawerBackdrop').classList.remove('hidden');
   $('#drawerBackdrop').classList.remove('closing');
   $('#detailDrawer').classList.add('open');
+  $('#detailDrawer').removeAttribute('inert');
   $('#detailDrawer').setAttribute('aria-hidden', 'false');
   renderDrawer();
   loadSessionDetail(id, true);
+  setTimeout(() => $('#closeDrawerBtn').focus(), 0);
 }
 
 async function loadSubagentParentDetail(child) {
@@ -1354,6 +1642,8 @@ async function loadSubagentParentDetail(child) {
 function openSubagentConversation(id) {
   const child = snapshotSession(id) || state.details.get(id);
   if (!child || !child.parentId) return openDrawer(id);
+  rememberDialogTrigger();
+  markGuideStep('detail');
   state.selectedId = id;
   state.drawerMode = 'subagent';
   state.drawerTab = 'chat';
@@ -1362,20 +1652,25 @@ function openSubagentConversation(id) {
   $('#drawerBackdrop').classList.remove('hidden');
   $('#drawerBackdrop').classList.remove('closing');
   $('#detailDrawer').classList.add('open');
+  $('#detailDrawer').removeAttribute('inert');
   $('#detailDrawer').setAttribute('aria-hidden', 'false');
   renderDrawer();
   loadSubagentParentDetail(child);
+  setTimeout(() => $('#closeDrawerBtn').focus(), 0);
 }
 
-function closeDrawer() {
+function closeDrawer(restoreFocus = true) {
   if (!$('#detailDrawer').classList.contains('open')) return;
   $('#detailDrawer').classList.remove('open');
   $('#detailDrawer').setAttribute('aria-hidden', 'true');
+  $('#detailDrawer').setAttribute('inert', '');
   $('#drawerBackdrop').classList.add('closing');
   clearTimeout(motionState.drawerTimer);
   motionState.drawerTimer = setTimeout(() => {
     $('#drawerBackdrop').classList.add('hidden');
     $('#drawerBackdrop').classList.remove('closing');
+    if (restoreFocus) restoreDialogTrigger();
+    else motionState.activeDialogTrigger = null;
   }, motionPreference.matches ? 0 : 260);
 }
 
@@ -1442,6 +1737,12 @@ function subagentTextPreview(value, maxCharacters = 360) {
   return { text: `${text.slice(0, maxCharacters).trimEnd()}…`, truncated: true };
 }
 
+function protectedSubagentEventText(event, taskName) {
+  if (event.kind === 'followup') return '보호된 추가 작업 지시를 전달했습니다.';
+  if (event.kind === 'message') return '보호된 메시지를 전달했습니다.';
+  return `${taskName || '이 작업'}을 서브에이전트에게 배정했습니다.`;
+}
+
 function subagentConversationHtml(session) {
   const events = subagentCommunicationEvents(session);
   const taskName = session.taskName || session.delegation && session.delegation.taskName || session.title;
@@ -1461,9 +1762,9 @@ function subagentConversationHtml(session) {
     const label = runtime ? '실행 상태' : (event.fromChild ? `서브 AI · ${session.agentName || taskName}` : '메인 AI');
     const avatar = runtime ? '↗' : (event.fromChild ? provider.mark : 'M');
     const route = runtime ? '런타임 → 서브 AI' : (event.fromChild ? '서브 AI → 메인 AI' : '메인 AI → 서브 AI');
-    const text = event.text || (event.protected
-      ? `${taskName || '이 작업'}을 서브에이전트에게 배정했습니다.`
-      : (runtime ? '서브에이전트 실행이 시작되었습니다.' : '내용 없이 통신 상태만 기록되었습니다.'));
+    const text = event.protected
+      ? protectedSubagentEventText(event, taskName)
+      : (event.text || (runtime ? '서브에이전트 실행이 시작되었습니다.' : '내용 없이 통신 상태만 기록되었습니다.'));
     const preview = subagentTextPreview(text);
     const eventLabel = `${event.label || event.kind}${event.assignmentSource === 'parent-narration' ? ' · 작업 시작 직전 메인 AI 설명' : ''}`;
     return `<div class="chat-row ${role} subagent-dialog-row" data-subagent-communication="${esc(event.kind)}">
@@ -1494,7 +1795,7 @@ function renderDrawer() {
   const communicationCount = subagentMode ? subagentCommunicationEvents(session).length : 0;
   $('#drawerMeta').innerHTML = subagentMode
     ? `<span class="meta-chip work-state ${subagentWorkState(session)}"><b>${esc(subagentWorkLabel(session))}</b></span><span class="meta-chip">사용 모델 <b>${esc(session.model || '정보 없음')}</b></span><span class="meta-chip">메인과 소통 <b>${communicationCount}건</b></span>${resume}`
-    : `<span class="meta-chip">사용 모델 <b>${esc(session.model || '정보 없음')}</b></span><span class="meta-chip">작업 폴더 <b title="${esc(session.cwd)}">${esc(session.workspace || session.cwd || '알 수 없음')}</b></span><span class="meta-chip">작업 번호 <b>${esc(String(session.externalId || '').slice(0, 12) || '정보 없음')}</b></span>${session.parentId ? '<span class="meta-chip">⑂ <b>도움을 맡은 AI</b></span>' : ''}${runtime.length ? `<span class="meta-chip runtime-meta">● <b>실행 중인 프로그램 ${runtime.length}개</b></span>` : ''}${resume}${stop}`;
+    : `<span class="meta-chip">사용 모델 <b>${esc(session.model || '정보 없음')}</b></span><span class="meta-chip">작업 폴더 <b title="${esc(isProjectlessSession(session) ? '특정 프로젝트에 연결되지 않은 세션' : session.cwd)}">${esc(sessionWorkspaceLabel(session))}</b></span><span class="meta-chip">작업 번호 <b>${esc(String(session.externalId || '').slice(0, 12) || '정보 없음')}</b></span>${session.parentId ? '<span class="meta-chip">⑂ <b>도움을 맡은 AI</b></span>' : ''}${runtime.length ? `<span class="meta-chip runtime-meta">● <b>실행 중인 프로그램 ${runtime.length}개</b></span>` : ''}${resume}${stop}`;
   $$('.drawer-tab').forEach(tab => {
     const hidden = subagentMode && tab.dataset.tab !== 'chat';
     tab.classList.toggle('hidden', hidden);
@@ -1504,12 +1805,17 @@ function renderDrawer() {
     tab.setAttribute('aria-selected', active ? 'true' : 'false');
     tab.tabIndex = active ? 0 : -1;
   });
+  const activeTab = $(`.drawer-tab[data-tab="${state.drawerTab}"]`);
+  if (activeTab) $('#drawerContent').setAttribute('aria-labelledby', activeTab.id);
   const content = $('#drawerContent');
   const previousTop = content.scrollTop;
   const wasNearBottom = content.scrollHeight - content.scrollTop - content.clientHeight < 90;
   const renderKey = `${state.drawerMode}:${state.selectedId}:${state.drawerTab}:${detailLoading ? 'loading' : 'ready'}`;
-  const shouldAnimateContent = motionState.drawerRenderKey !== renderKey;
+  const previousRenderKey = motionState.drawerRenderKey;
+  const shouldAnimateContent = previousRenderKey !== renderKey;
+  const tabChanged = Boolean(motionState.drawerTab) && motionState.drawerTab !== state.drawerTab;
   motionState.drawerRenderKey = renderKey;
+  motionState.drawerTab = state.drawerTab;
   const detailError = state.detailErrors.get(state.selectedId);
   content.innerHTML = detailLoading
     ? '<div class="drawer-loading"><span></span><b>전체 작업 기록을 불러오는 중</b><small>잠시만 기다리면 대화와 진행 과정을 볼 수 있어요.</small></div>'
@@ -1528,6 +1834,7 @@ function renderDrawer() {
         content.scrollTop = Math.max(0, content.scrollTop + latest.getBoundingClientRect().top - contentTop - stickyHeight - 12);
       } else content.scrollTop = content.scrollHeight;
     }
+    else if (tabChanged) content.scrollTop = 0;
     else if (state.drawerTab === 'chat' && wasNearBottom) content.scrollTop = content.scrollHeight;
     else content.scrollTop = Math.min(previousTop, Math.max(0, content.scrollHeight - content.clientHeight));
     state.drawerForceLatest = false;
@@ -1538,8 +1845,15 @@ function providerPickerHtml() {
   return state.providers.map(provider => {
     const installed = !!state.availability[provider.id];
     const selected = state.runProvider === provider.id;
-    return `<button type="button" class="run-provider-option ${selected ? 'selected' : ''}" data-run-provider="${esc(provider.id)}" style="${providerStyle(provider.id)}" aria-pressed="${selected ? 'true' : 'false'}" ${installed ? '' : 'disabled'}><span class="provider-mini-mark">${esc(provider.mark)}</span><span class="run-provider-copy"><b>${esc(provider.label)}</b><small>${esc(installed ? provider.company : '설치 필요')}</small></span><span class="run-provider-check" aria-hidden="true">✓</span></button>`;
+    return `<button type="button" class="run-provider-option ${selected ? 'selected' : ''}" data-run-provider="${esc(provider.id)}" style="${providerStyle(provider.id)}" aria-pressed="${selected ? 'true' : 'false'}" ${installed ? '' : 'disabled'}><span class="provider-mini-mark">${esc(provider.mark)}</span><span class="run-provider-copy"><b>${esc(provider.label)}</b><small>${esc(installed ? `${provider.company} · CLI 발견됨` : '설치 필요')}</small></span><span class="run-provider-check" aria-hidden="true">✓</span></button>`;
   }).join('');
+}
+
+function runProviderHelpHtml() {
+  const available = state.providers.filter(provider => state.availability[provider.id]);
+  if (available.length) return '';
+  const docs = state.providers.map(provider => `<button type="button" data-provider-docs="${esc(provider.id)}"><span class="provider-mini-mark" style="${providerStyle(provider.id)}">${esc(provider.mark)}</span><span><b>${esc(provider.label)} 설치 안내</b><small>공식 문서에서 CLI 설치와 로그인을 확인하세요.</small></span><i aria-hidden="true">↗</i></button>`).join('');
+  return `<div class="run-provider-help-copy"><b>먼저 AI CLI 한 개를 준비해 주세요</b><p>1. 아래 공식 설치 안내 열기 → 2. 터미널에서 로그인 → 3. 설치 확인을 누르면 됩니다.</p></div><div class="run-provider-docs">${docs}</div><button type="button" class="provider-recheck" data-provider-recheck>↻ 설치 상태 다시 확인</button>`;
 }
 
 function runWorkspaceSuggestionsHtml() {
@@ -1557,7 +1871,20 @@ function syncRunComposer() {
   if (prompt && count) count.textContent = `${prompt.value.length.toLocaleString('ko-KR')} / 8,000`;
   const submitLabel = $('#runSubmitLabel');
   const submit = $('#runForm button[type="submit"]');
-  if (submitLabel && submit && !submit.disabled) submitLabel.textContent = `${providerInfo(state.runProvider).label}에게 맡기기`;
+  const hasProvider = Boolean(state.availability[state.runProvider]);
+  const providerHelp = $('#runProviderHelp');
+  if (providerHelp) {
+    providerHelp.innerHTML = runProviderHelpHtml();
+    providerHelp.classList.toggle('hidden', state.providers.some(provider => state.availability[provider.id]));
+  }
+  if (submit) submit.disabled = submit.dataset.submitting === 'true' || !hasProvider;
+  if (submitLabel && submit.dataset.submitting !== 'true') submitLabel.textContent = hasProvider ? `${providerInfo(state.runProvider).label}에게 맡기기` : 'AI 설치가 필요합니다';
+  const writeIntent = /(고치|수정|추가|구현|변경|삭제|작성|리팩터|fix|implement|update|edit|refactor)/i.test(prompt && prompt.value || '');
+  const permissionHint = $('#runPermissionHint');
+  const permissionNeeded = writeIntent && !$('#allowWrites').checked;
+  permissionHint.classList.toggle('hidden', !permissionNeeded);
+  if (permissionNeeded) $('#allowWrites').setAttribute('aria-describedby', 'runPermissionHint');
+  else $('#allowWrites').removeAttribute('aria-describedby');
   const suggestions = $('#runWorkspaceSuggestions');
   if (suggestions) suggestions.innerHTML = runWorkspaceSuggestionsHtml();
 }
@@ -1565,13 +1892,15 @@ function syncRunComposer() {
 function setRunSubmitting(submitting) {
   const submit = $('#runForm button[type="submit"]');
   if (!submit) return;
-  submit.disabled = submitting;
+  submit.dataset.submitting = submitting ? 'true' : 'false';
+  submit.disabled = submitting || !state.availability[state.runProvider];
   submit.setAttribute('aria-busy', submitting ? 'true' : 'false');
   const label = $('#runSubmitLabel');
   if (label) label.textContent = submitting ? 'AI 작업을 준비하는 중…' : `${providerInfo(state.runProvider).label}에게 맡기기`;
 }
 
 function openRunModal() {
+  rememberDialogTrigger();
   const installed = state.providers.find(provider => state.availability[provider.id]);
   if (!state.availability[state.runProvider] && installed) state.runProvider = installed.id;
   $('#runProviderPicker').innerHTML = providerPickerHtml();
@@ -1594,6 +1923,7 @@ function closeRunModal() {
   motionState.modalTimer = setTimeout(() => {
     modal.classList.add('hidden');
     modal.classList.remove('closing');
+    restoreDialogTrigger();
   }, motionPreference.matches ? 0 : 220);
 }
 
@@ -1613,6 +1943,11 @@ function toast(message) {
 
 async function handleRun(event) {
   event.preventDefault();
+  if (!state.availability[state.runProvider]) {
+    $('#runError').textContent = '준비된 AI CLI가 없습니다. 공식 설치 안내를 따라 설치·로그인한 뒤 다시 확인해 주세요.';
+    $('#runError').classList.remove('hidden');
+    return;
+  }
   setRunSubmitting(true);
   $('#runError').classList.add('hidden');
   try {
@@ -1624,10 +1959,11 @@ async function handleRun(event) {
       allowWrites: $('#allowWrites').checked,
     });
     if (!result.ok) throw new Error(result.error || '실행을 시작하지 못했습니다.');
+    markGuideStep('create');
     closeRunModal();
     $('#runPrompt').value = '';
     syncRunComposer();
-    toast(`${providerInfo(state.runProvider).label} 작업을 시작했습니다.`);
+    toast(`${providerInfo(state.runProvider).label} 작업을 시작했습니다. ‘진행 중’ 화면에서 상태를 확인하세요.`);
   } catch (error) {
     $('#runError').textContent = error.message;
     $('#runError').classList.remove('hidden');
@@ -1639,12 +1975,75 @@ async function handleRun(event) {
 function bindEvents() {
   $('.view-nav').addEventListener('click', event => {
     const button = event.target.closest('.nav-item');
-    if (!button) return;
-    state.view = button.dataset.view;
-    state.visibleLimit = 30;
-    $$('.nav-item').forEach(item => item.classList.toggle('active', item === button));
-    renderSessions('view');
-    document.querySelector('.main-stage')?.scrollTo({ top: 0, behavior: 'auto' });
+    if (!button || !button.dataset.view) return;
+    selectView(button.dataset.view);
+  });
+  $('#updateNoticeBtn').addEventListener('click', () => {
+    selectView('settings');
+  });
+  $('#guideBtn').addEventListener('click', () => {
+    state.guideExpanded = !state.guideExpanded || state.view !== 'all';
+    saveGuideState();
+    if (state.view !== 'all') selectView('all');
+    else renderSessions('guide');
+    if (state.guideExpanded) setTimeout(() => $('#beginnerGuide').scrollIntoView({ behavior: motionPreference.matches ? 'auto' : 'smooth', block: 'start' }), 0);
+  });
+  $('#dismissGuideBtn').addEventListener('click', () => {
+    state.guideExpanded = false;
+    saveGuideState();
+    renderSessions('guide');
+    $('#guideBtn').focus();
+  });
+  $('#beginnerGuide').addEventListener('click', event => {
+    const action = event.target.closest('[data-guide-action]')?.dataset.guideAction;
+    if (!action) return;
+    if (action === 'create') return openRunModal();
+    if (action === 'active' || action === 'waiting') return selectView(action, { focusMain: true });
+    if (action === 'detail') {
+      const first = filteredSessions()[0] || (state.snapshot && state.snapshot.sessions || [])[0];
+      if (first) openDrawer(first.id);
+      else {
+        toast('아직 열어볼 작업이 없어요. 먼저 AI에게 첫 일을 맡겨보세요.');
+        openRunModal();
+      }
+    }
+  });
+  $('#mobileMoreBtn').addEventListener('click', () => {
+    const menu = $('#mobileToolsMenu');
+    const opening = menu.classList.contains('hidden');
+    menu.classList.toggle('hidden', !opening);
+    $('#mobileMoreBtn').setAttribute('aria-expanded', opening ? 'true' : 'false');
+    if (opening) setTimeout(() => menu.querySelector('button')?.focus(), 0);
+  });
+  $('#mobileToolsMenu').addEventListener('click', event => {
+    const button = event.target.closest('[data-mobile-view]');
+    if (button) selectView(button.dataset.mobileView, { focusMain: true });
+  });
+  $('#checkUpdateBtn').addEventListener('click', async () => {
+    try {
+      state.update = { ...(state.update || {}), status: 'checking', error: '' };
+      renderUpdateSettings();
+      state.update = await window.loadtoagent.checkForUpdate();
+      renderUpdateSettings();
+    } catch (error) {
+      toast(error && error.message || '업데이트를 확인하지 못했습니다.');
+    }
+  });
+  $('#installUpdateBtn').addEventListener('click', async () => {
+    try {
+      if (state.update && state.update.status === 'downloaded') {
+        await window.loadtoagent.openDownloadedUpdate();
+        toast('설치 파일을 열었습니다. 화면의 안내에 따라 업데이트를 마무리하세요.');
+      } else {
+        state.update = await window.loadtoagent.downloadUpdate();
+        renderUpdateSettings();
+      }
+    } catch (error) {
+      toast(error && error.message || '업데이트 파일을 준비하지 못했습니다.');
+    }
+  });
+  $('#openReleaseBtn').addEventListener('click', async () => {
+    try { await window.loadtoagent.openUpdateRelease(); } catch (error) { toast(error && error.message || 'GitHub 릴리스 페이지를 열지 못했습니다.'); }
   });
   $('#providerOverview').addEventListener('click', event => {
     const card = event.target.closest('[data-provider-card]');
@@ -1652,6 +2051,7 @@ function bindEvents() {
     state.provider = state.provider === card.dataset.providerCard ? 'all' : card.dataset.providerCard;
     state.visibleLimit = 30;
     $('#providerFilter').value = state.provider;
+    renderProviderOverview();
     renderSessions('filter');
   });
   $('#sessionGrid').addEventListener('click', event => {
@@ -1667,10 +2067,8 @@ function bindEvents() {
     const tmuxOverview = event.target.closest('.live-tmux-overview-open');
     if (tmuxPane || tmuxOverview) {
       event.stopPropagation();
-      state.view = 'tmux';
       if (tmuxPane) state.tmuxFocus = { type: 'pane', id: tmuxPane.dataset.tmuxId };
-      $$('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'tmux'));
-      renderSessions('view');
+      selectView('tmux');
       if (tmuxPane) window.LoadToAgentTerminal?.selectTmuxById(tmuxPane.dataset.tmuxId);
       return;
     }
@@ -1835,6 +2233,23 @@ function bindEvents() {
     $('#runProviderPicker').innerHTML = providerPickerHtml();
     syncRunComposer();
   });
+  $('#runProviderHelp').addEventListener('click', async event => {
+    const docs = event.target.closest('[data-provider-docs]');
+    if (docs) {
+      const provider = providerInfo(docs.dataset.providerDocs);
+      if (provider.docs) await window.loadtoagent.openExternal(provider.docs);
+      return;
+    }
+    if (event.target.closest('[data-provider-recheck]')) {
+      state.availability = await window.loadtoagent.probeProviders();
+      const installed = state.providers.find(provider => state.availability[provider.id]);
+      if (installed) state.runProvider = installed.id;
+      $('#runProviderPicker').innerHTML = providerPickerHtml();
+      renderProviderRail();
+      syncRunComposer();
+      toast(installed ? `${installed.label} CLI를 찾았습니다. 이제 작업을 시작할 수 있어요.` : '아직 설치된 AI CLI를 찾지 못했습니다. 설치와 로그인을 확인해 주세요.');
+    }
+  });
   $('#runPrompt').addEventListener('input', syncRunComposer);
   $('.run-prompt-examples').addEventListener('click', event => {
     const example = event.target.closest('[data-run-prompt-example]');
@@ -1853,6 +2268,7 @@ function bindEvents() {
     syncRunComposer();
   });
   $('#runCwd').addEventListener('input', syncRunComposer);
+  $('#allowWrites').addEventListener('change', syncRunComposer);
   $('#pickRunCwdBtn').addEventListener('click', async () => { const folder = await window.loadtoagent.pickWorkspace(); if (folder) { $('#runCwd').value = folder; syncRunComposer(); } });
   $('#runForm').addEventListener('keydown', event => {
     if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -1903,18 +2319,24 @@ function bindEvents() {
     }
   });
   document.addEventListener('keydown', event => {
+    trapDialogFocus(event);
     if (event.key.toLowerCase() === 'n' && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
       event.preventDefault();
       if ($('#runModal').classList.contains('hidden')) openRunModal();
       return;
     }
     if (event.key !== 'Escape') return;
-    if (!$('#runModal').classList.contains('hidden')) closeRunModal(); else closeDrawer();
+    if (!$('#mobileToolsMenu').classList.contains('hidden')) {
+      $('#mobileToolsMenu').classList.add('hidden');
+      $('#mobileMoreBtn').setAttribute('aria-expanded', 'false');
+      $('#mobileMoreBtn').focus();
+    } else if (!$('#runModal').classList.contains('hidden')) closeRunModal(); else closeDrawer();
   });
   window.addEventListener('resize', scheduleAgentWorkflowConnections);
 }
 
 async function init() {
+  loadGuideState();
   if (!window.loadtoagent) {
     $('#emptyState').classList.remove('hidden');
     $('#emptyState p').textContent = 'LoadToAgent 프로그램에서 열면 이 컴퓨터의 AI 작업 기록을 불러옵니다.';
@@ -1928,6 +2350,8 @@ async function init() {
   state.snapshot = bootstrap.snapshot;
   state.activeRuns = bootstrap.activeRuns || [];
   state.platform = bootstrap.platform || state.platform;
+  state.versions = bootstrap.versions || {};
+  state.update = bootstrap.update || { status: 'idle', currentVersion: state.versions.app || '' };
   $('#providerFilter').innerHTML = '<option value="all">모든 AI</option>' + state.providers.map(provider => `<option value="${esc(provider.id)}">${esc(provider.label)}</option>`).join('');
   bindEvents();
   render();
@@ -1942,6 +2366,10 @@ async function init() {
       const detail = state.details.get(state.selectedId);
       if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
     }
+  });
+  if (window.loadtoagent.onUpdateState) window.loadtoagent.onUpdateState(update => {
+    state.update = update;
+    renderUpdateSettings();
   });
 }
 
