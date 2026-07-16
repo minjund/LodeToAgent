@@ -51,7 +51,7 @@
     "test:interaction": "electron scripts/interaction-check.js",
     "demo:readme": "electron scripts/readme-demo.js",
     "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
+    "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "pack": "electron-builder --dir",
     "prepublishOnly": "npm test"
