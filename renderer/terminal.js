@@ -2,6 +2,7 @@
 
 (() => {
   const { $, esc, uiLocale, providerLabel, reportRecoverableError } = window.LoadToAgentRendererUtils;
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
 
   function loadSessionOrder() {
@@ -46,15 +47,20 @@
     sessionOrder: loadSessionOrder(),
     draggedSessionId: '',
     sessionDragJustEnded: false,
-    platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows 명령창', nativeTmux: false },
+    platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows Terminal', nativeTmux: false },
   };
 
-  const STATUS_LABELS = {
-    starting: window.LoadToAgentI18n.t("ui.preparing"),
-    running: '세션 유지 중',
-    exited: '끝남',
-    failed: '열지 못함',
-  };
+  const STATUS_LABELS = {};
+
+  function refreshStatusLabels() {
+    Object.assign(STATUS_LABELS, {
+      starting: t('ui.preparing'),
+      running: t('terminal.status.running'),
+      exited: t('terminal.status.exited'),
+      failed: t('terminal.status.failed'),
+    });
+  }
+  refreshStatusLabels();
 
   function notice(message, tone = '') {
     const element = $('#terminalNotice');
@@ -64,7 +70,7 @@
   }
 
   function errorMessage(error) {
-    return error && error.message ? error.message : String(error || '알 수 없는 오류');
+    return window.LoadToAgentI18n.errorText(error, 'terminal.error.unknown');
   }
 
   function persistSessionOrder() {
@@ -134,12 +140,12 @@
   }
 
   function resumeSupport(agentSession) {
-    if (!agentSession) return { supported: false, reason: '세션 정보가 없습니다.' };
+    if (!agentSession) return { supported: false, reason: t('terminal.resume.no_session_info') };
     const sessionId = String(agentSession.externalId || '').trim();
-    if (!sessionId) return { supported: false, reason: '재개에 필요한 세션 ID가 기록되지 않았습니다.' };
+    if (!sessionId) return { supported: false, reason: t('terminal.resume.no_session_id') };
     const provider = String(agentSession.provider || '').toLowerCase();
     if (!['codex', 'claude', 'gemini'].includes(provider)) {
-      return { supported: false, reason: `${providerLabel(provider)} CLI의 세션 ID 재개 방식이 공식 문서에서 확인되지 않았습니다.` };
+      return { supported: false, reason: t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }) };
     }
     const args = provider === 'codex' ? ['resume', sessionId] : ['--resume', sessionId];
     return { supported: true, provider, sessionId, args };
@@ -153,13 +159,13 @@
   }
 
   function terminalTypeLabel(session) {
-    if (!session) return '터미널';
+    if (!session) return t('terminal.type.terminal');
     if (session.type === 'wsl') return session.distro || 'Linux';
     if (session.type === 'agent') return providerLabel(session.provider);
     if (session.type === 'powershell') return 'PowerShell';
-    if (session.type === 'cmd') return '명령 프롬프트';
+    if (session.type === 'cmd') return t('terminal.type.command_prompt');
     if (session.type === 'shell') return session.shell || 'Shell';
-    return String(session.type || '터미널').toUpperCase();
+    return String(session.type || t('terminal.type.terminal')).toUpperCase();
   }
 
   function terminalTypeMark(session) {
@@ -212,14 +218,14 @@
     if (toggle) {
       toggle.setAttribute('aria-expanded', state.historyCollapsed ? 'false' : 'true');
       toggle.textContent = state.historyCollapsed ? '›' : '‹';
-      toggle.title = state.historyCollapsed ? '대화 영역 펼치기' : window.LoadToAgentI18n.t("ui.collapse_conversation_panel");
+      toggle.title = state.historyCollapsed ? t('terminal.history.expand') : t('ui.collapse_conversation_panel');
     }
     if (!agent) return;
     const allMessages = Array.isArray(agent.messages) ? agent.messages.filter(message => message && message.text) : [];
     const messages = allMessages.filter(message => message.role === 'user' || message.role === 'assistant');
     const activityCount = allMessages.length - messages.length;
     const shown = messages.slice(-80);
-    $('#terminalHistoryTitle').textContent = agent.title || `${providerLabel(agent.provider)} 세션`;
+    $('#terminalHistoryTitle').textContent = agent.title || t('terminal.history.provider_session', { provider: providerLabel(agent.provider) });
     $('#terminalHistoryMeta').textContent = [
       providerLabel(agent.provider),
       window.LoadToAgentI18n.t('session.messages', { count: messages.length }),
@@ -230,9 +236,9 @@
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 90;
     list.innerHTML = shown.length ? shown.map(message => {
       const role = message.role === 'assistant' ? 'assistant' : (message.role === 'tool' ? 'tool' : (message.role === 'system' ? 'system' : 'user'));
-      const label = role === 'assistant' ? providerLabel(agent.provider) : (role === 'tool' ? (message.title || '도구') : (role === 'system' ? '시스템' : '나'));
+      const label = role === 'assistant' ? providerLabel(agent.provider) : (role === 'tool' ? (message.title || t('terminal.history.tool')) : (role === 'system' ? t('terminal.history.system') : t('terminal.history.me')));
       return `<article class="terminal-history-message ${role}"><header><b>${esc(label)}</b><time>${esc(timeLabel(message.timestamp))}</time></header>${historyMessageHtml(message.text)}</article>`;
-    }).join('') : '<div class="terminal-history-empty"><b>아직 표시할 대화가 없습니다</b><span>터미널 출력은 오른쪽에 그대로 유지됩니다.</span></div>';
+    }).join('') : `<div class="terminal-history-empty"><b>${t('terminal.history.empty_title')}</b><span>${t('terminal.history.empty_description')}</span></div>`;
     if (forceBottom || nearBottom) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
   }
 
@@ -323,14 +329,14 @@
   function configurePlatform() {
     const localButton = $('#newPowerShellBtn');
     const linuxButton = $('#newWslBtn');
-    if (localButton) localButton.textContent = `＋ ${state.platform.localShellLabel.replace('명령창', '세션')}`;
+    if (localButton) localButton.textContent = t('terminal.new_local_session', { platform: state.platform.label });
     if (linuxButton) linuxButton.classList.toggle('hidden', state.platform.id !== 'win32');
     const explain = $('#terminalPlatformExplain');
     if (explain) explain.textContent = state.platform.id === 'win32'
-      ? '기존 Windows·WSL 터미널 세션을 유지한 채 같은 화면에서 계속 입력합니다. AI 카드에서 열면 이전 대화도 함께 표시됩니다.'
-      : `기존 ${state.platform.label} 터미널 세션을 유지한 채 계속 입력합니다. AI 카드에서 열면 이전 대화도 함께 표시됩니다.`;
+      ? t('terminal.platform.windows_description')
+      : t('terminal.platform.description', { platform: state.platform.label });
     const environmentLabel = $('#tmuxEnvironmentLabel');
-    if (environmentLabel) environmentLabel.textContent = state.platform.nativeTmux ? '로컬 tmux 환경' : 'WSL 환경';
+    if (environmentLabel) environmentLabel.textContent = state.platform.nativeTmux ? t('terminal.environment.local_tmux') : t('terminal.environment.wsl');
   }
 
   function xtermOptions(readOnly = false) {
@@ -500,9 +506,10 @@
     scrollTmuxToLine,
   };
   window.addEventListener('loadtoagent:locale-changed', () => {
+    refreshStatusLabels();
     if (!state.initialized) return;
     configurePlatform();
     renderAll();
   });
-  init().catch(error => notice(`명령창 준비 실패: ${errorMessage(error)}`, 'error'));
+  init().catch(error => notice(t('terminal.error.initialization_failed', { message: errorMessage(error) }), 'error'));
 })();

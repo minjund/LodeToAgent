@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   publish-npm:
+    if: ${{ vars.PUBLISH_NPM == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

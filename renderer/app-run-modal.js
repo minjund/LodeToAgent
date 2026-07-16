@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createRunModal = function createRunModal(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $,
     esc,
@@ -32,7 +33,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         <span class="provider-mini-mark">${esc(provider.mark)}</span>
         <span class="run-provider-copy">
         <b>${esc(provider.label)}</b>
-        <small>${esc(installed ? `${provider.company} · CLI 발견됨` : window.LoadToAgentI18n.t("ui.setup_required"))}</small>
+        <small>${esc(installed ? t("run.cli_found", { company: provider.company }) : t("ui.setup_required"))}</small>
         </span>
         <span class="run-provider-check" aria-hidden="true">✓</span>
         </button>`;
@@ -42,8 +43,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
 
   function runProviderHelpHtml() {
     if (!visibleProviders().length) return `<div class="run-provider-help-copy">
-      <b>${window.LoadToAgentI18n.t("settings.providers.all_hidden_title")}</b>
-      <p>${window.LoadToAgentI18n.t("settings.providers.all_hidden_description")}</p>
+      <b>${t("settings.providers.all_hidden_title")}</b>
+      <p>${t("settings.providers.all_hidden_description")}</p>
       </div>`;
     const available = visibleProviders().filter((provider) => state.availability[provider.id]);
     if (available.length) return "";
@@ -52,19 +53,19 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         (provider) => `<button type="button" data-provider-docs="${esc(provider.id)}">
       <span class="provider-mini-mark" style="${providerStyle(provider.id)}">${esc(provider.mark)}</span>
       <span>
-      <b>${esc(window.LoadToAgentI18n.t("provider.install_guide", { provider: provider.label }))}</b>
-      <small>공식 문서에서 CLI 설치와 로그인을 확인하세요.</small>
+      <b>${esc(t("provider.install_guide", { provider: provider.label }))}</b>
+      <small>${esc(t("run.check_official_docs"))}</small>
       </span>
       <i aria-hidden="true">↗</i>
       </button>`,
       )
       .join("");
     return `<div class="run-provider-help-copy">
-      <b>먼저 AI CLI 한 개를 준비해 주세요</b>
-      <p>1. 아래 공식 설치 안내 열기 → 2. 터미널에서 로그인 → 3. 설치 확인을 누르면 됩니다.</p>
+      <b>${esc(t("run.prepare_cli"))}</b>
+      <p>${esc(t("run.prepare_cli_steps"))}</p>
       </div>
       <div class="run-provider-docs">${docs}</div>
-      <button type="button" class="provider-recheck" data-provider-recheck>↻ 설치 상태 다시 확인</button>`;
+      <button type="button" class="provider-recheck" data-provider-recheck>↻ ${esc(t("run.recheck_installation"))}</button>`;
   }
 
   function runWorkspaceSuggestionsHtml() {
@@ -100,8 +101,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     if (submit) submit.disabled = submit.dataset.submitting === "true" || !hasProvider;
     if (submitLabel && submit.dataset.submitting !== "true")
       submitLabel.textContent = hasProvider
-        ? window.LoadToAgentI18n.t("provider.assign", { provider: providerInfo(state.runProvider).label })
-        : visibleProviders().length ? "AI 설치가 필요합니다" : window.LoadToAgentI18n.t("settings.providers.enable_to_run");
+        ? t("provider.assign", { provider: providerInfo(state.runProvider).label })
+        : visibleProviders().length ? t("run.ai_installation_required") : t("settings.providers.enable_to_run");
     const writeIntent = /(고치|수정|추가|구현|변경|삭제|작성|리팩터|fix|implement|update|edit|refactor)/i.test((prompt && prompt.value) || "");
     const permissionHint = $("#runPermissionHint");
     const permissionNeeded = writeIntent && !$("#allowWrites").checked;
@@ -120,8 +121,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     submit.setAttribute("aria-busy", submitting ? "true" : "false");
     const label = $("#runSubmitLabel");
     if (label) label.textContent = submitting
-      ? "AI 작업을 준비하는 중…"
-      : window.LoadToAgentI18n.t("provider.assign", { provider: providerInfo(state.runProvider).label });
+      ? t("run.preparing")
+      : t("provider.assign", { provider: providerInfo(state.runProvider).label });
   }
 
   function openRunModal() {
@@ -177,7 +178,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     try {
       return await action();
     } catch (error) {
-      toast((error && error.message) || failureMessage);
+      toast(window.LoadToAgentI18n.errorText(error, failureMessage));
       return null;
     }
   }
@@ -206,7 +207,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       syncRunComposer();
       toast(window.LoadToAgentI18n.t("provider.started", { provider: providerInfo(state.runProvider).label }));
     } catch (error) {
-      $("#runError").textContent = error.message;
+      $("#runError").textContent = window.LoadToAgentI18n.errorText(error, "ui.could_not_start_the_task");
       $("#runError").classList.remove("hidden");
     } finally {
       setRunSubmitting(false);

@@ -71,7 +71,7 @@ const ACTION_MANIFEST = [
   { selector: '[data-run-provider]', action: 'run:provider' },
   { selector: '[data-provider-docs]', action: 'run:provider-docs' },
   { selector: '[data-provider-recheck]', action: 'run:provider-recheck' },
-  { selector: '[data-run-prompt-example]', action: 'run:prompt-example' },
+  { selector: '[data-run-prompt-key]', action: 'run:prompt-example' },
   { selector: '[data-run-workspace]', action: 'run:workspace-suggestion' },
   { selector: '#tmuxCreateForm', action: 'tmux:modal-submit' },
   { selector: '#tmuxCreateDistro', action: 'tmux:modal-submit' },
@@ -237,15 +237,12 @@ async function exerciseUpdates(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.view === 'settings' && !document.querySelector('#settingsSection').classList.contains('hidden') && document.querySelector('#latestVersion').textContent === 'v1.1.0'`, '업데이트 알림이 설정 화면을 열지 못했습니다.');
   await clearCalls(win);
   await click(win, '#installUpdateBtn', 'update:download');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'downloadUpdate') && window.LoadToAgentApp.state.update.status === 'downloaded' && document.querySelector('#installUpdateBtn').textContent.includes('설치 파일 열기')`, '업데이트 파일 다운로드 완료 상태가 반영되지 않았습니다.');
-  await clearCalls(win);
-  await click(win, '#installUpdateBtn', 'update:open-installer');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'openDownloadedUpdate')`, '설치 파일 열기가 호출되지 않았습니다.');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'installDownloadedUpdate') && window.LoadToAgentApp.state.update.status === 'downloaded'`, '원클릭 업데이트 설치가 호출되지 않았습니다.');
   await clearCalls(win);
   await click(win, '#openReleaseBtn', 'update:release-open');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'openUpdateRelease')`, 'GitHub 릴리스 페이지 열기가 호출되지 않았습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
-  round.observed.update = { available: true, downloaded: true, installerOpened: true };
+  round.observed.update = { available: true, downloaded: true, automaticInstallStarted: true };
 }
 
 async function exerciseAttentionNotification(win, round) {
@@ -452,7 +449,7 @@ async function exerciseRunModal(win, round) {
       && !document.querySelector('#runForm button[type="submit"]').disabled`,
     'AI CLI 재확인이 설치 상태와 실행 가능 상태를 갱신하지 못했습니다.',
   );
-  await click(win, '[data-run-prompt-example]', 'run:prompt-example');
+  await click(win, '[data-run-prompt-key]', 'run:prompt-example');
   await waitFor(win, `document.querySelector('#runPrompt').value.length > 0 && document.querySelector('#runPromptCount').textContent !== '0 / 8,000'`, '빠른 요청 예시가 입력과 글자 수에 반영되지 않았습니다.');
   await click(win, '[data-run-workspace]', 'run:workspace-suggestion');
   await waitFor(win, `document.querySelector('[data-run-workspace]').classList.contains('selected') && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '최근 작업 폴더 선택이 입력에 반영되지 않았습니다.');

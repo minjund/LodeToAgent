@@ -30,6 +30,11 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     executionModeBadge,
     graphDescendantCount,
   } = context;
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const statusLabel = (status) => ({
+    starting: t("ui.preparing"), running: t("ui.working"), waiting: t("app.nav.needs_review"), idle: t("ui.idle"),
+    completed: t("ui.completed"), failed: t("ui.problem"), cancelled: t("ui.stopped"),
+  })[status] || STATUS[status] || status;
 
   function graphNode(session, options = {}) {
     const provider = providerInfo(session.provider);
@@ -52,31 +57,34 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const currentWork = latestWorkCopy(session);
     const currentPreview = readablePreview(currentWork, options.focus ? 132 : 108);
     const role = session.parentId
-      ? `도움 AI${session.agentName ? ` · ${session.agentName}` : ""}${session.agentRole ? ` / ${agentRoleLabel(session.agentRole)}` : ""}`
-      : "일을 맡은 AI";
+      ? t("graph.helper_ai_identity", {
+          name: session.agentName ? ` · ${session.agentName}` : "",
+          role: session.agentRole ? ` / ${agentRoleLabel(session.agentRole)}` : "",
+        })
+      : t("graph.assigned_ai");
     return `<article class="agent-node ${running ? "running" : ""} ${session.parentId ? "child-agent" : "root-agent"} ${options.focus ? "is-focus" : ""}"
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
-      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" aria-label="${esc(role)} 관계 중심으로 보기">
+      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.focus_relationships", { role }))}">
         <span class="agent-node-top">
           <span class="provider-mark">${esc(provider.mark)}</span>
-          <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)} · ${esc(session.model || "모델 정보 없음")}</small></span>
+          <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)} · ${esc(session.model || t("graph.model_unknown"))}</small></span>
           ${executionModeBadge(session, true)}
-          <span class="status-pill ${statusClass(session.status)}">${esc(STATUS[session.status] || session.status)}</span>
+          <span class="status-pill ${statusClass(session.status)}">${esc(statusLabel(session.status))}</span>
         </span>
         <span class="agent-task-label">
-          ${session.parentId ? `담당 작업${delegation.assignmentSource === "parent-narration" ? " · 메인 AI 설명 기반" : ""}` : "지금 목표"}
+          ${session.parentId ? t("graph.assigned_task", { source: delegation.assignmentSource === "parent-narration" ? t("graph.main_ai_explanation_suffix") : "" }) : t("graph.current_goal")}
         </span>
         <strong class="agent-task" title="${esc(goalPreview.full)}">${esc(goalPreview.text)}</strong>
-        ${goalPreview.truncated ? '<span class="agent-goal-note">요약 표시 · 전체 내용은 대화 상세에서 확인</span>' : ""}
+        ${goalPreview.truncated ? `<span class="agent-goal-note">${esc(t("graph.summary_shown"))}</span>` : ""}
         <span class="agent-current">
-          <span><i>${statusIcon(activity.type)}</i><b>지금 하는 일</b></span>
+          <span><i>${statusIcon(activity.type)}</i><b>${esc(t("graph.current_work"))}</b></span>
           <strong title="${esc(currentPreview.full)}">${esc(currentPreview.text)}</strong>
         </span>
         <span class="agent-node-metrics">
           <span>
-          <small>기억 공간 사용</small>
+          <small>${esc(t("graph.memory_usage"))}</small>
           <b>${context.window ? `${percent.toFixed(1)}%` : "--"}</b>
           </span>
           <span>
@@ -84,15 +92,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <b>${compact(usage.total)}</b>
           </span>
           <span>
-          <small>마지막 활동</small>
+          <small>${esc(t("graph.last_activity"))}</small>
           <b>${esc(timeAgo(session.updatedAt))}</b>
           </span>
           </span>
         <span class="agent-node-gauge"><i style="width:${percent}%"></i></span>
       </button>
       <footer class="agent-node-footer">
-        <span>${cumulativeChildren ? `서브에이전트 ${cumulativeChildren}개 누적 생성` : session.parentId ? "도움을 맡은 AI" : "이 작업의 중심 AI"}</span>
-        <button type="button" data-open-session="${esc(session.id)}">대화 내용 보기 <b>↗</b>
+        <span>${cumulativeChildren ? t("graph.subagents_created", { count: cumulativeChildren }) : session.parentId ? t("graph.helper_ai") : t("graph.central_ai")}</span>
+        <button type="button" data-open-session="${esc(session.id)}">${esc(t("graph.view_conversation"))} <b>↗</b>
         </button>
         </footer>
     </article>`;
@@ -102,7 +110,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const provider = providerInfo(session.provider);
     const usage = session.usage || {};
     const directChildren = graphChildren(session, model).length;
-    const identity = session.parentId ? `도움 AI ${session.agentName || agentRoleLabel(session.agentRole)}` : session.workspace || "중심 작업";
+    const identity = session.parentId ? t("graph.helper_ai_named", { name: session.agentName || agentRoleLabel(session.agentRole) }) : session.workspace || t("graph.central_task");
     const delegation = session.delegation || {};
     const taskName = delegation.taskName || session.taskName || "";
     const assignedWork = delegation.assignmentObserved && delegation.assignment ? delegation.assignment : taskName || session.title;
@@ -110,16 +118,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const outcome = delegation.result || session.result || "";
     const outcomeText = outcome || latestWorkCopy(session);
     const assignedWorkPreview = readablePreview(assignedWork, session.parentId ? 110 : 104);
-    const taskLabel = session.parentId ? `${label || agentRoleLabel(session.agentRole)}${taskName ? ` · 담당 ${taskName}` : ""}` : label;
+    const taskLabel = session.parentId ? `${label || agentRoleLabel(session.agentRole)}${taskName ? t("graph.assigned_name_suffix", { name: taskName }) : ""}` : label;
     const assignmentSourceNote =
       session.parentId && delegation.assignmentSource === "parent-narration"
-        ? '<span class="agent-flow-assignment-source">메인 AI가 작업 시작 직전에 설명한 내용</span>'
+        ? `<span class="agent-flow-assignment-source">${esc(t("graph.main_ai_prestart_explanation"))}</span>`
         : "";
     const sharedGoalCopy =
-      session.parentId && sharedGoal && sharedGoal !== assignedWork ? `<span class="agent-flow-shared">공유 목표 · ${esc(sharedGoal)}</span>` : "";
+      session.parentId && sharedGoal && sharedGoal !== assignedWork ? `<span class="agent-flow-shared">${esc(t("graph.shared_goal"))} · ${esc(sharedGoal)}</span>` : "";
     const outcomeCopy = session.parentId
       ? `<span class="agent-flow-outcome ${session.status === "completed" ? "done" : ""}">
-        <b>${session.status === "completed" ? "완료 결과" : "현재 작업"}</b>
+        <b>${esc(session.status === "completed" ? t("graph.completed_result") : t("graph.current_work"))}</b>
         <span class="agent-flow-outcome-copy" title="${esc(outcomeText)}">${esc(outcomeText)}</span>
         </span>`
       : "";
@@ -127,13 +135,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       const primaryTask = taskName || assignedWork || session.title;
       const assignmentCopy =
         assignedWork && assignedWork !== primaryTask
-          ? `<span class="agent-flow-assignment"><small>담당 내용</small><strong title="${esc(assignedWork)}">${esc(assignedWork)}</strong></span>`
+          ? `<span class="agent-flow-assignment"><small>${esc(t("graph.assignment_details"))}</small><strong title="${esc(assignedWork)}">${esc(assignedWork)}</strong></span>`
           : "";
       const workState = subagentWorkState(session);
       const interaction = directChildren
-        ? `data-graph-focus="${esc(session.id)}" aria-label="${esc(primaryTask)}의 하위 서브에이전트 흐름 보기"`
-        : `data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(primaryTask)}와 메인 AI의 대화 보기"`;
-      const action = directChildren ? `하위 서브에이전트 ${directChildren}개 보기 →` : "메인 AI와의 대화 보기 →";
+        ? `data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.view_child_flow", { task: primaryTask }))}"`
+        : `data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(t("graph.view_main_ai_conversation_for_task", { task: primaryTask }))}"`;
+      const action = directChildren ? t("graph.view_child_subagents", { count: directChildren }) : t("graph.view_main_ai_conversation");
       return `<button type="button" class="agent-flow-row child-session work-${workState} ${statusClass(session.status)}"
         ${interaction}
         data-motion-key="agent:${esc(session.id)}"
@@ -142,13 +150,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <span class="agent-flow-state" aria-hidden="true"></span>
         <span class="agent-flow-copy">
           <span class="agent-flow-kicker">
-            <small>${esc(label || agentRoleLabel(session.agentRole))} 세션</small>
+            <small>${esc(t("graph.named_session", { name: label || agentRoleLabel(session.agentRole) }))}</small>
             <time>${esc(timeAgo(session.updatedAt))}</time>
           </span>
           <b class="agent-flow-session-title" title="${esc(primaryTask)}">${esc(primaryTask)}</b>
           <span class="agent-flow-agent">
             <i>${esc(provider.mark)}</i>
-            <strong>${esc(session.agentName || "이름 미확인")}</strong>
+            <strong>${esc(session.agentName || t("graph.name_unknown"))}</strong>
             <small>${esc(provider.label)}${session.model ? ` · ${esc(session.model)}` : ""}</small>
             </span>
           ${assignmentCopy}${assignmentSourceNote}${outcomeCopy}<span class="agent-flow-child-action">${esc(action)}</span>
@@ -156,7 +164,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <span class="agent-flow-provider">
           ${executionModeBadge(session, true)}
           <small class="status-pill work-${workState}">${esc(subagentWorkLabel(session))}</small>
-          ${session.status === "completed" ? "<em>최근 작업 완료</em>" : ""}
+          ${session.status === "completed" ? `<em>${esc(t("graph.recent_work_completed"))}</em>` : ""}
         </span>
       </button>`;
     }
@@ -169,10 +177,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       <span class="agent-flow-copy">
         ${taskLabel ? `<small>${esc(taskLabel)}</small>` : ""}
         <b title="${esc(assignedWorkPreview.full)}">${esc(assignedWorkPreview.text)}</b>
-        <em>${esc(identity)} · ${directChildren ? `도움 AI ${directChildren}명 · ` : ""}${esc(timeAgo(session.updatedAt))}</em>
+        <em>${esc(identity)} · ${directChildren ? `${t("graph.helper_ai_count", { count: directChildren })} · ` : ""}${esc(timeAgo(session.updatedAt))}</em>
         ${assignmentSourceNote}${sharedGoalCopy}${outcomeCopy}
       </span>
-      <span class="agent-flow-provider"><i>${esc(provider.mark)}</i><small>${esc(STATUS[session.status] || session.status)}</small></span>
+      <span class="agent-flow-provider"><i>${esc(provider.mark)}</i><small>${esc(statusLabel(session.status))}</small></span>
     </button>`;
   }
 
@@ -186,15 +194,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return `<section class="agent-flow-lane" style="${providerStyle(providerId)}">
       <header class="agent-flow-lane-head">
         <span class="provider-mark">${esc(provider.mark)}</span>
-        <span><b>${esc(provider.label)}</b><small>${ordered.length}개 큰 일 · 참여 AI ${agents}명</small></span>
-        <em>${ordered.filter(isLiveSession).length}개 진행 중</em>
+        <span><b>${esc(provider.label)}</b><small>${esc(t("graph.major_tasks_and_agents", { tasks: ordered.length, agents }))}</small></span>
+        <em>${esc(t("graph.running_count", { count: ordered.filter(isLiveSession).length }))}</em>
       </header>
       <div class="agent-flow-list">${shown.map((root) => compactGraphNode(root, model)).join("")}</div>
       ${
         hidden
-          ? `<button type="button" class="agent-flow-more" data-graph-provider-more="${esc(providerId)}">나머지 ${hidden}개 일도 보기</button>`
+          ? `<button type="button" class="agent-flow-more" data-graph-provider-more="${esc(providerId)}">${esc(t("graph.show_remaining_tasks", { count: hidden }))}</button>`
           : expanded && ordered.length > 6
-            ? `<button type="button" class="agent-flow-more" data-graph-provider-less="${esc(providerId)}">간단히 보기</button>`
+            ? `<button type="button" class="agent-flow-more" data-graph-provider-less="${esc(providerId)}">${esc(t("graph.show_compact"))}</button>`
             : ""
       }
     </section>`;
@@ -229,15 +237,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const { distro, tmuxSession, window, pane, agent } = entry;
     const provider = providerInfo(agent.provider);
     const linked = agent.linkedSessionId ? (state.snapshot?.sessions || []).find((session) => session.id === agent.linkedSessionId) || null : null;
-    const title = linked ? linked.title : pane.title || `${provider.label} TMUX 작업`;
-    const stateLabel = pane.dead ? "종료됨" : pane.active ? "현재 선택된 칸" : "백그라운드 실행";
+    const title = linked ? linked.title : pane.title || t("graph.tmux_task", { provider: provider.label });
+    const stateLabel = pane.dead ? t("graph.ended") : pane.active ? t("graph.selected_pane") : t("graph.background_running");
     return `<article class="live-tmux-card ${pane.active ? "active" : ""} ${pane.dead ? "dead" : ""}"
       style="${providerStyle(agent.provider)}"
       data-motion-key="live-tmux:${esc(pane.id)}"
       data-motion-value="${esc(agent.updatedAt || "")}:${pane.pid || 0}">
-      <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}" aria-label="${esc(tmuxSession.name)} TMUX 칸 열기">
+      <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}" aria-label="${esc(t("graph.open_tmux_pane", { session: tmuxSession.name }))}">
         <span class="live-tmux-card-head">
-          <span class="live-tmux-symbol">▦</span><span><small>TMUX 세션</small><b>${esc(tmuxSession.name)}</b></span>
+          <span class="live-tmux-symbol">▦</span><span><small>${esc(t("graph.tmux_session"))}</small><b>${esc(tmuxSession.name)}</b></span>
           <em>${esc(stateLabel)}</em>
         </span>
         <strong class="live-tmux-title">${esc(title)}</strong>
@@ -248,17 +256,17 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <span class="live-tmux-location">
           <b>${esc(distro.name)}</b>
           <i>›</i>
-          <span>${esc(window.name || `창 ${window.index + 1}`)}</span>
+          <span>${esc(window.name || t("graph.window_number", { number: window.index + 1 }))}</span>
           <i>›</i>
-          <span>칸 ${pane.index + 1} · ${esc(pane.nativeId || pane.id)}</span>
+          <span>${esc(t("graph.pane_number", { number: pane.index + 1 }))} · ${esc(pane.nativeId || pane.id)}</span>
           </span>
-        <span class="live-tmux-cwd" title="${esc(pane.cwd || "")}">${esc(pane.cwd || "작업 폴더 미확인")}</span>
+        <span class="live-tmux-cwd" title="${esc(pane.cwd || "")}">${esc(pane.cwd || t("graph.workspace_unknown"))}</span>
       </button>
       <footer>
-        <span>${linked ? "대화 기록과 연결됨" : "TMUX 프로세스에서 직접 감지"}</span>
+        <span>${esc(linked ? t("graph.linked_to_conversation") : t("graph.detected_from_tmux"))}</span>
         <span>
-          ${linked ? `<button type="button" data-graph-focus="${esc(linked.id)}">AI 흐름 보기</button>` : ""}
-          <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}">TMUX에서 열기 →</button>
+          ${linked ? `<button type="button" data-graph-focus="${esc(linked.id)}">${esc(t("graph.view_ai_flow"))}</button>` : ""}
+          <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}">${esc(t("graph.open_in_tmux"))}</button>
         </span>
         </footer>
     </article>`;
@@ -279,33 +287,33 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const tmuxDisplayCount = tmuxEntries.length + fallbackTmuxRoots.length;
     const standardHtml = standardLanes.length
       ? `<div class="agent-flow-overview">${standardLanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}</div>`
-      : '<div class="runtime-segment-empty"><b>일반 실행 AI가 없습니다</b><span>현재 감지된 작업은 모두 TMUX에서 실행 중입니다.</span></div>';
-    const tmuxHtml =
-      tmuxEntries.length || fallbackTmuxLanes.length
-        ? `${tmuxEntries.length ? `<div class="live-tmux-grid">${tmuxEntries.map(liveTmuxPaneCard).join("")}</div>` : ""}
+      : `<div class="runtime-segment-empty"><b>${esc(t("graph.no_standard_ai"))}</b><span>${esc(t("graph.all_detected_in_tmux"))}</span></div>`;
+    const tmuxHtml = `${tmuxEntries.length ? `<div class="live-tmux-grid">${tmuxEntries.map(liveTmuxPaneCard).join("")}</div>` : ""}
           ${
             fallbackTmuxLanes.length
               ? `<div class="agent-flow-overview live-tmux-fallback">
                   ${fallbackTmuxLanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}
                 </div>`
               : ""
-          }`
-        : '<div class="runtime-segment-empty tmux"><b>TMUX에서 실행 중인 AI가 없습니다</b><span>TMUX AI 프로세스가 감지되면 일반 실행과 분리해 여기에 표시합니다.</span></div>';
-    return `<div class="agent-runtime-split" data-runtime-split="true">
-      <section class="runtime-segment tmux-runtime" data-runtime-segment="tmux">
+          }`;
+    const tmuxSection = tmuxDisplayCount
+      ? `<section class="runtime-segment tmux-runtime" data-runtime-segment="tmux">
         <header>
           <span class="runtime-segment-icon">▦</span>
-          <span><small>TMUX 전용</small><b>TMUX 세션</b><em>Linux 작업 묶음·창·분할 칸을 유지해서 실행 중인 AI</em></span>
-          <strong>${tmuxDisplayCount}개</strong>
-          <button type="button" class="live-tmux-overview-open">TMUX 전체 화면 →</button>
+          <span><small>${esc(t("graph.tmux_only"))}</small><b>${esc(t("graph.tmux_sessions"))}</b><em>${esc(t("graph.tmux_runtime_description"))}</em></span>
+          <strong>${esc(t("common.count", { count: tmuxDisplayCount }))}</strong>
+          <button type="button" class="live-tmux-overview-open">${esc(t("graph.open_tmux_overview"))}</button>
         </header>
         ${tmuxHtml}
-      </section>
+      </section>`
+      : "";
+    return `<div class="agent-runtime-split" data-runtime-split="true">
+      ${tmuxSection}
       <section class="runtime-segment standard-runtime" data-runtime-segment="standard">
         <header>
           <span class="runtime-segment-icon">›_</span>
-          <span><small>TMUX 미사용</small><b>일반 실행 세션</b><em>데스크톱 앱·외부 터미널에서 실행 중인 메인 AI</em></span>
-          <strong>${standardRoots.length}개</strong>
+          <span><small>${esc(t("graph.without_tmux"))}</small><b>${esc(t("graph.standard_sessions"))}</b><em>${esc(t("graph.standard_runtime_description"))}</em></span>
+          <strong>${esc(t("common.count", { count: standardRoots.length }))}</strong>
         </header>
         ${standardHtml}
       </section>
@@ -343,24 +351,24 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       .join("");
     const metrics = workflowMetrics(session, children);
     const capacity = metrics.simultaneousCapacity > 0 ? metrics.simultaneousCapacity : "--";
-    const retained = metrics.retainedCount == null ? "현재 목록 유지 수는 관측되지 않음" : `현재 런타임 목록에는 ${metrics.retainedCount}개 유지`;
-    const source = metrics.capacitySource === "runtime-instruction" ? "세션 런타임 한도" : "동시 한도 출처 미확인";
+    const retained = metrics.retainedCount == null ? t("graph.retained_count_unobserved") : t("graph.retained_count", { count: metrics.retainedCount });
+    const source = metrics.capacitySource === "runtime-instruction" ? t("graph.session_runtime_limit") : t("graph.capacity_source_unknown");
     return `<div class="agent-workflow-summary" data-collaboration-summary="true">
       <div class="workflow-metric-grid">
         <span data-collaboration-metric="created">
-          <small>이 작업에서 누적 생성</small><b>${esc(metrics.cumulativeCreated)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.created_in_task"))}</small><b>${esc(metrics.cumulativeCreated)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="capacity">
-          <small>동시에 유지 가능</small><b>${esc(capacity)}</b><em>${capacity === "--" ? "" : window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.simultaneous_capacity"))}</small><b>${esc(capacity)}</b><em>${capacity === "--" ? "" : window.LoadToAgentI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="running">
-          <small>현재 실행 중</small><b>${esc(metrics.currentlyRunning)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.currently_running"))}</small><b>${esc(metrics.currentlyRunning)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="completed">
-          <small>작업 완료 기록</small><b>${esc(metrics.completedRecords)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.completed_records"))}</small><b>${esc(metrics.completedRecords)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
         </span>
       </div>
-      <div class="workflow-summary-evidence"><span>${esc(retained)} · 완료 기록은 삭제하지 않고 기본으로 접어 보관</span><small>${esc(source)} · spawn/완료 이벤트 기준</small></div>
+      <div class="workflow-summary-evidence"><span>${esc(retained)} · ${esc(t("graph.completed_records_collapsed"))}</span><small>${esc(source)} · ${esc(t("graph.event_basis"))}</small></div>
       <div class="workflow-summary-providers">${providers}</div>
     </div>`;
   }
@@ -381,10 +389,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return `<div class="completed-subagent-disclosure ${expanded ? "expanded" : ""}" data-completed-subagent-section>
       <button type="button" data-subagent-completed-toggle="${esc(ownerId)}" aria-expanded="${expanded ? "true" : "false"}">
         <span class="completed-disclosure-icon">✓</span>
-        <span><b>완료된 서브에이전트 ${completed.length}개</b>
-          <small>${expanded ? "완료 기록을 펼쳐 보는 중" : "작업 중인 AI에 집중할 수 있도록 기본으로 접어둡니다"}</small>
+        <span><b>${esc(t("graph.completed_subagents", { count: completed.length }))}</b>
+          <small>${esc(expanded ? t("graph.completed_expanded") : t("graph.completed_collapsed_hint"))}</small>
         </span>
-        <i>${expanded ? "접기 ↑" : "펼쳐 보기 ↓"}</i>
+        <i>${esc(expanded ? t("graph.collapse") : t("graph.expand"))}</i>
       </button>
     </div>`;
   }
@@ -402,12 +410,12 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
 
   function communicationEndpoint(value, owner, model) {
     const path = String(value || "");
-    if (!path) return "대상 미상";
-    if (path === "Codex 런타임") return path;
-    if (path === "/root" || path === owner.agentPath || (!owner.agentPath && path === owner.id)) return "메인 AI";
+    if (!path) return t("graph.target_unknown");
+    if (path === "Codex 런타임") return t("graph.codex_runtime");
+    if (path === "/root" || path === owner.agentPath || (!owner.agentPath && path === owner.id)) return t("graph.main_ai");
     const taskName = agentPathTaskName(path);
     const session = model.nodes.find((node) => node.agentPath === path || node.taskName === taskName);
-    if (session) return `${session.agentName || "서브 AI"}${taskName ? ` · ${taskName}` : ""}`;
+    if (session) return `${session.agentName || t("graph.sub_ai")}${taskName ? ` · ${taskName}` : ""}`;
     return taskName || path;
   }
 
@@ -420,11 +428,11 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       return `<section class="agent-communication-panel empty" data-collaboration-communications="0">
         <header>
         <span>
-        <b>메인 AI ↔ 서브에이전트 소통</b>
-        <small>배정·추가 지시·결과 반환 기록</small>
+        <b>${esc(t("graph.communication_title"))}</b>
+        <small>${esc(t("graph.communication_short_description"))}</small>
         </span>
         </header>
-        <p>이 세션 로그에서는 에이전트 간 통신 이벤트가 확인되지 않았습니다.</p>
+        <p>${esc(t("graph.no_communication_events"))}</p>
         </section>`;
     }
     const rows = events
@@ -432,32 +440,34 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         const text =
           event.text ||
           (event.protected
-            ? `${event.taskName || "이 작업"}을 서브에이전트에게 배정했습니다.`
+            ? t("graph.assigned_to_subagent", { task: event.taskName || t("graph.this_task") })
             : event.kind === "started"
-              ? "런타임에서 실행 시작을 확인했습니다."
-              : "내용 없이 상태만 기록되었습니다.");
-        const sourceLabel = event.assignmentSource === "parent-narration" ? " · 작업 시작 직전 메인 AI 설명" : "";
+              ? t("graph.runtime_start_confirmed")
+              : t("graph.status_only_recorded"));
+        const sourceLabel = event.assignmentSource === "parent-narration" ? ` · ${t("graph.main_ai_prestart_short")}` : "";
         return `<article class="agent-communication-event ${esc(event.kind)}" data-communication-kind="${esc(event.kind)}">
         <span class="communication-route">
           <b>${esc(communicationEndpoint(event.from, owner, model))}</b><i>→</i>
           <b>${esc(communicationEndpoint(event.to, owner, model))}</b>
         </span>
         <span class="communication-copy">
-          <small>${esc(event.label)}${event.taskName ? ` · ${esc(event.taskName)}` : ""}${sourceLabel}</small>
+          <small>${esc(window.LoadToAgentI18n.observedText(event.label))}${event.taskName ? ` · ${esc(event.taskName)}` : ""}${sourceLabel}</small>
           <strong>${esc(text)}</strong>
           </span>
         <time>${esc(timeOnly(event.timestamp))}</time>
       </article>`;
       })
       .join("");
-    const countLabel = relevant.length > events.length ? `최근 ${events.length} / 전체 ${relevant.length}건` : `${events.length}건`;
+    const countLabel = relevant.length > events.length
+      ? t("graph.recent_of_total_events", { recent: events.length, total: relevant.length })
+      : t("common.events", { count: events.length });
     return `<section class="agent-communication-panel"
       data-collaboration-communications="${events.length}"
       data-collaboration-communications-total="${relevant.length}">
       <header>
       <span>
-      <b>메인 AI ↔ 서브에이전트 소통</b>
-      <small>누가 일을 맡겼고, 언제 시작했으며, 어떤 결과를 돌려줬는지 시간순으로 표시</small>
+      <b>${esc(t("graph.communication_title"))}</b>
+      <small>${esc(t("graph.communication_description"))}</small>
       </span>
       <em>${countLabel}</em>
       </header>
@@ -473,12 +483,12 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const shownChildren = completedExpanded ? [...ongoing, ...completed] : ongoing;
     const metrics = workflowMetrics(focus, children);
     const upstream = parent
-      ? workflowCompactNode(parent, model, "upstream", parent.parentId ? "이전 AI로 돌아가기" : "메인 AI로 돌아가기")
+      ? workflowCompactNode(parent, model, "upstream", parent.parentId ? t("graph.back_to_previous_ai") : t("graph.back_to_main_ai"))
       : `<div class="agent-workflow-origin">
         <span class="workflow-origin-icon">◎</span>
         <span>
-        <b>사용자 요청</b>
-        <small>이 작업이 시작된 곳</small>
+        <b>${esc(t("graph.user_request"))}</b>
+        <small>${esc(t("graph.task_origin"))}</small>
         </span>
         <span class="agent-workflow-port output" data-workflow-port="upstream-output" aria-hidden="true">
         </span>
@@ -486,8 +496,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const ongoingRows = ongoing.length
       ? ongoing.map((child) => workflowCompactNode(child, model, "downstream", agentRoleLabel(child.agentRole))).join("")
       : children.length
-        ? '<div class="agent-workflow-empty current-clear"><b>현재 작업 중인 서브에이전트가 없습니다</b><span>완료된 기록은 아래에서 필요할 때만 펼쳐볼 수 있습니다.</span></div>'
-        : '<div class="agent-workflow-empty">아직 다른 AI에게 나눠 맡긴 일이 없습니다.</div>';
+        ? `<div class="agent-workflow-empty current-clear"><b>${esc(t("graph.no_active_subagents"))}</b><span>${esc(t("graph.completed_available_below"))}</span></div>`
+        : `<div class="agent-workflow-empty">${esc(t("graph.no_delegated_tasks"))}</div>`;
     const completedRows = completedExpanded
       ? `<div class="completed-subagent-list" data-completed-subagent-list>
           ${completed.map((child) => workflowCompactNode(child, model, "downstream", agentRoleLabel(child.agentRole))).join("")}
@@ -499,9 +509,9 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       ? '<span class="agent-workflow-port input group-input" data-workflow-port="children-group-input" aria-hidden="true"></span>'
       : "";
     return `<div class="agent-workflow-canvas ${connectMotion}" data-workflow-focus="${esc(focus.id)}">
-      <svg class="agent-workflow-edges" role="img" aria-label="일을 맡긴 AI에서 선택한 AI를 거쳐 도움 AI로 이어지는 연결">
-        <title>AI 작업 연결</title>
-        <desc>왼쪽은 일을 맡긴 곳, 가운데는 선택한 AI, 오른쪽은 나눠 맡긴 AI입니다.</desc>
+      <svg class="agent-workflow-edges" role="img" aria-label="${esc(t("graph.workflow_aria"))}">
+        <title>${esc(t("graph.workflow_title"))}</title>
+        <desc>${esc(t("graph.workflow_description"))}</desc>
         <defs><marker id="workflowArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth">
           <path d="M0,0 L8,4 L0,8 Z" fill="context-stroke"></path>
         </marker></defs>
@@ -509,13 +519,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       </svg>
       <div class="agent-workflow-grid">
         <section class="agent-workflow-column upstream-column">
-          <header><b>${parent ? "이 일을 맡긴 AI" : "작업 시작점"}</b>
-            <span>${parent ? "왼쪽을 눌러 이전으로 돌아가요" : "사용자가 처음 맡긴 일"}</span>
+          <header><b>${esc(parent ? t("graph.assigning_ai") : t("graph.starting_point"))}</b>
+            <span>${esc(parent ? t("graph.click_left_to_go_back") : t("graph.initial_user_task"))}</span>
           </header>
           <div class="agent-workflow-stack">${upstream}</div>
         </section>
         <section class="agent-workflow-column selected-column">
-          <header><b>지금 선택한 AI</b><span>${focus.parentId ? "도움을 나눠 맡은 AI" : "전체 일을 맡은 메인 AI"}</span></header>
+          <header><b>${esc(t("graph.selected_ai"))}</b><span>${esc(focus.parentId ? t("graph.delegated_helper_ai") : t("graph.main_ai_in_charge"))}</span></header>
           <div class="agent-workflow-selected-stack">
             <div class="agent-workflow-selected">
               <span class="agent-workflow-port input" data-workflow-port="focus-input" aria-hidden="true"></span>
@@ -528,8 +538,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <section class="agent-workflow-column downstream-column"
           data-workflow-child-count="${children.length}" data-workflow-visible-child-count="${shownChildren.length}">
           ${childGroupPort}
-          <header><b>서브에이전트 세션</b>
-            <span>진행·대기 ${ongoing.length}개 바로 표시 · 완료 ${completed.length}개 기본 숨김</span>
+          <header><b>${esc(t("graph.subagent_sessions"))}</b>
+            <span>${esc(t("graph.subagent_visibility_summary", { ongoing: ongoing.length, completed: completed.length }))}</span>
           </header>
           ${workflowChildrenSummary(focus, children)}
           <div class="agent-workflow-stack downstream-stack ${shownChildren.length > 3 ? "density-many" : ""}">${downstream}</div>

@@ -21,6 +21,7 @@ const SYNTAX_CHECK_FILES = [
   'src/monitorWorker.js',
   'src/attentionNotifier.js',
   'src/providerVisibilityStore.js',
+  'src/updateInstaller.js',
   'src/ipc/registerAppIpc.js',
   'src/ipc/registerAgentIpc.js',
   'src/ipc/registerTerminalIpc.js',
@@ -217,6 +218,7 @@ const AGENT_GRAPH_CONTRACTS = [
   'function completedSubagentDisclosure',
   'function agentExecutionMode',
   'function executionModeBadge',
+  'const tmuxSection = tmuxDisplayCount',
   'function subagentTextPreview',
   'function subagentConversationHtml',
   'function openSubagentConversation',
@@ -231,14 +233,14 @@ const COLLABORATION_VIEW_CONTRACTS = [
   'data-resume-agent',
   'data-subagent-message-preview',
   'data-truncated',
-  '이 작업에서 누적 생성',
-  '동시에 유지 가능',
-  '현재 실행 중',
-  '작업 완료 기록',
-  '메인 AI ↔ 서브에이전트 소통',
-  'TMUX 사용',
-  'TMUX 미사용',
-  '완료된 서브에이전트',
+  'graph.created_in_task',
+  'graph.simultaneous_capacity',
+  'graph.currently_running',
+  'graph.completed_records',
+  'graph.communication_title',
+  'graph.tmux_used',
+  'graph.tmux_not_used',
+  'graph.completed_subagents',
   'child-session',
   'agent-flow-session-title',
   'agent-flow-outcome-copy',
@@ -265,14 +267,14 @@ const WORKFLOW_INTERACTION_CONTRACTS = [
   'data-agent-terminal-open',
   'data-agent-bridge-copy',
   'data-agent-open-origin',
-  '직접 입력 가능',
-  '외부 터미널에서 실행 중 · 같은 대화로 이어받기 가능',
-  '원래 터미널이 종료됨 · 같은 세션으로 복구 가능',
-  '쉬는 데스크톱 작업 · 백그라운드 터미널로 이어가기 가능',
-  '백그라운드 터미널로 이어서 보내기',
-  '보기 전용 · 원래 앱에서 계속',
+  'agent.direct_status',
+  'agent.handoff_status',
+  'agent.resume_status',
+  'agent.origin_resume_status',
+  'agent.background_and_send',
+  'agent.origin_status',
   'ui.ended_session',
-  '바로 보내기',
+  'agent.send_now',
 ];
 
 const MOTION_AND_MAP_CONTRACTS = [
@@ -286,9 +288,9 @@ const MOTION_AND_MAP_CONTRACTS = [
   'agent-flow-overview',
   'agent-workflow-canvas',
   'data-workflow-port',
-  '이 일을 맡긴 AI',
-  '지금 선택한 AI',
-  '서브에이전트 세션',
+  'graph.assigning_ai',
+  'graph.selected_ai',
+  'graph.subagent_sessions',
 ];
 
 const TERMINAL_VIEW_CONTRACTS = [
@@ -338,6 +340,8 @@ const I18N_RUNTIME_CONTRACTS = [
   'loadtoagent:locale-changed',
   'MutationObserver',
   'function t(key, params)',
+  'function errorText(error, fallbackKey, params)',
+  'function observedText(value)',
   'data-i18n',
 ];
 
@@ -445,7 +449,7 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'function setConnectionState',
   'function agentTargets',
   'terminal.bridgeId === agentSession.id',
-  '백그라운드 유지',
+  'terminal.background_kept',
   'session.background_count',
   'function requiredAgentTarget',
   'function resumeSupport',
@@ -491,6 +495,7 @@ const APP_IPC_CHANNELS = [
   'app:update-check',
   'app:update-download',
   'app:update-open',
+  'app:update-install',
 ];
 
 const TRUSTED_IPC_CHANNELS = [
@@ -514,6 +519,7 @@ const PRELOAD_IPC_CONTRACTS = [
   'checkForUpdate',
   'downloadUpdate',
   'openDownloadedUpdate',
+  'installDownloadedUpdate',
   'onUpdateState',
   'onAttentionRequested',
 ];

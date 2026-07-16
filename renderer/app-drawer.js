@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger,
     providerInfo, isLiveSession, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionWorkspaceLabel,
@@ -77,7 +78,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     $("#drawerProviderMark").style.setProperty("--provider", provider.accent);
     $("#drawerProviderMark").textContent = provider.mark;
     $("#drawerProvider").textContent = subagentMode
-      ? `${session.agentName || provider.label} · 서브에이전트 작업 기록`
+      ? t("drawer.subagent_title", { name: session.agentName || provider.label })
       : `${provider.company} · ${STATUS[session.status] || session.status}`;
     $("#drawerTitle").textContent = subagentMode ? session.taskName || (session.delegation && session.delegation.taskName) || session.title : session.title;
     const stopping = session.runId && state.stopRequests.has(session.runId);
@@ -85,13 +86,13 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       session.runId && (session.status === "running" || session.status === "starting")
         ? `<button class="meta-chip stop-run" data-stop-run="${esc(session.runId)}"
           ${stopping ? 'disabled aria-busy="true"' : ""}>
-          ${stopping ? "중지 요청 중…" : "■ 실행 중지"}</button>`
+          ${esc(t(stopping ? "drawer.stop_requested" : "drawer.stop_run"))}</button>`
         : "";
     const runtime = session.runtimePresence || [];
     const resume =
       !isLiveSession(session) && agentResumeSupport(session).supported
         ? `<button class="meta-chip resume-agent" data-resume-agent="${esc(session.id)}">▶
-          <b>${originAppInfo(session) ? "백그라운드 터미널로 이어가기" : "터미널로 다시 일 시키기"}</b>
+          <b>${esc(t(originAppInfo(session) ? "drawer.continue_background_terminal" : "drawer.resume_in_terminal"))}</b>
         </button>`
         : "";
     const communicationCount = subagentMode ? subagentCoordinationEvents(session).length : 0;
@@ -102,35 +103,35 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       ? `<span class="meta-chip work-state ${subagentWorkState(session)}">
         <b>${esc(subagentWorkLabel(session))}</b>
         </span>
-        <span class="meta-chip">사용 모델 <b>${esc(session.model || "정보 없음")}</b>
+        <span class="meta-chip">${esc(t("drawer.model"))} <b>${esc(session.model || t("drawer.unknown"))}</b>
         </span>
-        <span class="meta-chip">작업 기록 <b>${subagentMessageCount}건</b>
+        <span class="meta-chip">${esc(t("drawer.work_history"))} <b>${esc(t("drawer.event_count", { count: subagentMessageCount }))}</b>
         </span>
-        <span class="meta-chip">메인 지시·결과 <b>${communicationCount}건</b>
+        <span class="meta-chip">${esc(t("drawer.main_instructions_results"))} <b>${esc(t("drawer.event_count", { count: communicationCount }))}</b>
         </span>${resume}`
-      : `<span class="meta-chip">사용 모델 <b>${esc(session.model || "정보 없음")}</b>
+      : `<span class="meta-chip">${esc(t("drawer.model"))} <b>${esc(session.model || t("drawer.unknown"))}</b>
         </span>
-        <span class="meta-chip">작업 폴더
+        <span class="meta-chip">${esc(t("drawer.workspace"))}
           <b title="${esc(isProjectlessSession(session) ? window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project") : session.cwd)}">
             ${esc(sessionWorkspaceLabel(session))}
           </b>
         </span>
-        <span class="meta-chip">작업 번호 <b>${esc(String(session.externalId || "").slice(0, 12) || "정보 없음")}</b>
+        <span class="meta-chip">${esc(t("drawer.task_id"))} <b>${esc(String(session.externalId || "").slice(0, 12) || t("drawer.unknown"))}</b>
         </span>${
           session.parentId
-            ? `<span class="meta-chip">⑂ <b>도움을 맡은 AI</b>
+            ? `<span class="meta-chip">⑂ <b>${esc(t("drawer.helper_ai"))}</b>
         </span>`
             : ""
         }${
           runtime.length
-            ? `<span class="meta-chip runtime-meta">● <b>실행 중인 프로그램 ${runtime.length}개</b>
+            ? `<span class="meta-chip runtime-meta">● <b>${esc(t("session.running_programs", { count: runtime.length }))}</b>
         </span>`
             : ""
         }${resume}${stop}`;
     $$(".drawer-tab").forEach((tab) => {
       const hidden = subagentMode && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);
-      if (tab.dataset.tab === "chat") tab.textContent = subagentMode ? "작업 내용" : window.LoadToAgentI18n.t("ui.conversation");
+      if (tab.dataset.tab === "chat") tab.textContent = subagentMode ? t("drawer.work_content") : t("ui.conversation");
       const active = tab.dataset.tab === state.drawerTab;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", active ? "true" : "false");
@@ -149,12 +150,12 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     motionState.drawerTab = state.drawerTab;
     const detailError = state.detailErrors.get(state.selectedId);
     content.innerHTML = detailLoading
-      ? '<div class="drawer-loading"><span></span><b>전체 작업 기록을 불러오는 중</b><small>잠시만 기다리면 대화와 진행 과정을 볼 수 있어요.</small></div>'
+      ? `<div class="drawer-loading"><span></span><b>${esc(t("drawer.loading_history"))}</b><small>${esc(t("drawer.loading_history_help"))}</small></div>`
       : detailError
         ? `<div class="drawer-error">
-        <b>작업 기록을 불러오지 못했습니다</b>
+        <b>${esc(t("drawer.history_failed"))}</b>
         <span>${esc(detailError)}</span>
-        <button type="button" data-retry-detail="${esc(state.selectedId)}">다시 시도</button>
+        <button type="button" data-retry-detail="${esc(state.selectedId)}">${esc(t("drawer.retry"))}</button>
         </div>`
         : subagentMode
           ? subagentConversationHtml(session)

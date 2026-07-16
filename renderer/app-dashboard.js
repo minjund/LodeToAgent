@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDashboard = function createDashboard(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $,
     esc,
@@ -37,7 +38,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function sessionWorkspaceLabel(session) {
-    return isProjectlessSession(session) ? window.LoadToAgentI18n.t("ui.no_project") : (session && session.workspace) || "작업 폴더 미상";
+    return isProjectlessSession(session) ? t("ui.no_project") : (session && session.workspace) || t("workspace.unknown");
   }
 
   function matchesWorkspaceFilter(session) {
@@ -77,7 +78,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         <strong>${esc(item.name)}</strong>
         </button>
         <button type="button" class="workspace-remove" data-remove-workspace="${esc(item.path)}"
-          aria-label="${esc(item.name)} 작업 폴더를 목록에서 제거"
+          aria-label="${esc(t("workspace.remove_named", { name: item.name }))}"
           title="${esc(window.LoadToAgentI18n.t("ui.remove_from_list"))}">×</button>
         </div>`,
         )
@@ -171,7 +172,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       ],
       downloaded: [
         "✓", window.LoadToAgentI18n.t("ui.ready_to_install"), window.LoadToAgentI18n.t("ui.the_update_file_is_ready"),
-        window.LoadToAgentI18n.t("ui.open_the_installer_and_follow_its_instructions_to_finish_updating"),
+        window.LoadToAgentI18n.t("settings.update.auto_install_restart"),
       ],
       error: [
         "!", window.LoadToAgentI18n.t("ui.check_failed"), window.LoadToAgentI18n.t("ui.could_not_check_for_updates"),
@@ -214,7 +215,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     install.textContent = downloading
       ? window.LoadToAgentI18n.t("ui.downloading_2")
       : downloaded
-        ? window.LoadToAgentI18n.t("ui.open_installer")
+        ? `${window.LoadToAgentI18n.t("settings.update.download")} · ${window.LoadToAgentI18n.t("ui.restart")}`
         : window.LoadToAgentI18n.t("settings.update.download");
     const progress = $("#updateProgress");
     progress.classList.toggle("hidden", !downloading && !downloaded);
@@ -222,11 +223,13 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#updateProgressBar").style.width = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
     $(".update-progress-track").setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Number(update.progress || 0)))));
     $("#updateProgressBytes").textContent = downloaded
-      ? `${formatBytes(update.totalBytes || update.downloadedBytes)} · 파일 검증 완료`
+      ? `${formatBytes(update.totalBytes || update.downloadedBytes)} · ${window.LoadToAgentI18n.t("settings.update.file_verified")}`
       : `${formatBytes(update.downloadedBytes)} / ${update.totalBytes ? formatBytes(update.totalBytes) : window.LoadToAgentI18n.t("ui.checking_size")}`;
     const error = $("#updateError");
     error.classList.toggle("hidden", !update.error);
-    error.textContent = update.error || "";
+    error.textContent = update.error
+      ? window.LoadToAgentI18n.errorText(update.error, "ui.could_not_check_for_updates")
+      : "";
     const notes = $("#releaseNotes");
     notes.classList.toggle("hidden", !update.latestVersion);
     $("#releaseNotesText").textContent =

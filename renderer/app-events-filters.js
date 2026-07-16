@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, performUiAction, toast } = context;
 
   function bindFilterAndWorkspaceEvents() {
@@ -14,7 +15,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       const remove = event.target.closest("[data-remove-workspace]");
       if (remove) {
         event.stopPropagation();
-        const workspaces = await performUiAction(() => window.loadtoagent.removeWorkspace(remove.dataset.removeWorkspace), "작업 폴더를 제거하지 못했습니다.");
+        const workspaces = await performUiAction(() => window.loadtoagent.removeWorkspace(remove.dataset.removeWorkspace), t("workspace.remove_failed"));
         if (!workspaces) return;
         state.workspaces = workspaces;
         if (state.workspace === remove.dataset.removeWorkspace) state.workspace = "all";
@@ -67,7 +68,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       setProviderVisible(input.dataset.providerVisibility, input.checked);
       Promise.resolve(window.loadtoagent.setProviderVisibility?.({ hidden: [...state.hiddenProviders] })).catch((error) => {
         window.LoadToAgentRendererUtils.reportRecoverableError("provider-visibility-persistence", error);
-        toast("AI 표시 설정을 저장하지 못했습니다.");
+        toast(t("settings.providers.save_failed"));
       });
       state.visibleLimit = 30;
       if (state.selectedId) {
@@ -77,16 +78,16 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       }
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       render("filter");
-      toast(input.checked ? "선택한 AI를 다시 표시합니다." : "선택한 AI를 앱에서 숨겼습니다.");
+      toast(t(input.checked ? "settings.providers.shown_toast" : "settings.providers.hidden_toast"));
     });
     $("#addWorkspaceBtn").addEventListener("click", async () => {
-      const workspaces = await performUiAction(() => window.loadtoagent.addWorkspaces(), "작업 폴더를 추가하지 못했습니다.");
+      const workspaces = await performUiAction(() => window.loadtoagent.addWorkspaces(), t("workspace.add_failed"));
       if (!workspaces) return;
       state.workspaces = workspaces;
       renderWorkspaces();
     });
     $("#probeBtn").addEventListener("click", async () => {
-      const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), "AI CLI 연결 상태를 확인하지 못했습니다.");
+      const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), t("run.cli_check_failed"));
       if (!nextAvailability) return;
       state.availability = nextAvailability;
       render();

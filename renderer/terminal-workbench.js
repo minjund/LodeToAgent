@@ -2,6 +2,7 @@
 
 /** Own xterm views, terminal/tmux selection, capture, and management actions. */
 window.LoadToAgentTerminalWorkbench = function createModule(context) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
@@ -9,7 +10,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   } = context;
 
   function createXtermHost(key, readOnly = false) {
-    if (!window.Terminal || !window.FitAddon || !window.FitAddon.FitAddon) throw new Error('명령창 화면을 불러오지 못했습니다.');
+    if (!window.Terminal || !window.FitAddon || !window.FitAddon.FitAddon) throw new Error(t('terminal.error.screen_unavailable'));
     const host = document.createElement('div');
     host.className = 'terminal-screen hidden';
     host.dataset.terminalScreen = key;
@@ -107,30 +108,30 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           aria-describedby="terminalReorderHelp"
           title="${esc(window.LoadToAgentI18n.t('terminal.reorder_hint'))}">
           <span class="terminal-session-icon">${esc(terminalTypeMark(session))}</span>
-          <span><b>${esc(session.title)}</b><small>${esc(terminalTypeLabel(session))}${session.background ? ' · 백그라운드 유지' : ''} · ${esc(STATUS_LABELS[session.status] || session.status)}</small><em>${esc(session.cwd || session.distro || `PID ${session.pid || '--'}`)}</em><span class="sr-only">${index + 1}/${general.length}</span></span>
+          <span><b>${esc(session.title)}</b><small>${esc(terminalTypeLabel(session))}${session.background ? ` · ${t('terminal.background_kept')}` : ''} · ${esc(STATUS_LABELS[session.status] || session.status)}</small><em>${esc(session.cwd || session.distro || `PID ${session.pid || '--'}`)}</em><span class="sr-only">${index + 1}/${general.length}</span></span>
           <i class="${session.status === 'running' ? 'live' : ''}"></i>
         </button>
         <span class="terminal-reorder-actions" aria-label="${esc(window.LoadToAgentI18n.t('terminal.reorder_group', { title: session.title }))}">
           <button type="button" data-session-move="-1" data-session-move-id="${esc(session.id)}" aria-label="${esc(window.LoadToAgentI18n.t('terminal.move_up', { title: session.title }))}" ${index === 0 ? 'disabled' : ''}>↑</button>
           <button type="button" data-session-move="1" data-session-move-id="${esc(session.id)}" aria-label="${esc(window.LoadToAgentI18n.t('terminal.move_down', { title: session.title }))}" ${index === general.length - 1 ? 'disabled' : ''}>↓</button>
         </span>
-      </div>`).join('') : '<div class="terminal-resource-empty">열어 둔 일반 명령창이 없습니다.</div>';
+      </div>`).join('') : `<div class="terminal-resource-empty">${t('terminal.empty.general')}</div>`;
   }
 
   function renderTmuxResources() {
     const distros = state.snapshot && state.snapshot.tmux && state.snapshot.tmux.distros || [];
     if (!distros.length) {
-      $('#terminalTmuxList').innerHTML = '<div class="terminal-resource-empty">Linux에서 나눠 실행 중인 작업이 없습니다.</div>';
+      $('#terminalTmuxList').innerHTML = `<div class="terminal-resource-empty">${t('terminal.empty.tmux')}</div>`;
       return;
     }
     $('#terminalTmuxList').innerHTML = distros.map(distro => `
       <section class="terminal-tmux-group">
-        <header><b>${esc(distro.name)}</b><span>작업 묶음 ${(distro.sessions || []).length}개</span></header>
+        <header><b>${esc(distro.name)}</b><span>${t('terminal.tmux.workspace_count', { count: (distro.sessions || []).length })}</span></header>
         ${(distro.sessions || []).map(session => `
-          <div class="terminal-tmux-session"><strong>${esc(session.name)}</strong><small>${session.attached ? '화면에 연결됨' : '뒤에서 실행 중'}</small></div>
+          <div class="terminal-tmux-session"><strong>${esc(session.name)}</strong><small>${session.attached ? t('terminal.tmux.attached') : t('terminal.tmux.running_background')}</small></div>
           ${(session.windows || []).flatMap(windowItem => (windowItem.panes || []).map(pane => `
             <button type="button" class="terminal-tmux-pane ${state.selectedTmux && state.selectedTmux.distro.name === distro.name && state.selectedTmux.pane.nativeId === pane.nativeId ? 'active' : ''}" data-tmux-distro="${esc(distro.name)}" data-tmux-pane="${esc(pane.nativeId)}">
-              <span><b>${esc(pane.nativeId)} · ${esc(windowItem.index)}:${esc(windowItem.name)}</b><small>${esc(pane.command || 'shell')} · ${esc(pane.cwd || '경로 미보고')}</small></span>
+              <span><b>${esc(pane.nativeId)} · ${esc(windowItem.index)}:${esc(windowItem.name)}</b><small>${esc(pane.command || 'shell')} · ${esc(pane.cwd || t('terminal.path_unreported'))}</small></span>
               <i class="${pane.agent ? 'agent' : (pane.active ? 'live' : '')}">${pane.agent ? 'AI' : (pane.active ? 'ON' : '')}</i>
             </button>`)).join('')}`).join('')}
       </section>`).join('');
@@ -144,7 +145,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const canInput = Boolean((remote && !remote.pane.dead) || (session && session.status === 'running'));
     const closeButton = $('#terminalCloseBtn');
     closeButton.disabled = !hasTarget;
-    closeButton.textContent = remote && !session ? '선택 해제' : window.LoadToAgentI18n.t("ui.end_session");
+    closeButton.textContent = remote && !session ? t('terminal.clear_selection') : t('ui.end_session');
     closeButton.classList.toggle('terminal-danger-button', Boolean(session));
     $('#terminalRestartBtn').classList.toggle('hidden', !session || session.status === 'running' || session.type === 'agent');
     $('#terminalRestartBtn').disabled = !session || session.status === 'running';
@@ -154,19 +155,19 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     commandButton.disabled = !canInput || state.commandSending;
     commandForm.toggleAttribute('aria-busy', state.commandSending);
     const commandButtonLabel = commandButton.querySelector('span');
-    if (commandButtonLabel) commandButtonLabel.textContent = state.commandSending ? '보내는 중' : window.LoadToAgentI18n.t("common.send");
+    if (commandButtonLabel) commandButtonLabel.textContent = state.commandSending ? t('terminal.sending') : t('common.send');
     document.querySelectorAll('[data-terminal-signal]').forEach(button => { button.disabled = !canInput; });
     $('#terminalAttachBtn').classList.toggle('hidden', !remote || Boolean(session));
     $('#terminalTmuxTools').classList.toggle('hidden', !remote || Boolean(session));
     if (session) {
       setConnectionState(STATUS_LABELS[session.status] || session.status, session.status);
       $('#terminalTargetIcon').textContent = terminalTypeMark(session);
-      $('#terminalTargetMeta').innerHTML = `<b>${esc(session.title)}</b><span>${bound ? '● 기존 AI 세션 유지 중 · ' : ''}${esc(session.type.toUpperCase())} · PID ${session.pid || '--'} · ${esc(session.cwd || session.distro || '')}</span>`;
+      $('#terminalTargetMeta').innerHTML = `<b>${esc(session.title)}</b><span>${bound ? `● ${t('terminal.bound_ai_session')} · ` : ''}${esc(session.type.toUpperCase())} · PID ${session.pid || '--'} · ${esc(session.cwd || session.distro || '')}</span>`;
       $('#terminalConsoleCaption').textContent = `${terminalTypeLabel(session)} · PID ${session.pid || '--'}`;
       $('#terminalConsoleState').textContent = canInput ? window.LoadToAgentI18n.t("ui.direct_input_available") : window.LoadToAgentI18n.t("ui.ended_session");
       $('#terminalConsoleState').dataset.status = session.status;
     } else if (remote) {
-      setConnectionState(remote.pane.dead ? '종료된 tmux 칸' : 'tmux 연결됨', remote.pane.dead ? 'exited' : 'running');
+      setConnectionState(remote.pane.dead ? t('terminal.tmux.ended_pane') : t('terminal.tmux.connected'), remote.pane.dead ? 'exited' : 'running');
       $('#terminalTargetIcon').textContent = 'tm';
       $('#terminalTargetMeta').innerHTML = `<b>${esc(remote.distro.name)} · ${esc(remote.session.name)} · ${esc(remote.pane.nativeId)}</b><span>${esc(remote.window.index)}:${esc(remote.window.name)} · ${esc(remote.pane.command || 'shell')} · ${esc(remote.pane.cwd || '')}</span>`;
       $('#terminalConsoleCaption').textContent = `${remote.window.index}:${remote.window.name} · ${remote.pane.command || 'shell'}`;
@@ -176,7 +177,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       setConnectionState(window.LoadToAgentI18n.t("ui.waiting_for_selection"));
       $('#terminalTargetIcon').textContent = '›_';
       $('#terminalTargetMeta').innerHTML = state.mode === 'tmux'
-        ? '<b>아직 선택한 tmux 명령창이 없습니다</b><span>왼쪽 tmux 목록이나 위 지도에서 조작할 칸을 선택하세요.</span>'
+        ? `<b>${t('terminal.tmux.no_selection_title')}</b><span>${t('terminal.tmux.no_selection_description')}</span>`
         : `<b>${window.LoadToAgentI18n.t("ui.select_a_session")}</b><span>${window.LoadToAgentI18n.t("ui.choose_a_session_on_the_left_or_create_a_new")}</span>`;
       $('#terminalConsoleCaption').textContent = window.LoadToAgentI18n.t("ui.select_a_session_to_show_its_output_here");
       $('#terminalConsoleState').textContent = window.LoadToAgentI18n.t("ui.waiting_for_selection");
@@ -187,7 +188,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (commandLabel) commandLabel.textContent = bound ? window.LoadToAgentI18n.t("ui.continue_instructing_ai") : (remote ? window.LoadToAgentI18n.t("ui.send_to_tmux_terminal") : window.LoadToAgentI18n.t("ui.send_command_to_terminal"));
     if (commandInput) commandInput.placeholder = !hasTarget
       ? window.LoadToAgentI18n.t("ui.select_a_session_on_the_left_first")
-      : (bound ? '이전 대화에 이어서 AI에게 지시할 내용을 입력하세요' : window.LoadToAgentI18n.t("ui.enter_a_command_to_run"));
+      : (bound ? t('terminal.command.continue_ai_placeholder') : t('ui.enter_a_command_to_run'));
     renderHistoryPanel();
   }
 
@@ -225,7 +226,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function selectTmux(distroName, paneId) {
     const row = tmuxRows().find(item => item.distro.name === distroName && item.pane.nativeId === paneId);
-    if (!row) return notice('선택한 나눠진 명령창을 찾을 수 없습니다.', 'error');
+    if (!row) return notice(t('terminal.error.selected_split_missing'), 'error');
     saveCurrentDraft();
     state.captureGeneration += 1;
     state.selectedId = null;
@@ -242,7 +243,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function selectTmuxById(paneId) {
     const row = tmuxRows().find(item => item.pane.id === paneId || item.pane.nativeId === paneId);
-    if (!row) return notice('선택한 tmux 명령창을 찾을 수 없습니다.', 'error');
+    if (!row) return notice(t('terminal.error.selected_tmux_missing'), 'error');
     state.mode = 'tmux';
     moveWorkbench('tmux');
     return selectTmux(row.distro.name, row.pane.nativeId);
@@ -272,15 +273,15 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function createTerminal(type) {
     const distro = type === 'wsl' ? firstDistro() : null;
-    if (type === 'wsl' && !distro) return notice('사용 가능한 Linux 환경이 없습니다.', 'error');
+    if (type === 'wsl' && !distro) return notice(t('terminal.error.no_linux_environment'), 'error');
     const created = await guarded(() => window.loadtoagent.terminalCreate({
       type,
       cwd: (type === 'powershell' || type === 'shell') ? (preferredWorkspace() || undefined) : undefined,
       distro: distro && distro.name,
-      title: type === 'powershell' ? 'PowerShell' : (type === 'shell' ? state.platform.localShellLabel : `${distro.name} 셸`),
+      title: type === 'powershell' ? 'PowerShell' : (type === 'shell' ? state.platform.localShellLabel : t('terminal.linux_shell_title', { distro: distro.name })),
       cols: 120,
       rows: 32,
-    }), `${type === 'powershell' ? 'Windows' : (type === 'shell' ? state.platform.label : 'Linux')} 명령창을 열었습니다.`);
+    }), t('terminal.opened', { platform: type === 'powershell' ? 'Windows' : (type === 'shell' ? state.platform.label : 'Linux') }));
     if (!created) return;
     await refreshSessions();
     await selectSession(created.id);
@@ -349,21 +350,21 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const text = String(command || '');
     if (state.commandSending) return false;
     if (!text.trim()) {
-      notice('보낼 명령을 입력하세요.', 'error');
+      notice(t('terminal.command.required'), 'error');
       return false;
     }
     const session = currentSession();
     const remote = currentTmux();
     if (!session && !remote) {
-      notice('사용할 명령창을 먼저 선택하세요.', 'error');
+      notice(t('terminal.command.select_first'), 'error');
       return false;
     }
     state.commandSending = true;
     renderTarget();
     try {
       const result = session
-        ? await guarded(() => window.loadtoagent.terminalCommand(session.id, text), '명령을 전송했습니다.')
-        : await guarded(() => window.loadtoagent.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), '선택한 나눠진 명령창에서 실행했습니다.');
+        ? await guarded(() => window.loadtoagent.terminalCommand(session.id, text), t('terminal.command.sent'))
+        : await guarded(() => window.loadtoagent.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), t('terminal.command.executed_in_split'));
       if (result && remote) setTimeout(captureRemote, 160);
       return Boolean(result);
     } finally {
@@ -375,12 +376,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   async function sendSignal(signal) {
     const session = currentSession();
     const remote = currentTmux();
-    if (session) return guarded(() => window.loadtoagent.terminalSignal(session.id, signal), signal === 'interrupt' ? 'Ctrl+C를 보냈습니다.' : '화면을 정리했습니다.');
+    if (session) return guarded(() => window.loadtoagent.terminalSignal(session.id, signal), signal === 'interrupt' ? t('terminal.signal.interrupt_sent') : t('terminal.signal.cleared'));
     if (remote) {
       const key = signal === 'interrupt' ? 'C-c' : 'C-l';
-      return guarded(() => window.loadtoagent.tmuxSendKey({ distro: remote.distro.name, target: remote.pane.nativeId, key }), `${key}를 보냈습니다.`);
+      return guarded(() => window.loadtoagent.tmuxSendKey({ distro: remote.distro.name, target: remote.pane.nativeId, key }), t('terminal.signal.key_sent', { key }));
     }
-    notice('사용할 명령창을 먼저 선택하세요.', 'error');
+    notice(t('terminal.command.select_first'), 'error');
   }
 
   function openTmuxModal() {
@@ -399,7 +400,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   }
 
   async function refreshSnapshot() {
-    const snapshot = await guarded(() => window.loadtoagent.snapshot(), '여러 창 작업을 새로고침했습니다.');
+    const snapshot = await guarded(() => window.loadtoagent.snapshot(), t('terminal.tmux.refreshed'));
     if (snapshot) updateSnapshot(snapshot, state.workspaces);
   }
 
@@ -414,7 +415,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       title: `tmux · ${remote.session.name} · ${remote.pane.nativeId}`,
       cols: 120,
       rows: 32,
-    }), '키보드로 직접 조작할 수 있게 연결했습니다.');
+    }), t('terminal.tmux.attached_for_input'));
     if (!created) return;
     await refreshSessions();
     await selectSession(created.id);
@@ -427,30 +428,30 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     let operation = null;
     let message = '';
     if (action === 'rename-session') {
-      const name = window.prompt('새 작업 묶음 이름', remote.session.name);
+      const name = window.prompt(t('terminal.tmux.prompt_workspace_name'), remote.session.name);
       if (!name || name === remote.session.name) return;
       operation = () => window.loadtoagent.tmuxRenameSession({ ...base, target: remote.session.nativeId, name });
-      message = '작업 묶음 이름을 변경했습니다.';
+      message = t('terminal.tmux.workspace_renamed');
     } else if (action === 'new-window') {
-      const name = window.prompt('새 창 이름', 'window');
+      const name = window.prompt(t('terminal.tmux.prompt_window_name'), 'window');
       if (!name) return;
       operation = () => window.loadtoagent.tmuxNewWindow({ ...base, target: remote.session.nativeId, name, cwd: remote.pane.cwd });
-      message = '새 창을 만들었습니다.';
+      message = t('terminal.tmux.window_created');
     } else if (action === 'split-horizontal' || action === 'split-vertical') {
       operation = () => window.loadtoagent.tmuxSplitPane({ ...base, target: remote.pane.nativeId, direction: action === 'split-horizontal' ? 'horizontal' : 'vertical', cwd: remote.pane.cwd });
-      message = '선택한 명령창을 나눴습니다.';
+      message = t('terminal.tmux.pane_split');
     } else if (action === 'kill-pane') {
-      if (!window.confirm(`${remote.pane.nativeId} 명령창을 닫을까요?`)) return;
+      if (!window.confirm(t('terminal.tmux.confirm_close_pane', { pane: remote.pane.nativeId }))) return;
       operation = () => window.loadtoagent.tmuxKillPane({ ...base, target: remote.pane.nativeId });
-      message = '선택한 명령창을 닫았습니다.';
+      message = t('terminal.tmux.pane_closed');
     } else if (action === 'kill-window') {
-      if (!window.confirm(`${remote.window.index}:${remote.window.name} 창과 안에 있는 명령창을 모두 닫을까요?`)) return;
+      if (!window.confirm(t('terminal.tmux.confirm_close_window', { window: `${remote.window.index}:${remote.window.name}` }))) return;
       operation = () => window.loadtoagent.tmuxKillWindow({ ...base, target: remote.window.nativeId });
-      message = '창 전체를 닫았습니다.';
+      message = t('terminal.tmux.window_closed');
     } else if (action === 'kill-session') {
-      if (!window.confirm(`${remote.session.name} 작업 묶음을 모두 끝낼까요?`)) return;
+      if (!window.confirm(t('terminal.tmux.confirm_end_workspace', { workspace: remote.session.name }))) return;
       operation = () => window.loadtoagent.tmuxKillSession({ ...base, target: remote.session.nativeId });
-      message = '작업 묶음을 끝냈습니다.';
+      message = t('terminal.tmux.workspace_ended');
     }
     if (!operation) return;
     const result = await guarded(operation, message);

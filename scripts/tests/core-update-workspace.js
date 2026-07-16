@@ -4,9 +4,11 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { EventEmitter } = require('events');
 const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
+const { canInstallSilently, launchDownloadedUpdate } = require('../../src/updateInstaller');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 
 function registerProviderAndWorkspaceTests(context) {
@@ -143,6 +145,63 @@ function registerCliAndUpdateTests(context) {
     assert.equal(fs.readFileSync(downloaded.downloadedPath, 'utf8'), payload.toString());
     await manager.openDownloaded();
     assert.deepStrictEqual(opened, [downloaded.downloadedPath]);
+
+    let spawnCall = null;
+    let unrefCalled = false;
+    const automatic = await launchDownloadedUpdate({
+      platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
+      installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+      environment: { SystemRoot: 'C:\\Windows' },
+      spawn: (command, args, options) => {
+        spawnCall = { command, args, options };
+        const child = new EventEmitter();
+        child.pid = 9876;
+        child.unref = () => { unrefCalled = true; };
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+    });
+    assert.equal(automatic.mode, 'automatic');
+    assert.equal(unrefCalled, true);
+    assert.equal(spawnCall.command, path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
+    assert.equal(spawnCall.options.detached, true);
+    assert.equal(spawnCall.options.windowsHide, true);
+    assert(spawnCall.args.includes(downloaded.downloadedPath));
+    const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
+    assert.match(helperSource, /Wait-Process -Id \$ParentPid/);
+    assert.match(helperSource, /ArgumentList '\/S'/);
+    assert.match(helperSource, /if \(\$exitCode -eq 0 -and \(Test-Path -LiteralPath \$AppPath\)\)/);
+    assert.match(helperSource, /updateFailed=true/);
+    assert.match(helperSource, /Start-Process -FilePath \$AppPath/);
+    assert.equal(canInstallSilently({
+      platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
+    }), false);
+    assert.equal(canInstallSilently({
+      platform: 'win32', installType: 'desktop', installerPath: path.join(temp, 'LoadToAgent-Setup-3.1.0.exe'), downloadsDir: downloadDir,
+    }), false);
+
+    const manualOpened = [];
+    const manual = await launchDownloadedUpdate({
+      platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir, installerPath: downloaded.downloadedPath,
+      shell: { openPath: async file => { manualOpened.push(file); return ''; } },
+    });
+    assert.equal(manual.mode, 'manual');
+    assert.deepStrictEqual(manualOpened, [downloaded.downloadedPath]);
+
+    await assert.rejects(
+      launchDownloadedUpdate({
+        platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
+        installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+        spawnTimeoutMs: 100,
+        spawn: () => {
+          const child = new EventEmitter();
+          child.unref = () => {};
+          setImmediate(() => child.emit('error', new Error('PowerShell unavailable')));
+          return child;
+        },
+      }),
+      /PowerShell unavailable/,
+    );
   });
 
 }

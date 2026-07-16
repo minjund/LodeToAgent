@@ -14,6 +14,7 @@ const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
 const { BridgeServer } = require('./src/bridgeServer');
 const { UpdateManager } = require('./src/updateManager');
+const { launchDownloadedUpdate } = require('./src/updateInstaller');
 const { readWorkspaces, removeWorkspace, writeWorkspaces } = require('./src/workspaceStore');
 const { registerAppIpc } = require('./src/ipc/registerAppIpc');
 const { registerAgentIpc } = require('./src/ipc/registerAgentIpc');
@@ -341,6 +342,25 @@ function installationType() {
   return fs.existsSync(path.join(__dirname, '.git')) ? 'source' : 'npm';
 }
 
+async function installDownloadedUpdate() {
+  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  const downloaded = await updateManager.download();
+  const outcome = await launchDownloadedUpdate({
+    platform: process.platform,
+    installType: process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : installationType(),
+    installerPath: downloaded.downloadedPath,
+    downloadsDir: path.join(app.getPath('userData'), 'updates'),
+    appPath: process.execPath,
+    parentPid: process.pid,
+    shell,
+  });
+  if (outcome.mode === 'automatic') {
+    isQuitting = true;
+    setImmediate(() => app.quit());
+  }
+  return { ...updateManager.getState(), installMode: outcome.mode };
+}
+
 function setupRuntime() {
   loadProviderVisibility();
   const runsDir = userFile('agent-runs');
@@ -435,7 +455,7 @@ function bootstrapState() {
       id: process.platform,
       label: process.platform === 'darwin' ? 'macOS' : (process.platform === 'win32' ? 'Windows' : 'Linux'),
       localShell: process.platform === 'win32' ? 'powershell' : 'shell',
-      localShellLabel: process.platform === 'darwin' ? 'Mac 명령창' : (process.platform === 'win32' ? 'Windows 명령창' : 'Linux 명령창'),
+      localShellLabel: process.platform === 'darwin' ? 'macOS shell' : (process.platform === 'win32' ? 'Windows PowerShell' : 'Linux shell'),
       nativeTmux: process.platform !== 'win32',
     },
     bridgeCli: bridgeLauncher,
@@ -482,6 +502,7 @@ function registerIpcHandlers() {
     },
     setProviderVisibility: saveProviderVisibility,
     updateManager: () => updateManager,
+    installUpdate: installDownloadedUpdate,
   });
   registerAgentIpc({
     handleTrusted,

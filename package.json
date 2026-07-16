@@ -1,6 +1,6 @@
 {
   "name": "loadtoagent",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",
@@ -129,7 +129,8 @@
       "artifactName": "LoadToAgent-Setup-${version}.exe",
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false
     }
   }
 }

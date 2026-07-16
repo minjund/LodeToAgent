@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   checkForUpdate: () => ipcRenderer.invoke('app:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
   openDownloadedUpdate: () => ipcRenderer.invoke('app:update-open'),
+  installDownloadedUpdate: () => ipcRenderer.invoke('app:update-install'),
   openUpdateRelease: () => ipcRenderer.invoke('app:update-open-release'),
   snapshot: () => ipcRenderer.invoke('agents:snapshot'),
   sessionDetail: sessionId => ipcRenderer.invoke('agents:detail', sessionId),

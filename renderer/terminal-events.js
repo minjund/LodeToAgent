@@ -2,6 +2,7 @@
 
 /** Bind terminal DOM/preload events using dependencies owned by terminal.js. */
 window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, state, createTerminal, openTmuxModal, refreshSnapshot, selectSession, selectTmux,
     sendCommand, currentTargetId, sendSignal, currentSession, guarded, renderAll, showSelection,
@@ -123,7 +124,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#terminalRestartBtn').addEventListener('click', async () => {
       const session = currentSession();
       if (!session) return;
-      const restarted = await guarded(() => window.loadtoagent.terminalRestart(session.id), '명령창을 다시 시작했습니다.');
+      const restarted = await guarded(() => window.loadtoagent.terminalRestart(session.id), t('terminal.session.restarted'));
       if (restarted) {
         const entry = state.terminals.get(session.id);
         if (entry) entry.terminal.reset();
@@ -138,8 +139,8 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         showSelection();
         return;
       }
-      if (session.status === 'running' && !window.confirm(`${session.title} 세션과 실행 중인 프로세스를 끝낼까요?\n이 작업은 터미널을 숨기는 것이 아니라 실제 세션을 종료합니다.`)) return;
-      const closed = await guarded(() => window.loadtoagent.terminalClose(session.id), '터미널 세션을 종료했습니다.');
+      if (session.status === 'running' && !window.confirm(t('terminal.session.confirm_end', { title: session.title }))) return;
+      const closed = await guarded(() => window.loadtoagent.terminalClose(session.id), t('terminal.session.ended'));
       if (!closed) return;
       const entry = state.terminals.get(session.id);
       if (entry) {
@@ -172,7 +173,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#terminalTmuxLayout').addEventListener('change', async event => {
       const remote = currentTmux();
       if (!remote) return;
-      const result = await guarded(() => window.loadtoagent.tmuxSelectLayout({ distro: remote.distro.name, target: remote.window.nativeId, layout: event.target.value }), '창 배치를 변경했습니다.');
+      const result = await guarded(() => window.loadtoagent.tmuxSelectLayout({ distro: remote.distro.name, target: remote.window.nativeId, layout: event.target.value }), t('terminal.tmux.layout_changed'));
       if (result) setTimeout(refreshSnapshot, 250);
     });
     $('#tmuxCreateForm').addEventListener('submit', async event => {
@@ -190,10 +191,10 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         });
         if (result && result.ok) {
           closeTmuxModal();
-          notice('새 여러 창 작업을 만들었습니다.', 'success');
+          notice(t('terminal.tmux.workspace_created'), 'success');
           setTimeout(refreshSnapshot, 300);
         } else {
-          error.textContent = result && result.error || '새 tmux 작업을 만들지 못했습니다.';
+          error.textContent = result && result.error || t('terminal.tmux.workspace_create_failed');
           error.classList.remove('hidden');
         }
       } catch (failure) {
@@ -221,6 +222,6 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       if (entry && payload.data) entry.terminal.write(payload.data);
     });
     window.loadtoagent.onTerminalState(payload => refreshSessions(payload));
-    window.loadtoagent.onTerminalError(payload => notice(payload && payload.message || '명령창 입력에 실패했습니다.', 'error'));
+    window.loadtoagent.onTerminalError(payload => notice(payload && payload.message || t('terminal.error.input_failed'), 'error'));
   }
 };

@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const { reportRecoverableError, state } = context;
 
   async function loadSessionDetail(id, force = false) {
@@ -15,7 +16,7 @@ window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(cont
       if (detail) state.details.set(id, detail);
       return detail;
     } catch (error) {
-      state.detailErrors.set(id, (error && error.message) || "작업 기록을 불러오지 못했습니다.");
+      state.detailErrors.set(id, window.LoadToAgentI18n.errorText(error, "drawer.history_failed"));
       return null;
     } finally {
       state.detailLoadingIds.delete(id);

@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDialogEventBindings = function createDialogEventBindings(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
@@ -31,12 +32,12 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         if (provider.docs)
           await performUiAction(async () => {
             const result = await window.loadtoagent.openExternal(provider.docs);
-            if (!result || result.ok === false) throw new Error("공식 설치 문서를 열지 못했습니다.");
-          }, "공식 설치 문서를 열지 못했습니다.");
+            if (!result || result.ok === false) throw new Error(t("run.docs_open_failed"));
+          }, t("run.docs_open_failed"));
         return;
       }
       if (event.target.closest("[data-provider-recheck]")) {
-        const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), "AI CLI 연결 상태를 확인하지 못했습니다.");
+        const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), t("run.cli_check_failed"));
         if (!nextAvailability) return;
         state.availability = nextAvailability;
         const installed = visibleProviders().find((provider) => state.availability[provider.id]);
@@ -44,15 +45,15 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         $("#runProviderPicker").innerHTML = providerPickerHtml();
         renderProviderRail();
         syncRunComposer();
-        toast(installed ? `${installed.label} CLI를 찾았습니다. 이제 작업을 시작할 수 있어요.` : "아직 설치된 AI CLI를 찾지 못했습니다. 설치와 로그인을 확인해 주세요.");
+        toast(installed ? t("run.cli_ready", { provider: installed.label }) : t("run.cli_not_found"));
       }
     });
     $("#runPrompt").addEventListener("input", syncRunComposer);
     $(".run-prompt-examples").addEventListener("click", (event) => {
-      const example = event.target.closest("[data-run-prompt-example]");
+      const example = event.target.closest("[data-run-prompt-key]");
       if (!example) return;
       const input = $("#runPrompt");
-      const text = example.dataset.runPromptExample;
+      const text = t(example.dataset.runPromptKey);
       if (!input.value.trim()) input.value = text;
       else input.setRangeText(`${input.selectionStart ? "\n\n" : ""}${text}`, input.selectionStart, input.selectionEnd, "end");
       syncRunComposer();
@@ -67,7 +68,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#runCwd").addEventListener("input", syncRunComposer);
     $("#allowWrites").addEventListener("change", syncRunComposer);
     $("#pickRunCwdBtn").addEventListener("click", async () => {
-      const folder = await performUiAction(() => window.loadtoagent.pickWorkspace(), "작업 폴더를 선택하지 못했습니다.");
+      const folder = await performUiAction(() => window.loadtoagent.pickWorkspace(), t("workspace.pick_failed"));
       if (folder) {
         $("#runCwd").value = folder;
         syncRunComposer();
@@ -136,7 +137,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         const result = await window.loadtoagent.stopAgent(runId);
         toast(result.ok ? window.LoadToAgentI18n.t("ui.stop_request_sent") : result.error);
       } catch (error) {
-        toast((error && error.message) || window.LoadToAgentI18n.t("ui.could_not_send_the_stop_request"));
+        toast(window.LoadToAgentI18n.errorText(error, "ui.could_not_send_the_stop_request"));
       } finally {
         state.stopRequests.delete(runId);
         if (state.selectedId) renderDrawer();

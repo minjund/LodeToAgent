@@ -247,6 +247,15 @@ const api = {
     return clone(update);
   },
   openDownloadedUpdate: () => controlled('openDownloadedUpdate'),
+  installDownloadedUpdate: async () => {
+    await controlled('installDownloadedUpdate', []);
+    update = {
+      ...clone(availableUpdate), status: 'downloaded', progress: 100, downloadedBytes: 8_192,
+      downloadedPath: 'D:\\fixture\\LoadToAgent-Setup-3.1.0.exe', installMode: 'automatic',
+    };
+    updateStateListeners.forEach(listener => listener(clone(update)));
+    return clone(update);
+  },
   openUpdateRelease: () => controlled('openUpdateRelease'),
   snapshot: async () => controlled('snapshot', [], snapshot),
   sessionDetail: id => controlled('sessionDetail', [id], snapshot.sessions.find(session => session.id === id) || null),

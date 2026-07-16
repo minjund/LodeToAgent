@@ -3,6 +3,8 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createNavigationEventBindings = function createNavigationEventBindings(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const errorText = (error, key) => window.LoadToAgentI18n.errorText(error, key);
   const {
     $, state, motionPreference, saveGuideState, selectView, renderUpdateSettings,
     filteredSessions, renderSessions, openRunModal, openDrawer, toast,
@@ -44,7 +46,7 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
         const first = filteredSessions()[0] || ((state.snapshot && state.snapshot.sessions) || [])[0];
         if (first) openDrawer(first.id);
         else {
-          toast("아직 열어볼 작업이 없어요. 먼저 AI에게 첫 일을 맡겨보세요.");
+          toast(t("guide.no_task_to_open"));
           openRunModal();
         }
       }
@@ -67,27 +69,27 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
         state.update = await window.loadtoagent.checkForUpdate();
         renderUpdateSettings();
       } catch (error) {
-        toast((error && error.message) || window.LoadToAgentI18n.t("ui.could_not_check_for_updates"));
+        toast(errorText(error, "ui.could_not_check_for_updates"));
       }
     });
     $("#installUpdateBtn").addEventListener("click", async () => {
       try {
-        if (state.update && state.update.status === "downloaded") {
-          await window.loadtoagent.openDownloadedUpdate();
-          toast("설치 파일을 열었습니다. 화면의 안내에 따라 업데이트를 마무리하세요.");
-        } else {
-          state.update = await window.loadtoagent.downloadUpdate();
-          renderUpdateSettings();
-        }
+        state.update = { ...(state.update || {}), status: "downloading", error: "" };
+        renderUpdateSettings();
+        state.update = await window.loadtoagent.installDownloadedUpdate();
+        renderUpdateSettings();
+        if (state.update && state.update.installMode === "manual") toast(t("ui.open_installer"));
       } catch (error) {
-        toast((error && error.message) || window.LoadToAgentI18n.t("ui.could_not_prepare_the_update_file"));
+        if (state.update && state.update.asset) state.update.status = "available";
+        renderUpdateSettings();
+        toast(errorText(error, "ui.could_not_prepare_the_update_file"));
       }
     });
     $("#openReleaseBtn").addEventListener("click", async () => {
       try {
         await window.loadtoagent.openUpdateRelease();
       } catch (error) {
-        toast((error && error.message) || window.LoadToAgentI18n.t("ui.could_not_open_the_github_release_page"));
+        toast(errorText(error, "ui.could_not_open_the_github_release_page"));
       }
     });
   }

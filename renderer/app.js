@@ -2,6 +2,8 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   const { $, $$, esc, uiLocale, providerLabel, reportRecoverableError } = window.LoadToAgentRendererUtils;
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const observedText = (value) => window.LoadToAgentI18n.observedText(value);
   const PROJECTLESS_WORKSPACE = "__projectless__";
   const state = {
     providers: [],
@@ -39,7 +41,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     detailErrors: new Map(),
     guideCompleted: new Set(),
     guideExpanded: true,
-    platform: { id: "win32", label: "Windows", localShell: "powershell", localShellLabel: "Windows 명령창", nativeTmux: false },
+    platform: { id: "win32", label: "Windows", localShell: "powershell", localShellLabel: t("terminal.windows_shell"), nativeTmux: false },
   };
   Object.defineProperty(state, "provider", {
     enumerable: true,
@@ -130,43 +132,31 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       requestAnimationFrame(() => section.classList.add("motion-section-in"));
     });
   }
-  const STATUS = {
-    starting: window.LoadToAgentI18n.t("ui.preparing"), running: window.LoadToAgentI18n.t("ui.working"),
-    waiting: window.LoadToAgentI18n.t("app.nav.needs_review"), idle: window.LoadToAgentI18n.t("ui.idle"),
-    completed: window.LoadToAgentI18n.t("ui.completed"), failed: window.LoadToAgentI18n.t("ui.problem"),
-    cancelled: window.LoadToAgentI18n.t("ui.stopped"),
+  const localizedLookup = (keys) => new Proxy(Object.create(null), {
+    get: (_target, property) => keys[property] ? t(keys[property]) : undefined,
+  });
+  const STATUS = localizedLookup({
+    starting: "ui.preparing", running: "ui.working", waiting: "app.nav.needs_review", idle: "ui.idle",
+    completed: "ui.completed", failed: "ui.problem", cancelled: "ui.stopped",
+  });
+  const VIEW_TITLES = localizedLookup({
+    all: "ui.recent_conversations_and_tasks", active: "ui.active_tasks", waiting: "ui.tasks_needing_review",
+    terminal: "app.nav.session_terminal", tmux: "app.nav.tmux", settings: "settings.title",
+  });
+  const VIEW_META_KEYS = {
+    all: ["ui.ai_work_overview", "ui.see_all_ai_work_at_a_glance", "ui.active_work_and_items_needing_your_review_appear_first_find"],
+    active: ["ui.active_now", "ui.see_which_ai_is_working_now", "ui.see_what_is_being_handled_then_open_a_task_for"],
+    waiting: ["ui.your_turn", "ui.handle_items_that_need_your_review_first", "ui.only_tasks_waiting_for_your_response_or_choice_are_shown"],
+    terminal: ["ui.continue_an_existing_conversation", "ui.continue_ai_sessions_in_the_terminal", "ui.continue_the_same_task_with_its_previous_conversation_beside_the"],
+    tmux: ["ui.advanced_work_tools", "ui.manage_multi_terminal_work_in_one_place", "ui.this_view_is_only_for_existing_tmux_workflows_home_and"],
+    settings: ["ui.application_management", "ui.check_versions_and_updates", "ui.compare_the_installed_and_latest_stable_versions_then_download_a"],
   };
-  const VIEW_TITLES = {
-    all: window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks"), active: window.LoadToAgentI18n.t("ui.active_tasks"),
-    waiting: window.LoadToAgentI18n.t("ui.tasks_needing_review"), terminal: window.LoadToAgentI18n.t("app.nav.session_terminal"),
-    tmux: window.LoadToAgentI18n.t("app.nav.tmux"), settings: window.LoadToAgentI18n.t("settings.title"),
-  };
-  const VIEW_META = {
-    all: {
-      eyebrow: window.LoadToAgentI18n.t("ui.ai_work_overview"), title: window.LoadToAgentI18n.t("ui.see_all_ai_work_at_a_glance"),
-      subtitle: window.LoadToAgentI18n.t("ui.active_work_and_items_needing_your_review_appear_first_find"),
+  const VIEW_META = new Proxy(Object.create(null), {
+    get: (_target, property) => {
+      const keys = VIEW_META_KEYS[property];
+      return keys ? { eyebrow: t(keys[0]), title: t(keys[1]), subtitle: t(keys[2]) } : undefined;
     },
-    active: {
-      eyebrow: window.LoadToAgentI18n.t("ui.active_now"), title: window.LoadToAgentI18n.t("ui.see_which_ai_is_working_now"),
-      subtitle: window.LoadToAgentI18n.t("ui.see_what_is_being_handled_then_open_a_task_for"),
-    },
-    waiting: {
-      eyebrow: window.LoadToAgentI18n.t("ui.your_turn"), title: window.LoadToAgentI18n.t("ui.handle_items_that_need_your_review_first"),
-      subtitle: window.LoadToAgentI18n.t("ui.only_tasks_waiting_for_your_response_or_choice_are_shown"),
-    },
-    terminal: {
-      eyebrow: window.LoadToAgentI18n.t("ui.continue_an_existing_conversation"), title: window.LoadToAgentI18n.t("ui.continue_ai_sessions_in_the_terminal"),
-      subtitle: window.LoadToAgentI18n.t("ui.continue_the_same_task_with_its_previous_conversation_beside_the"),
-    },
-    tmux: {
-      eyebrow: window.LoadToAgentI18n.t("ui.advanced_work_tools"), title: window.LoadToAgentI18n.t("ui.manage_multi_terminal_work_in_one_place"),
-      subtitle: window.LoadToAgentI18n.t("ui.this_view_is_only_for_existing_tmux_workflows_home_and"),
-    },
-    settings: {
-      eyebrow: window.LoadToAgentI18n.t("ui.application_management"), title: window.LoadToAgentI18n.t("ui.check_versions_and_updates"),
-      subtitle: window.LoadToAgentI18n.t("ui.compare_the_installed_and_latest_stable_versions_then_download_a"),
-    },
-  };
+  });
   const GUIDE_STORAGE_KEY = "loadtoagent:start-guide:v1";
   const GUIDE_STEPS = ["create", "active", "waiting", "detail"];
   function loadGuideState() {
@@ -294,19 +284,22 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return { full, text: `${sample.slice(0, cut).trimEnd()}…`, truncated: true };
   }
   function memoryCategoryLabel(value) {
-    const labels = { insight: "인사이트", convention: "작업 규칙", failure: "실패 기록", decision: "결정", pattern: "반복 패턴" };
-    return labels[String(value || "").toLowerCase()] || String(value || "기록");
+    const keys = {
+      insight: "content.memory.insight", convention: "content.memory.convention", failure: "content.memory.failure",
+      decision: "content.memory.decision", pattern: "content.memory.pattern",
+    };
+    return keys[String(value || "").toLowerCase()] ? t(keys[String(value || "").toLowerCase()]) : String(value || t("content.memory.record"));
   }
   function jsonValueHtml(value, depth = 0) {
-    if (value == null) return '<span class="json-empty">없음</span>';
-    if (typeof value === "boolean") return `<span class="json-primitive">${value ? "예" : "아니요"}</span>`;
+    if (value == null) return `<span class="json-empty">${esc(t("content.none"))}</span>`;
+    if (typeof value === "boolean") return `<span class="json-primitive">${esc(t(value ? "content.yes" : "content.no"))}</span>`;
     if (typeof value === "number") return `<span class="json-primitive">${esc(value.toLocaleString(uiLocale()))}</span>`;
     if (typeof value === "string") return `<span class="json-string">${esc(value)}</span>`;
     if (depth >= 4) return `<span class="json-string">${esc(JSON.stringify(value))}</span>`;
     if (Array.isArray(value)) {
       const shown = value.slice(0, 40);
       const visibleItems = shown.map((item) => `<li>${jsonValueHtml(item, depth + 1)}</li>`).join("");
-      const moreItems = value.length > shown.length ? `<li class="json-more">외 ${value.length - shown.length}개</li>` : "";
+      const moreItems = value.length > shown.length ? `<li class="json-more">${esc(t("content.more_items", { count: value.length - shown.length }))}</li>` : "";
       return `<ol class="json-array">${visibleItems}${moreItems}</ol>`;
     }
     const entries = Object.entries(value).slice(0, 40);
@@ -315,8 +308,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function memoryCandidatesHtml(items) {
     return `<div class="memory-candidates">
       <div class="structured-heading">
-      <b>저장할 작업 기억</b>
-      <span>${items.length}개 항목</span>
+      <b>${esc(t("content.memory.to_save"))}</b>
+      <span>${esc(t("common.items", { count: items.length }))}</span>
       </div>${items
         .map(
           (item, index) => `<article class="memory-candidate">
@@ -325,7 +318,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       <span class="memory-target">${esc(item.target || "MEMORY")}</span>
       <span class="memory-category">${esc(memoryCategoryLabel(item.category))}</span>
       </header>
-      <p>${esc(item.content || "내용 없음")}</p>
+      <p>${esc(item.content || t("content.empty"))}</p>
       </article>`,
         )
         .join("")}</div>`;
@@ -398,17 +391,17 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const steps = lines.filter((line) => /^(?:[-*]\s+|\d+[.)]\s+|#{2,3}\s+(?!로드맵|roadmap))/i.test(line));
     if (!hasRoadmapSignal || (text.length < 420 && steps.length < 6)) return "";
     const heading = lines.find((line) => /^#{1,3}\s+/.test(line));
-    const title = readablePreview((heading || "작업 로드맵").replace(/^#{1,3}\s+/, ""), 72).text;
+    const title = readablePreview((heading || t("content.roadmap.title")).replace(/^#{1,3}\s+/, ""), 72).text;
     const previewSteps = (steps.length ? steps : lines.filter((line) => !/^#{1,3}\s+/.test(line)))
       .slice(0, 3)
       .map((line) => readablePreview(line.replace(/^(?:[-*]\s+|\d+[.)]\s+|#{2,3}\s+)/, "").replace(/\*\*/g, ""), 92).text);
-    const countLabel = steps.length ? `${steps.length}개 단계` : "긴 계획";
+    const countLabel = steps.length ? t("content.roadmap.steps", { count: steps.length }) : t("content.roadmap.long_plan");
     return `<details class="chat-roadmap" data-roadmap-collapsed="true">
       <summary>
       <span class="chat-roadmap-mark" aria-hidden="true">MAP</span>
       <span>
       <b>${esc(title)}</b>
-      <small>${esc(countLabel)} · 접어서 표시</small>
+      <small>${esc(t("content.roadmap.collapsed", { count: countLabel }))}</small>
       </span>
       <i aria-hidden="true">↓</i>
       </summary>
@@ -418,7 +411,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function messageContentHtml(message) {
     const text = String((message && message.text) || "").trim();
-    if (!text) return '<div class="chat-content empty">표시할 내용이 없습니다.</div>';
+    if (!text) return `<div class="chat-content empty">${esc(t("content.no_displayable_content"))}</div>`;
     if (/^[\[{]/.test(text) && /[\]}]$/.test(text)) {
       try {
         const parsed = JSON.parse(text);
@@ -429,8 +422,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
         }
         return `<div class="structured-json">
           <div class="structured-heading">
-          <b>구조화된 데이터</b>
-          <span>${Array.isArray(parsed) ? `${parsed.length}개 항목` : "JSON"}</span>
+          <b>${esc(t("content.structured_data"))}</b>
+          <span>${Array.isArray(parsed) ? esc(t("common.items", { count: parsed.length })) : "JSON"}</span>
           </div>${jsonValueHtml(parsed)}</div>`;
       } catch (_plainChatMessage) {
         // A normal chat message may begin with JSON punctuation without being JSON.
@@ -490,11 +483,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const last = running || items[items.length - 1];
     if (last) {
       return {
-        title: last.label || window.LoadToAgentI18n.t("ui.activity"), detail: last.detail || session.statusDetail || "", type: last.type || "activity",
+        title: observedText(last.label || t("ui.activity")), detail: observedText(last.detail || session.statusDetail || ""), type: last.type || "activity",
       };
     }
     const message = (session.messages || [])[session.messages.length - 1];
-    return { title: session.statusDetail || window.LoadToAgentI18n.t("ui.temporarily_idle"), detail: (message && message.text) || "", type: "activity" };
+    return { title: observedText(session.statusDetail || t("ui.temporarily_idle")), detail: observedText((message && message.text) || ""), type: "activity" };
   }
   function isLiveSession(session) {
     return session && (session.status === "running" || session.status === "starting");
@@ -517,13 +510,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     try {
       const parsed = JSON.parse(text);
       if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return text;
-      if (parsed.cell_id) return `실행 중인 작업 결과를 기다리는 중${parsed.yield_time_ms ? ` · 최대 ${Math.round(Number(parsed.yield_time_ms) / 1000)}초` : ""}`;
-      if (parsed.command) return `명령 실행 · ${String(parsed.command).replace(/\s+/g, " ").slice(0, 180)}`;
-      if (parsed.path || parsed.file_path) return `파일 확인 · ${parsed.path || parsed.file_path}`;
-      if (parsed.prompt) return `AI에게 맡긴 일 · ${String(parsed.prompt).replace(/\s+/g, " ").slice(0, 180)}`;
+      if (parsed.cell_id) return t("activity.waiting_for_result", { wait: parsed.yield_time_ms ? t("activity.max_seconds", { count: Math.round(Number(parsed.yield_time_ms) / 1000) }) : "" });
+      if (parsed.command) return t("activity.command", { value: String(parsed.command).replace(/\s+/g, " ").slice(0, 180) });
+      if (parsed.path || parsed.file_path) return t("activity.file", { value: parsed.path || parsed.file_path });
+      if (parsed.prompt) return t("activity.delegated", { value: String(parsed.prompt).replace(/\s+/g, " ").slice(0, 180) });
       const summary = Object.entries(parsed)
         .slice(0, 3)
-        .map(([key, item]) => `${key}: ${typeof item === "object" ? "구조화 데이터" : item}`)
+        .map(([key, item]) => `${key}: ${typeof item === "object" ? t("activity.structured_data") : item}`)
         .join(" · ");
       return summary || text;
     } catch (_malformedCommandPreview) {
@@ -534,16 +527,16 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function latestWorkCopy(session) {
     const delegation = session.delegation || {};
     const completedResult = delegation.result || session.result;
-    if (session.status === "completed" && completedResult) return `완료 결과 · ${completedResult}`;
-    if (session.status === "completed") return "담당 작업을 완료하고 메인 AI에 결과를 반환했습니다.";
+    if (session.status === "completed" && completedResult) return t("activity.completed_result", { value: completedResult });
+    if (session.status === "completed") return t("activity.completed_returned");
     const activity = currentActivity(session);
     if (activity.detail) return readableActivityDetail(activity.detail);
     const messages = session.messages || [];
     const assistant = [...messages].reverse().find((item) => item.role === "assistant" && item.text);
     if (assistant) return assistant.text;
     const tool = [...messages].reverse().find((item) => item.role === "tool");
-    if (tool) return `${tool.title || "도구"} 실행 · ${tool.text || "결과를 기다리는 중"}`;
-    return activity.title || session.statusDetail || "다음 할 일을 기다리는 중";
+    if (tool) return t("activity.tool_execution", { tool: tool.title || t("session.tool"), value: tool.text || t("activity.waiting_for_result_short") });
+    return activity.title || session.statusDetail || t("activity.waiting_for_next");
   }
   function statusIcon(type) {
     if (/tool/.test(type)) return "⌘";
@@ -560,6 +553,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     uiLocale,
     providerLabel,
     reportRecoverableError,
+    observedText,
     PROJECTLESS_WORKSPACE,
     state,
     motionPreference,

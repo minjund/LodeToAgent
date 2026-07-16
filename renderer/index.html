@@ -99,7 +99,7 @@
       <section id="updateNotice" class="update-notice hidden" aria-live="polite">
         <span class="update-notice-signal" aria-hidden="true"><i></i></span>
         <div><b id="updateNoticeTitle" data-i18n="ui.a_new_version_is_available">새 버전을 사용할 수 있습니다.</b><small id="updateNoticeText" data-i18n="ui.download_the_update_from_settings">설정에서 업데이트 파일을 받을 수 있습니다.</small></div>
-        <button id="updateNoticeBtn" type="button">업데이트 보기 <span>→</span></button>
+        <button id="updateNoticeBtn" type="button"><span data-i18n="settings.update.view">업데이트 보기</span> <span>→</span></button>
       </section>
 
       <section id="settingsSection" class="settings-section hidden" aria-labelledby="settingsTitle">
@@ -175,7 +175,7 @@
         </div>
       </section>
 
-      <section id="terminalSection" class="terminal-section hidden" aria-label="명령창 직접 다루기">
+      <section id="terminalSection" class="terminal-section hidden" aria-label="명령창 직접 다루기" data-i18n-aria-label="terminal.direct_control">
         <div class="terminal-section-head">
           <div><span class="terminal-logo">›_</span><div><p class="eyebrow" data-i18n="ui.conversation_and_execution_together">대화와 실행 화면을 한곳에서</p><h2 data-i18n="app.nav.session_terminal">세션 터미널</h2><p id="terminalPlatformExplain" class="section-explain" data-i18n="ui.choose_a_session_on_the_left_to_continue_with_its">왼쪽에서 세션을 고르면 이전 AI 대화와 실시간 터미널을 나란히 보며 그대로 이어서 작업할 수 있습니다.</p></div></div>
           <div class="terminal-create-actions">
@@ -210,7 +210,7 @@
               <button type="button" data-tmux-manage="new-window" data-i18n="ui.add_window">창 추가</button>
               <button type="button" data-tmux-manage="split-horizontal" data-i18n="ui.split_left_right">좌우로 나누기</button>
               <button type="button" data-tmux-manage="split-vertical" data-i18n="ui.split_top_bottom">상하로 나누기</button>
-              <label>창 배치 <select id="terminalTmuxLayout"><option value="tiled" data-i18n="ui.tiled">바둑판</option><option value="even-horizontal" data-i18n="ui.equal_width">같은 너비</option><option value="even-vertical" data-i18n="ui.equal_height">같은 높이</option><option value="main-horizontal" data-i18n="ui.main_window_on_top">중요 창 위쪽</option><option value="main-vertical" data-i18n="ui.main_window_on_left">중요 창 왼쪽</option></select></label>
+              <label><span data-i18n="terminal.window_layout">창 배치</span> <select id="terminalTmuxLayout"><option value="tiled" data-i18n="ui.tiled">바둑판</option><option value="even-horizontal" data-i18n="ui.equal_width">같은 너비</option><option value="even-vertical" data-i18n="ui.equal_height">같은 높이</option><option value="main-horizontal" data-i18n="ui.main_window_on_top">중요 창 위쪽</option><option value="main-vertical" data-i18n="ui.main_window_on_left">중요 창 왼쪽</option></select></label>
               <button type="button" class="danger" data-tmux-manage="kill-pane" data-i18n="ui.close_selected_pane">선택한 칸 닫기</button>
               <button type="button" class="danger" data-tmux-manage="kill-window" data-i18n="ui.close_entire_window">창 전체 닫기</button>
               <button type="button" class="danger" data-tmux-manage="kill-session" data-i18n="ui.end_workspace">작업 묶음 끝내기</button>
@@ -329,7 +329,7 @@
       <section class="run-step run-request-step" aria-labelledby="runRequestLabel">
         <div class="run-step-head"><i>1</i><span><b id="runRequestLabel" data-i18n="ui.describe_the_task">할 일 적기</b><small data-i18n="ui.include_the_expected_result_and_constraints_for_better_accuracy">결과와 제약을 함께 적으면 더 정확해요.</small></span></div>
         <label class="run-prompt-field"><span class="sr-only" data-i18n="ui.task_for_ai">AI에게 맡길 일</span><textarea id="runPrompt" required rows="5" maxlength="8000" placeholder="예: 로그인 화면의 오류를 찾아 고치고, 관련 테스트까지 실행해줘" data-i18n-placeholder="ui.example_find_and_fix_the_login_screen_error_then_run"></textarea></label>
-        <div class="run-prompt-tools"><div class="run-prompt-examples" aria-label="빠른 요청 예시" data-i18n-aria-label="ui.quick_prompt_examples"><button type="button" data-run-prompt-example="문제의 원인을 찾아 고치고 관련 테스트까지 실행해줘" data-i18n="ui.fix_a_bug">오류 수정</button><button type="button" data-run-prompt-example="현재 코드를 검토하고 중요도 순으로 개선해줘" data-i18n="ui.review_code">코드 검토</button><button type="button" data-run-prompt-example="현재 기능을 검증하는 테스트를 추가하고 실행해줘" data-i18n="ui.add_tests">테스트 추가</button></div><span id="runPromptCount" class="run-prompt-count">0 / 8,000</span></div>
+        <div class="run-prompt-tools"><div class="run-prompt-examples" aria-label="빠른 요청 예시" data-i18n-aria-label="ui.quick_prompt_examples"><button type="button" data-run-prompt-key="run.example.fix" data-i18n="ui.fix_a_bug">오류 수정</button><button type="button" data-run-prompt-key="run.example.review" data-i18n="ui.review_code">코드 검토</button><button type="button" data-run-prompt-key="run.example.tests" data-i18n="ui.add_tests">테스트 추가</button></div><span id="runPromptCount" class="run-prompt-count">0 / 8,000</span></div>
       </section>
       <section class="run-step run-setup-step" aria-labelledby="runSetupLabel">
         <div class="run-step-head"><i>2</i><span><b id="runSetupLabel" data-i18n="ui.choose_how_to_run">실행 방법 선택</b><small data-i18n="ui.choose_an_ai_and_workspace_to_finish_setup">AI와 작업 폴더만 고르면 준비가 끝납니다.</small></span></div>
@@ -343,10 +343,10 @@
       </section>
       <details class="run-advanced">
         <summary><span><b data-i18n="ui.advanced_settings">고급 설정</b><small data-i18n="ui.use_only_when_selecting_a_specific_model">특정 모델을 직접 지정할 때만 사용</small></span><i aria-hidden="true">↓</i></summary>
-        <label><span>사용 모델 <small data-i18n="ui.leave_blank_if_unsure">몰라도 비워두세요</small></span><input id="runModel" placeholder="비워두면 AI가 알아서 선택합니다" data-i18n-placeholder="ui.leave_blank_to_let_the_ai_choose" /></label>
+        <label><span><span data-i18n="ui.model">사용 모델</span> <small data-i18n="ui.leave_blank_if_unsure">몰라도 비워두세요</small></span><input id="runModel" placeholder="비워두면 AI가 알아서 선택합니다" data-i18n-placeholder="ui.leave_blank_to_let_the_ai_choose" /></label>
       </details>
       <div id="runError" class="form-error hidden" role="alert" aria-live="assertive"></div>
-      <div class="modal-actions run-modal-actions"><span class="run-shortcut-hint"><kbd>⌘</kbd><kbd>Enter</kbd> 시작</span><button type="button" id="cancelRunBtn" class="ghost-button" data-i18n="common.cancel">취소</button><button type="submit" class="primary-button run-submit-button"><span class="run-submit-icon" aria-hidden="true">↗</span><span id="runSubmitLabel" data-i18n="ui.assign_to_ai">AI에게 맡기기</span></button></div>
+      <div class="modal-actions run-modal-actions"><span class="run-shortcut-hint"><kbd>⌘</kbd><kbd>Enter</kbd> <span data-i18n="ui.start">시작</span></span><button type="button" id="cancelRunBtn" class="ghost-button" data-i18n="common.cancel">취소</button><button type="submit" class="primary-button run-submit-button"><span class="run-submit-icon" aria-hidden="true">↗</span><span id="runSubmitLabel" data-i18n="ui.assign_to_ai">AI에게 맡기기</span></button></div>
     </form>
   </div>
 
@@ -358,8 +358,8 @@
         <label><span id="tmuxEnvironmentLabel" data-i18n="ui.tmux_environment">tmux 환경</span><select id="tmuxCreateDistro" required></select></label>
         <label><span data-i18n="ui.workspace_name">작업 묶음 이름</span><input id="tmuxCreateName" required pattern="[A-Za-z0-9_.\-]+" placeholder="my-work" /></label>
       </div>
-      <label><span>시작 폴더 <small data-i18n="ui.optional">선택 사항</small></span><input id="tmuxCreateCwd" placeholder="프로젝트의 절대 경로" data-i18n-placeholder="ui.absolute_project_path" /></label>
-      <label><span>처음 실행할 명령 <small data-i18n="ui.optional">선택 사항</small></span><textarea id="tmuxCreateCommand" rows="4" placeholder="예: 실행할 AI 명령" data-i18n-placeholder="ui.example_claude_or_codex"></textarea></label>
+      <label><span><span data-i18n="terminal.start_folder">시작 폴더</span> <small data-i18n="ui.optional">선택 사항</small></span><input id="tmuxCreateCwd" placeholder="프로젝트의 절대 경로" data-i18n-placeholder="ui.absolute_project_path" /></label>
+      <label><span><span data-i18n="terminal.initial_command">처음 실행할 명령</span> <small data-i18n="ui.optional">선택 사항</small></span><textarea id="tmuxCreateCommand" rows="4" placeholder="예: 실행할 AI 명령" data-i18n-placeholder="ui.example_claude_or_codex"></textarea></label>
       <div id="tmuxCreateError" class="form-error hidden" role="alert" aria-live="assertive"></div>
       <div class="modal-actions"><button type="button" id="cancelTmuxCreateBtn" class="ghost-button" data-i18n="common.cancel">취소</button><button type="submit" class="primary-button" data-i18n="ui.create_workspace">작업 묶음 만들기</button></div>
     </form>

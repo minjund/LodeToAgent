@@ -19,6 +19,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     focusedGraph,
     scheduleAgentWorkflowConnections,
   } = context;
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
 
   function renderAgentMap(sessions, motionKind = "refresh") {
     const model = connectedGraphSessions(sessions);
@@ -36,7 +37,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     if (focus) {
       $("#liveSessionGrid").innerHTML = focusedGraph(focus, model, motionKind);
       const path = graphPath(focus, model.byId);
-      $("#graphBreadcrumbs").innerHTML = `<button type="button" data-graph-reset>작업 목록</button>${path
+      $("#graphBreadcrumbs").innerHTML = `<button type="button" data-graph-reset>${esc(t("graph.task_list"))}</button>${path
         .map((item) => {
           const label = item.parentId ? item.agentName || agentRoleLabel(item.agentRole) : item.title;
           const preview = readablePreview(label, item.parentId ? 42 : 72);
@@ -54,18 +55,18 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#liveSessionGrid").innerHTML = `<details class="runtime-disclosure" open>
         <summary>
         <span>
-        <b>${runtime.activeCount}개 AI가 작업 중입니다</b>
-        <small>일반 실행 AI ${runtime.standardCount}개와 TMUX AI ${runtime.tmuxCount}개를 합산했습니다. 작업 중 도움 AI ${runtime.activeHelperCount}개는 이 수에 포함됩니다.</small>
+        <b>${esc(t("graph.ai_working_count", { count: runtime.activeCount }))}</b>
+        <small>${esc(t("graph.runtime_count_explanation", { standard: runtime.standardCount, tmux: runtime.tmuxCount, helpers: runtime.activeHelperCount }))}</small>
         </span>
-        <em>상세 흐름 보기 <i aria-hidden="true">↓</i>
+        <em>${esc(t("graph.view_detailed_flow"))} <i aria-hidden="true">↓</i>
         </em>
         </summary>${runtimeSeparatedOverview(roots, model)}</details>`;
       $("#graphBreadcrumbs").innerHTML =
         `<span class="map-hint">
-          일반 실행 AI <b>${runtime.standardCount}</b>개 ·
-          TMUX AI <b>${runtime.tmuxCount}</b>개 ·
-          작업 중 도움 AI <b>${runtime.activeHelperCount}</b>개 ·
-          도움 AI 기록 <b>${runtime.helperRecordCount}</b>개
+          ${esc(t("graph.standard_ai"))} <b>${runtime.standardCount}</b> ·
+          ${esc(t("graph.tmux_ai"))} <b>${runtime.tmuxCount}</b> ·
+          ${esc(t("graph.active_helper_ai"))} <b>${runtime.activeHelperCount}</b> ·
+          ${esc(t("graph.helper_ai_history"))} <b>${runtime.helperRecordCount}</b>
         </span>`;
       $("#graphResetBtn").classList.add("hidden");
       return runtime.activeCount;

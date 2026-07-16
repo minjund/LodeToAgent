@@ -4,35 +4,39 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDrawerContent = function createDrawerContent(context = {}) {
   const { esc, uiLocale, state, messageContentHtml, compact, fullNumber, timeOnly, providerInfo, statusIcon, agentPathTaskName, snapshotSession } = context;
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
 
   function chatHtml(session, options = {}) {
     const messages = session.messages || [];
-    if (!messages.length) return '<div class="empty-state"><h3>표시할 대화가 없습니다</h3></div>';
-    const userLabel = options.userLabel || "사용자";
+    if (!messages.length) return `<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
+    const userLabel = options.userLabel || t("drawer.user");
     const assistantLabel = options.assistantLabel || providerInfo(session.provider).label;
-    const conversationLabel = options.conversationLabel || "대화";
+    const conversationLabel = options.conversationLabel || t("drawer.conversation");
     const conversation = messages.filter((message) => message.role === "user" || message.role === "assistant");
     const activities = messages.filter((message) => message.role !== "user" && message.role !== "assistant");
     const omitted = Number(session.omittedMessages || 0);
     const notice =
       omitted || session.truncated
-        ? `<div class="chat-truncated">이 작업의 최근 기록을 표시합니다${omitted ? ` · 이전 ${omitted.toLocaleString(uiLocale())}개 메시지 생략` : ""}</div>`
+        ? `<div class="chat-truncated">${esc(t("drawer.recent_history"))}${omitted ? ` · ${esc(t("drawer.messages_omitted", { count: omitted.toLocaleString(uiLocale()) }))}` : ""}</div>`
         : "";
     const statusLabels = {
-      started: "실행 중", running: "실행 중",
-      done: window.LoadToAgentI18n.t("ui.completed"), completed: window.LoadToAgentI18n.t("ui.completed"), failed: "실패",
+      started: t("ui.working"), running: t("ui.working"),
+      done: t("ui.completed"), completed: t("ui.completed"), failed: t("drawer.failed"),
     };
     const statusLabel = (value) => statusLabels[value] || value || "";
     const rows = conversation
       .map((message) => {
         const role = message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : message.role === "system" ? "system" : "user";
+        const renderedMessage = role === "tool" || role === "system"
+          ? { ...message, text: window.LoadToAgentI18n.observedText(message.text) }
+          : message;
         const label =
           role === "assistant"
             ? assistantLabel
             : role === "tool"
-              ? message.title || "도구"
+              ? window.LoadToAgentI18n.observedText(message.title || t("session.tool"))
               : message.role === "system"
-                ? "시스템"
+                ? t("drawer.system")
                 : userLabel;
         const avatar = role === "assistant" ? providerInfo(session.provider).mark : role === "tool" ? "⌘" : role === "system" ? "i" : "ME";
         const fullTime = new Date(message.timestamp).toLocaleString(uiLocale());
@@ -43,44 +47,44 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         <b>${esc(label)}</b>
         <span title="${esc(fullTime)}">${esc(timeOnly(message.timestamp))}</span>
         ${message.status ? `<span>${esc(statusLabel(message.status))}</span>` : ""}
-        </div>${messageContentHtml(message)}</div>
+        </div>${messageContentHtml(renderedMessage)}</div>
         </div>`;
       })
       .join("");
     const activityHtml = activities.length
       ? `<details class="chat-activities">
-      <summary>도구·시스템 활동 ${activities.length}건 보기</summary>
+      <summary>${esc(t("drawer.activities_view", { count: activities.length }))}</summary>
       <div>${activities
         .map(
           (message) => `<article>
       <header>
-      <b>${esc(message.title || (message.role === "tool" ? "도구 실행" : "시스템"))}</b>
+      <b>${esc(window.LoadToAgentI18n.observedText(message.title || (message.role === "tool" ? t("drawer.tool_execution") : t("drawer.system"))))}</b>
       <span>${esc(statusLabel(message.status))} · ${esc(timeOnly(message.timestamp))}</span>
-      </header>${messageContentHtml(message)}</article>`,
+      </header>${messageContentHtml({ ...message, text: window.LoadToAgentI18n.observedText(message.text) })}</article>`,
         )
         .join("")}</div>
       </details>`
       : "";
-    const emptyConversation = conversation.length ? "" : '<div class="empty-state compact"><h3>사용자와 AI의 대화는 아직 없습니다</h3></div>';
+    const emptyConversation = conversation.length ? "" : `<div class="empty-state compact"><h3>${esc(t("drawer.no_user_ai_conversation"))}</h3></div>`;
     return `${notice}<div class="chat-history-head">
-      <span>${esc(conversationLabel)} ${conversation.length}개${activities.length ? ` · 활동 ${activities.length}건` : ""}</span>
-      <button type="button" data-scroll-latest>가장 최근 대화 ↓</button>
+      <span>${esc(t("drawer.conversation_summary", { label: conversationLabel, count: conversation.length, activities: activities.length ? ` · ${t("drawer.activities", { count: activities.length })}` : "" }))}</span>
+      <button type="button" data-scroll-latest>${esc(t("drawer.latest_conversation"))} ↓</button>
       </div>
-      <div class="chat-list">${rows}${emptyConversation}${activityHtml}<div class="chat-latest-anchor" aria-label="가장 최근 대화">
+      <div class="chat-list">${rows}${emptyConversation}${activityHtml}<div class="chat-latest-anchor" aria-label="${esc(t("drawer.latest_conversation"))}">
       </div>
       </div>`;
   }
 
   function lifecycleHtml(session) {
     const events = session.lifecycle || [];
-    if (!events.length) return '<div class="empty-state"><h3>아직 기록된 진행 과정이 없습니다</h3></div>';
+    if (!events.length) return `<div class="empty-state"><h3>${esc(t("drawer.no_lifecycle"))}</h3></div>`;
     return `<div class="lifecycle-list">${events
       .map(
         (event) => `<div class="lifecycle-event ${esc(event.status)}">
       <span class="life-node">${statusIcon(event.type)}</span>
       <div class="life-copy">
-      <b>${esc(event.label)}</b>
-      <span>${esc(event.detail || event.type)}</span>
+      <b>${esc(window.LoadToAgentI18n.observedText(event.label))}</b>
+      <span>${esc(window.LoadToAgentI18n.observedText(event.detail || event.type))}</span>
       </div>
       <time>${esc(timeOnly(event.timestamp))}</time>
       </div>`,
@@ -94,14 +98,14 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const context = session.context || {};
     const sourceLabel =
       context.source === "session"
-        ? "이 작업 기록에서 직접 확인한 기억 공간"
+        ? t("drawer.context_source_session")
         : context.source === "model-catalog"
-          ? "AI 모델 정보에 적힌 기억 공간"
-          : "기억 공간 크기 정보 없음";
+          ? t("drawer.context_source_catalog")
+          : t("session.context_size_unknown");
     return `<div class="token-hero" style="--drawer-provider:${providerInfo(session.provider).accent}">
       <div class="token-hero-head">
-        <span>AI의 기억 공간 사용량</span>
-        <b>${context.window ? `${fullNumber(context.used)} / ${fullNumber(context.window)} 토큰` : `${fullNumber(context.used)} 토큰`}</b>
+        <span>${esc(t("session.context_usage"))}</span>
+        <b>${esc(t("drawer.tokens", { count: context.window ? `${fullNumber(context.used)} / ${fullNumber(context.window)}` : fullNumber(context.used) }))}</b>
         </div>
       <div class="big-context"><span style="width:${Math.min(100, context.percent || 0)}%"></span></div>
       <div class="context-scale">
@@ -110,15 +114,15 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       </div>
     </div>
     <div class="token-grid">
-      <div class="token-tile"><span>AI가 받은 글</span><strong>${fullNumber(usage.input)}</strong><small>AI에게 전달된 내용의 양</small></div>
-      <div class="token-tile"><span>AI가 쓴 글</span><strong>${fullNumber(usage.output)}</strong><small>AI가 답하고 만든 내용의 양</small></div>
-      <div class="token-tile"><span>다시 사용한 기억</span><strong>${fullNumber(usage.cachedInput)}</strong><small>전에 읽은 내용을 다시 활용한 양</small></div>
-      <div class="token-tile"><span>새로 저장한 기억</span><strong>${fullNumber(usage.cacheWrite)}</strong><small>다음에 다시 쓰도록 저장한 양</small></div>
-      <div class="token-tile"><span>생각에 사용</span><strong>${fullNumber(usage.reasoning)}</strong><small>AI가 따로 알려준 경우만 표시</small></div>
-      <div class="token-tile"><span>전체 사용량</span><strong>${fullNumber(usage.total)}</strong><small>이 작업에서 사용한 토큰 합계</small></div>
-      <div class="token-tile"><span>최근에 받은 글</span><strong>${fullNumber(turn.input)}</strong><small>가장 최근 대화 기준</small></div>
-      <div class="token-tile"><span>최근 대화 전체</span><strong>${fullNumber(turn.total)}</strong><small>가장 최근 한 번의 사용량</small></div>
-    </div><div class="token-note">${esc(sourceLabel)}입니다. 토큰은 AI가 글을 읽고 쓰는 양을 세는 단위이고, 기억 공간은 AI가 한 번에 기억할 수 있는 양입니다.</div>`;
+      <div class="token-tile"><span>${esc(t("drawer.input"))}</span><strong>${fullNumber(usage.input)}</strong><small>${esc(t("drawer.input_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.output"))}</span><strong>${fullNumber(usage.output)}</strong><small>${esc(t("drawer.output_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.cached"))}</span><strong>${fullNumber(usage.cachedInput)}</strong><small>${esc(t("drawer.cached_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.cache_write"))}</span><strong>${fullNumber(usage.cacheWrite)}</strong><small>${esc(t("drawer.cache_write_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.reasoning"))}</span><strong>${fullNumber(usage.reasoning)}</strong><small>${esc(t("drawer.reasoning_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.total"))}</span><strong>${fullNumber(usage.total)}</strong><small>${esc(t("drawer.total_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.last_input"))}</span><strong>${fullNumber(turn.input)}</strong><small>${esc(t("drawer.latest_turn"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.last_total"))}</span><strong>${fullNumber(turn.total)}</strong><small>${esc(t("drawer.last_total_help"))}</small></div>
+    </div><div class="token-note">${esc(t("drawer.token_note", { source: sourceLabel }))}</div>`;
   }
 
   function subagentCommunicationEvents(session) {
@@ -183,16 +187,16 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       .map((event) => {
         const fromChild = event.kind === "result" || endpointIsChild(event.from);
         const preview = subagentTextPreview(event.text);
-        const label = fromChild ? `${session.agentName || taskName} → 메인 AI` : "메인 AI → 서브에이전트";
+        const label = fromChild ? t("drawer.child_to_main", { child: session.agentName || taskName }) : t("drawer.main_to_child");
         return `<article data-subagent-communication="${esc(event.kind)}">
-          <header><b>${esc(event.label || event.kind)}</b><span>${esc(label)} · ${esc(timeOnly(event.timestamp))}</span></header>
+          <header><b>${esc(window.LoadToAgentI18n.observedText(event.label || event.kind))}</b><span>${esc(label)} · ${esc(timeOnly(event.timestamp))}</span></header>
           <div class="chat-content plain subagent-message-preview${preview.truncated ? " is-truncated" : ""}"
             data-subagent-message-preview data-truncated="${preview.truncated ? "true" : "false"}"><p>${esc(preview.text)}</p></div>
         </article>`;
       })
       .join("");
     return `<details class="chat-activities subagent-coordination" data-subagent-coordination-count="${events.length}">
-      <summary>메인 AI와 주고받은 지시·결과 ${events.length}건</summary><div>${rows}</div>
+      <summary>${esc(t("drawer.coordination_events", { count: events.length }))}</summary><div>${rows}</div>
     </details>`;
   }
 
@@ -201,14 +205,14 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const conversationCount = messages.filter((message) => message.role === "user" || message.role === "assistant").length;
     const workSession = { ...session, messages };
     const sourceCopy = session.source === "collaboration-history"
-      ? "별도 세션 로그가 없어 협업 기록에서 복원한 작업 결과입니다."
-      : "이 서브에이전트 세션에 실제로 저장된 작업 지시와 답변을 시간순으로 표시합니다.";
+      ? t("drawer.subagent_history_reconstructed")
+      : t("drawer.subagent_history_actual");
     return `<section class="subagent-work-source" data-subagent-work-messages="${conversationCount}">
-      <b>서브에이전트 실제 작업 기록</b><span>${esc(sourceCopy)}</span>
+      <b>${esc(t("drawer.subagent_work_history"))}</b><span>${esc(sourceCopy)}</span>
     </section>${chatHtml(workSession, {
-      userLabel: "작업 지시",
-      assistantLabel: session.agentName || "서브 AI",
-      conversationLabel: "작업 기록",
+      userLabel: t("drawer.assignment"),
+      assistantLabel: session.agentName || t("drawer.sub_ai"),
+      conversationLabel: t("drawer.work_history"),
     })}${subagentCoordinationHtml(session)}`;
   }
 

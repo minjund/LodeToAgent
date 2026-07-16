@@ -1,6 +1,6 @@
 'use strict';
 
-function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLocale, setProviderVisibility, updateManager }) {
+function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLocale, setProviderVisibility, updateManager, installUpdate }) {
   handleTrusted('app:bootstrap', bootstrap);
   handleTrusted('app:background-state', backgroundState);
   handleTrusted('app:show', show);
@@ -9,6 +9,7 @@ function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLo
   handleTrusted('app:update-check', () => requireUpdateManager(updateManager).check());
   handleTrusted('app:update-download', () => requireUpdateManager(updateManager).download());
   handleTrusted('app:update-open', () => requireUpdateManager(updateManager).openDownloaded());
+  handleTrusted('app:update-install', installUpdate);
   handleTrusted('app:update-open-release', () => requireUpdateManager(updateManager).openReleasePage());
 }
 

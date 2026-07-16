@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $,
     esc,
@@ -78,10 +79,10 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
     if (tmux)
       return {
         kind: "tmux",
-        label: "TMUX 사용",
-        detail: [tmux.distro, tmux.sessionName, tmux.paneNativeId || tmux.paneId].filter(Boolean).join(" · ") || "분할 터미널에서 실행",
+        label: t("graph.tmux_used"),
+        detail: [tmux.distro, tmux.sessionName, tmux.paneNativeId || tmux.paneId].filter(Boolean).join(" · ") || t("graph.running_in_split_terminal"),
       };
-    return { kind: "standard", label: "일반 실행", detail: "TMUX 미사용" };
+    return { kind: "standard", label: t("graph.standard_run"), detail: t("graph.tmux_not_used") };
   }
 
   function executionModeBadge(session, compact = false) {

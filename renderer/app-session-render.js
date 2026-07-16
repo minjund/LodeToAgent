@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRenderer(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $,
     esc,
@@ -48,10 +49,10 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const assistant = [...messages].reverse().find((message) => message.role === "assistant");
     const tool = [...messages].reverse().find((message) => message.role === "tool");
     const rows = [];
-    if (user) rows.push({ label: "나", text: readablePreview(user.text, 140).text, tone: "user" });
+    if (user) rows.push({ label: t("session.me"), text: readablePreview(user.text, 140).text, tone: "user" });
     if (assistant) rows.push({ label: providerInfo(session.provider).label, text: readablePreview(assistant.text, 140).text, tone: "assistant" });
-    else if (tool) rows.push({ label: tool.title || "도구", text: readablePreview(tool.text, 140).text, tone: "tool" });
-    if (!rows.length) rows.push({ label: "상태", text: session.statusDetail || "대화 이벤트를 기다리는 중입니다.", tone: "system" });
+    else if (tool) rows.push({ label: tool.title || t("session.tool"), text: readablePreview(tool.text, 140).text, tone: "tool" });
+    if (!rows.length) rows.push({ label: t("session.status"), text: window.LoadToAgentI18n.observedText(session.statusDetail || t("session.waiting_for_event")), tone: "system" });
     return rows.slice(-2);
   }
 
@@ -62,14 +63,14 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const activity = currentActivity(session);
     const running = session.status === "running" || session.status === "starting";
     const children = session.childIds || [];
-    const model = session.model || "사용 모델 정보 없음";
+    const model = session.model || t("session.model_unknown");
     const contextPercent = Math.max(0, Math.min(100, Number(context.percent || 0)));
     const remaining = context.window ? Math.max(0, Number(context.window) - Number(context.used || 0)) : 0;
     const gaugeTone = contextPercent >= 90 ? "critical" : contextPercent >= 75 ? "warning" : "safe";
     const conversation = recentConversation(session);
     const runtime = session.runtimePresence || [];
     const titlePreview = readablePreview(session.title, 96);
-    const activityCopy = latestWorkCopy(session) || session.statusDetail || "새 이벤트 대기";
+    const activityCopy = latestWorkCopy(session) || window.LoadToAgentI18n.observedText(session.statusDetail) || t("session.waiting_for_new_event");
     const activityPreview = readablePreview(activityCopy, 116);
     const accessibleId = `session-${String(session.id || "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
     return `<article class="session-card ${opts.live ? "live-card" : ""} ${statusClass(session.status)} ${session.parentId ? "subagent" : ""}"
@@ -101,7 +102,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
         }</div>
       <div id="${accessibleId}-summary" class="now-strip ${running ? "is-live" : ""}">
         <span class="now-strip-icon">${statusIcon(activity.type)}</span>
-        <div><b>${running ? "지금: " : ""}${esc(activity.title)}</b><span title="${esc(activityPreview.full)}">${esc(activityPreview.text)}</span></div>
+        <div><b>${running ? `${esc(t("session.now"))}: ` : ""}${esc(activity.title)}</b><span title="${esc(activityPreview.full)}">${esc(activityPreview.text)}</span></div>
         ${running ? '<span class="activity-wave"><i></i><i></i><i></i><i></i><i></i></span>' : ""}
       </div>
       ${
@@ -109,8 +110,8 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
           ? `<div class="runtime-strip">
         <span class="runtime-pulse">
         </span>
-        <b>실제로 실행 중인 프로그램 ${runtime.length}개</b>
-        <span>${esc(runtime.map((item) => item.label || `프로그램 ${item.pid}`).join(" · "))}</span>
+        <b>${esc(t("session.running_programs", { count: runtime.length }))}</b>
+        <span>${esc(runtime.map((item) => item.label || t("session.program_pid", { pid: item.pid })).join(" · "))}</span>
         </div>`
           : ""
       }
@@ -120,28 +121,28 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       <div class="context-meter ${gaugeTone}">
         <div class="context-meter-head">
           <div>
-          <span>AI의 기억 공간 사용량</span>
+          <span>${esc(t("session.context_usage"))}</span>
           <strong>${context.window ? `${fullNumber(context.used)} / ${fullNumber(context.window)}` : `${fullNumber(context.used)} / --`}</strong>
           </div>
           <b>${context.window ? `${contextPercent.toFixed(1)}%` : "--"}</b>
           </div>
         <div class="context-meter-track"><span style="width:${contextPercent}%"></span><i style="left:75%"></i><i style="left:90%"></i></div>
         <div class="context-meter-foot">
-          <span>${context.window ? `아직 ${compact(remaining)} 토큰만큼 기억 가능` : "기억 공간 크기 정보 없음"}</span>
-          <span>지금까지 ${compact(usage.total)} 토큰 사용</span>
+          <span>${esc(context.window ? t("session.context_remaining", { count: compact(remaining) }) : t("session.context_size_unknown"))}</span>
+          <span>${esc(t("session.tokens_used_so_far", { count: compact(usage.total) }))}</span>
           </div>
       </div>
       <div class="token-row">
-        <div><span>받은 글</span><b>${compact(usage.input)}</b></div>
-        <div><span>AI가 쓴 글</span><b>${compact(usage.output)}</b></div>
-        <div><span>다시 쓴 기억</span><b>${compact(usage.cachedInput)}</b></div>
-        <div class="total"><span>전체 사용</span><b>${compact(usage.total)}</b></div>
+        <div><span>${esc(t("session.input_tokens"))}</span><b>${compact(usage.input)}</b></div>
+        <div><span>${esc(t("session.output_tokens"))}</span><b>${compact(usage.output)}</b></div>
+        <div><span>${esc(t("session.cached_tokens"))}</span><b>${compact(usage.cachedInput)}</b></div>
+        <div class="total"><span>${esc(t("session.total_tokens"))}</span><b>${compact(usage.total)}</b></div>
       </div>
       ${
         children.length
           ? `<div class="child-row">
         <b>⑂</b>
-        <span>서브에이전트 ${children.length}개 누적 생성</span>
+        <span>${esc(t("session.subagents_created", { count: children.length }))}</span>
         <span class="child-dots">${children
           .slice(0, 4)
           .map(() => "<i></i>")
@@ -150,7 +151,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
           : ""
       }
       <footer class="card-footer">
-        <span class="source-tag">${esc(session.sourceLabel || "내 PC의 작업 기록")}</span>
+        <span class="source-tag">${esc(window.LoadToAgentI18n.observedText(session.sourceLabel || t("session.local_history")))}</span>
         <span>${esc(timeAgo(session.updatedAt))}</span>
       </footer>
     </article>`;

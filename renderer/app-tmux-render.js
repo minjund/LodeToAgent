@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(context = {}) {
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $,
     esc,
@@ -70,7 +71,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
           { type: "distro", id: found.distro.id, label: found.distro.name },
           { type: "session", id: found.session.id, label: found.session.name },
           { type: "window", id: found.window.id, label: `${found.window.index}:${found.window.name}` },
-          { type: "pane", id: found.item.id, label: `pane ${found.item.index}` },
+          { type: "pane", id: found.item.id, label: t('tmux.pane_label', { index: found.item.index }) },
         ]
       : [];
   }
@@ -103,15 +104,15 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     const working = children.filter(({ session }) => subagentWorkState(session) === "working").length;
     const attention = children.filter(({ session }) => subagentWorkState(session) === "attention").length;
     const statusSummary = [
-      working ? `${working}개 작업 중` : "",
-      attention ? `${attention}개 확인 필요` : "",
-    ].filter(Boolean).join(" · ") || "현재 모두 쉬는 중";
+      working ? t('tmux.subagents.working_count', { count: working }) : "",
+      attention ? t('tmux.subagents.attention_count', { count: attention }) : "",
+    ].filter(Boolean).join(" · ") || t('tmux.subagents.all_idle');
     const rows = children
       .map(({ session, depth }) => {
         const provider = providerInfo(session.provider);
         const role = session.agentName || agentRoleLabel(session.agentRole);
-        const assigned = session.delegation && session.delegation.assignment || session.taskName || session.title || "담당 작업 확인 중";
-        const work = readablePreview(latestWorkCopy(session) || session.statusDetail || "상태 확인 중", 96);
+        const assigned = session.delegation && session.delegation.assignment || session.taskName || session.title || t('tmux.subagents.checking_assignment');
+        const work = readablePreview(latestWorkCopy(session) || window.LoadToAgentI18n.observedText(session.statusDetail) || t('tmux.subagents.checking_status'), 96);
         const workState = subagentWorkState(session);
         return `<article class="tmux-subagent-row work-${workState}" data-tmux-subagent-id="${esc(session.id)}"
           style="${providerStyle(session.provider)};--tmux-subagent-depth:${Math.min(2, Math.max(0, depth - 1))}">
@@ -121,13 +122,13 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
             <strong>${esc(assigned)}</strong>
             <em title="${esc(work.full)}">${esc(work.text)}</em>
           </span>
-          <button type="button" data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(`${role} · ${assigned} 대화 보기`)}">대화 보기 ↗</button>
+          <button type="button" data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(t('tmux.subagents.view_conversation_aria', { role, assignment: assigned }))}">${t('tmux.subagents.view_conversation')}</button>
         </article>`;
       })
       .join("");
     return `<section class="tmux-subagents ${expanded ? "expanded" : ""}" data-tmux-subagents="${esc(pane.id)}">
       <button type="button" class="tmux-subagents-toggle" data-tmux-subagents-toggle="${esc(pane.id)}" aria-expanded="${expanded}" aria-controls="${esc(listId)}">
-        <span><b>연결된 도움 AI ${children.length}개</b><small>${statusSummary} · tmux 메인 세션 기준</small></span>
+        <span><b>${t('tmux.subagents.connected_count', { count: children.length })}</b><small>${statusSummary} · ${t('tmux.subagents.main_session_basis')}</small></span>
         <i aria-hidden="true">↓</i>
       </button>
       <div id="${esc(listId)}" class="tmux-subagent-list ${expanded ? "" : "hidden"}">${rows}</div>
@@ -144,24 +145,24 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       ${agent ? `style="${providerStyle(agent.provider)}"` : ""}>
       <button type="button" class="tmux-pane-main" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}">
         <span class="tmux-pane-head">
-          <b>나눠진 칸 ${pane.index + 1}</b><span>프로그램 ${pane.pid || "--"}</span>
-          <i>${pane.dead ? "끝남" : pane.active ? "사용 중" : "뒤에서 실행"}</i>
+          <b>${t('tmux.split_pane_number', { number: pane.index + 1 })}</b><span>${t('tmux.process_number', { pid: pane.pid || "--" })}</span>
+          <i>${pane.dead ? t('tmux.state.ended') : pane.active ? t('tmux.state.active') : t('tmux.state.background')}</i>
         </span>
         <strong class="tmux-pane-command">${esc(pane.command || "shell")}</strong>
-        <span class="tmux-pane-cwd" title="${esc(pane.cwd)}">${esc(pane.cwd || "경로 미보고")}</span>
+        <span class="tmux-pane-cwd" title="${esc(pane.cwd)}">${esc(pane.cwd || t('terminal.path_unreported'))}</span>
         ${
           agent
             ? `<span class="tmux-agent-block">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span>
-          <small>${esc(provider.label)} · 실행 번호 ${agent.pid}</small>
+          <small>${esc(provider.label)} · ${t('tmux.process_number', { pid: agent.pid })}</small>
           <strong>${esc(agent.title)}</strong>
-          <em>${esc(agent.statusDetail)}</em>
+          <em>${esc(window.LoadToAgentI18n.observedText(agent.statusDetail))}</em>
           </span>
           </span>
           <span class="tmux-agent-metrics">
             <span>
-            <small>기억 사용</small>
+            <small>${t('tmux.context_usage')}</small>
             <b>${context.window ? `${percent.toFixed(1)}%` : "--"}</b>
             </span>
             <span>
@@ -169,20 +170,20 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
             <b>${compact(usage.total)}</b>
             </span>
             <span>
-            <small>도움 AI</small>
+            <small>${t('tmux.helper_ai')}</small>
             <b>${(agent.childIds || []).length}</b>
             </span>
             </span>
           <span class="tmux-context-track"><i style="width:${percent}%"></i></span>`
-            : '<span class="tmux-shell-note">AI가 아닌 일반 명령창입니다.</span>'
+            : `<span class="tmux-shell-note">${t('tmux.regular_terminal_note')}</span>`
         }
       </button>
       ${tmuxSubagentPanel(pane, agent)}
       <footer>
-        <span>${agent ? (agent.linkedSessionId ? "대화 기록과 연결됨" : "AI가 실행 중인 것을 확인함") : pane.title || "명령창"}</span>
+        <span>${agent ? (agent.linkedSessionId ? t('tmux.linked_to_history') : t('tmux.ai_detected')) : pane.title || t('terminal.type.terminal')}</span>
         <span class="tmux-pane-actions">
-        <button type="button" data-control-tmux="${esc(pane.id)}">이 칸 조작하기 ↓</button>
-        ${agent && agent.linkedSessionId ? `<button type="button" data-open-session="${esc(agent.linkedSessionId)}">대화 내용 보기 ↗</button>` : ""}
+        <button type="button" data-control-tmux="${esc(pane.id)}">${t('tmux.control_pane')}</button>
+        ${agent && agent.linkedSessionId ? `<button type="button" data-open-session="${esc(agent.linkedSessionId)}">${t('tmux.view_conversation')}</button>` : ""}
         </span>
         </footer>
     </article>`;
@@ -191,9 +192,9 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   function tmuxWindowTree(window) {
     return `<div class="tmux-window-tree">
       <button type="button" class="tmux-window-node ${window.active ? "active" : ""}" data-tmux-type="window" data-tmux-id="${esc(window.id)}">
-      <small>열린 창</small>
+      <small>${t('tmux.open_window')}</small>
       <strong>${window.index + 1}. ${esc(window.name)}</strong>
-      <span>${window.panes.length}개 칸으로 나눔</span>
+      <span>${t('tmux.split_count', { count: window.panes.length })}</span>
       </button>
       <div class="tmux-link-line" aria-hidden="true">
       <i>
@@ -206,9 +207,9 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   function tmuxSessionTree(tmuxSession) {
     return `<div class="tmux-session-tree">
       <button type="button" class="tmux-session-node ${tmuxSession.attached ? "attached" : ""}" data-tmux-type="session" data-tmux-id="${esc(tmuxSession.id)}">
-      <small>작업 묶음</small>
+      <small>${t('tmux.workspace')}</small>
       <strong>${esc(tmuxSession.name)}</strong>
-      <span>${tmuxSession.attached ? "화면에 연결됨" : "뒤에서 실행 중"} · 열린 창 ${tmuxSession.windows.length}개</span>
+      <span>${tmuxSession.attached ? t('terminal.tmux.attached') : t('terminal.tmux.running_background')} · ${t('tmux.open_window_count', { count: tmuxSession.windows.length })}</span>
       </button>
       <div class="tmux-link-line session-link" aria-hidden="true">
       <i>
@@ -254,15 +255,15 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   }
 
   function renderTmuxMap() {
-    const tmux = visibleTmux() || { available: false, status: "확인 중", distros: [], summary: {} };
+    const tmux = visibleTmux() || { available: false, status: t('tmux.status.checking'), distros: [], summary: {} };
     const summary = tmux.summary || {};
     $("#tmuxStats").innerHTML = [
-      ["Linux 환경", summary.distros || 0, window.LoadToAgentI18n.t("ui.items")],
-      ["작업 묶음", summary.sessions || 0, window.LoadToAgentI18n.t("ui.items")],
-      ["열린 창", summary.windows || 0, window.LoadToAgentI18n.t("ui.items")],
-      ["나눠진 칸", summary.panes || 0, window.LoadToAgentI18n.t("ui.items")],
-      ["AI가 일하는 칸", summary.aiPanes || 0, window.LoadToAgentI18n.t("ui.items")],
-      ["대화 기록 연결", summary.linked || 0, window.LoadToAgentI18n.t("ui.items")],
+      [t('tmux.stats.linux_environments'), summary.distros || 0, t('ui.items')],
+      [t('tmux.workspace'), summary.sessions || 0, t('ui.items')],
+      [t('tmux.open_window'), summary.windows || 0, t('ui.items')],
+      [t('tmux.stats.split_panes'), summary.panes || 0, t('ui.items')],
+      [t('tmux.stats.ai_panes'), summary.aiPanes || 0, t('ui.items')],
+      [t('tmux.stats.linked_history'), summary.linked || 0, t('ui.items')],
     ]
       .map(
         ([label, value, unit], index) => `<div class="${index >= 4 ? "accent" : ""}">
@@ -275,7 +276,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     const index = tmuxEntities(tmux);
     const path = tmuxFocusPath(index);
     $("#tmuxBreadcrumbs").innerHTML = path.length
-      ? `<button type="button" data-tmux-reset>전체 목록</button>${path
+      ? `<button type="button" data-tmux-reset>${t('tmux.full_list')}</button>${path
           .map(
             (item) => `<i>›</i>
       <button type="button"
@@ -286,15 +287,15 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
           )
           .join("")}`
       : `<span class="map-hint">
-      <b>${summary.sessions || 0}</b>개 작업 묶음 · <b>${summary.aiPanes || 0}</b>개 칸에서 AI가 일하는 중</span>`;
+      ${t('tmux.summary', { sessions: `<b>${summary.sessions || 0}</b>`, panes: `<b>${summary.aiPanes || 0}</b>` })}</span>`;
     $("#tmuxResetBtn").classList.toggle("hidden", !path.length);
     const distros = filteredTmuxDistros(tmux, index);
     if (!distros.length || !Number(summary.sessions || 0)) {
       $("#tmuxMap").innerHTML = `<div class="tmux-empty">
         <span>▦</span>
-        <h3>나눠서 실행 중인 명령창이 없습니다</h3>
-        <p>${esc(tmux.status || "Linux 명령창 상태를 확인하는 중입니다.")}</p>
-        <small>이 화면은 tmux를 사용하는 고급 작업이 있을 때 자동으로 채워집니다.</small>
+        <h3>${t('tmux.empty.title')}</h3>
+        <p>${esc(window.LoadToAgentI18n.observedText(tmux.status || t('tmux.empty.checking_linux')))}</p>
+        <small>${t('tmux.empty.description')}</small>
         </div>`;
       return;
     }
@@ -304,11 +305,11 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       <button type="button" class="tmux-distro-node" data-tmux-type="distro" data-tmux-id="${esc(distro.id)}">
       <span>Linux</span>
       <div>
-      <small>실행 환경</small>
+      <small>${t('tmux.runtime_environment')}</small>
       <strong>${esc(distro.name)}</strong>
       <em>${esc(distro.tmuxVersion || "tmux")}</em>
       </div>
-      <b>작업 묶음 ${distro.sessions.length}개</b>
+      <b>${t('terminal.tmux.workspace_count', { count: distro.sessions.length })}</b>
       </button>
       <div class="tmux-distro-line" aria-hidden="true">
       </div>

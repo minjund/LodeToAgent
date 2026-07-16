@@ -2,9 +2,10 @@
 
 (() => {
   const factories = window.LoadToAgentAppFactories || {};
+  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const app = {};
   const install = (name) => {
-    if (typeof factories[name] !== "function") throw new Error(`앱 모듈을 찾지 못했습니다: ${name}`);
+    if (typeof factories[name] !== "function") throw new Error(t("bootstrap.module_missing", { name }));
     Object.assign(app, factories[name](app));
   };
 
@@ -37,7 +38,7 @@
     loadGuideState();
     if (!window.loadtoagent) {
       $("#emptyState").classList.remove("hidden");
-      $("#emptyState p").textContent = "LoadToAgent 프로그램에서 열면 이 컴퓨터의 AI 작업 기록을 불러옵니다.";
+      $("#emptyState p").textContent = t("bootstrap.open_in_app");
       return;
     }
     const bootstrap = await window.loadtoagent.bootstrap();
@@ -77,7 +78,7 @@
         if (session) {
           if (session.parentId) openSubagentConversation(session.id);
           else openDrawer(session.id);
-        } else toast('확인이 필요한 세션 목록을 열었습니다.');
+        } else toast(t("bootstrap.opened_attention_list"));
       });
     if (window.loadtoagent.onUpdateState)
       window.loadtoagent.onUpdateState((update) => {
@@ -105,6 +106,6 @@
   init().catch((error) => {
     console.error(error);
     $("#lastSync").textContent = window.LoadToAgentI18n.t("ui.connection_failed");
-    toast(`초기화 실패: ${error.message}`);
+    toast(t("bootstrap.initialization_failed", { message: window.LoadToAgentI18n.errorText(error, "ui.connection_failed") }));
   });
 })();
