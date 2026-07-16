@@ -227,7 +227,7 @@
     align-items: flex-start;
   }
 
-  .live-section-head>p {
+  .live-section-description {
     display: none;
   }
 }
@@ -549,7 +549,7 @@
     gap: 14px;
   }
 
-  .live-section-head>div {
+  .live-section-title {
     min-width: 0;
     align-items: flex-start;
   }
@@ -619,6 +619,16 @@
 
 /* Compact screens ≤ 640px: stack relationship cards and route connectors vertically. */
 @media (max-width:640px) {
+  .live-section-head {
+    flex-wrap: wrap;
+  }
+
+  .live-section-tools {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
   .global-stat {
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);

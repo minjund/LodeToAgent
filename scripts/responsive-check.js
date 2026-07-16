@@ -70,6 +70,10 @@ async function layoutMetrics(win) {
     const stage = document.querySelector('.main-stage');
     const sidebar = document.querySelector('.sidebar');
     const navItems = [...document.querySelectorAll('.view-nav .nav-item')];
+    const visibleNavItems = navItems.filter(item => {
+      const rect = item.getBoundingClientRect();
+      return getComputedStyle(item).display !== 'none' && rect.width > 0 && rect.height > 0;
+    });
     const sidebarRect = sidebar?.getBoundingClientRect();
     const visibleSections = [...document.querySelectorAll('.main-stage > section')]
       .filter(section => !section.classList.contains('hidden'));
@@ -77,6 +81,12 @@ async function layoutMetrics(win) {
       .filter(section => section.scrollWidth > section.clientWidth + 2)
       .map(section => section.id || section.className);
     const compact = window.innerWidth <= 720;
+    const iconSidebar = window.innerWidth > 720 && window.innerWidth <= 980;
+    const terminalActionLabels = [...document.querySelectorAll('[data-terminal-signal="interrupt"] span, [data-terminal-signal="clear"] span')]
+      .every(label => getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0 && label.textContent.trim());
+    const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
+    const tmuxShortcutRect = tmuxShortcut?.getBoundingClientRect();
+    const liveSectionVisible = !document.querySelector('#liveSection')?.classList.contains('hidden');
     return {
       width: window.innerWidth,
       height: window.innerHeight,
@@ -87,16 +97,30 @@ async function layoutMetrics(win) {
       sidebarInsideViewport: Boolean(sidebarRect && sidebarRect.left >= -1 && sidebarRect.right <= window.innerWidth + 1 && sidebarRect.bottom <= window.innerHeight + 1),
       compactNavAtBottom: !compact || Boolean(sidebarRect && sidebarRect.top > window.innerHeight / 2 && Math.abs(sidebarRect.bottom - window.innerHeight) <= 1),
       navCount: navItems.length,
-      navItemsInsideViewport: navItems.every(item => {
+      visibleNavItems: visibleNavItems.map(item => item.dataset.view || item.id),
+      navItemsInsideViewport: visibleNavItems.every(item => {
         const rect = item.getBoundingClientRect();
         return rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1 && rect.bottom <= window.innerHeight + 1;
       }),
+      navAccessibleNames: visibleNavItems.every(item => item.getAttribute('aria-label')?.trim()),
+      sidebarNoInternalOverflow: Boolean(sidebar && sidebar.scrollWidth <= sidebar.clientWidth + 2),
+      iconSidebarLabelsHidden: !iconSidebar || visibleNavItems.every(item => {
+        const label = item.querySelector(':scope > span:not(.nav-icon)');
+        return !label || getComputedStyle(label).display === 'none';
+      }),
+      iconSidebarTitles: !iconSidebar || visibleNavItems.every(item => item.getAttribute('title')?.trim()),
+      compactContentClearance: !compact || Number.parseFloat(getComputedStyle(stage).paddingBottom) >= (sidebarRect?.height || 0) + 12,
+      terminalActionLabels,
+      tmuxShortcutVisible: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40),
+      tmuxShortcutInsideViewport: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1),
     };
   })()`);
 }
 
 function assertLayout(metrics, context) {
-  if (metrics.documentOverflow || metrics.stageOverflow || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport) {
+  const compactNavValid = !metrics.compact
+    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'runtime', 'mobileMoreBtn']);
+  if (metrics.documentOverflow || metrics.stageOverflow || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.iconSidebarLabelsHidden || !metrics.iconSidebarTitles || !metrics.compactContentClearance || !compactNavValid || !metrics.tmuxShortcutVisible || !metrics.tmuxShortcutInsideViewport) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -241,6 +265,7 @@ async function workflowMetrics(win) {
     const downstream = document.querySelector('.downstream-column');
     const output = document.querySelector('[data-workflow-port="focus-output"]');
     const identity = document.querySelector('.agent-workflow-selected .agent-identity');
+    const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
     const helpTitle = [...document.querySelectorAll('.downstream-stack .agent-flow-session-title')]
       .find(element => element.title.includes('deliberately_long_task_name'));
     const helpCard = helpTitle?.closest('.child-session');
@@ -260,6 +285,7 @@ async function workflowMetrics(win) {
     const commandRect = rect(command);
     const downstreamRect = rect(downstream);
     const outputRect = rect(output);
+    const tmuxShortcutRect = rect(tmuxShortcut);
     let pathCrossesCommand = false;
     if (path && commandRect && canvasRect) {
       const length = path.getTotalLength();
@@ -288,6 +314,8 @@ async function workflowMetrics(win) {
       horizontalOrder: stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.right <= selectedRect.left + 1 && (hybrid || selectedRect.right <= downstreamRect.left + 1)),
       pathCrossesCommand,
       identityClipped: Boolean(identity && (identity.scrollWidth > identity.clientWidth + 1 || identity.scrollHeight > identity.clientHeight + 1)),
+      tmuxShortcutVisible: Boolean(tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40),
+      tmuxShortcutInsideViewport: Boolean(tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1),
       helpCardInsideColumn: Boolean(helpCard && helpCard.getBoundingClientRect().right <= downstream.getBoundingClientRect().right + 1),
       helpTitleEllipsisReady: ellipsisReady(helpTitle),
       helpAssignmentEllipsisReady: ellipsisReady(helpAssignment),
@@ -305,7 +333,7 @@ async function workflowMetrics(win) {
 }
 
 function assertWorkflow(metrics) {
-  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
+  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || !metrics.tmuxShortcutVisible || !metrics.tmuxShortcutInsideViewport || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
     throw new Error(`선택 AI 작업 흐름 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -318,6 +346,7 @@ app.whenReady().then(async () => {
     const sizes = [
       [1600, 980],
       [1080, 700],
+      [980, 700],
       [901, 700],
       [900, 700],
       [721, 640],
@@ -345,9 +374,14 @@ app.whenReady().then(async () => {
         throw new Error(`${width}×${height} 오버레이 배치가 올바르지 않습니다: ${JSON.stringify(overlays)}`);
       }
 
+      await openView(win, 'runtime');
+      const runtime = await layoutMetrics(win);
+      assertLayout(runtime, `${width}×${height} 스케줄·루프 화면`);
+
       await openView(win, 'terminal');
       const terminal = await layoutMetrics(win);
       assertLayout(terminal, `${width}×${height} 터미널 화면`);
+      if (width <= 720 && !terminal.terminalActionLabels) throw new Error(`${width}×${height} 터미널 중단·지우기 버튼의 텍스트가 보이지 않습니다: ${JSON.stringify(terminal)}`);
 
       await openView(win, 'tmux');
       const tmux = await layoutMetrics(win);

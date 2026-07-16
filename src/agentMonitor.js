@@ -207,6 +207,7 @@ function baseSession(provider, externalId, file, stat) {
       retainedObserved: false,
       metrics: null,
     },
+    loop: null,
   };
 }
 

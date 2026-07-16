@@ -4,6 +4,12 @@ const { contextBridge } = require('electron');
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const now = new Date().toISOString();
+const nextDaily = (hour, minute = 0) => {
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  if (date <= new Date()) date.setDate(date.getDate() + 1);
+  return date.toISOString();
+};
 
 const providers = [
   {
@@ -114,6 +120,7 @@ const extraLiveSessions = Array.from({ length: 7 }, (_, index) => ({
   childIds: [],
   runtimePresence: [],
   runId: '',
+  loop: index < 5 ? { iteration: index + 1, phase: index === 0 ? 'act' : 'observe' } : null,
 }));
 
 const originSession = {
@@ -168,6 +175,50 @@ const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 't
 const snapshot = {
   generatedAt: now,
   sessions: [rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession, ...extraLiveSessions, endedSession, waitingSession, ...extraEndedSessions],
+  automations: [
+    {
+      id: 'fixture-daily', kind: 'cron', name: '매일 품질 점검', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=DAILY;BYHOUR=22;BYMINUTE=0', nextRunAt: nextDaily(22),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: 'fixture-root-external', cwds: ['D:\\fixture'],
+      createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'fixture-report', kind: 'cron', name: '아침 결과 보고', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=DAILY;BYHOUR=9;BYMINUTE=0', nextRunAt: nextDaily(9),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
+      createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'fixture-biweekly', kind: 'cron', name: '격주 금요일 검수', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;BYHOUR=18;BYMINUTE=30', nextRunAt: nextDaily(18),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
+      createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'fixture-hourly', kind: 'cron', name: '2시간 상태 점검', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=HOURLY;INTERVAL=2;BYMINUTE=15', nextRunAt: nextDaily(20),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
+      createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'fixture-boundary', kind: 'cron', name: '다른 작업공간 예약', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=DAILY;BYHOUR=23;BYMINUTE=0', nextRunAt: nextDaily(23),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture-other'],
+      createdAt: now, updatedAt: now,
+    },
+    {
+      id: 'fixture-projectless', kind: 'cron', name: '작업공간 미지정 예약', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=DAILY;BYHOUR=23;BYMINUTE=30', nextRunAt: nextDaily(23),
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: [],
+      createdAt: now, updatedAt: now, sourceLabel: 'Local', environment: { kind: 'windows', distro: '' },
+    },
+    {
+      id: 'fixture-paused', kind: 'cron', name: '잠시 멈춘 야간 검수', status: 'PAUSED', enabled: false,
+      rrule: 'FREQ=DAILY;BYHOUR=2;BYMINUTE=0', nextRunAt: null,
+      provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
+      createdAt: now, updatedAt: now,
+    },
+  ],
   summary: {
     totals: { sessions: 48, active: 10, waiting: 1, subagents: 3, usage },
     providers: providers.map(provider => ({ ...provider, sessions: 1, active: provider.id === 'claude' ? 8 : (provider.id === 'gpt' || provider.id === 'codex' ? 1 : 0), usage })),
@@ -181,6 +232,8 @@ const snapshot = {
 const initialTerminals = [
   { id: 'terminal-main', type: 'powershell', title: 'Fixture PowerShell', status: 'running', pid: 41001, cwd: 'D:\\fixture' },
   { id: 'terminal-ended', type: 'powershell', title: 'Fixture Ended', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
+  { id: 'terminal-race-a', type: 'powershell', title: 'Fixture Race A', status: 'running', pid: 41003, cwd: 'D:\\fixture' },
+  { id: 'terminal-race-b', type: 'powershell', title: 'Fixture Race B', status: 'running', pid: 41004, cwd: 'D:\\fixture' },
 ];
 
 const availableUpdate = {
@@ -201,6 +254,8 @@ let update = clone(availableUpdate);
 let calls = [];
 let failures = new Map();
 let delays = new Map();
+let terminalGetDelays = new Map();
+let detailResponses = new Map();
 let terminalSequence = 0;
 let tmuxCaptureSequence = 0;
 const snapshotListeners = new Set();
@@ -227,6 +282,7 @@ async function controlled(name, args, value = { ok: true }) {
 }
 
 const api = {
+  rendererReady: () => controlled('rendererReady'),
   bootstrap: async () => {
     record('bootstrap');
     return {
@@ -258,7 +314,15 @@ const api = {
   },
   openUpdateRelease: () => controlled('openUpdateRelease'),
   snapshot: async () => controlled('snapshot', [], snapshot),
-  sessionDetail: id => controlled('sessionDetail', [id], snapshot.sessions.find(session => session.id === id) || null),
+  sessionDetail: async id => {
+    const queue = detailResponses.get(id);
+    if (!queue || !queue.length) return controlled('sessionDetail', [id], snapshot.sessions.find(session => session.id === id) || null);
+    record('sessionDetail', [id]);
+    const response = queue.shift();
+    if (!queue.length) detailResponses.delete(id);
+    if (response.delay) await new Promise(resolve => setTimeout(resolve, response.delay));
+    return clone(response.detail);
+  },
   runAgent: options => controlled('runAgent', [options], { ok: true, runId: 'fixture-new-run' }),
   stopAgent: runId => controlled('stopAgent', [runId], { ok: true }),
   activeRuns: async () => [],
@@ -281,6 +345,8 @@ const api = {
   },
   terminalGet: async id => {
     record('terminalGet', [id]);
+    const delay = Number(terminalGetDelays.get(id) || 0);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     return { ok: true, replay: `fixture replay for ${id}\r\n` };
   },
   terminalCreate: async options => {
@@ -336,11 +402,14 @@ const testApi = {
     if (options && options.failures) for (const [name, value] of Object.entries(options.failures)) failures.set(name, Number(value) || 0);
     return true;
   },
-  clearControls: () => { failures = new Map(); delays = new Map(); },
+  setTerminalGetDelays: values => { terminalGetDelays = new Map(Object.entries(values || {}).map(([id, value]) => [id, Number(value) || 0])); return true; },
+  queueSessionDetail: (id, responses) => { detailResponses.set(id, clone(responses || [])); return true; },
+  clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); detailResponses = new Map(); },
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   triggerAttention: sessionId => { attentionListeners.forEach(listener => listener({ sessionId })); return attentionListeners.size; },
+  emitSnapshot: () => { snapshotListeners.forEach(listener => listener(clone(snapshot))); return snapshotListeners.size; },
 };
 
 contextBridge.exposeInMainWorld('loadtoagent', api);

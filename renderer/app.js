@@ -33,6 +33,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     graphExpandedProviders: new Set(),
     expandedCompletedSubagents: new Set(),
     expandedTmuxSubagents: new Set(),
+    selectedRuntimeLoopId: null,
     tmuxFocus: null,
     agentCommandDrafts: new Map(),
     agentCommandTargets: new Map(),
@@ -56,8 +57,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   });
   const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
   const motionState = {
-    ready: false, modalTimer: 0, toastTimer: 0, drawerTimer: 0, drawerContentTimer: 0,
-    drawerRenderKey: "", drawerTab: "", activeDialogTrigger: null,
+    ready: false, modalTimer: 0, modalFocusTimer: 0, toastTimer: 0, drawerTimer: 0, drawerContentTimer: 0,
+    drawerRenderKey: "", drawerTab: "", activeDialogTrigger: null, dialogGeneration: 0,
   };
   document.documentElement.dataset.motion = motionPreference.matches ? "reduced" : "full";
   motionPreference.addEventListener("change", (event) => {
@@ -141,12 +142,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   });
   const VIEW_TITLES = localizedLookup({
     all: "ui.recent_conversations_and_tasks", active: "ui.active_tasks", waiting: "ui.tasks_needing_review",
-    terminal: "app.nav.session_terminal", tmux: "app.nav.tmux", settings: "settings.title",
+    runtime: "runtime.title", terminal: "app.nav.session_terminal", tmux: "app.nav.tmux", settings: "settings.title",
   });
   const VIEW_META_KEYS = {
     all: ["ui.ai_work_overview", "ui.see_all_ai_work_at_a_glance", "ui.active_work_and_items_needing_your_review_appear_first_find"],
     active: ["ui.active_now", "ui.see_which_ai_is_working_now", "ui.see_what_is_being_handled_then_open_a_task_for"],
     waiting: ["ui.your_turn", "ui.handle_items_that_need_your_review_first", "ui.only_tasks_waiting_for_your_response_or_choice_are_shown"],
+    runtime: ["runtime.eyebrow", "runtime.title", "runtime.description"],
     terminal: ["ui.continue_an_existing_conversation", "ui.continue_ai_sessions_in_the_terminal", "ui.continue_the_same_task_with_its_previous_conversation_beside_the"],
     tmux: ["ui.advanced_work_tools", "ui.manage_multi_terminal_work_in_one_place", "ui.this_view_is_only_for_existing_tmux_workflows_home_and"],
     settings: ["ui.application_management", "ui.check_versions_and_updates", "ui.compare_the_installed_and_latest_stable_versions_then_download_a"],
@@ -265,12 +267,15 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     }
   }
   function rememberDialogTrigger() {
+    motionState.dialogGeneration += 1;
     motionState.activeDialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
-  function restoreDialogTrigger() {
+  function restoreDialogTrigger(expectedGeneration = null) {
+    if (expectedGeneration != null && expectedGeneration !== motionState.dialogGeneration) return false;
     const trigger = motionState.activeDialogTrigger;
     motionState.activeDialogTrigger = null;
     if (trigger && trigger.isConnected) trigger.focus({ preventScroll: true });
+    return true;
   }
   window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger };
   function readablePreview(value, maxCharacters = 120) {
@@ -492,6 +497,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function isLiveSession(session) {
     return session && (session.status === "running" || session.status === "starting");
   }
+  function isRuntimeLoopSession(session) {
+    if (!session || session.parentId || !isLiveSession(session)) return false;
+    if (session.loop === true || (session.loop && typeof session.loop === "object")) return true;
+    const ids = new Set([String(session.id || ""), String(session.externalId || "")].filter(Boolean));
+    return (state.snapshot?.automations || []).some((automation) =>
+      automation.enabled && automation.targetThreadId && ids.has(String(automation.targetThreadId)));
+  }
   function subagentWorkState(session) {
     if (isLiveSession(session)) return "working";
     if (session && session.status === "failed") return "attention";
@@ -596,6 +608,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     statusClass,
     currentActivity,
     isLiveSession,
+    isRuntimeLoopSession,
     subagentWorkState,
     subagentWorkLabel,
     readableActivityDetail,

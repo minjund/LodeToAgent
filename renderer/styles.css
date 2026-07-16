@@ -37,6 +37,13 @@
   max-height: 180px;
 }
 
+body[data-current-view="runtime"] .sidebar>.workspace-section,
+body[data-current-view="terminal"] .sidebar>.workspace-section,
+body[data-current-view="tmux"] .sidebar>.workspace-section,
+body[data-current-view="settings"] .sidebar>.workspace-section {
+  display: none;
+}
+
 .brand {
   display: flex;
   align-items: center;

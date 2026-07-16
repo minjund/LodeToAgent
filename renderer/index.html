@@ -17,6 +17,7 @@
   <link rel="stylesheet" href="styles-terminal.css" />
   <link rel="stylesheet" href="styles-run-composer.css" />
   <link rel="stylesheet" href="styles-product.css" />
+  <link rel="stylesheet" href="styles-runtime-overview.css" />
   <link rel="stylesheet" href="styles-onboarding.css" />
   <link rel="stylesheet" href="styles-settings.css" />
   <link rel="stylesheet" href="styles-responsive-shell.css" />
@@ -35,16 +36,17 @@
       </div>
 
       <nav class="view-nav" aria-label="화면 선택" data-i18n-aria-label="app.nav.label">
-        <button class="nav-item active" type="button" data-view="all"><span class="nav-icon">⌂</span><span data-i18n="app.nav.home">홈</span><b id="navAllCount">0</b></button>
-        <button class="nav-item" type="button" data-view="active"><span class="nav-icon live-dot"></span><span data-i18n="app.nav.active">진행 중</span><b id="navActiveCount">0</b></button>
-        <button class="nav-item" type="button" data-view="waiting"><span class="nav-icon">!</span><span data-i18n="app.nav.needs_review">내 확인 필요</span><b id="navWaitingCount">0</b></button>
+        <button class="nav-item active" type="button" data-view="all" aria-label="홈" data-i18n-aria-label="app.nav.home" title="홈" data-i18n-title="app.nav.home"><span class="nav-icon">⌂</span><span data-i18n="app.nav.home">홈</span><b id="navAllCount">0</b></button>
+        <button class="nav-item" type="button" data-view="active" aria-label="진행 중" data-i18n-aria-label="app.nav.active" title="진행 중" data-i18n-title="app.nav.active"><span class="nav-icon live-dot"></span><span data-i18n="app.nav.active">진행 중</span><b id="navActiveCount">0</b></button>
+        <button class="nav-item" type="button" data-view="waiting" aria-label="내 확인 필요" data-i18n-aria-label="app.nav.needs_review" title="내 확인 필요" data-i18n-title="app.nav.needs_review"><span class="nav-icon">!</span><span data-i18n="app.nav.needs_review">내 확인 필요</span><b id="navWaitingCount">0</b></button>
+        <button class="nav-item runtime-nav-item" type="button" data-view="runtime" aria-label="스케줄·루프" data-i18n-aria-label="app.nav.runtime" title="스케줄·루프" data-i18n-title="app.nav.runtime"><span class="nav-icon runtime-nav-icon">↻</span><span data-i18n="app.nav.runtime">스케줄·루프</span><b id="navRuntimeCount">0</b></button>
         <div class="nav-group-label" data-i18n="app.nav.continue_session">기존 세션에 이어서 입력</div>
-        <button class="nav-item" type="button" data-view="terminal"><span class="nav-icon">›_</span><span data-i18n="app.nav.session_terminal">세션 터미널</span><b id="navTerminalCount">0</b></button>
+        <button class="nav-item" type="button" data-view="terminal" aria-label="세션 터미널" data-i18n-aria-label="app.nav.session_terminal" title="세션 터미널" data-i18n-title="app.nav.session_terminal"><span class="nav-icon">›_</span><span data-i18n="app.nav.session_terminal">세션 터미널</span><b id="navTerminalCount">0</b></button>
         <div class="nav-group-label tmux-only" data-i18n="ui.tmux_only">tmux 전용</div>
-        <button class="nav-item tmux-nav-item" type="button" data-view="tmux"><span class="nav-icon">▦</span><span data-i18n="app.nav.tmux">tmux 작업</span><b id="navTmuxCount">0</b></button>
+        <button class="nav-item tmux-nav-item" type="button" data-view="tmux" aria-label="tmux 작업" data-i18n-aria-label="app.nav.tmux" title="tmux 작업" data-i18n-title="app.nav.tmux"><span class="nav-icon">▦</span><span data-i18n="app.nav.tmux">tmux 작업</span><b id="navTmuxCount">0</b></button>
         <div class="nav-group-label" data-i18n="app.nav.application">프로그램</div>
-        <button class="nav-item settings-nav-item" type="button" data-view="settings"><span class="nav-icon">⚙</span><span data-i18n="app.nav.settings">설정</span><b id="navUpdateBadge" class="hidden">NEW</b></button>
-        <button id="mobileMoreBtn" class="nav-item mobile-more-nav" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="mobileToolsMenu"><span class="nav-icon">•••</span><span data-i18n="app.nav.more">더보기</span></button>
+        <button class="nav-item settings-nav-item" type="button" data-view="settings" aria-label="설정" data-i18n-aria-label="app.nav.settings" title="설정" data-i18n-title="app.nav.settings"><span class="nav-icon">⚙</span><span data-i18n="app.nav.settings">설정</span><b id="navUpdateBadge" class="hidden">NEW</b></button>
+        <button id="mobileMoreBtn" class="nav-item mobile-more-nav" type="button" aria-label="더보기" data-i18n-aria-label="app.nav.more" title="더보기" data-i18n-title="app.nav.more" aria-expanded="false" aria-controls="mobileToolsMenu"><span class="nav-icon">•••</span><span data-i18n="app.nav.more">더보기</span></button>
       </nav>
 
       <section class="sidebar-section">
@@ -101,6 +103,8 @@
         <div><b id="updateNoticeTitle" data-i18n="ui.a_new_version_is_available">새 버전을 사용할 수 있습니다.</b><small id="updateNoticeText" data-i18n="ui.download_the_update_from_settings">설정에서 업데이트 파일을 받을 수 있습니다.</small></div>
         <button id="updateNoticeBtn" type="button"><span data-i18n="settings.update.view">업데이트 보기</span> <span>→</span></button>
       </section>
+
+      <section id="automationOverview" class="automation-overview hidden" aria-label="예약 작업과 실행 루프" data-i18n-aria-label="runtime.section_label"></section>
 
       <section id="settingsSection" class="settings-section hidden" aria-labelledby="settingsTitle">
         <header class="settings-head">
@@ -263,8 +267,15 @@
 
       <section id="liveSection" class="live-section hidden" aria-label="현재 진행 중인 AI 작업" data-i18n-aria-label="ui.ai_work_currently_in_progress">
         <div class="live-section-head">
-          <div><span class="live-beacon"></span><div><p class="eyebrow" data-i18n="ui.active_now">지금 진행 중</p><h2 data-i18n="ui.work_assigned_to_ai">AI들이 맡은 일</h2></div></div>
-          <p data-i18n="ui.open_a_task_to_see_who_started_it_and_what">일을 누르면 누가 시작했고, 다른 AI에게 어떤 도움을 맡겼는지 쉽게 볼 수 있습니다.</p>
+          <div class="live-section-title"><span class="live-beacon"></span><div><p class="eyebrow" data-i18n="ui.active_now">지금 진행 중</p><h2 data-i18n="ui.work_assigned_to_ai">AI들이 맡은 일</h2></div></div>
+          <div class="live-section-tools">
+            <p class="live-section-description" data-i18n="ui.open_a_task_to_see_who_started_it_and_what">일을 누르면 누가 시작했고, 다른 AI에게 어떤 도움을 맡겼는지 쉽게 볼 수 있습니다.</p>
+            <button id="openTmuxFromAgentWork" class="live-tmux-shortcut" type="button" aria-label="tmux 작업 보기 · 세션 0개" data-i18n-aria-label="graph.open_tmux_workspace_count" data-i18n-params='{"count":0}' title="tmux 작업 보기" data-i18n-title="graph.open_tmux_workspace">
+              <span class="live-tmux-shortcut-icon" aria-hidden="true">▦</span>
+              <span data-i18n="graph.open_tmux_workspace">tmux 작업 보기</span>
+              <b id="agentWorkTmuxCount">0</b>
+            </button>
+          </div>
         </div>
         <div class="agent-map-toolbar">
           <div id="graphBreadcrumbs" class="graph-breadcrumbs" aria-label="에이전트 탐색 경로" data-i18n-aria-label="ui.agent_navigation_path"></div>
@@ -372,6 +383,7 @@
   <script src="app.js"></script>
   <script src="app-provider-visibility.js"></script>
   <script src="app-dashboard.js"></script>
+  <script src="app-runtime-overview.js"></script>
   <script src="app-graph-model.js"></script>
   <script src="app-graph-view.js"></script>
   <script src="app-graph-layout.js"></script>

@@ -24,6 +24,7 @@ const { registerWorkspaceIpc } = require('./src/ipc/registerWorkspaceIpc');
 const { reportRecoverableError } = require('./src/diagnostics');
 const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
+const { macPathEntries } = require('./src/platformPath');
 
 const PRODUCT_NAME = 'LoadToAgent';
 app.setName(PRODUCT_NAME);
@@ -43,6 +44,8 @@ let attentionNotifier = null;
 let isQuitting = false;
 let appLocale = 'ko';
 let providerVisibilityStore = null;
+let pendingAttentionSessionId = '';
+let rendererBootstrapped = false;
 const tmuxController = new TmuxController({ platform: process.platform });
 let availability = {};
 let detailRequestId = 0;
@@ -82,6 +85,7 @@ const MAIN_COPY = {
 let lastSnapshot = {
   generatedAt: new Date().toISOString(),
   sessions: [],
+  automations: [],
   tmux: { generatedAt: new Date().toISOString(), available: false, status: '확인 중', distros: [], summary: { distros: 0, sessions: 0, windows: 0, panes: 0, aiPanes: 0, linked: 0 } },
   summary: {
     providers: providerList().map(provider => ({ ...provider, installed: false, sessions: 0, active: 0, waiting: 0, subagents: 0, usage: blankUsage() })),
@@ -181,18 +185,11 @@ function listWslDistros() {
 
 function hydratePlatformPath() {
   if (process.platform !== 'darwin') return;
-  const additions = ['/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin')];
-  try {
-    const shellPath = process.env.SHELL || '/bin/zsh';
-    const loginPath = execFileSync(shellPath, ['-lic', 'printf %s "$PATH"'], { encoding: 'utf8', timeout: 5_000 }).trim();
-    additions.unshift(...loginPath.split(path.delimiter));
-  } catch (error) {
-    reportRecoverableError('platform-path', error);
-  }
-  process.env.PATH = [...new Set([...additions, ...String(process.env.PATH || '').split(path.delimiter)].filter(Boolean))].join(path.delimiter);
+  process.env.PATH = macPathEntries(os.homedir(), process.env.PATH).join(path.delimiter);
 }
 
 function createWindow() {
+  rendererBootstrapped = false;
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
@@ -209,6 +206,7 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
+  mainWindow.webContents.on('did-start-loading', () => { rendererBootstrapped = false; });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -300,14 +298,30 @@ function sendSnapshot(snapshot) {
 
 function openAttentionSession(session) {
   if (!isProviderVisible(session && session.provider)) return;
+  pendingAttentionSessionId = String(session && session.id || '');
   showMainWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.flashFrame(false);
+  if (!rendererBootstrapped || mainWindow.webContents.isLoadingMainFrame()) return;
   try {
-    mainWindow.webContents.send('agents:attention-requested', { sessionId: String(session && session.id || '') });
+    mainWindow.webContents.send('agents:attention-requested', { sessionId: pendingAttentionSessionId });
+    pendingAttentionSessionId = '';
   } catch (error) {
     reportRecoverableError('ipc-send:agents:attention-requested', error);
   }
+}
+
+function markRendererReady() {
+  rendererBootstrapped = true;
+  if (!pendingAttentionSessionId || !mainWindow || mainWindow.isDestroyed()) return { ok: true };
+  const sessionId = pendingAttentionSessionId;
+  try {
+    mainWindow.webContents.send('agents:attention-requested', { sessionId });
+    pendingAttentionSessionId = '';
+  } catch (error) {
+    reportRecoverableError('ipc-send:agents:attention-requested', error);
+  }
+  return { ok: true };
 }
 
 function createAttentionNotifier() {
@@ -489,6 +503,7 @@ function registerIpcHandlers() {
   registerAppIpc({
     handleTrusted,
     bootstrap: bootstrapState,
+    rendererReady: markRendererReady,
     backgroundState: () => ({
       visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
       backgroundSessions: backgroundAgentSessions().length,

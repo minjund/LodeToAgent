@@ -193,7 +193,9 @@
   }
 
   function visibleBoundAgent() {
-    return state.boundAgent && state.boundTargetId === currentTargetId() ? state.boundAgent : null;
+    if (!state.boundAgent || state.boundTargetId !== currentTargetId()) return null;
+    if (window.LoadToAgentApp?.isProviderVisible?.(state.boundAgent.provider) === false) return null;
+    return state.boundAgent;
   }
 
   function saveCurrentDraft() {
@@ -450,8 +452,11 @@
     if (!state.initialized) return;
     if (state.boundAgent && state.snapshot && Array.isArray(state.snapshot.sessions)) {
       const updated = state.snapshot.sessions.find(session => session.id === state.boundAgent.id);
-      if (!updated) bindAgent(null, null);
-      else if (updated.updatedAt !== state.boundAgent.updatedAt) queueHistoryRefresh(updated);
+      // Keep the conversation associated with its live terminal even when a
+      // monitor refresh temporarily omits an ended or slow-to-scan AI session.
+      // The binding is explicitly cleared when the terminal closes, and the
+      // provider visibility guard above prevents hidden providers from leaking.
+      if (updated && updated.updatedAt !== state.boundAgent.updatedAt) queueHistoryRefresh(updated);
     }
     renderTmuxResources();
     renderTarget();

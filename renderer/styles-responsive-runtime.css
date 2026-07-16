@@ -338,10 +338,6 @@
     max-height: 176px;
   }
 
-  .terminal-key-actions button span {
-    display: none;
-  }
-
   .terminal-command-label>span {
     display: none;
   }

@@ -11,6 +11,7 @@ const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectRe
 const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath } = require('../../src/updateInstaller');
 const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
+const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 
 function registerProviderAndWorkspaceTests(context) {
   const { test, temp } = context;
@@ -76,6 +77,20 @@ function registerCliAndUpdateTests(context) {
     assert.equal(packagedSpec.executable, '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
     assert.deepStrictEqual(packagedSpec.args, []);
     assert.equal('ELECTRON_RUN_AS_NODE' in packagedSpec.env, false);
+  });
+
+  test('macOS 실행 경로는 활성 PATH와 nvm 기본 버전 하나만 우선한다', () => {
+    const home = path.join(temp, 'platform-path-home');
+    const versions = path.join(home, '.nvm', 'versions', 'node');
+    for (const version of ['v15.0.1', 'v22.16.0', 'v24.1.0']) fs.mkdirSync(path.join(versions, version, 'bin'), { recursive: true });
+    fs.mkdirSync(path.join(home, '.nvm', 'alias'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.nvm', 'alias', 'default'), '24\n', 'utf8');
+    const entries = macPathEntries(home, ['/active/bin', '/usr/bin'].join(path.delimiter));
+    assert.deepStrictEqual(entries.slice(0, 2), ['/active/bin', '/usr/bin']);
+    assert.equal(preferredNvmBin(home), path.join(versions, 'v24.1.0', 'bin'));
+    assert(entries.includes(path.join(versions, 'v24.1.0', 'bin')));
+    assert(!entries.includes(path.join(versions, 'v15.0.1', 'bin')));
+    assert(!entries.includes(path.join(versions, 'v22.16.0', 'bin')));
   });
 
   test('Git 태그 버전을 SemVer 순서로 비교한다', () => {

@@ -42,6 +42,7 @@
  * @property {Array<Object>} messages
  * @property {Array<Object>} lifecycle
  * @property {CollaborationSummary|null} collaboration
+ * @property {{kind:string,iteration:number,phase?:string}|boolean|null} loop Safe execution-loop metadata; internal goal text is never included.
  */
 
 /**
@@ -61,7 +62,7 @@
  * @property {Array<Object>} providers
  * @property {Object<string, boolean|string>} availability
  * @property {Array<{path:string,name:string}>} workspaces
- * @property {{sessions: AgentSession[], summary: Object}} snapshot
+ * @property {{sessions: AgentSession[], automations: Array<Object>, summary: Object}} snapshot Safe local/WSL automation metadata excludes prompt text.
  * @property {Array<Object>} activeRuns
  * @property {{app:string,electron:string,node:string}} versions
  * @property {Object} platform

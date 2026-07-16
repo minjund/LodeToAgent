@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('loadtoagent', {
   bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
+  rendererReady: () => ipcRenderer.invoke('app:renderer-ready'),
   backgroundState: () => ipcRenderer.invoke('app:background-state'),
   showApp: () => ipcRenderer.invoke('app:show'),
   setLocale: locale => ipcRenderer.invoke('app:set-locale', locale),

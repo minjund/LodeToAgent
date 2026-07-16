@@ -80,14 +80,14 @@ async function screenshot(send, name) {
       state.view = 'all'; state.provider = 'all'; state.providerFilters.clear(); state.workspace = 'all'; state.search = ''; state.graphFocusId = null;
       renderSessions('view'); document.querySelector('.main-stage')?.scrollTo(0, 0); return true;
     })()`);
-    await waitFor(send, `document.querySelectorAll('.runtime-segment').length === 2 && document.querySelectorAll('.live-tmux-card').length > 0`, '실제 진행 중 화면에서 일반 실행과 TMUX 세션이 분리되지 않았습니다.');
+    await waitFor(send, `document.querySelectorAll('.runtime-segment').length === 1 && document.querySelectorAll('.live-tmux-card').length === 0`, '실제 진행 중 화면에 실행 세션 외 자원이 섞였습니다.');
     const runtimeSplit = await evaluate(send, `(() => ({ segments: document.querySelectorAll('.runtime-segment').length, firstIsTmux: document.querySelector('.runtime-segment:first-child')?.classList.contains('tmux-runtime') || false, tmuxCards: document.querySelectorAll('.live-tmux-card').length, tmuxNames: [...document.querySelectorAll('.live-tmux-card-head b')].map(node => node.textContent.trim()), standardLanes: document.querySelectorAll('.standard-runtime .agent-flow-lane').length, overflow: document.querySelector('#liveSessionGrid').scrollWidth > document.querySelector('#liveSessionGrid').clientWidth + 2 }))()`);
-    if (runtimeSplit.segments !== 2 || !runtimeSplit.firstIsTmux || runtimeSplit.tmuxCards < 1 || runtimeSplit.standardLanes < 1 || runtimeSplit.overflow) throw new Error(`실제 진행 중 실행 방식 분리 UI가 맞지 않습니다: ${JSON.stringify(runtimeSplit)}`);
+    if (runtimeSplit.segments !== 1 || runtimeSplit.firstIsTmux || runtimeSplit.tmuxCards !== 0 || runtimeSplit.standardLanes < 1 || runtimeSplit.overflow) throw new Error(`실제 진행 중 실행 세션 전용 UI가 맞지 않습니다: ${JSON.stringify(runtimeSplit)}`);
     await pause(700);
     await evaluate(send, `(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } return true; })()`);
     const runtimeSplitImage = await screenshot(send, 'loadtoagent-actual-runtime-split.png');
-    const tmuxOpen = await evaluate(send, `(() => { const pane = document.querySelector('.live-tmux-pane[data-tmux-id]'); const id = pane?.dataset.tmuxId || ''; pane?.click(); return { id, view: state.view, focus: state.tmuxFocus }; })()`);
-    if (!tmuxOpen.id || tmuxOpen.view !== 'tmux' || tmuxOpen.focus?.id !== tmuxOpen.id) throw new Error(`진행 중 TMUX 카드가 전용 화면으로 연결되지 않습니다: ${JSON.stringify(tmuxOpen)}`);
+    const tmuxOpen = await evaluate(send, `(() => { state.view = 'tmux'; renderSessions('view'); const pane = document.querySelector('[data-tmux-type="pane"][data-tmux-id]'); const id = pane?.dataset.tmuxId || ''; pane?.click(); return { id, view: state.view, focus: state.tmuxFocus }; })()`);
+    if (!tmuxOpen.id || tmuxOpen.view !== 'tmux' || tmuxOpen.focus?.id !== tmuxOpen.id) throw new Error(`TMUX 자원을 전용 탭에서 열지 못했습니다: ${JSON.stringify(tmuxOpen)}`);
     await evaluate(send, `(() => {
       state.view = 'all'; state.provider = 'all'; state.providerFilters.clear(); state.workspace = 'all'; state.search = '';
       state.graphFocusId = ${JSON.stringify(sessionId)};

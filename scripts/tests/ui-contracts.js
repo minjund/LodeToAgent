@@ -12,7 +12,9 @@ const SYNTAX_CHECK_FILES = [
   'bin/loadtoagent.js',
   'src/bridgeServer.js',
   'src/providerRegistry.js',
+  'src/platformPath.js',
   'src/agentMonitor.js',
+  'src/automationMonitor.js',
   'src/agentRunner.js',
   'src/tmuxMonitor.js',
   'src/tmuxController.js',
@@ -33,6 +35,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/app.js',
   'renderer/app-provider-visibility.js',
   'renderer/app-dashboard.js',
+  'renderer/app-runtime-overview.js',
   'renderer/app-graph-model.js',
   'renderer/app-graph-view.js',
   'renderer/app-graph-layout.js',
@@ -55,6 +58,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/terminal-events.js',
   'renderer/terminal.js',
   'scripts/bridge-integration-test.js',
+  'scripts/runtime-overview-visual.js',
   'scripts/organize-css.js',
 ];
 
@@ -66,7 +70,9 @@ const REQUIRED_UI_IDS = [
   'dismissGuideBtn',
   'mobileMoreBtn',
   'mobileToolsMenu',
+  'navRuntimeCount',
   'providerOverview',
+  'automationOverview',
   'liveSection',
   'liveSessionGrid',
   'graphBreadcrumbs',
@@ -148,14 +154,18 @@ const MONITOR_WORKER_CONTRACTS = [
   'taskName: session.taskName',
   'completionObserved: Boolean(session.completionObserved)',
   'projectless: Boolean(session.projectless)',
+  'loop: session.loop',
   'session.collaboration && session.collaboration.metrics',
   'session.collaboration && session.collaboration.communications',
+  'scanCodexAutomationHomes',
+  'automations,',
 ];
 
 const APP_MODULES = [
   'app.js',
   'app-provider-visibility.js',
   'app-dashboard.js',
+  'app-runtime-overview.js',
   'app-graph-model.js',
   'app-graph-view.js',
   'app-graph-layout.js',
@@ -218,7 +228,8 @@ const AGENT_GRAPH_CONTRACTS = [
   'function completedSubagentDisclosure',
   'function agentExecutionMode',
   'function executionModeBadge',
-  'const tmuxSection = tmuxDisplayCount',
+  'data-runtime-segment="sessions"',
+  'function isRuntimeLoopSession',
   'function subagentTextPreview',
   'function subagentConversationHtml',
   'function openSubagentConversation',
@@ -325,6 +336,7 @@ const STYLE_FILES = [
   'styles-terminal.css',
   'styles-run-composer.css',
   'styles-product.css',
+  'styles-runtime-overview.css',
   'styles-onboarding.css',
   'styles-settings.css',
   'styles-responsive-shell.css',
@@ -375,6 +387,7 @@ const CSS_RESPONSIBILITY_HEADINGS = [
   'Terminal workspaces',
   'tmux workspaces',
   'Product experiences',
+  'Runtime schedules and loop observability',
   'Run composer',
   'Onboarding and navigation help',
   'Settings and releases',
@@ -403,6 +416,7 @@ const INTERACTION_STYLE_CONTRACTS = [
   'motion-toast-out',
   'agent-command-panel',
   'agent-command-input',
+  'live-tmux-shortcut',
   'terminal-stage',
   'terminal-history-panel',
   'terminal-history-message',
@@ -486,9 +500,13 @@ const MAIN_PROCESS_CONTRACTS = [
   'function createAttentionNotifier',
   "attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot))",
   "agents:attention-requested",
+  "pendingAttentionSessionId",
+  "markRendererReady",
+  "did-start-loading",
 ];
 
 const APP_IPC_CHANNELS = [
+  'app:renderer-ready',
   'app:background-state',
   'app:show',
   'app:set-locale',
@@ -728,6 +746,8 @@ function registerUiContractTests(context) {
       MAIN_PROCESS_CONTRACTS,
       contract => `${contract} 메인 프로세스 계약이 없습니다.`,
     );
+    assert.ok(mainEntry.includes('macPathEntries(os.homedir(), process.env.PATH)'), 'macOS PATH 조회가 검증된 정적 경로 병합기를 사용해야 합니다.');
+    assert.ok(!mainEntry.includes('execFileSync(shellPath'), '앱 창 생성 전에 사용자 셸 초기화를 동기 실행하면 안 됩니다.');
     for (const channel of APP_IPC_CHANNELS) {
       assert.ok(
         ipcSource.includes(`handleTrusted('${channel}'`),

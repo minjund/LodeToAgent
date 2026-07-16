@@ -193,20 +193,31 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   }
 
   async function showSelection() {
+    const generation = state.captureGeneration;
+    const expectedMode = state.mode;
+    const expectedSessionId = state.selectedId;
+    const expectedTmuxId = state.selectedTmux?.pane?.id || state.selectedTmux?.pane?.nativeId || '';
+    const selectionIsCurrent = () => generation === state.captureGeneration
+      && expectedMode === state.mode
+      && expectedSessionId === state.selectedId
+      && expectedTmuxId === (state.selectedTmux?.pane?.id || state.selectedTmux?.pane?.nativeId || '');
     hideScreens();
     const session = currentSession();
     const remote = currentTmux();
     if (session) {
       const entry = await ensureSessionTerminal(session);
+      if (!selectionIsCurrent()) return;
       entry.host.classList.remove('hidden');
       fitEntry(entry, session.id);
       stopCapture();
     } else if (remote) {
+      if (!selectionIsCurrent()) return;
       const entry = ensureRemoteTerminal();
       entry.host.classList.remove('hidden');
       fitEntry(entry);
       startCapture();
     } else {
+      if (!selectionIsCurrent()) return;
       $('#terminalEmpty').classList.remove('hidden');
       stopCapture();
     }

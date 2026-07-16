@@ -13,10 +13,11 @@
   box-shadow: 0 0 10px rgba(76,227,154,.7);
 }
 
-.live-section-head>div {
+.live-section-title {
   display: flex;
   align-items: center;
   gap: 11px;
+  min-width: 0;
 }
 
 .live-section-head .eyebrow {
@@ -44,6 +45,72 @@
   margin: 0;
   letter-spacing: -.03em;
   font-size: 22px;
+}
+
+.live-section-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.live-tmux-shortcut {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 11px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 11px;
+  color: #c5d8d1;
+  background: rgba(76,227,154,.07);
+  box-shadow: 0 0 0 1px rgba(76,227,154,.24),0 8px 22px rgba(0,0,0,.16);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition-property: color,background-color,box-shadow,scale;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+
+.live-tmux-shortcut:hover {
+  color: #ecfff7;
+  background: rgba(76,227,154,.12);
+  box-shadow: 0 0 0 1px rgba(76,227,154,.38),0 10px 25px rgba(0,0,0,.2);
+}
+
+.live-tmux-shortcut:active {
+  scale: .96;
+}
+
+.live-tmux-shortcut:focus-visible {
+  outline: 2px solid rgba(105,238,175,.92);
+  outline-offset: 3px;
+}
+
+.live-tmux-shortcut-icon {
+  color: #63dba0;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.live-tmux-shortcut b {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #09140f;
+  background: #63dba0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .live-beacon {
@@ -1200,7 +1267,7 @@
   min-width: 0;
 }
 
-.live-section-head>p {
+.live-section-description {
   margin: 0;
   text-align: right;
   max-width: 660px;

@@ -9,6 +9,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     esc,
     uiLocale,
     state,
+    PROJECTLESS_WORKSPACE,
     motionPreference,
     motionState,
     markGuideStep,
@@ -131,27 +132,39 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     if ((!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) && installed) state.runProvider = installed.id;
     if (!isProviderVisible(state.runProvider)) state.runProvider = visibleProviders()[0]?.id || "";
     $("#runProviderPicker").innerHTML = providerPickerHtml();
-    if (!$("#runCwd").value) $("#runCwd").value = state.workspace !== "all" ? state.workspace : (state.workspaces[0] && state.workspaces[0].path) || "";
+    if (!$("#runCwd").value) $("#runCwd").value = state.workspace !== "all" && state.workspace !== PROJECTLESS_WORKSPACE
+      ? state.workspace
+      : state.workspace === PROJECTLESS_WORKSPACE ? "" : (state.workspaces[0] && state.workspaces[0].path) || "";
     $("#runCwd").placeholder = state.platform.id === "win32" ? "D:\\project" : "/Users/me/project";
     const advanced = $("#runForm .run-advanced");
     if (advanced) advanced.open = Boolean($("#runModel").value.trim());
     $("#runError").classList.add("hidden");
     syncRunComposer();
     clearTimeout(motionState.modalTimer);
+    clearTimeout(motionState.modalFocusTimer);
     $("#runModal").classList.remove("hidden", "closing");
-    setTimeout(() => $("#runPrompt").focus(), 0);
+    const focusPromptIfOutside = () => {
+      const modal = $("#runModal");
+      if (!modal.classList.contains("hidden") && !modal.classList.contains("closing") && !modal.contains(document.activeElement)) {
+        $("#runPrompt").focus();
+      }
+    };
+    setTimeout(focusPromptIfOutside, 0);
+    motionState.modalFocusTimer = setTimeout(focusPromptIfOutside, motionPreference.matches ? 0 : 300);
   }
 
   function closeRunModal() {
     const modal = $("#runModal");
     if (modal.classList.contains("hidden") || modal.classList.contains("closing")) return;
+    const modalGeneration = motionState.dialogGeneration;
+    clearTimeout(motionState.modalFocusTimer);
     modal.classList.add("closing");
     clearTimeout(motionState.modalTimer);
     motionState.modalTimer = setTimeout(
       () => {
         modal.classList.add("hidden");
         modal.classList.remove("closing");
-        restoreDialogTrigger();
+        restoreDialogTrigger(modalGeneration);
       },
       motionPreference.matches ? 0 : 220,
     );

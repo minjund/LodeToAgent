@@ -46,31 +46,16 @@
   :root {
     --sidebar: 76px;
   }
-}
 
-/* Compact screens ≤ 900px: collapse content columns and simplify the side rail. */
-@media (max-width:900px) {
-  :root {
-    --sidebar: 72px;
-  }
-
-  .brand>div:last-child {
-    display: none;
-  }
-
-  .nav-item span:not(.nav-icon) {
-    display: none;
-  }
-
-  .nav-item b {
-    display: none;
-  }
-
-  .section-title span {
-    display: none;
-  }
-
-  .provider-rail-item strong {
+  .brand>div:last-child,
+  .nav-item span:not(.nav-icon),
+  .nav-item b,
+  .nav-group-label,
+  .section-title span,
+  .provider-rail-item strong,
+  .provider-rail-item small,
+  .sidebar-footer div,
+  .sidebar-app-version {
     display: none;
   }
 
@@ -78,19 +63,25 @@
     display: none;
   }
 
-  .sidebar-footer div {
-    display: none;
-  }
-
-  .brand {
+  .brand,
+  .provider-rail-item,
+  .section-title,
+  .sidebar-footer {
     justify-content: center;
-    padding-left: 0;
     padding-right: 0;
+    padding-left: 0;
   }
 
   .nav-item {
     grid-template-columns: 1fr;
     place-items: center;
+  }
+}
+
+/* Compact screens ≤ 900px: collapse content columns and simplify the side rail. */
+@media (max-width:900px) {
+  :root {
+    --sidebar: 72px;
   }
 
   .topbar {
@@ -337,7 +328,7 @@
     height: 60px;
     display: grid;
     gap: 2px;
-    grid-template-columns: repeat(4,minmax(0,1fr));
+    grid-template-columns: repeat(5,minmax(0,1fr));
   }
 
   .topbar {
@@ -379,7 +370,7 @@
 /* Compact screens ≤ 640px: replace the side rail with bottom navigation and protect horizontal space. */
 @media (max-width:640px) {
   .main-stage {
-    padding: 22px 15px 40px;
+    padding: 22px 15px calc(92px + env(safe-area-inset-bottom));
   }
 
   .sessions-heading {

@@ -9,6 +9,17 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
   } = context;
 
   function bindSessionListEvents() {
+    $("#automationOverview").addEventListener("click", (event) => {
+      const loopSelect = event.target.closest("[data-loop-select]");
+      if (loopSelect) {
+        state.selectedRuntimeLoopId = loopSelect.dataset.loopSelect;
+        renderSessions("focus");
+        requestAnimationFrame(() => $("#automationOverview").querySelector(`[data-loop-select="${CSS.escape(state.selectedRuntimeLoopId)}"]`)?.focus());
+        return;
+      }
+      const sessionTarget = event.target.closest("[data-loop-open], [data-automation-session]");
+      if (sessionTarget) openDrawer(sessionTarget.dataset.loopOpen || sessionTarget.dataset.automationSession);
+    });
     $("#providerOverview").addEventListener("click", (event) => {
       const card = event.target.closest("[data-provider-card]");
       if (!card) return;
@@ -137,6 +148,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
   }
 
   function bindGraphNavigationEvents() {
+    $("#openTmuxFromAgentWork").addEventListener("click", () => selectView("tmux", { focusMain: true }));
     $("#graphBreadcrumbs").addEventListener("click", (event) => {
       if (event.target.closest("[data-graph-reset]")) state.graphFocusId = null;
       else {

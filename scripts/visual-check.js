@@ -107,7 +107,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('내 확인 필요') || !beginnerMetrics.navLabels.includes('세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 작업') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('내 확인 필요') || !beginnerMetrics.navLabels.includes('스케줄·루프') || !beginnerMetrics.navLabels.includes('세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 작업') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -472,7 +472,7 @@ app.whenReady().then(() => {
           subagentTabRemoved: !document.querySelector('[data-view="subagents"]'),
         };
       })()`);
-      if (!densityMetrics.subagentTabRemoved || densityMetrics.runtimeSegments !== 2 || densityMetrics.tmuxRuntimeCards !== densityMetrics.tmuxAiPanes || !densityMetrics.tmuxFirst || densityMetrics.lanes < 4 || densityMetrics.visibleFlows > densityMetrics.lanes * 6 || densityMetrics.moreButtons < 1 || densityMetrics.expandedFlows <= densityMetrics.visibleFlows || !densityMetrics.noHorizontalOverflow) {
+      if (!densityMetrics.subagentTabRemoved || densityMetrics.runtimeSegments !== 1 || densityMetrics.tmuxRuntimeCards !== 0 || densityMetrics.tmuxFirst || densityMetrics.lanes < 4 || densityMetrics.visibleFlows > densityMetrics.lanes * 6 || densityMetrics.moreButtons < 1 || densityMetrics.expandedFlows <= densityMetrics.visibleFlows || !densityMetrics.noHorizontalOverflow) {
         throw new Error(`대규모 에이전트 지도 밀도 조절이 올바르지 않습니다: ${JSON.stringify(densityMetrics)}`);
       }
       if (densityFocusId) {

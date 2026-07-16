@@ -50,7 +50,7 @@ window.LoadToAgentAppFactories.createProviderVisibility = function createProvide
           ...tmuxSession,
           windows: (tmuxSession.windows || []).map((window) => ({
             ...window,
-            panes: (window.panes || []).filter((pane) => !pane.agent || isProviderVisible(pane.agent.provider)),
+            panes: (window.panes || []).filter((pane) => (!pane.dead || !pane.agent) && (!pane.agent || isProviderVisible(pane.agent.provider))),
           })).filter((window) => window.panes.length),
         })).filter((tmuxSession) => tmuxSession.windows.length),
       })).filter((distro) => distro.sessions.length),
@@ -63,8 +63,8 @@ window.LoadToAgentAppFactories.createProviderVisibility = function createProvide
       windows: projected.distros.reduce((sum, distro) =>
         sum + distro.sessions.reduce((count, session) => count + session.windows.length, 0), 0),
       panes: panes.length,
-      aiPanes: panes.filter((pane) => pane.agent).length,
-      linked: panes.filter((pane) => pane.agent?.linkedSessionId).length,
+      aiPanes: panes.filter((pane) => pane.agent && !pane.dead).length,
+      linked: panes.filter((pane) => pane.agent?.linkedSessionId && !pane.dead).length,
     };
     return projected;
   }

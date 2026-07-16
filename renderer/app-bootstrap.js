@@ -13,6 +13,7 @@
     "createCore",
     "createProviderVisibility",
     "createDashboard",
+    "createRuntimeOverview",
     "createGraphModel",
     "createGraphView",
     "createGraphLayout",
@@ -54,6 +55,17 @@
     state.platform = bootstrap.platform || state.platform;
     state.versions = bootstrap.versions || {};
     state.update = bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
+    const handleAttentionRequested = (payload) => {
+      const sessionId = String(payload && payload.sessionId || '');
+      const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
+      if (session && !isProviderVisible(session.provider)) return;
+      selectView('waiting');
+      if (session) {
+        if (session.parentId) openSubagentConversation(session.id);
+        else openDrawer(session.id);
+      } else toast(t("bootstrap.opened_attention_list"));
+    };
+    if (window.loadtoagent.onAttentionRequested) window.loadtoagent.onAttentionRequested(handleAttentionRequested);
     bindEvents();
     render();
     $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);
@@ -69,17 +81,7 @@
         if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
       }
     });
-    if (window.loadtoagent.onAttentionRequested)
-      window.loadtoagent.onAttentionRequested((payload) => {
-        const sessionId = String(payload && payload.sessionId || '');
-        const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
-        if (session && !isProviderVisible(session.provider)) return;
-        selectView('waiting');
-        if (session) {
-          if (session.parentId) openSubagentConversation(session.id);
-          else openDrawer(session.id);
-        } else toast(t("bootstrap.opened_attention_list"));
-      });
+    if (window.loadtoagent.rendererReady) await window.loadtoagent.rendererReady();
     if (window.loadtoagent.onUpdateState)
       window.loadtoagent.onUpdateState((update) => {
         state.update = update;

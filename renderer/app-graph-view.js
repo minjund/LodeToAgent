@@ -273,49 +273,21 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   }
 
   function runtimeSeparatedOverview(roots, model) {
-    const tmux = (state.snapshot && state.snapshot.tmux) || { distros: [], summary: {} };
-    const tmuxEntries = liveTmuxEntries(tmux);
-    const tmuxLinkedIds = new Set(tmuxEntries.map((entry) => entry.agent.linkedSessionId).filter(Boolean));
-    const tmuxRoots = roots.filter((root) => agentExecutionMode(root).kind === "tmux");
-    const standardRoots = roots.filter((root) => agentExecutionMode(root).kind !== "tmux" && !tmuxLinkedIds.has(root.id));
     const providerOrder = [...new Set([...visibleProviders().map((item) => item.id), ...roots.map((item) => item.provider).filter(isProviderVisible)])];
     const lanesFor = (items) =>
       providerOrder.map((providerId) => ({ providerId, roots: items.filter((root) => root.provider === providerId) })).filter((item) => item.roots.length);
-    const standardLanes = lanesFor(standardRoots);
-    const fallbackTmuxRoots = tmuxRoots.filter((root) => !tmuxLinkedIds.has(root.id));
-    const fallbackTmuxLanes = lanesFor(fallbackTmuxRoots);
-    const tmuxDisplayCount = tmuxEntries.length + fallbackTmuxRoots.length;
-    const standardHtml = standardLanes.length
-      ? `<div class="agent-flow-overview">${standardLanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}</div>`
-      : `<div class="runtime-segment-empty"><b>${esc(t("graph.no_standard_ai"))}</b><span>${esc(t("graph.all_detected_in_tmux"))}</span></div>`;
-    const tmuxHtml = `${tmuxEntries.length ? `<div class="live-tmux-grid">${tmuxEntries.map(liveTmuxPaneCard).join("")}</div>` : ""}
-          ${
-            fallbackTmuxLanes.length
-              ? `<div class="agent-flow-overview live-tmux-fallback">
-                  ${fallbackTmuxLanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}
-                </div>`
-              : ""
-          }`;
-    const tmuxSection = tmuxDisplayCount
-      ? `<section class="runtime-segment tmux-runtime" data-runtime-segment="tmux">
-        <header>
-          <span class="runtime-segment-icon">▦</span>
-          <span><small>${esc(t("graph.tmux_only"))}</small><b>${esc(t("graph.tmux_sessions"))}</b><em>${esc(t("graph.tmux_runtime_description"))}</em></span>
-          <strong>${esc(t("common.count", { count: tmuxDisplayCount }))}</strong>
-          <button type="button" class="live-tmux-overview-open">${esc(t("graph.open_tmux_overview"))}</button>
-        </header>
-        ${tmuxHtml}
-      </section>`
-      : "";
+    const lanes = lanesFor(roots);
+    const sessionHtml = lanes.length
+      ? `<div class="agent-flow-overview">${lanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}</div>`
+      : `<div class="runtime-segment-empty"><b>${esc(t("graph.no_active_sessions"))}</b><span>${esc(t("graph.active_sessions_appear_here"))}</span></div>`;
     return `<div class="agent-runtime-split" data-runtime-split="true">
-      ${tmuxSection}
-      <section class="runtime-segment standard-runtime" data-runtime-segment="standard">
+      <section class="runtime-segment standard-runtime" data-runtime-segment="sessions">
         <header>
           <span class="runtime-segment-icon">›_</span>
-          <span><small>${esc(t("graph.without_tmux"))}</small><b>${esc(t("graph.standard_sessions"))}</b><em>${esc(t("graph.standard_runtime_description"))}</em></span>
-          <strong>${esc(t("common.count", { count: standardRoots.length }))}</strong>
+          <span><small>${esc(t("graph.session_overview"))}</small><b>${esc(t("graph.execution_sessions"))}</b><em>${esc(t("graph.execution_sessions_description"))}</em></span>
+          <strong>${esc(t("common.count", { count: roots.length }))}</strong>
         </header>
-        ${standardHtml}
+        ${sessionHtml}
       </section>
     </div>`;
   }

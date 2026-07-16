@@ -52,6 +52,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
   function closeDrawer(restoreFocus = true) {
     if (!$("#detailDrawer").classList.contains("open")) return;
+    const drawerGeneration = motionState.dialogGeneration;
     $("#detailDrawer").classList.remove("open");
     $("#detailDrawer").setAttribute("aria-hidden", "true");
     $("#detailDrawer").setAttribute("inert", "");
@@ -61,7 +62,8 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       () => {
         $("#drawerBackdrop").classList.add("hidden");
         $("#drawerBackdrop").classList.remove("closing");
-        if (restoreFocus) restoreDialogTrigger();
+        if (drawerGeneration !== motionState.dialogGeneration) return;
+        if (restoreFocus) restoreDialogTrigger(drawerGeneration);
         else motionState.activeDialogTrigger = null;
       },
       motionPreference.matches ? 0 : 260,

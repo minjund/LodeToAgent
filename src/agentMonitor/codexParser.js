@@ -82,6 +82,7 @@ function createCodexParser(dependencies) {
     return {
       latestUser: '',
       latestInternalGoal: '',
+      goalContexts: new Set(),
       latestDelegationNarration: '',
       activeTurn: false,
       lastTurnCompleted: false,
@@ -170,6 +171,7 @@ function createCodexParser(dependencies) {
       if (!text) return;
       if (/<codex_internal_context(?:\s|>)/i.test(rawUser)) {
         state.latestInternalGoal = text;
+        if (/<codex_internal_context[^>]*\bsource=["']goal["']/i.test(rawUser)) state.goalContexts.add(`${row.timestamp || ''}:${text}`);
         return;
       }
       state.latestUser = text;
@@ -356,6 +358,7 @@ function createCodexParser(dependencies) {
     if (!text) return;
     if (role === 'user' && /<codex_internal_context(?:\s|>)/i.test(rawText)) {
       state.latestInternalGoal = text;
+      if (/<codex_internal_context[^>]*\bsource=["']goal["']/i.test(rawText)) state.goalContexts.add(`${row.timestamp || ''}:${text}`);
       return;
     }
     if (role === 'user') state.latestUser = text;
@@ -408,6 +411,7 @@ function createCodexParser(dependencies) {
       ? (session.taskName || `${session.agentName} 서브에이전트`)
       : (compactText(state.latestUser || state.latestInternalGoal, 180) || 'GPT 작업 세션');
     session.result = state.lastFinalAnswer;
+    if (!session.depth && state.goalContexts.size) session.loop = { kind: 'goal', iteration: state.goalContexts.size };
     const collaboration = state.collaboration.finalize(session.collaboration.retainedAgents);
     session.collaboration.spawns = collaboration.spawns;
     session.collaboration.communications = collaboration.communications;

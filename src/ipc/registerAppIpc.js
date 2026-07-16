@@ -1,7 +1,8 @@
 'use strict';
 
-function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLocale, setProviderVisibility, updateManager, installUpdate }) {
+function registerAppIpc({ handleTrusted, bootstrap, rendererReady, backgroundState, show, setLocale, setProviderVisibility, updateManager, installUpdate }) {
   handleTrusted('app:bootstrap', bootstrap);
+  handleTrusted('app:renderer-ready', rendererReady);
   handleTrusted('app:background-state', backgroundState);
   handleTrusted('app:show', show);
   handleTrusted('app:set-locale', setLocale);

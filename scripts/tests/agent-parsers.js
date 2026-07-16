@@ -295,6 +295,7 @@ function registerCodexRecoveryTests(context) {
     assert.equal(session.messages.some(item => /Filesystem sandboxing/.test(item.text)), false);
     assert.equal(session.messages.some(item => /efficiency-alarm-overnight-loop/.test(item.text)), false);
     assert.equal(session.messages.some(item => /실시간 토큰 게이지|서브에이전트 관계/.test(item.text)), false);
+    assert.deepStrictEqual(session.loop, { kind: 'goal', iteration: 2 });
   });
 
   test('잘린 Codex 로그에 내부 목표만 남아도 마크업 없이 카드 제목을 복원한다', () => {
@@ -304,6 +305,7 @@ function registerCodexRecoveryTests(context) {
     ]));
     assert.equal(session.title, '완료된 서브에이전트는 기본으로 숨겨줘');
     assert.equal(session.messages.some(item => item.role === 'user' || /codex_internal_context|untrusted_objective/.test(item.text)), false);
+    assert.deepStrictEqual(session.loop, { kind: 'goal', iteration: 1 });
   });
 
   test('Codex 데스크톱 첨부파일 안내 대신 실제 요청을 카드 제목으로 사용한다', () => {

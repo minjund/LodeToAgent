@@ -34,6 +34,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderUpdateSettings,
     renderProviderOverview,
     renderProviderFilter,
+    renderRuntimeOverview,
     renderProviderVisibilitySettings = () => {},
     visibleSnapshot = () => state.snapshot,
     filteredSessions,
@@ -164,16 +165,27 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const tmuxView = state.view === "tmux";
     const terminalView = state.view === "terminal";
     const settingsView = state.view === "settings";
+    const runtimeView = state.view === "runtime";
+    const focusedToolView = tmuxView || terminalView || settingsView || runtimeView;
     $("#terminalSection").classList.toggle("hidden", !terminalView);
     $("#tmuxSection").classList.toggle("hidden", !tmuxView);
     $("#settingsSection").classList.toggle("hidden", !settingsView);
-    $("#globalStats").classList.toggle("hidden", tmuxView || terminalView || settingsView);
-    $("#providerOverview").classList.toggle("hidden", tmuxView || terminalView || settingsView);
-    $("#sessionSection").classList.toggle("hidden", tmuxView || terminalView || settingsView);
+    $("#globalStats").classList.toggle("hidden", focusedToolView);
+    $("#providerOverview").classList.toggle("hidden", focusedToolView);
+    $("#sessionSection").classList.toggle("hidden", focusedToolView);
+    if (runtimeView) renderRuntimeOverview();
+    $("#automationOverview").classList.toggle("hidden", !runtimeView);
     const guideVisible = state.view === "all" && state.guideExpanded && !state.graphFocusId;
     $("#beginnerGuide").classList.toggle("hidden", !guideVisible);
     $("#guideBtn").setAttribute("aria-expanded", guideVisible ? "true" : "false");
     renderUpdateSettings();
+    if (runtimeView) {
+      $("#liveSection").classList.add("hidden");
+      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
+      if (!deferMotion) playMotionLayout(previousLayout, motionKind);
+      if (motionKind === "view") animateVisibleSections();
+      return;
+    }
     if (settingsView) {
       $("#liveSection").classList.add("hidden");
       renderProviderVisibilitySettings();

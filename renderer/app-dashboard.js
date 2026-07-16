@@ -15,6 +15,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     visibleProviders = () => state.providers,
     visibleSessions = () => ((state.snapshot && state.snapshot.sessions) || []),
     isProviderVisible = () => true,
+    isRuntimeLoopSession = () => false,
   } = context;
 
   function renderProviderRail() {
@@ -112,14 +113,19 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       )
       .join("");
     $("#navAllCount").textContent = rootCount;
-    $("#navActiveCount").textContent = totals.active || 0;
+    const activeRootCount = sessions.filter((session) => !session.parentId && ["running", "starting"].includes(session.status)).length;
+    $("#navActiveCount").textContent = activeRootCount;
     $("#navWaitingCount").textContent = totals.waiting || 0;
-    let visibleTmuxPanes = 0;
-    for (const distro of state.snapshot?.tmux?.distros || [])
-      for (const tmuxSession of distro.sessions || [])
-        for (const window of tmuxSession.windows || [])
-          visibleTmuxPanes += (window.panes || []).filter((pane) => pane.agent && isProviderVisible(pane.agent.provider)).length;
-    $("#navTmuxCount").textContent = visibleTmuxPanes;
+    const scheduledCount = (state.snapshot?.automations || [])
+      .filter((item) => isProviderVisible(item.provider || "codex")).length;
+    const loopCount = sessions.filter(isRuntimeLoopSession).length;
+    $("#navRuntimeCount").textContent = scheduledCount + loopCount;
+    const tmuxSessionCount = Number(state.snapshot?.tmux?.summary?.sessions || 0);
+    $("#navTmuxCount").textContent = tmuxSessionCount;
+    const tmuxShortcut = $("#openTmuxFromAgentWork");
+    $("#agentWorkTmuxCount").textContent = tmuxSessionCount;
+    tmuxShortcut.dataset.i18nParams = JSON.stringify({ count: tmuxSessionCount });
+    tmuxShortcut.setAttribute("aria-label", t("graph.open_tmux_workspace_count", { count: tmuxSessionCount }));
   }
 
   function formatBytes(value) {

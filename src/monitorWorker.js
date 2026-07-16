@@ -6,6 +6,7 @@ const path = require('path');
 const { AgentMonitor, buildSummary } = require('./agentMonitor');
 const { TmuxMonitor, linkAgentSessions } = require('./tmuxMonitor');
 const { ProcessMonitor, applyRuntimePresence } = require('./processMonitor');
+const { scanCodexAutomationHomes } = require('./automationMonitor');
 const { reportRecoverableError } = require('./diagnostics');
 
 const tmuxMonitor = new TmuxMonitor();
@@ -179,13 +180,18 @@ function cardSession(session) {
     context: session.context,
     childIds: session.childIds,
     runtimePresence: session.runtimePresence || [],
+    loop: session.loop && typeof session.loop === 'object' ? {
+      kind: clip(session.loop.kind, 40),
+      iteration: Math.max(0, Number(session.loop.iteration || 0)),
+      phase: clip(session.loop.phase, 40),
+    } : (session.loop === true ? true : null),
     collaboration: cardCollaboration(session.collaboration),
     messages: selectCardMessages(session.messages),
     lifecycle: (session.lifecycle || []).slice(-2).map(cardLifecycle),
   };
 }
 
-function fingerprint(snapshot, tmux) {
+function fingerprint(snapshot, tmux, automations) {
   const sessions = snapshot.sessions.map(session => [
     session.id,
     session.updatedAt,
@@ -194,6 +200,7 @@ function fingerprint(snapshot, tmux) {
     session.context && session.context.used,
     session.workspace,
     Boolean(session.projectless),
+    session.loop && `${session.loop.kind || ''}:${session.loop.iteration || 0}:${session.loop.phase || ''}`,
     session.childIds && session.childIds.length,
     session.collaboration && session.collaboration.metrics && Object.values(session.collaboration.metrics).join(':'),
     session.collaboration && session.collaboration.communications && session.collaboration.communications.length,
@@ -214,21 +221,31 @@ function fingerprint(snapshot, tmux) {
     pane.agent && pane.agent.linkedSessionId,
     pane.agent && pane.agent.updatedAt,
   ]))));
-  return JSON.stringify([sessions, tmuxState]);
+  const automationState = (automations || []).map(item => [
+    item.id, item.name, item.status, item.rrule, item.nextRunAt, item.updatedAt, (item.cwds || []).join('|'),
+  ]);
+  return JSON.stringify([sessions, tmuxState, automationState]);
 }
 
 monitor.on('snapshot', snapshot => {
   const tmuxBase = tmuxMonitor.scan();
-  monitor.setHistoryHomes(tmuxMonitor.historyHomes());
+  const historyHomes = tmuxMonitor.historyHomes();
+  monitor.setHistoryHomes(historyHomes);
   const tmux = linkAgentSessions(tmuxBase, snapshot.sessions);
   const processSnapshot = processMonitor.scan();
   const sessions = applyRuntimePresence(snapshot.sessions, tmux, processSnapshot, Date.now(), currentBridges);
+  const localKind = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
+  const automations = scanCodexAutomationHomes({
+    homes: [{ home: workerData.home, kind: localKind, distro: '', label: 'Local' }, ...historyHomes],
+    now: new Date(snapshot.generatedAt),
+  });
   const runtimeSnapshot = {
     generatedAt: snapshot.generatedAt,
     sessions,
+    automations,
     summary: buildSummary(sessions, monitor.availability),
   };
-  const nextFingerprint = fingerprint(runtimeSnapshot, tmux);
+  const nextFingerprint = fingerprint(runtimeSnapshot, tmux, automations);
   if (nextFingerprint === lastFingerprint) return;
   lastFingerprint = nextFingerprint;
   lastPublishedSessions = sessions;
@@ -237,6 +254,7 @@ monitor.on('snapshot', snapshot => {
     snapshot: {
       generatedAt: snapshot.generatedAt,
       sessions: sessions.map(cardSession),
+      automations,
       summary: runtimeSnapshot.summary,
       tmux,
       runtime: {

@@ -257,8 +257,9 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   function renderTmuxMap() {
     const tmux = visibleTmux() || { available: false, status: t('tmux.status.checking'), distros: [], summary: {} };
     const summary = tmux.summary || {};
+    const environmentLabel = state.platform?.nativeTmux ? (state.platform.label || t('tmux.local_environment')) : t('tmux.stats.linux_environments');
     $("#tmuxStats").innerHTML = [
-      [t('tmux.stats.linux_environments'), summary.distros || 0, t('ui.items')],
+      [t('tmux.stats.environments'), summary.distros || 0, t('ui.items')],
       [t('tmux.workspace'), summary.sessions || 0, t('ui.items')],
       [t('tmux.open_window'), summary.windows || 0, t('ui.items')],
       [t('tmux.stats.split_panes'), summary.panes || 0, t('ui.items')],
@@ -303,7 +304,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       .map(
         (distro) => `<section class="tmux-distro-group">
       <button type="button" class="tmux-distro-node" data-tmux-type="distro" data-tmux-id="${esc(distro.id)}">
-      <span>Linux</span>
+      <span>${esc(environmentLabel)}</span>
       <div>
       <small>${t('tmux.runtime_environment')}</small>
       <strong>${esc(distro.name)}</strong>
