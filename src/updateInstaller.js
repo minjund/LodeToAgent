@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const { spawn: spawnProcess } = require('child_process');
 
+const MAC_UPDATE_HELPER_SOURCE = path.join(__dirname, 'macUpdateHelper.js');
+
 const WINDOWS_UPDATE_HELPER = `param(
   [Parameter(Mandatory = $true)][string]$InstallerPath,
   [Parameter(Mandatory = $true)][int]$ParentPid,
@@ -37,11 +39,25 @@ function isWithinDirectory(file, directory) {
   return relative !== '' && !relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative);
 }
 
-function canInstallSilently({ platform, installType, installerPath, downloadsDir }) {
-  return platform === 'win32'
-    && installType === 'desktop'
-    && isWithinDirectory(installerPath, downloadsDir)
-    && /^LoadToAgent-Setup-[0-9A-Za-z.-]+\.exe$/i.test(path.basename(installerPath));
+function macAppBundlePath(executablePath) {
+  const normalized = path.posix.normalize(String(executablePath || '').replace(/\\/g, '/'));
+  const match = normalized.match(/^((?:\/|[A-Za-z]:\/).+?\.app)\/Contents\/MacOS\/[^/]+$/i);
+  return match ? match[1] : '';
+}
+
+function automaticInstallPlatform({ platform, installType, installerPath, downloadsDir, appPath }) {
+  if (installType !== 'desktop' || !isWithinDirectory(installerPath, downloadsDir)) return '';
+  const fileName = path.basename(installerPath);
+  if (platform === 'win32' && /^LoadToAgent-Setup-[0-9A-Za-z.-]+\.exe$/i.test(fileName)) return 'win32';
+  if (platform === 'darwin' && /^LoadToAgent-[0-9A-Za-z.-]+-(?:arm64|x64)\.dmg$/i.test(fileName)) {
+    const appBundle = macAppBundlePath(appPath);
+    if (appBundle && appBundle !== '/Volumes' && !appBundle.startsWith('/Volumes/')) return 'darwin';
+  }
+  return '';
+}
+
+function canInstallSilently(options) {
+  return Boolean(automaticInstallPlatform(options || {}));
 }
 
 function windowsPowerShell(environment = process.env) {
@@ -73,12 +89,15 @@ async function launchDownloadedUpdate(options = {}) {
   const downloadsDir = String(options.downloadsDir || '');
   if (!installerPath || !fs.existsSync(installerPath)) throw new Error('내려받은 설치 파일을 찾지 못했습니다. 다시 다운로드해 주세요.');
 
-  if (!canInstallSilently({
-    platform: String(options.platform || process.platform),
+  const platform = String(options.platform || process.platform);
+  const automaticPlatform = automaticInstallPlatform({
+    platform,
     installType: String(options.installType || ''),
     installerPath,
     downloadsDir,
-  })) {
+    appPath: String(options.appPath || ''),
+  });
+  if (!automaticPlatform) {
     if (!options.shell || typeof options.shell.openPath !== 'function') throw new Error('설치 파일을 열 수 없습니다.');
     const openError = await options.shell.openPath(installerPath);
     if (openError) throw new Error(openError);
@@ -91,10 +110,35 @@ async function launchDownloadedUpdate(options = {}) {
     throw new Error('업데이트 후 앱을 다시 시작할 정보를 준비하지 못했습니다.');
   }
 
+  const spawn = options.spawn || spawnProcess;
+  if (automaticPlatform === 'darwin') {
+    const targetApp = macAppBundlePath(appPath);
+    if (!targetApp || !fs.existsSync(targetApp)) throw new Error('현재 설치된 macOS 앱을 찾지 못했습니다.');
+    const helperPath = path.join(downloadsDir, 'install-update-macos.js');
+    const logPath = path.join(downloadsDir, 'install-update.log');
+    const helperSource = await fs.promises.readFile(MAC_UPDATE_HELPER_SOURCE, 'utf8');
+    await fs.promises.writeFile(helperPath, helperSource, { encoding: 'utf8', mode: 0o700 });
+    const environment = { ...process.env, ...(options.environment || {}), ELECTRON_RUN_AS_NODE: '1' };
+    const child = spawn(appPath, [
+      helperPath,
+      '--dmg', installerPath,
+      '--target', targetApp,
+      '--parent-pid', String(parentPid),
+      '--log', logPath,
+    ], {
+      detached: true,
+      stdio: 'ignore',
+      env: environment,
+    });
+    await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
+    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로세스를 시작하지 못했습니다.');
+    child.unref();
+    return { mode: 'automatic', helperPath, logPath, targetApp };
+  }
+
   const helperPath = path.join(downloadsDir, 'install-update.ps1');
   const logPath = path.join(downloadsDir, 'install-update.log');
   await fs.promises.writeFile(helperPath, WINDOWS_UPDATE_HELPER, { encoding: 'utf8', mode: 0o600 });
-  const spawn = options.spawn || spawnProcess;
   const child = spawn(windowsPowerShell(options.environment), [
     '-NoLogo',
     '-NoProfile',
@@ -118,10 +162,13 @@ async function launchDownloadedUpdate(options = {}) {
 }
 
 module.exports = {
+  MAC_UPDATE_HELPER_SOURCE,
   WINDOWS_UPDATE_HELPER,
+  automaticInstallPlatform,
   canInstallSilently,
   isWithinDirectory,
   launchDownloadedUpdate,
+  macAppBundlePath,
   waitForProcessSpawn,
   windowsPowerShell,
 };

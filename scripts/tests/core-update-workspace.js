@@ -8,7 +8,8 @@ const { EventEmitter } = require('events');
 const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
-const { canInstallSilently, launchDownloadedUpdate } = require('../../src/updateInstaller');
+const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath } = require('../../src/updateInstaller');
+const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 
 function registerProviderAndWorkspaceTests(context) {
@@ -180,6 +181,46 @@ function registerCliAndUpdateTests(context) {
       platform: 'win32', installType: 'desktop', installerPath: path.join(temp, 'LoadToAgent-Setup-3.1.0.exe'), downloadsDir: downloadDir,
     }), false);
 
+    const macBundle = path.join(temp, 'Applications', 'LoadToAgent.app');
+    const macExecutable = path.join(macBundle, 'Contents', 'MacOS', 'LoadToAgent');
+    const macInstaller = path.join(downloadDir, 'LoadToAgent-3.1.0-arm64.dmg');
+    fs.mkdirSync(path.dirname(macExecutable), { recursive: true });
+    fs.writeFileSync(macExecutable, 'fixture executable', 'utf8');
+    fs.writeFileSync(macInstaller, 'fixture dmg', 'utf8');
+    let macSpawnCall = null;
+    let macUnrefCalled = false;
+    const macAutomatic = await launchDownloadedUpdate({
+      platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
+      installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
+      environment: { FIXTURE: 'yes' },
+      spawn: (command, args, options) => {
+        macSpawnCall = { command, args, options };
+        const child = new EventEmitter();
+        child.pid = 9877;
+        child.unref = () => { macUnrefCalled = true; };
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+    });
+    assert.equal(macAutomatic.mode, 'automatic');
+    assert.equal(macAutomatic.targetApp, macAppBundlePath(macExecutable));
+    assert.equal(macUnrefCalled, true);
+    assert.equal(macSpawnCall.command, macExecutable);
+    assert.equal(macSpawnCall.options.detached, true);
+    assert.equal(macSpawnCall.options.env.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(macSpawnCall.options.env.FIXTURE, 'yes');
+    assert(macSpawnCall.args.includes(macInstaller));
+    assert(macSpawnCall.args.includes(macAutomatic.targetApp));
+    assert.match(fs.readFileSync(macAutomatic.helperPath, 'utf8'), /async function installMacUpdate/);
+    assert.equal(canInstallSilently({
+      platform: 'darwin', installType: 'desktop', installerPath: macInstaller,
+      downloadsDir: downloadDir, appPath: macExecutable,
+    }), true);
+    assert.equal(canInstallSilently({
+      platform: 'darwin', installType: 'desktop', installerPath: macInstaller,
+      downloadsDir: downloadDir, appPath: '/Volumes/LoadToAgent/LoadToAgent.app/Contents/MacOS/LoadToAgent',
+    }), false);
+
     const manualOpened = [];
     const manual = await launchDownloadedUpdate({
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir, installerPath: downloaded.downloadedPath,
@@ -202,6 +243,81 @@ function registerCliAndUpdateTests(context) {
       }),
       /PowerShell unavailable/,
     );
+  });
+
+  test('macOS 업데이트 헬퍼가 앱을 교체하고 실패하면 원본을 복구해 재실행한다', async () => {
+    async function prepareFixture(name) {
+      const root = path.join(temp, name);
+      const targetApp = path.join(root, 'Applications', 'LoadToAgent.app');
+      const mountPath = path.join(root, 'mount');
+      const dmgPath = path.join(root, 'LoadToAgent-3.1.0-arm64.dmg');
+      const logPath = path.join(root, 'install-update.log');
+      fs.mkdirSync(path.join(targetApp, 'Contents'), { recursive: true });
+      fs.mkdirSync(mountPath, { recursive: true });
+      fs.writeFileSync(path.join(targetApp, 'Contents', 'version.txt'), 'old', 'utf8');
+      fs.writeFileSync(dmgPath, 'fixture dmg', 'utf8');
+      return { root, targetApp, mountPath, dmgPath, logPath };
+    }
+
+    function fixtureRunner(fixture, options = {}) {
+      const openedVersions = [];
+      let openCount = 0;
+      return {
+        openedVersions,
+        run: async (command, args) => {
+          if (command === 'hdiutil' && args[0] === 'attach') {
+            const source = path.join(fixture.mountPath, 'LoadToAgent.app', 'Contents');
+            await fs.promises.mkdir(source, { recursive: true });
+            await fs.promises.writeFile(path.join(source, 'version.txt'), 'new', 'utf8');
+            return;
+          }
+          if (command === 'hdiutil' && args[0] === 'detach') return;
+          if (command === 'ditto') {
+            await fs.promises.cp(args[0], args[1], { recursive: true });
+            return;
+          }
+          if (command === 'open') {
+            openCount += 1;
+            openedVersions.push(await fs.promises.readFile(path.join(args[1], 'Contents', 'version.txt'), 'utf8'));
+            if (options.failFirstOpen && openCount === 1) throw new Error('fixture relaunch failure');
+            return;
+          }
+          throw new Error(`unexpected fixture command: ${command}`);
+        },
+      };
+    }
+
+    const successful = await prepareFixture('mac-update-success');
+    const successfulRunner = fixtureRunner(successful);
+    await installMacUpdate({
+      ...successful,
+      parentPid: 1234,
+      operationId: 'success',
+      waitForParentExit: async pid => assert.equal(pid, 1234),
+      commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+      run: successfulRunner.run,
+    });
+    assert.equal(fs.readFileSync(path.join(successful.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
+    assert.deepStrictEqual(successfulRunner.openedVersions, ['new']);
+    assert.match(fs.readFileSync(successful.logPath, 'utf8'), /update installed and relaunched/);
+
+    const failed = await prepareFixture('mac-update-rollback');
+    const failedRunner = fixtureRunner(failed, { failFirstOpen: true });
+    await assert.rejects(
+      installMacUpdate({
+        ...failed,
+        parentPid: 5678,
+        operationId: 'rollback',
+        waitForParentExit: async pid => assert.equal(pid, 5678),
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: failedRunner.run,
+      }),
+      /fixture relaunch failure/,
+    );
+    assert.equal(fs.readFileSync(path.join(failed.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.deepStrictEqual(failedRunner.openedVersions, ['new', 'old']);
+    assert.match(fs.readFileSync(failed.logPath, 'utf8'), /original app restored/);
+    assert.match(fs.readFileSync(failed.logPath, 'utf8'), /original app relaunched/);
   });
 
 }
