@@ -271,8 +271,8 @@ function linkAgentSessions(snapshot, agentSessions, now = Date.now()) {
         for (const pane of window.panes || []) {
           paneCount += 1;
           if (!pane.agentProcess) continue;
-          aiPaneCount += 1;
-          const ranked = (agentSessions || [])
+          if (!pane.dead) aiPaneCount += 1;
+          const ranked = pane.dead ? [] : (agentSessions || [])
             .filter(session => !usedSessionIds.has(session.id))
             .map(session => ({ session, score: linkScore(session, pane, distro, pane.agentProcess, now) }))
             .filter(item => item.score >= 1_000)

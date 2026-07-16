@@ -272,13 +272,25 @@ async function exerciseDashboardControls(win, round) {
     standardVisible: Boolean(document.querySelector('.standard-runtime')),
     tmuxVisible: Boolean(document.querySelector('.tmux-runtime')),
     detailFlowOpen: Boolean(document.querySelector('.runtime-disclosure')?.open),
+    activeCount: Number(document.querySelector('.runtime-disclosure summary b')?.textContent.match(/\\d+/)?.[0] || 0),
+    summaryCounts: [...document.querySelectorAll('#graphBreadcrumbs .map-hint b')].map((node) => Number(node.textContent)),
+    summaryText: document.querySelector('.runtime-disclosure summary small')?.textContent || '',
   }))()`);
   assert(
     runtimeSplit.segments === 2
       && runtimeSplit.tmuxCards > 0
       && runtimeSplit.standardVisible
       && runtimeSplit.tmuxVisible
-      && runtimeSplit.detailFlowOpen,
+      && runtimeSplit.detailFlowOpen
+      && runtimeSplit.summaryCounts.length === 4
+      && runtimeSplit.tmuxCards === 2
+      && runtimeSplit.summaryCounts.join(',') === '9,2,1,3'
+      && runtimeSplit.activeCount === 11
+      && runtimeSplit.activeCount === runtimeSplit.summaryCounts[0] + runtimeSplit.summaryCounts[1]
+      && runtimeSplit.summaryCounts[2] <= runtimeSplit.activeCount
+      && runtimeSplit.summaryCounts[3] >= runtimeSplit.summaryCounts[2]
+      && runtimeSplit.summaryText.includes(`일반 실행 AI ${runtimeSplit.summaryCounts[0]}개와 TMUX AI ${runtimeSplit.summaryCounts[1]}개를 합산했습니다.`)
+      && runtimeSplit.summaryText.includes(`작업 중 도움 AI ${runtimeSplit.summaryCounts[2]}개는 이 수에 포함됩니다.`),
     `진행 중 실행 방식 분리 UI가 올바르지 않습니다: ${JSON.stringify(runtimeSplit)}`,
   );
   await click(win, '.live-tmux-overview-open', 'tmux:open-live-overview');

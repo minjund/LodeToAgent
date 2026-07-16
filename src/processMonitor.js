@@ -298,7 +298,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
         for (const pane of window.panes || []) {
           const agent = pane.agent;
           const linked = agent && agent.linkedSessionId && byId.get(agent.linkedSessionId);
-          if (!linked) continue;
+          if (!linked || pane.dead) continue;
           usedSessionIds.add(linked.id);
           markRuntime(linked, {
             id: `tmux:${distro.name}:${pane.nativeId}`,

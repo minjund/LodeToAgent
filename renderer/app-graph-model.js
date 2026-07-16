@@ -103,5 +103,51 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
     return seen.size;
   }
 
-  return { graphPath, connectedGraphSessions, sortGraphNodes, graphChildren, agentExecutionMode, executionModeBadge, graphDescendantCount };
+  function runtimeAgentSummary(model, entries = []) {
+    const liveNodes = model.nodes.filter(isLiveSession);
+    const liveById = new Map(liveNodes.map((session) => [session.id, session]));
+    const activeEntries = entries.filter((entry) => entry && entry.pane && !entry.pane.dead);
+    const tmuxKeys = new Set();
+    const tmuxSessionIds = new Set();
+    const paneKeys = new Map();
+
+    for (const entry of activeEntries) {
+      const linkedSessionId = String(entry.agent && entry.agent.linkedSessionId || "");
+      if (linkedSessionId && liveById.has(linkedSessionId)) {
+        tmuxSessionIds.add(linkedSessionId);
+        tmuxKeys.add(`session:${linkedSessionId}`);
+        continue;
+      }
+      const paneId = String(entry.pane.nativeId || entry.pane.id || "");
+      const distroId = String(entry.distro && (entry.distro.id || entry.distro.name) || "");
+      if (paneId) {
+        const key = `pane:${distroId}:${paneId}`;
+        tmuxKeys.add(key);
+        paneKeys.set(String(entry.pane.id || ""), key);
+        paneKeys.set(String(entry.pane.nativeId || ""), key);
+      }
+    }
+
+    for (const session of liveNodes) {
+      const presence = (session.runtimePresence || []).find((item) => item.kind === "tmux");
+      if (!presence) continue;
+      tmuxSessionIds.add(session.id);
+      const paneKey = [presence.paneId, presence.paneNativeId, presence.nativeId]
+        .map((value) => paneKeys.get(String(value || "")))
+        .find(Boolean);
+      tmuxKeys.add(paneKey || `session:${session.id}`);
+    }
+
+    const standardCount = liveNodes.filter((session) => !tmuxSessionIds.has(session.id)).length;
+    const tmuxCount = tmuxKeys.size;
+    return {
+      activeCount: standardCount + tmuxCount,
+      standardCount,
+      tmuxCount,
+      activeHelperCount: liveNodes.filter((session) => session.parentId).length,
+      helperRecordCount: model.nodes.filter((session) => session.parentId).length,
+    };
+  }
+
+  return { graphPath, connectedGraphSessions, sortGraphNodes, graphChildren, agentExecutionMode, executionModeBadge, graphDescendantCount, runtimeAgentSummary };
 };

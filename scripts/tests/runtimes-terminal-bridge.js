@@ -44,6 +44,13 @@ function registerTmuxAndProcessTests(context) {
     assert.equal(linked.summary.aiPanes, 1);
     assert.equal(linked.summary.linked, 1);
     assert.equal(linked.distros[0].sessions[0].windows[0].panes[0].agent.linkedSessionId, 'codex:linked');
+    const deadTopology = structuredClone(topology);
+    deadTopology.distros[0].sessions[0].windows[0].panes[0].dead = true;
+    const deadLinked = linkAgentSessions(deadTopology, [session]);
+    assert.equal(deadLinked.summary.aiPanes, 0);
+    assert.equal(deadLinked.summary.linked, 0);
+    assert.equal(deadLinked.distros[0].sessions[0].windows[0].panes[0].agent.status, 'failed');
+    assert.equal(deadLinked.distros[0].sessions[0].windows[0].panes[0].agent.linkedSessionId, null);
     const utf16 = Buffer.from('Ubuntu-22.04\r\ndocker-desktop\r\n', 'utf16le');
     assert.deepStrictEqual(normalizeWslList(utf16), ['Ubuntu-22.04']);
   });
@@ -92,6 +99,12 @@ function registerTmuxAndProcessTests(context) {
     assert.equal(active.filter(item => item.status === 'running').length, 3);
     assert.equal(active.find(item => item.id === 'claude:wsl').runtimePresence[0].kind, 'tmux');
     assert.equal(active.find(item => item.id === 'codex:win').runtimePresence[0].pid, 202);
+
+    const deadTmux = structuredClone(base);
+    deadTmux.distros[0].sessions[0].windows[0].panes[0].dead = true;
+    const afterDeadPane = applyRuntimePresence([sessions[0]], deadTmux, { processes: [] }, Date.parse('2026-07-14T03:01:00Z'));
+    assert.equal(afterDeadPane[0].status, 'idle');
+    assert.deepStrictEqual(afterDeadPane[0].runtimePresence || [], []);
   });
 
 }

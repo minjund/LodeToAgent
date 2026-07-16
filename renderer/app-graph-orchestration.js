@@ -13,8 +13,8 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     graphPath,
     connectedGraphSessions,
     sortGraphNodes,
-    agentExecutionMode,
     liveTmuxEntries,
+    runtimeAgentSummary,
     runtimeSeparatedOverview,
     focusedGraph,
     scheduleAgentWorkflowConnections,
@@ -50,24 +50,25 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       scheduleAgentWorkflowConnections();
     } else {
       const tmuxEntries = liveTmuxEntries();
-      const standardRoots = roots.filter((root) => agentExecutionMode(root).kind !== "tmux");
-      const activeCount = model.nodes.filter(isLiveSession).length + tmuxEntries.filter((entry) => !entry.agent.linkedSessionId).length;
+      const runtime = runtimeAgentSummary(model, tmuxEntries);
       $("#liveSessionGrid").innerHTML = `<details class="runtime-disclosure" open>
         <summary>
         <span>
-        <b>${activeCount}개 AI가 작업 중입니다</b>
-        <small>일반 실행과 tmux의 세부 흐름은 필요할 때 펼쳐보세요.</small>
+        <b>${runtime.activeCount}개 AI가 작업 중입니다</b>
+        <small>일반 실행 AI ${runtime.standardCount}개와 TMUX AI ${runtime.tmuxCount}개를 합산했습니다. 작업 중 도움 AI ${runtime.activeHelperCount}개는 이 수에 포함됩니다.</small>
         </span>
         <em>상세 흐름 보기 <i aria-hidden="true">↓</i>
         </em>
         </summary>${runtimeSeparatedOverview(roots, model)}</details>`;
       $("#graphBreadcrumbs").innerHTML =
         `<span class="map-hint">
-          일반 실행 <b>${standardRoots.length}</b>개 ·
-          TMUX AI <b>${tmuxEntries.length}</b>개 ·
-          <b>${model.nodes.filter((item) => item.parentId).length}</b>개 도움 AI
+          일반 실행 AI <b>${runtime.standardCount}</b>개 ·
+          TMUX AI <b>${runtime.tmuxCount}</b>개 ·
+          작업 중 도움 AI <b>${runtime.activeHelperCount}</b>개 ·
+          도움 AI 기록 <b>${runtime.helperRecordCount}</b>개
         </span>`;
       $("#graphResetBtn").classList.add("hidden");
+      return runtime.activeCount;
     }
     return model.nodes.filter(isLiveSession).length + liveTmuxEntries().filter((entry) => !entry.agent.linkedSessionId).length;
   }

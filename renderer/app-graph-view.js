@@ -209,7 +209,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       for (const tmuxSession of distro.sessions || []) {
         for (const window of tmuxSession.windows || []) {
           for (const pane of window.panes || []) {
-            if (!pane.agent) continue;
+            if (!pane.agent || pane.dead) continue;
             entries.push({ distro, tmuxSession, window, pane, agent: pane.agent });
           }
         }
@@ -267,13 +267,14 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const tmuxEntries = liveTmuxEntries(tmux);
     const tmuxLinkedIds = new Set(tmuxEntries.map((entry) => entry.agent.linkedSessionId).filter(Boolean));
     const tmuxRoots = roots.filter((root) => agentExecutionMode(root).kind === "tmux");
-    const standardRoots = roots.filter((root) => agentExecutionMode(root).kind !== "tmux");
+    const standardRoots = roots.filter((root) => agentExecutionMode(root).kind !== "tmux" && !tmuxLinkedIds.has(root.id));
     const providerOrder = [...new Set([...state.providers.map((item) => item.id), ...roots.map((item) => item.provider)])];
     const lanesFor = (items) =>
       providerOrder.map((providerId) => ({ providerId, roots: items.filter((root) => root.provider === providerId) })).filter((item) => item.roots.length);
     const standardLanes = lanesFor(standardRoots);
-    const fallbackTmuxLanes = lanesFor(tmuxRoots.filter((root) => !tmuxLinkedIds.has(root.id)));
-    const summary = tmux.summary || {};
+    const fallbackTmuxRoots = tmuxRoots.filter((root) => !tmuxLinkedIds.has(root.id));
+    const fallbackTmuxLanes = lanesFor(fallbackTmuxRoots);
+    const tmuxDisplayCount = tmuxEntries.length + fallbackTmuxRoots.length;
     const standardHtml = standardLanes.length
       ? `<div class="agent-flow-overview">${standardLanes.map((item) => providerFlowLane(item.providerId, item.roots, model)).join("")}</div>`
       : '<div class="runtime-segment-empty"><b>일반 실행 AI가 없습니다</b><span>현재 감지된 작업은 모두 TMUX에서 실행 중입니다.</span></div>';
@@ -293,7 +294,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <header>
           <span class="runtime-segment-icon">▦</span>
           <span><small>TMUX 전용</small><b>TMUX 세션</b><em>Linux 작업 묶음·창·분할 칸을 유지해서 실행 중인 AI</em></span>
-          <strong>${tmuxEntries.length || summary.aiPanes || 0}개</strong>
+          <strong>${tmuxDisplayCount}개</strong>
           <button type="button" class="live-tmux-overview-open">TMUX 전체 화면 →</button>
         </header>
         ${tmuxHtml}

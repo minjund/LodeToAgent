@@ -153,7 +153,15 @@ const tmuxPane = {
   command: 'claude', cwd: '/tmp/fixture', title: 'fixture pane',
   agent: { ...rootSession, linkedSessionId: 'fixture-root', pid: 51001 },
 };
-const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', active: true, panes: [tmuxPane] };
+const unlinkedTmuxPane = {
+  ...tmuxPane, id: 'tmux-pane-unlinked', nativeId: '%8', index: 1, pid: 51002, active: false,
+  agent: { ...rootSession, id: 'tmux-unlinked-agent', linkedSessionId: '', pid: 51002 },
+};
+const deadTmuxPane = {
+  ...tmuxPane, id: 'tmux-pane-dead', nativeId: '%9', index: 2, pid: 51003, active: false, dead: true,
+  agent: { ...rootSession, id: 'tmux-dead-agent', linkedSessionId: '', pid: 51003 },
+};
+const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', active: true, panes: [tmuxPane, unlinkedTmuxPane, deadTmuxPane] };
 const tmuxSession = { id: 'tmux-session-id', nativeId: '$2', name: 'fixture-session', attached: false, windows: [tmuxWindow] };
 const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 'tmux 3.4', sessions: [tmuxSession] };
 
@@ -166,7 +174,7 @@ const snapshot = {
   },
   tmux: {
     available: true, status: 'fixture ready', distros: [tmuxDistro],
-    summary: { distros: 1, sessions: 1, windows: 1, panes: 1, aiPanes: 1, linked: 1 },
+    summary: { distros: 1, sessions: 1, windows: 1, panes: 3, aiPanes: 2, linked: 1 },
   },
 };
 
