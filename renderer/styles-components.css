@@ -755,6 +755,52 @@ button {
   font-size: 11px;
 }
 
+.provider-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 40px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #0d121b;
+}
+
+.provider-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #7f8da1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+
+.provider-filter-chip span {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 9px;
+}
+
+.provider-filter-chip b {
+  font-size: 10px;
+}
+
+.provider-filter-chip:hover {
+  color: #cbd7e6;
+  background: #151d29;
+}
+
+.provider-filter-chip.selected {
+  color: #e7f8f2;
+  border-color: #315f54;
+  background: rgba(66,207,164,.13);
+}
+
 .session-grid {
   display: grid;
   margin-top: 14px;

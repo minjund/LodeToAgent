@@ -229,17 +229,19 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function renderProviderOverview() {
+    pruneProviderFilters();
     const summaries = (state.snapshot && state.snapshot.summary && state.snapshot.summary.providers) || state.providers;
     const sessions = (state.snapshot && state.snapshot.sessions) || [];
     $("#providerOverview").innerHTML = summaries
       .map((provider) => {
         const rootCount = sessions.filter((session) => session.provider === provider.id && !session.parentId).length;
-        return `<button type="button" class="provider-overview-card ${state.provider === provider.id ? "selected" : ""}"
+        const selected = state.providerFilters.has(provider.id);
+        return `<button type="button" class="provider-overview-card ${selected ? "selected" : ""}"
           data-provider-card="${esc(provider.id)}"
           data-motion-key="provider:${esc(provider.id)}"
           data-motion-value="${provider.active || 0}:${rootCount}:${(provider.usage && provider.usage.total) || 0}"
           style="${providerStyle(provider.id)}"
-          aria-pressed="${state.provider === provider.id ? "true" : "false"}">
+          aria-pressed="${selected ? "true" : "false"}">
       <div class="poc-head">
         <span class="provider-mark">${esc(provider.mark)}</span>
         <div><strong>${esc(provider.label)}</strong><small>${esc(provider.company)}</small></div>
@@ -257,12 +259,51 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       .join("");
   }
 
+  function pruneProviderFilters() {
+    const valid = new Set(state.providers.map((provider) => provider.id));
+    for (const id of [...state.providerFilters]) if (!valid.has(id)) state.providerFilters.delete(id);
+    if (valid.size > 0 && state.providerFilters.size === valid.size) state.providerFilters.clear();
+  }
+
+  function toggleProviderFilter(providerId) {
+    pruneProviderFilters();
+    if (providerId === "all") state.providerFilters.clear();
+    else if (state.providerFilters.has(providerId)) state.providerFilters.delete(providerId);
+    else state.providerFilters.add(providerId);
+    if (state.providers.length > 0 && state.providerFilters.size === state.providers.length) state.providerFilters.clear();
+  }
+
+  function renderProviderFilter() {
+    pruneProviderFilters();
+    const allSelected = state.providerFilters.size === 0;
+    const button = (id, label, mark = "") => {
+      const selected = id === "all" ? allSelected : state.providerFilters.has(id);
+      return `<button type="button" class="provider-filter-chip ${selected ? "selected" : ""}"
+        data-provider-filter="${esc(id)}" aria-pressed="${selected ? "true" : "false"}">
+        ${mark ? `<span aria-hidden="true">${esc(mark)}</span>` : ""}<b>${esc(label)}</b>
+      </button>`;
+    };
+    $("#providerFilter").innerHTML =
+      button("all", window.LoadToAgentI18n.t("ui.all_ai")) +
+      state.providers.map((provider) => button(provider.id, provider.label, provider.mark)).join("");
+  }
+
+  function announceProviderFilter() {
+    const labels = state.providerFilters.size
+      ? state.providers.filter((provider) => state.providerFilters.has(provider.id)).map((provider) => provider.label).join(", ")
+      : window.LoadToAgentI18n.t("ui.all_ai");
+    $("#providerFilterStatus").textContent = window.LoadToAgentI18n.t("filter.result_summary", {
+      providers: labels,
+      count: filteredSessions().length,
+    });
+  }
+
   function filteredSessions() {
     const allSessions = [...((state.snapshot && state.snapshot.sessions) || [])];
     let sessions = state.view === "waiting" ? allSessions : allSessions.filter((session) => !session.parentId);
     if (state.view === "active") sessions = sessions.filter((session) => session.status === "running" || session.status === "starting");
     if (state.view === "waiting") sessions = sessions.filter((session) => session.status === "waiting");
-    if (state.provider !== "all") sessions = sessions.filter((session) => session.provider === state.provider);
+    if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);
     const query = state.search.trim().toLowerCase();
     if (query) {
@@ -286,7 +327,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
 
   function graphFilteredSessions() {
     let sessions = [...((state.snapshot && state.snapshot.sessions) || [])];
-    if (state.provider !== "all") sessions = sessions.filter((session) => session.provider === state.provider);
+    if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);
     const query = state.search.trim().toLowerCase();
     if (query)
@@ -311,6 +352,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     updatePresentation,
     renderUpdateSettings,
     renderProviderOverview,
+    renderProviderFilter,
+    toggleProviderFilter,
+    announceProviderFilter,
     filteredSessions,
     graphFilteredSessions,
   };

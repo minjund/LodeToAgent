@@ -1,6 +1,6 @@
 {
   "name": "loadtoagent",
-  "version": "3.0.0",
+  "version": "1.0.0",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",

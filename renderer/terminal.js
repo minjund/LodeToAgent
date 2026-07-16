@@ -2,6 +2,17 @@
 
 (() => {
   const { $, esc, uiLocale, providerLabel, reportRecoverableError } = window.LoadToAgentRendererUtils;
+  const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
+
+  function loadSessionOrder() {
+    try {
+      const value = JSON.parse(localStorage.getItem(SESSION_ORDER_KEY) || '[]');
+      return Array.isArray(value) ? value.filter(id => typeof id === 'string' && id) : [];
+    } catch (error) {
+      reportRecoverableError('terminal-session-order-load', error);
+      return [];
+    }
+  }
 
   const state = {
     sessions: [],
@@ -14,8 +25,12 @@
     terminals: new Map(),
     remoteTerminal: null,
     remoteCapture: '',
+    remoteViewportAnchor: null,
+    remoteViewportAtBottom: false,
     captureTimer: null,
     captureInFlight: false,
+    captureGeneration: 0,
+    captureRevision: 0,
     resizeObserver: null,
     initialized: false,
     eventsBound: false,
@@ -28,6 +43,9 @@
     historyRequests: new Map(),
     commandDrafts: new Map(),
     commandSending: false,
+    sessionOrder: loadSessionOrder(),
+    draggedSessionId: '',
+    sessionDragJustEnded: false,
     platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows 명령창', nativeTmux: false },
   };
 
@@ -47,6 +65,47 @@
 
   function errorMessage(error) {
     return error && error.message ? error.message : String(error || '알 수 없는 오류');
+  }
+
+  function persistSessionOrder() {
+    try {
+      localStorage.setItem(SESSION_ORDER_KEY, JSON.stringify(state.sessionOrder));
+    } catch (error) {
+      reportRecoverableError('terminal-session-order-save', error);
+    }
+  }
+
+  function normalizedSessionOrder() {
+    const currentIds = state.sessions.map(session => session.id);
+    const validIds = new Set(currentIds);
+    const next = [
+      ...state.sessionOrder.filter(id => validIds.has(id)),
+      ...currentIds.filter(id => !state.sessionOrder.includes(id)),
+    ];
+    if (next.length !== state.sessionOrder.length || next.some((id, index) => id !== state.sessionOrder[index])) {
+      state.sessionOrder = next;
+      persistSessionOrder();
+    }
+    return next;
+  }
+
+  function reorderSession(sourceId, targetId, placeAfter = false) {
+    if (!sourceId || !targetId || sourceId === targetId) return false;
+    const order = normalizedSessionOrder().filter(id => id !== sourceId);
+    const targetIndex = order.indexOf(targetId);
+    if (targetIndex < 0) return false;
+    order.splice(targetIndex + (placeAfter ? 1 : 0), 0, sourceId);
+    state.sessionOrder = order;
+    persistSessionOrder();
+    return true;
+  }
+
+  function moveSessionByOffset(sessionId, offset) {
+    const visible = modeSessions('general');
+    const currentIndex = visible.findIndex(session => session.id === sessionId);
+    const target = visible[currentIndex + offset];
+    if (currentIndex < 0 || !target) return false;
+    return reorderSession(sessionId, target.id, offset > 0);
   }
 
   function timeLabel(value) {
@@ -242,7 +301,10 @@
   }
 
   function modeSessions(mode = state.mode) {
-    return state.sessions.filter(session => mode === 'tmux' ? session.type === 'tmux' : session.type !== 'tmux');
+    const rank = new Map(normalizedSessionOrder().map((id, index) => [id, index]));
+    return state.sessions
+      .filter(session => mode === 'tmux' ? session.type === 'tmux' : session.type !== 'tmux')
+      .sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER));
   }
 
   function moveWorkbench(mode = state.mode) {
@@ -338,6 +400,8 @@
       closeTmuxModal,
       errorMessage,
       notice,
+      reorderSession,
+      moveSessionByOffset,
     });
   }
 
@@ -377,6 +441,16 @@
     if (state.active && state.selectedTmux) startCapture();
   }
 
+  function scrollTmuxToLine(line) {
+    if (!state.remoteTerminal) return false;
+    const target = Math.max(0, Math.floor(Number(line) || 0));
+    state.remoteTerminal.terminal.scrollToLine(target);
+    const buffer = state.remoteTerminal.terminal.buffer.active;
+    state.remoteViewportAnchor = Number(buffer.viewportY) || 0;
+    state.remoteViewportAtBottom = state.remoteViewportAnchor >= Number(buffer.baseY || 0);
+    return true;
+  }
+
   function init() {
     if (state.initPromise) return state.initPromise;
     state.initPromise = (async () => {
@@ -412,6 +486,7 @@
     dispatchAgentCommand,
     openForAgent,
     resumeForAgent,
+    scrollTmuxToLine,
   };
   window.addEventListener('loadtoagent:locale-changed', () => {
     if (!state.initialized) return;

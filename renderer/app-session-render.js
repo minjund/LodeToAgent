@@ -32,6 +32,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderGlobalStats,
     renderUpdateSettings,
     renderProviderOverview,
+    renderProviderFilter,
     filteredSessions,
     graphFilteredSessions,
     executionModeBadge,
@@ -226,6 +227,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderWorkspaces();
     renderGlobalStats();
     renderProviderOverview();
+    renderProviderFilter();
     renderSessions(motionKind, true);
     if (state.selectedId && $("#detailDrawer").classList.contains("open")) context.renderDrawer();
     playMotionLayout(previousLayout, motionKind);

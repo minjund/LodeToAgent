@@ -136,6 +136,7 @@ async function installFixture(win) {
       window.LoadToAgentApp.state.workspaces = [{ path: '/Users/demo/loadtoagent', name: 'LoadToAgent Demo' }];
       window.LoadToAgentApp.state.view = 'all';
       window.LoadToAgentApp.state.provider = 'all';
+      window.LoadToAgentApp.state.providerFilters.clear();
       window.LoadToAgentApp.state.workspace = 'all';
       window.LoadToAgentApp.state.search = '';
       window.LoadToAgentApp.state.graphFocusId = focusId;

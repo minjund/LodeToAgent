@@ -194,6 +194,7 @@ let calls = [];
 let failures = new Map();
 let delays = new Map();
 let terminalSequence = 0;
+let tmuxCaptureSequence = 0;
 const snapshotListeners = new Set();
 const terminalDataListeners = new Set();
 const terminalStateListeners = new Set();
@@ -287,7 +288,10 @@ const api = {
   },
   tmuxSendText: options => controlled('tmuxSendText', [options]),
   tmuxSendKey: options => controlled('tmuxSendKey', [options]),
-  tmuxCapture: options => controlled('tmuxCapture', [options], { ok: true, output: 'fixture tmux output\n' }),
+  tmuxCapture: options => controlled('tmuxCapture', [options], {
+    ok: true,
+    output: `${Array.from({ length: 240 }, (_, index) => `fixture tmux line ${String(index + 1).padStart(3, '0')}`).join('\n')}\nfixture capture ${++tmuxCaptureSequence}\n`,
+  }),
   tmuxNewSession: options => controlled('tmuxNewSession', [options]),
   tmuxNewWindow: options => controlled('tmuxNewWindow', [options]),
   tmuxSplitPane: options => controlled('tmuxSplitPane', [options]),

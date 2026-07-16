@@ -4,7 +4,7 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createSessionEventBindings = function createSessionEventBindings(context = {}) {
   const {
-    $, state, selectView, renderProviderOverview, renderSessions, renderTmuxMap, openDrawer, openSubagentConversation,
+    $, state, selectView, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, renderSessions, renderTmuxMap, openDrawer, openSubagentConversation,
     dispatchAgentCommand, openAgentTerminal, copyBridgeCommand, openSessionOrigin,
   } = context;
 
@@ -12,11 +12,13 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     $("#providerOverview").addEventListener("click", (event) => {
       const card = event.target.closest("[data-provider-card]");
       if (!card) return;
-      state.provider = state.provider === card.dataset.providerCard ? "all" : card.dataset.providerCard;
+      toggleProviderFilter(card.dataset.providerCard);
       state.visibleLimit = 30;
-      $("#providerFilter").value = state.provider;
+      renderProviderFilter();
       renderProviderOverview();
       renderSessions("filter");
+      announceProviderFilter();
+      requestAnimationFrame(() => $("#providerOverview").querySelector(`[data-provider-card="${CSS.escape(card.dataset.providerCard)}"]`)?.focus());
     });
     $("#sessionGrid").addEventListener("click", (event) => {
       const card = event.target.closest("[data-session-id]");

@@ -47,6 +47,27 @@ function powershellExecutable() {
   return fs.existsSync(modern) ? modern : 'powershell.exe';
 }
 
+function isExecutableFile(file, fileSystem = fs) {
+  try {
+    if (!path.isAbsolute(file) || !fileSystem.statSync(file).isFile()) return false;
+    fileSystem.accessSync(file, fileSystem.constants?.X_OK ?? fs.constants.X_OK);
+    return true;
+  } catch (_missingOrNonExecutableShell) {
+    return false;
+  }
+}
+
+function resolvePosixShell(environment = process.env, platform = process.platform, fileSystem = fs) {
+  const configured = String(environment.SHELL || '').trim();
+  const platformDefaults = platform === 'darwin'
+    ? ['/bin/zsh', '/bin/bash', '/bin/sh']
+    : ['/bin/bash', '/bin/zsh', '/bin/sh'];
+  const candidates = [...new Set([configured, ...platformDefaults].filter(Boolean))];
+  const shell = candidates.find(candidate => isExecutableFile(candidate, fileSystem));
+  if (!shell) throw new Error('실행 가능한 POSIX 셸을 찾지 못했습니다. SHELL 환경 변수와 /bin/sh 설치 상태를 확인하세요.');
+  return shell;
+}
+
 function windowsPathValue(env = process.env) {
   const key = Object.keys(env).find(name => name.toLowerCase() === 'path');
   return key ? String(env[key] || '') : '';
@@ -123,14 +144,14 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   };
 }
 
-function launchSpec(options, platform = process.platform, agentProviders = AGENT_PROVIDERS) {
+function launchSpec(options, platform = process.platform, agentProviders = AGENT_PROVIDERS, runtime = {}) {
   if (options.type === 'powershell') {
     const file = powershellExecutable();
     return { file, args: ['-NoLogo'], cwd: options.cwd, label: path.basename(file, '.exe') };
   }
   if (options.type === 'cmd') return { file: process.env.ComSpec || 'cmd.exe', args: ['/Q'], cwd: options.cwd, label: '명령 프롬프트' };
   if (options.type === 'shell') {
-    const file = process.env.SHELL || (platform === 'darwin' ? '/bin/zsh' : '/bin/bash');
+    const file = resolvePosixShell(runtime.env || process.env, platform, runtime.fileSystem || fs);
     return { file, args: ['-l'], cwd: options.cwd, label: path.basename(file) };
   }
   if (options.type === 'agent') {
@@ -160,7 +181,8 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   const selectPane = options.tmuxPane ? `tmux select-pane -t ${shellQuote(options.tmuxPane)} 2>/dev/null || true; ` : '';
   const script = `${selectPane}exec tmux attach-session -t ${shellQuote(options.tmuxSession)}`;
   if (platform !== 'win32') {
-    return { file: process.env.SHELL || '/bin/sh', args: ['-lc', script], cwd: options.cwd || os.homedir(), label: `tmux · ${options.tmuxSession}` };
+    const file = resolvePosixShell(runtime.env || process.env, platform, runtime.fileSystem || fs);
+    return { file, args: ['-lc', script], cwd: options.cwd || os.homedir(), label: `tmux · ${options.tmuxSession}` };
   }
   return {
     file: 'wsl.exe',
@@ -412,4 +434,5 @@ module.exports = {
   killPtyTree,
   AGENT_PROVIDERS,
   resolveWindowsCommand,
+  resolvePosixShell,
 };

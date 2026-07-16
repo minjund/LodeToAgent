@@ -18,7 +18,25 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const fit = new window.FitAddon.FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    const syncScrollState = viewportY => {
+      host.dataset.viewportY = String(Number(viewportY) || 0);
+      host.dataset.baseY = String(Number(terminal.buffer.active.baseY) || 0);
+    };
+    terminal.onScroll(syncScrollState);
+    syncScrollState(0);
     const entry = { terminal, fit, host, readOnly };
+    if (readOnly) {
+      const rememberUserViewport = () => requestAnimationFrame(() => {
+        const buffer = terminal.buffer.active;
+        state.remoteViewportAnchor = Number(buffer.viewportY) || 0;
+        state.remoteViewportAtBottom = state.remoteViewportAnchor >= Number(buffer.baseY || 0);
+      });
+      host.addEventListener('wheel', rememberUserViewport, { passive: true });
+      host.addEventListener('pointerup', rememberUserViewport);
+      host.addEventListener('keyup', event => {
+        if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) rememberUserViewport();
+      });
+    }
     if (!readOnly) {
       terminal.onData(data => {
         if (state.selectedId === key) Promise.resolve(window.loadtoagent.terminalWrite(key, data)).catch(error => notice(errorMessage(error), 'error'));
@@ -80,12 +98,23 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       background ? window.LoadToAgentI18n.t('session.background_count', { count: background }) : '',
       window.LoadToAgentI18n.t('session.total_count', { count: general.length }),
     ].filter(Boolean).join(' · ');
-    $('#terminalSessionList').innerHTML = general.length ? general.map(session => `
-      <button type="button" class="terminal-session-item ${state.selectedId === session.id ? 'active' : ''}" data-terminal-id="${esc(session.id)}">
-        <span class="terminal-session-icon">${esc(terminalTypeMark(session))}</span>
-        <span><b>${esc(session.title)}</b><small>${esc(terminalTypeLabel(session))}${session.background ? ' · 백그라운드 유지' : ''} · ${esc(STATUS_LABELS[session.status] || session.status)}</small><em>${esc(session.cwd || session.distro || `PID ${session.pid || '--'}`)}</em></span>
-        <i class="${session.status === 'running' ? 'live' : ''}"></i>
-      </button>`).join('') : '<div class="terminal-resource-empty">열어 둔 일반 명령창이 없습니다.</div>';
+    $('#terminalSessionList').innerHTML = general.length ? general.map((session, index) => `
+      <div class="terminal-session-row">
+        <button type="button" draggable="true"
+          class="terminal-session-item ${state.selectedId === session.id ? 'active' : ''}"
+          data-terminal-id="${esc(session.id)}"
+          aria-grabbed="false"
+          aria-describedby="terminalReorderHelp"
+          title="${esc(window.LoadToAgentI18n.t('terminal.reorder_hint'))}">
+          <span class="terminal-session-icon">${esc(terminalTypeMark(session))}</span>
+          <span><b>${esc(session.title)}</b><small>${esc(terminalTypeLabel(session))}${session.background ? ' · 백그라운드 유지' : ''} · ${esc(STATUS_LABELS[session.status] || session.status)}</small><em>${esc(session.cwd || session.distro || `PID ${session.pid || '--'}`)}</em><span class="sr-only">${index + 1}/${general.length}</span></span>
+          <i class="${session.status === 'running' ? 'live' : ''}"></i>
+        </button>
+        <span class="terminal-reorder-actions" aria-label="${esc(window.LoadToAgentI18n.t('terminal.reorder_group', { title: session.title }))}">
+          <button type="button" data-session-move="-1" data-session-move-id="${esc(session.id)}" aria-label="${esc(window.LoadToAgentI18n.t('terminal.move_up', { title: session.title }))}" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button type="button" data-session-move="1" data-session-move-id="${esc(session.id)}" aria-label="${esc(window.LoadToAgentI18n.t('terminal.move_down', { title: session.title }))}" ${index === general.length - 1 ? 'disabled' : ''}>↓</button>
+        </span>
+      </div>`).join('') : '<div class="terminal-resource-empty">열어 둔 일반 명령창이 없습니다.</div>';
   }
 
   function renderTmuxResources() {
@@ -185,6 +214,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function selectSession(id) {
     saveCurrentDraft();
+    state.captureGeneration += 1;
     state.selectedId = id;
     state.selectedTmux = null;
     renderSessions();
@@ -197,9 +227,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const row = tmuxRows().find(item => item.distro.name === distroName && item.pane.nativeId === paneId);
     if (!row) return notice('선택한 나눠진 명령창을 찾을 수 없습니다.', 'error');
     saveCurrentDraft();
+    state.captureGeneration += 1;
     state.selectedId = null;
     state.selectedTmux = row;
     state.remoteCapture = '';
+    state.remoteViewportAnchor = null;
+    state.remoteViewportAtBottom = false;
     if (state.remoteTerminal) state.remoteTerminal.terminal.clear();
     renderSessions();
     renderTmuxResources();
@@ -258,17 +291,44 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const remote = currentTmux();
     if (!remote || !state.active || state.selectedId) return;
     const captureKey = `${remote.distro.name}:${remote.pane.nativeId}`;
+    const captureGeneration = state.captureGeneration;
     state.captureInFlight = true;
     try {
       const result = await guarded(() => window.loadtoagent.tmuxCapture({ distro: remote.distro.name, target: remote.pane.nativeId, lines: 1_500 }));
       const current = currentTmux();
       if (!current || `${current.distro.name}:${current.pane.nativeId}` !== captureKey) return;
       if (!result || typeof result.output !== 'string' || result.output === state.remoteCapture) return;
+      const firstCapture = !state.remoteCapture;
       state.remoteCapture = result.output;
       const entry = ensureRemoteTerminal();
+      const buffer = entry.terminal.buffer.active;
+      const previousViewport = state.remoteViewportAnchor == null
+        ? Number(buffer && buffer.viewportY || 0)
+        : state.remoteViewportAnchor;
+      const wasAtBottom = state.remoteViewportAnchor == null
+        ? Boolean(buffer && buffer.viewportY >= buffer.baseY)
+        : state.remoteViewportAtBottom;
       entry.terminal.reset();
-      entry.terminal.write(result.output.replace(/\n/g, '\r\n'));
-      entry.terminal.scrollToBottom();
+      await new Promise(resolve => entry.terminal.write(result.output.replace(/\n/g, '\r\n'), resolve));
+      const selected = currentTmux();
+      if (!state.active || captureGeneration !== state.captureGeneration || !selected || `${selected.distro.name}:${selected.pane.nativeId}` !== captureKey) {
+        entry.terminal.reset();
+        state.remoteCapture = '';
+        setTimeout(captureRemote, 0);
+        return;
+      }
+      requestAnimationFrame(() => {
+        const latest = currentTmux();
+        if (captureGeneration !== state.captureGeneration || !latest || `${latest.distro.name}:${latest.pane.nativeId}` !== captureKey) return;
+        if (firstCapture) {
+          entry.terminal.scrollToTop();
+          state.remoteViewportAnchor = 0;
+          state.remoteViewportAtBottom = false;
+        } else if (state.remoteViewportAnchor == null ? wasAtBottom : state.remoteViewportAtBottom) entry.terminal.scrollToBottom();
+        else entry.terminal.scrollToLine(state.remoteViewportAnchor == null ? previousViewport : state.remoteViewportAnchor);
+        state.captureRevision += 1;
+        entry.host.dataset.captureRevision = String(state.captureRevision);
+      });
     } finally {
       state.captureInFlight = false;
     }

@@ -6,7 +6,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $, state, createTerminal, openTmuxModal, refreshSnapshot, selectSession, selectTmux,
     sendCommand, currentTargetId, sendSignal, currentSession, guarded, renderAll, showSelection,
     refreshSessions, renderHistoryPanel, fitEntry, attachTmux, currentTmux, manageTmux,
-    closeTmuxModal, errorMessage, notice,
+    closeTmuxModal, errorMessage, notice, reorderSession, moveSessionByOffset,
   } = context;
 
   bindTerminalSessionEvents();
@@ -18,9 +18,82 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#newWslBtn').addEventListener('click', () => createTerminal('wsl'));
     $('#newTmuxSessionBtn').addEventListener('click', openTmuxModal);
     $('#refreshTmuxTerminalBtn').addEventListener('click', refreshSnapshot);
-    $('#terminalSessionList').addEventListener('click', event => {
+    const sessionList = $('#terminalSessionList');
+    const clearDropMarkers = () => {
+      sessionList.querySelectorAll('.dragging, .drop-before, .drop-after').forEach(item => {
+        item.classList.remove('dragging', 'drop-before', 'drop-after');
+        item.setAttribute('aria-grabbed', 'false');
+      });
+    };
+    sessionList.addEventListener('click', event => {
+      const move = event.target.closest('[data-session-move][data-session-move-id]');
+      if (move) {
+        const changed = moveSessionByOffset(move.dataset.sessionMoveId, Number(move.dataset.sessionMove));
+        if (!changed) return;
+        renderAll();
+        requestAnimationFrame(() => {
+          const next = sessionList.querySelector(`[data-session-move-id="${CSS.escape(move.dataset.sessionMoveId)}"][data-session-move="${CSS.escape(move.dataset.sessionMove)}"]`);
+          if (next && !next.disabled) next.focus();
+          else sessionList.querySelector(`[data-terminal-id="${CSS.escape(move.dataset.sessionMoveId)}"]`)?.focus();
+        });
+        notice(window.LoadToAgentI18n.t('terminal.reordered'), 'success');
+        return;
+      }
+      if (state.sessionDragJustEnded) return;
       const item = event.target.closest('[data-terminal-id]');
       if (item) selectSession(item.dataset.terminalId);
+    });
+    sessionList.addEventListener('dragstart', event => {
+      const item = event.target.closest('[data-terminal-id]');
+      if (!item) return;
+      state.draggedSessionId = item.dataset.terminalId;
+      item.classList.add('dragging');
+      item.setAttribute('aria-grabbed', 'true');
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', state.draggedSessionId);
+      }
+    });
+    sessionList.addEventListener('dragover', event => {
+      const target = event.target.closest('[data-terminal-id]');
+      if (!target || target.dataset.terminalId === state.draggedSessionId) return;
+      event.preventDefault();
+      sessionList.querySelectorAll('.drop-before, .drop-after').forEach(item => item.classList.remove('drop-before', 'drop-after'));
+      const bounds = target.getBoundingClientRect();
+      target.classList.add(event.clientY > bounds.top + bounds.height / 2 ? 'drop-after' : 'drop-before');
+    });
+    sessionList.addEventListener('drop', event => {
+      const target = event.target.closest('[data-terminal-id]');
+      const sourceId = state.draggedSessionId || event.dataTransfer?.getData('text/plain');
+      if (!target || !sourceId || target.dataset.terminalId === sourceId) return;
+      event.preventDefault();
+      const bounds = target.getBoundingClientRect();
+      const changed = reorderSession(sourceId, target.dataset.terminalId, event.clientY > bounds.top + bounds.height / 2);
+      clearDropMarkers();
+      state.draggedSessionId = '';
+      state.sessionDragJustEnded = true;
+      setTimeout(() => { state.sessionDragJustEnded = false; }, 0);
+      if (changed) {
+        renderAll();
+        notice(window.LoadToAgentI18n.t('terminal.reordered'), 'success');
+      }
+    });
+    sessionList.addEventListener('dragend', () => {
+      clearDropMarkers();
+      state.draggedSessionId = '';
+    });
+    sessionList.addEventListener('dragleave', event => {
+      if (!sessionList.contains(event.relatedTarget)) clearDropMarkers();
+    });
+    sessionList.addEventListener('keydown', event => {
+      const item = event.target.closest('[data-terminal-id]');
+      if (!item || !event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      const changed = moveSessionByOffset(item.dataset.terminalId, event.key === 'ArrowUp' ? -1 : 1);
+      if (!changed) return;
+      renderAll();
+      requestAnimationFrame(() => sessionList.querySelector(`[data-terminal-id="${CSS.escape(item.dataset.terminalId)}"]`)?.focus());
+      notice(window.LoadToAgentI18n.t('terminal.reordered'), 'success');
     });
     $('#terminalTmuxList').addEventListener('click', event => {
       const item = event.target.closest('[data-tmux-distro][data-tmux-pane]');

@@ -13,7 +13,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     versions: {},
     update: null,
     view: "all",
-    provider: "all",
+    providerFilters: new Set(),
     workspace: "all",
     search: "",
     sort: "recent",
@@ -38,6 +38,17 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     guideExpanded: true,
     platform: { id: "win32", label: "Windows", localShell: "powershell", localShellLabel: "Windows 명령창", nativeTmux: false },
   };
+  Object.defineProperty(state, "provider", {
+    enumerable: true,
+    get() {
+      const selected = [...state.providerFilters];
+      return selected.length === 0 ? "all" : selected.length === 1 ? selected[0] : "multiple";
+    },
+    set(value) {
+      state.providerFilters.clear();
+      if (value && value !== "all" && value !== "multiple") state.providerFilters.add(String(value));
+    },
+  });
   const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
   const motionState = {
     ready: false, modalTimer: 0, toastTimer: 0, drawerTimer: 0, drawerContentTimer: 0,

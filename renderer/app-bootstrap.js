@@ -50,9 +50,6 @@
     state.platform = bootstrap.platform || state.platform;
     state.versions = bootstrap.versions || {};
     state.update = bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
-    $("#providerFilter").innerHTML =
-      `<option value="all">${window.LoadToAgentI18n.t("ui.all_ai")}</option>` +
-      state.providers.map((provider) => `<option value="${esc(provider.id)}">${esc(provider.label)}</option>`).join("");
     bindEvents();
     render();
     $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);

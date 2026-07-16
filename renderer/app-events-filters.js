@@ -3,7 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
-  const { $, state, renderSessions, render, renderWorkspaces, performUiAction, toast } = context;
+  const { $, state, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, performUiAction, toast } = context;
 
   function bindFilterAndWorkspaceEvents() {
     $("#loadMoreBtn").addEventListener("click", () => {
@@ -39,10 +39,16 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         renderSessions("filter");
       }, 120);
     });
-    $("#providerFilter").addEventListener("change", (event) => {
-      state.provider = event.target.value;
+    $("#providerFilter").addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-provider-filter]");
+      if (!chip) return;
+      toggleProviderFilter(chip.dataset.providerFilter);
       state.visibleLimit = 30;
+      renderProviderFilter();
+      renderProviderOverview();
       renderSessions("filter");
+      announceProviderFilter();
+      requestAnimationFrame(() => $("#providerFilter").querySelector(`[data-provider-filter="${CSS.escape(chip.dataset.providerFilter)}"]`)?.focus());
     });
     $("#sortSelect").addEventListener("change", (event) => {
       state.sort = event.target.value;

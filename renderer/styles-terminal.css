@@ -419,6 +419,39 @@
   scrollbar-color: #2a4248 transparent;
 }
 
+.terminal-session-row {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) 26px;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.terminal-reorder-actions {
+  display: grid;
+  gap: 4px;
+}
+
+.terminal-reorder-actions button {
+  min-width: 26px;
+  padding: 0;
+  border: 1px solid #243946;
+  border-radius: 7px;
+  background: #101a24;
+  color: #7f91a3;
+  cursor: pointer;
+}
+
+.terminal-reorder-actions button:hover:not(:disabled),
+.terminal-reorder-actions button:focus-visible {
+  border-color: #397766;
+  color: #70e6bd;
+}
+
+.terminal-reorder-actions button:disabled {
+  opacity: .3;
+  cursor: default;
+}
+
 .terminal-session-item:hover {
   transform: translateX(3px);
   border-color: #273d48;
@@ -1152,7 +1185,7 @@
   align-items: center;
   color: #a9b6c4;
   text-align: left;
-  cursor: pointer;
+  cursor: grab;
   position: relative;
   display: grid;
   grid-template-columns: 38px minmax(0,1fr) 8px;
@@ -1164,6 +1197,19 @@
   background: #0c141c;
   transform: none!important;
   transition: transform var(--motion-fast) var(--motion-ease),background-color var(--motion-fast) ease,border-color var(--motion-fast) ease,color var(--motion-fast) ease,box-shadow var(--motion-medium) ease,opacity var(--motion-fast) ease;
+}
+
+.terminal-session-item.dragging {
+  opacity: .45;
+  cursor: grabbing;
+}
+
+.terminal-session-item.drop-before {
+  box-shadow: inset 0 3px #52d7aa;
+}
+
+.terminal-session-item.drop-after {
+  box-shadow: inset 0 -3px #52d7aa;
 }
 
 .terminal-command-form textarea:focus {

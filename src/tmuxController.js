@@ -72,7 +72,11 @@ class TmuxController {
 
   execute(distro, args, options = {}) {
     if (this.platform !== 'win32') return this.run('tmux', args.map(String), options);
-    return this.run('wsl.exe', ['-d', clean(distro, 100), '--', 'tmux', ...args.map(String)], options);
+    // A cold WSL distro can take several seconds before tmux itself starts.
+    return this.run('wsl.exe', ['-d', clean(distro, 100), '--', 'tmux', ...args.map(String)], {
+      ...options,
+      timeoutMs: options.timeoutMs ?? 15_000,
+    });
   }
 
   async sendText(options = {}) {

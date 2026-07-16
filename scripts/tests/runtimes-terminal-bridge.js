@@ -10,7 +10,7 @@ const { parseGeneric, buildSummary } = require('../../src/agentMonitor');
 const { commandSpec } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
 const { ProcessMonitor, processRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, bridgeLinkScore, applyRuntimePresence } = require('../../src/processMonitor');
-const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand } = require('../../src/terminalManager');
+const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell } = require('../../src/terminalManager');
 const { TmuxController, safeName, safeTarget } = require('../../src/tmuxController');
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../../src/tmuxMonitor');
 
@@ -265,9 +265,27 @@ function registerTerminalLifecycleTests(context) {
     assert.ok(launchSpec(normalizeLaunchOptions({ type: 'powershell', cwd: root })).args.includes('-NoLogo'));
     const macShell = normalizeLaunchOptions({ cwd: root }, 'darwin');
     assert.equal(macShell.type, 'shell');
-    assert.equal(launchSpec(macShell, 'darwin').args[0], '-l');
-    const macTmux = launchSpec(normalizeLaunchOptions({ type: 'tmux', distro: 'macOS', tmuxSession: 'work' }, 'darwin'), 'darwin');
+    const posixFs = {
+      constants: { X_OK: 1 },
+      statSync(file) { if (file !== '/bin/zsh') throw new Error('missing'); return { isFile: () => true }; },
+      accessSync(file) { if (file !== '/bin/zsh') throw new Error('not executable'); },
+    };
+    assert.equal(resolvePosixShell({ SHELL: '/broken/login-shell' }, 'darwin', posixFs), '/bin/zsh');
+    const customShellFs = {
+      constants: { X_OK: 1 },
+      statSync(file) { return { isFile: () => file === '/opt/homebrew/bin/fish' || file === '/bin/bash' }; },
+      accessSync(file) { if (!['/opt/homebrew/bin/fish', '/bin/bash'].includes(file)) throw new Error('not executable'); },
+    };
+    assert.equal(resolvePosixShell({ SHELL: '/opt/homebrew/bin/fish' }, 'darwin', customShellFs), '/opt/homebrew/bin/fish');
+    assert.equal(resolvePosixShell({}, 'linux', customShellFs), '/bin/bash');
+    assert.throws(() => resolvePosixShell({ SHELL: '/missing' }, 'linux', {
+      constants: { X_OK: 1 }, statSync() { throw new Error('missing'); }, accessSync() { throw new Error('missing'); },
+    }), /실행 가능한 POSIX 셸/);
+    assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).file, '/bin/zsh');
+    assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).args[0], '-l');
+    const macTmux = launchSpec(normalizeLaunchOptions({ type: 'tmux', distro: 'macOS', tmuxSession: 'work' }, 'darwin'), 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
     assert.notEqual(macTmux.file, 'wsl.exe');
+    assert.equal(macTmux.file, '/bin/zsh');
   });
 
 }
@@ -344,6 +362,7 @@ function registerTmuxControlTests(context) {
     assert.match(bufferName, /^loadtoagent-/);
     assert.equal(calls[0].args.at(-1), '-');
     assert.equal(calls[0].options.input, command);
+    assert.equal(calls[0].options.timeoutMs, 15_000);
     assert.equal(calls.some(call => call.args.includes(command)), false);
     assert.deepStrictEqual(calls[1].args.slice(-7), ['tmux', 'paste-buffer', '-b', bufferName, '-d', '-t', '%1']);
     assert.deepStrictEqual(calls[2].args.slice(-5), ['tmux', 'send-keys', '-t', '%1', 'Enter']);
@@ -357,11 +376,14 @@ function registerTmuxControlTests(context) {
     assert.throws(() => controller.sendKey({ distro: 'Ubuntu', target: '%1', key: 'run-shell' }), /허용되지 않은/);
     assert.throws(() => safeName('bad name;rm'), /이름에는/);
     assert.throws(() => safeTarget('%1;rm'), /대상 형식/);
+    await controller.execute('Ubuntu', ['list-sessions'], { timeoutMs: 1_234 });
+    assert.equal(calls.at(-1).options.timeoutMs, 1_234);
     const macCalls = [];
-    const mac = new TmuxController({ platform: 'darwin', run: async (file, args) => { macCalls.push({ file, args }); return { ok: true, stdout: '' }; } });
+    const mac = new TmuxController({ platform: 'darwin', run: async (file, args, options = {}) => { macCalls.push({ file, args, options }); return { ok: true, stdout: '' }; } });
     await mac.sendKey({ distro: 'macOS', target: '%1', key: 'Enter' });
     assert.equal(macCalls[0].file, 'tmux');
     assert.deepStrictEqual(macCalls[0].args, ['send-keys', '-t', '%1', 'Enter']);
+    assert.equal(macCalls[0].options.timeoutMs, undefined);
   });
 
   test('제공사별 합계와 활성 세션 수를 계산한다', () => {

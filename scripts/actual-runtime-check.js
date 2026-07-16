@@ -77,7 +77,7 @@ async function screenshot(send, name) {
     await send('Page.bringToFront');
     await waitFor(send, `Boolean(typeof state !== 'undefined' && state.snapshot && state.snapshot.sessions && state.snapshot.sessions.some(item => item.id === ${JSON.stringify(sessionId)}))`, '검증할 실제 세션을 앱에서 찾지 못했습니다.');
     await evaluate(send, `(() => {
-      state.view = 'all'; state.provider = 'all'; state.workspace = 'all'; state.search = ''; state.graphFocusId = null;
+      state.view = 'all'; state.provider = 'all'; state.providerFilters.clear(); state.workspace = 'all'; state.search = ''; state.graphFocusId = null;
       renderSessions('view'); document.querySelector('.main-stage')?.scrollTo(0, 0); return true;
     })()`);
     await waitFor(send, `document.querySelectorAll('.runtime-segment').length === 2 && document.querySelectorAll('.live-tmux-card').length > 0`, '실제 진행 중 화면에서 일반 실행과 TMUX 세션이 분리되지 않았습니다.');
@@ -89,7 +89,7 @@ async function screenshot(send, name) {
     const tmuxOpen = await evaluate(send, `(() => { const pane = document.querySelector('.live-tmux-pane[data-tmux-id]'); const id = pane?.dataset.tmuxId || ''; pane?.click(); return { id, view: state.view, focus: state.tmuxFocus }; })()`);
     if (!tmuxOpen.id || tmuxOpen.view !== 'tmux' || tmuxOpen.focus?.id !== tmuxOpen.id) throw new Error(`진행 중 TMUX 카드가 전용 화면으로 연결되지 않습니다: ${JSON.stringify(tmuxOpen)}`);
     await evaluate(send, `(() => {
-      state.view = 'all'; state.provider = 'all'; state.workspace = 'all'; state.search = '';
+      state.view = 'all'; state.provider = 'all'; state.providerFilters.clear(); state.workspace = 'all'; state.search = '';
       state.graphFocusId = ${JSON.stringify(sessionId)};
       state.expandedCompletedSubagents.delete(${JSON.stringify(sessionId)});
       renderSessions('focus'); drawAgentWorkflowConnections();

@@ -22,11 +22,17 @@
   .session-tools {
     width: 100%;
     justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .search-box {
     flex: 1 1 240px;
     width: auto;
+  }
+
+  .provider-filter {
+    max-width: 100%;
+    overflow-x: auto;
   }
 
   .top-actions {
@@ -358,6 +364,11 @@
     min-width: 0;
     padding-left: 9px;
     font-size: 12px;
+  }
+
+  .provider-filter {
+    width: 100%;
+    grid-column: 1 / -1;
   }
 
   .search-box input {
