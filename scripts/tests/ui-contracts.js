@@ -722,6 +722,10 @@ function registerUiContractTests(context) {
     );
     assert.ok(html.includes('Content-Security-Policy'));
     assert.ok(html.includes('@xterm/xterm/lib/xterm.js'));
+    assert.ok(
+      html.indexOf('id="providerOverview"') < html.indexOf('id="updateNotice"'),
+      'AI 제공사 요약 카드는 홈 화면 콘텐츠의 최상단에 있어야 합니다.',
+    );
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     assert.equal(pkg.build.productName, 'LoadToAgent');
     assert.equal(pkg.build.win.icon, 'build/icon.ico');
