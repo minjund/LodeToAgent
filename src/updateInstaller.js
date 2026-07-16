@@ -23,11 +23,12 @@ try {
   $_ | Out-String | Set-Content -LiteralPath $LogPath -Encoding UTF8
 } finally {
   try { "exitCode=$exitCode" | Add-Content -LiteralPath $LogPath -Encoding UTF8 } catch {}
-  if ($exitCode -eq 0 -and (Test-Path -LiteralPath $AppPath)) {
+  if ($exitCode -ne 0) {
+    try { "updateFailed=true" | Add-Content -LiteralPath $LogPath -Encoding UTF8 } catch {}
+  }
+  if (Test-Path -LiteralPath $AppPath) {
     Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
     try { Start-Process -FilePath $AppPath } catch {}
-  } else {
-    try { "updateFailed=true" | Add-Content -LiteralPath $LogPath -Encoding UTF8 } catch {}
   }
   Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }

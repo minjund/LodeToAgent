@@ -171,8 +171,9 @@ function registerCliAndUpdateTests(context) {
     const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
     assert.match(helperSource, /Wait-Process -Id \$ParentPid/);
     assert.match(helperSource, /ArgumentList '\/S'/);
-    assert.match(helperSource, /if \(\$exitCode -eq 0 -and \(Test-Path -LiteralPath \$AppPath\)\)/);
+    assert.match(helperSource, /if \(\$exitCode -ne 0\)/);
     assert.match(helperSource, /updateFailed=true/);
+    assert.match(helperSource, /if \(Test-Path -LiteralPath \$AppPath\)/);
     assert.match(helperSource, /Start-Process -FilePath \$AppPath/);
     assert.equal(canInstallSilently({
       platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
