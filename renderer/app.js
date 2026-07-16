@@ -3,6 +3,7 @@
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const PROJECTLESS_WORKSPACE = '__projectless__';
+const uiLocale = () => window.LoadToAgentI18n?.getLocaleTag() || 'ko-KR';
 
 const state = {
   providers: [],
@@ -325,7 +326,7 @@ function memoryCategoryLabel(value) {
 function jsonValueHtml(value, depth = 0) {
   if (value == null) return '<span class="json-empty">없음</span>';
   if (typeof value === 'boolean') return `<span class="json-primitive">${value ? '예' : '아니요'}</span>`;
-  if (typeof value === 'number') return `<span class="json-primitive">${esc(value.toLocaleString('ko-KR'))}</span>`;
+  if (typeof value === 'number') return `<span class="json-primitive">${esc(value.toLocaleString(uiLocale()))}</span>`;
   if (typeof value === 'string') return `<span class="json-string">${esc(value)}</span>`;
   if (depth >= 4) return `<span class="json-string">${esc(JSON.stringify(value))}</span>`;
   if (Array.isArray(value)) {
@@ -412,11 +413,11 @@ function compact(value) {
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;
-  return n.toLocaleString('ko-KR');
+  return n.toLocaleString(uiLocale());
 }
 
 function fullNumber(value) {
-  return Number(value || 0).toLocaleString('ko-KR');
+  return Number(value || 0).toLocaleString(uiLocale());
 }
 
 function timeAgo(value) {
@@ -430,12 +431,12 @@ function timeAgo(value) {
   const hour = Math.floor(min / 60);
   if (hour < 24) return `${hour}시간 전`;
   const day = Math.floor(hour / 24);
-  return day < 30 ? `${day}일 전` : new Date(value).toLocaleDateString('ko-KR');
+  return day < 30 ? `${day}일 전` : new Date(value).toLocaleDateString(uiLocale());
 }
 
 function timeOnly(value) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function providerInfo(id) {
@@ -619,7 +620,7 @@ function renderUpdateSettings() {
   $('#currentVersion').textContent = current ? `v${current}` : 'v—';
   $('#latestVersion').textContent = update.latestVersion ? `v${update.latestVersion}` : '확인 전';
   $('#installationType').textContent = installationTypeLabel(update.installType);
-  $('#releasePublishedAt').textContent = update.publishedAt ? `${new Date(update.publishedAt).toLocaleDateString('ko-KR')} 공개` : '정식 릴리스 기준';
+  $('#releasePublishedAt').textContent = update.publishedAt ? `${new Date(update.publishedAt).toLocaleDateString(uiLocale())} 공개` : '정식 릴리스 기준';
   $('#runtimeVersions').textContent = `Electron ${state.versions.electron || '—'} · Node ${state.versions.node || '—'}`;
   $('#updateStateGlyph').textContent = glyph;
   $('#updateStateLabel').textContent = label;
@@ -1680,13 +1681,13 @@ function chatHtml(session) {
   const conversation = messages.filter(message => message.role === 'user' || message.role === 'assistant');
   const activities = messages.filter(message => message.role !== 'user' && message.role !== 'assistant');
   const omitted = Number(session.omittedMessages || 0);
-  const notice = omitted || session.truncated ? `<div class="chat-truncated">이 작업의 최근 기록을 표시합니다${omitted ? ` · 이전 ${omitted.toLocaleString('ko-KR')}개 메시지 생략` : ''}</div>` : '';
+  const notice = omitted || session.truncated ? `<div class="chat-truncated">이 작업의 최근 기록을 표시합니다${omitted ? ` · 이전 ${omitted.toLocaleString(uiLocale())}개 메시지 생략` : ''}</div>` : '';
   const statusLabel = value => ({ started: '실행 중', running: '실행 중', done: '완료', completed: '완료', failed: '실패' }[value] || value || '');
   const rows = conversation.map(message => {
     const role = message.role === 'assistant' ? 'assistant' : (message.role === 'tool' ? 'tool' : (message.role === 'system' ? 'system' : 'user'));
     const label = role === 'assistant' ? providerInfo(session.provider).label : (role === 'tool' ? (message.title || '도구') : (message.role === 'system' ? '시스템' : '사용자'));
     const avatar = role === 'assistant' ? providerInfo(session.provider).mark : (role === 'tool' ? '⌘' : (role === 'system' ? 'i' : 'ME'));
-    const fullTime = new Date(message.timestamp).toLocaleString('ko-KR');
+    const fullTime = new Date(message.timestamp).toLocaleString(uiLocale());
     return `<div class="chat-row ${role}" data-message-id="${esc(message.id || '')}"><span class="chat-avatar">${esc(avatar)}</span><div class="chat-bubble"><div class="chat-bubble-head"><b>${esc(label)}</b><span title="${esc(fullTime)}">${esc(timeOnly(message.timestamp))}</span>${message.status ? `<span>${esc(statusLabel(message.status))}</span>` : ''}</div>${messageContentHtml(message)}</div></div>`;
   }).join('');
   const activityHtml = activities.length ? `<details class="chat-activities"><summary>도구·시스템 활동 ${activities.length}건 보기</summary><div>${activities.map(message => `<article><header><b>${esc(message.title || (message.role === 'tool' ? '도구 실행' : '시스템'))}</b><span>${esc(statusLabel(message.status))} · ${esc(timeOnly(message.timestamp))}</span></header>${messageContentHtml(message)}</article>`).join('')}</div></details>` : '';
@@ -1868,7 +1869,7 @@ function runWorkspaceSuggestionsHtml() {
 function syncRunComposer() {
   const prompt = $('#runPrompt');
   const count = $('#runPromptCount');
-  if (prompt && count) count.textContent = `${prompt.value.length.toLocaleString('ko-KR')} / 8,000`;
+  if (prompt && count) count.textContent = `${prompt.value.length.toLocaleString(uiLocale())} / 8,000`;
   const submitLabel = $('#runSubmitLabel');
   const submit = $('#runForm button[type="submit"]');
   const hasProvider = Boolean(state.availability[state.runProvider]);
@@ -2343,6 +2344,7 @@ async function init() {
     return;
   }
   const bootstrap = await window.loadtoagent.bootstrap();
+  if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || 'ko');
   state.providers = bootstrap.providers || [];
   state.providerMap = new Map(state.providers.map(provider => [provider.id, provider]));
   state.availability = bootstrap.availability || {};
@@ -2372,6 +2374,16 @@ async function init() {
     renderUpdateSettings();
   });
 }
+
+window.addEventListener('loadtoagent:locale-changed', event => {
+  if (window.loadtoagent?.setLocale) Promise.resolve(window.loadtoagent.setLocale(event.detail.locale)).catch(() => {});
+  if (!state.snapshot) {
+    syncViewChrome();
+    return;
+  }
+  render('locale');
+  $('#lastSync').textContent = timeOnly(state.snapshot.generatedAt);
+});
 
 init().catch(error => {
   console.error(error);

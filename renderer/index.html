@@ -70,8 +70,25 @@
       <section id="settingsSection" class="settings-section hidden" aria-labelledby="settingsTitle">
         <header class="settings-head">
           <div class="settings-emblem" aria-hidden="true"><span>↟</span><i></i></div>
-          <div><p class="eyebrow">업데이트</p><h2 id="settingsTitle">프로그램 설정</h2><p>현재 설치된 버전과 GitHub의 최신 정식 태그를 비교하고, 이 컴퓨터에 맞는 업데이트 파일을 준비합니다.</p></div>
+          <div><p class="eyebrow">환경 설정</p><h2 id="settingsTitle">프로그램 설정</h2><p>표시 언어를 선택하고, 현재 설치된 버전과 최신 정식 버전을 확인할 수 있습니다.</p></div>
         </header>
+
+        <section class="language-settings-card" aria-labelledby="languageSettingsTitle">
+          <div class="language-settings-mark" aria-hidden="true">文</div>
+          <div class="language-settings-copy">
+            <span>언어</span>
+            <h3 id="languageSettingsTitle">표시 언어</h3>
+            <p>메뉴와 안내 문구에 사용할 언어를 선택하세요. 변경 사항은 바로 적용되고 다음 실행에도 유지됩니다.</p>
+          </div>
+          <label class="language-select" for="languageSelect">
+            <span>앱 언어</span>
+            <select id="languageSelect" aria-describedby="languageSettingsTitle">
+              <option value="ko">한국어</option>
+              <option value="en">English</option>
+              <option value="zh-CN">简体中文</option>
+            </select>
+          </label>
+        </section>
 
         <div id="updatePanel" class="update-panel" data-update-status="idle">
           <div class="version-route" aria-label="설치 버전과 최신 버전 비교">
@@ -320,6 +337,7 @@
   </div>
   <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
   <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
   <script src="terminal.js"></script>
 </body>

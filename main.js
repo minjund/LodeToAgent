@@ -25,10 +25,37 @@ let bridgeLauncher = null;
 let backgroundTray = null;
 let updateManager = null;
 let isQuitting = false;
+let appLocale = 'ko';
 const tmuxController = new TmuxController({ platform: process.platform });
 let availability = {};
 let detailRequestId = 0;
 const pendingDetails = new Map();
+const MAIN_COPY = {
+  ko: {
+    trayTooltip: 'LoadToAgent · 백그라운드 AI 세션 {count}개',
+    trayOpen: 'LoadToAgent 열기',
+    traySessions: '백그라운드 AI 세션 {count}개 유지 중',
+    trayQuit: '프로그램 끝내기 · AI 세션도 종료',
+    addWorkspaces: 'AI 작업 폴더 선택',
+    pickWorkspace: '작업 폴더 선택',
+  },
+  en: {
+    trayTooltip: 'LoadToAgent · {count} background AI sessions',
+    trayOpen: 'Open LoadToAgent',
+    traySessions: '{count} background AI sessions active',
+    trayQuit: 'Quit app · End AI sessions too',
+    addWorkspaces: 'Choose AI workspaces',
+    pickWorkspace: 'Choose workspace',
+  },
+  'zh-CN': {
+    trayTooltip: 'LoadToAgent · {count} 个后台 AI 会话',
+    trayOpen: '打开 LoadToAgent',
+    traySessions: '正在保持 {count} 个后台 AI 会话',
+    trayQuit: '退出应用 · 同时结束 AI 会话',
+    addWorkspaces: '选择 AI 工作文件夹',
+    pickWorkspace: '选择工作文件夹',
+  },
+};
 let lastSnapshot = {
   generatedAt: new Date().toISOString(),
   sessions: [],
@@ -52,6 +79,11 @@ else app.on('second-instance', () => {
 
 function userFile(name) {
   return path.join(app.getPath('userData'), name);
+}
+
+function mainText(key, values = {}) {
+  const source = MAIN_COPY[appLocale]?.[key] || MAIN_COPY.ko[key] || key;
+  return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), source);
 }
 
 function readJson(file, fallback) {
@@ -179,12 +211,12 @@ function showMainWindow() {
 function updateBackgroundTrayMenu() {
   if (!backgroundTray) return;
   const count = backgroundAgentSessions().length;
-  backgroundTray.setToolTip(`LoadToAgent · 백그라운드 AI 세션 ${count}개`);
+  backgroundTray.setToolTip(mainText('trayTooltip', { count }));
   backgroundTray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'LoadToAgent 열기', click: showMainWindow },
-    { label: `백그라운드 AI 세션 ${count}개 유지 중`, enabled: false },
+    { label: mainText('trayOpen'), click: showMainWindow },
+    { label: mainText('traySessions', { count }), enabled: false },
     { type: 'separator' },
-    { label: '프로그램 끝내기 · AI 세션도 종료', click: () => { isQuitting = true; app.quit(); } },
+    { label: mainText('trayQuit'), click: () => { isQuitting = true; app.quit(); } },
   ]));
 }
 
@@ -336,6 +368,12 @@ ipcMain.handle('app:show', event => {
   requireTrustedSender(event);
   showMainWindow();
   return { ok: true };
+});
+ipcMain.handle('app:set-locale', (event, locale) => {
+  requireTrustedSender(event);
+  appLocale = ['ko', 'en', 'zh-CN'].includes(locale) ? locale : 'ko';
+  updateBackgroundTrayMenu();
+  return { locale: appLocale };
 });
 ipcMain.handle('app:update-check', event => {
   requireTrustedSender(event);
@@ -500,13 +538,13 @@ ipcMain.handle('tmux:kill-session', async (event, options) => {
 
 ipcMain.handle('workspaces:list', () => listWorkspaces());
 ipcMain.handle('workspaces:add', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: 'AI 작업 폴더 선택' });
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: mainText('addWorkspaces') });
   if (result.canceled) return listWorkspaces();
   return saveWorkspaces([...listWorkspaces(), ...result.filePaths.map(folder => ({ path: folder, name: path.basename(folder) }))]);
 });
 ipcMain.handle('workspaces:remove', (_event, folder) => saveWorkspaces(listWorkspaces().filter(item => path.resolve(item.path) !== path.resolve(String(folder || '')))));
 ipcMain.handle('workspaces:pick', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: '작업 폴더 선택' });
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: mainText('pickWorkspace') });
   return result.canceled ? null : result.filePaths[0];
 });
 ipcMain.handle('external:open', (_event, target) => {

@@ -64,7 +64,7 @@ app.whenReady().then(() => {
         if (tmuxReady) break;
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { state.view = 'all'; state.graphFocusId = null; document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all')); renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
+      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { window.LoadToAgentI18n?.setLocale('ko'); state.view = 'all'; state.graphFocusId = null; document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all')); renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
       await new Promise(resolve => setTimeout(resolve, 500));
       const bridgeInfo = await win.webContents.executeJavaScript(`(async () => {
         const bootstrap = await window.loadtoagent.bootstrap();
@@ -116,6 +116,35 @@ app.whenReady().then(() => {
       fs.writeFileSync(compactOutput, compactImage.toPNG());
       setTestWindowSize(win, 1600, 980);
       await new Promise(resolve => setTimeout(resolve, 350));
+
+      await win.webContents.executeJavaScript(`(() => {
+        document.querySelector('[data-view="settings"]')?.click();
+        const select = document.querySelector('#languageSelect');
+        select.value = 'zh-CN';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        document.querySelector('.main-stage')?.scrollTo(0, 0);
+      })()`);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const settingsMetrics = await win.webContents.executeJavaScript(`(() => {
+        const section = document.querySelector('#settingsSection');
+        const card = document.querySelector('.language-settings-card');
+        const select = document.querySelector('#languageSelect');
+        return {
+          visible: Boolean(section && !section.classList.contains('hidden')),
+          locale: window.LoadToAgentI18n?.getLocale(),
+          language: document.documentElement.lang,
+          title: document.querySelector('#settingsTitle')?.textContent || '',
+          options: select?.options.length || 0,
+          cardVisible: Boolean(card && card.getBoundingClientRect().height > 0),
+          noOverflow: Boolean(section && section.scrollWidth <= section.clientWidth + 2),
+        };
+      })()`);
+      if (!settingsMetrics.visible || settingsMetrics.locale !== 'zh-CN' || settingsMetrics.language !== 'zh-CN' || settingsMetrics.title !== '应用设置' || settingsMetrics.options !== 3 || !settingsMetrics.cardVisible || !settingsMetrics.noOverflow) throw new Error(`다국어 설정 화면이 올바르지 않습니다: ${JSON.stringify(settingsMetrics)}`);
+      const settingsImage = await win.webContents.capturePage();
+      const settingsOutput = path.join(outputDir, 'loadtoagent-language-settings.png');
+      fs.writeFileSync(settingsOutput, settingsImage.toPNG());
+      await win.webContents.executeJavaScript("window.LoadToAgentI18n.setLocale('ko')");
+      await new Promise(resolve => setTimeout(resolve, 150));
 
       await win.webContents.executeJavaScript("document.querySelector('[data-view=\"terminal\"]')?.click(); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 300));
@@ -952,7 +981,7 @@ app.whenReady().then(() => {
       const drawerOutput = path.join(outputDir, 'loadtoagent-session-detail.png');
       fs.writeFileSync(drawerOutput, drawerImage.toPNG());
       await win.webContents.executeJavaScript(`Promise.all([${JSON.stringify(commandTerminalId)}, ${JSON.stringify(alternateCommandTerminalId)}].map(id => window.loadtoagent.terminalClose(id).catch(() => null)))`);
-      process.stdout.write(`${output}\n${compactOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${treeOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, terminalCommand: commandUiMetrics, controlStates: controlStateMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, motion: { ...motionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics })}\n`);
+      process.stdout.write(`${output}\n${compactOutput}\n${settingsOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${treeOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, settings: settingsMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, terminalCommand: commandUiMetrics, controlStates: controlStateMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, motion: { ...motionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics })}\n`);
     } catch (error) {
       process.stderr.write(`${error.stack || error.message}\n`);
       exitCode = 1;

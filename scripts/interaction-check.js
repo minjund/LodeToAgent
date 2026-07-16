@@ -25,6 +25,7 @@ const ACTION_MANIFEST = [
   { selector: '#checkUpdateBtn', action: 'update:check' },
   { selector: '#installUpdateBtn', action: 'update:download' },
   { selector: '#openReleaseBtn', action: 'update:release-open' },
+  { selector: '#languageSelect', action: 'settings:language' },
   { selector: '#probeBtn', action: 'dashboard:probe' },
   { selector: '#addWorkspaceBtn', action: 'workspace:add' },
   { selector: '#newRunBtn', action: 'run:open' },
@@ -222,6 +223,24 @@ async function exerciseUpdates(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'openUpdateRelease')`, 'GitHub 릴리스 페이지 열기가 호출되지 않았습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
   round.observed.update = { available: true, downloaded: true, installerOpened: true };
+}
+
+async function exerciseLanguageSettings(win, round) {
+  await click(win, '[data-view="settings"]', 'nav:settings');
+  for (const [locale, title, lang] of [
+    ['en', 'Application Settings', 'en'],
+    ['zh-CN', '应用设置', 'zh-CN'],
+    ['ko', '프로그램 설정', 'ko'],
+  ]) {
+    await win.webContents.executeJavaScript(`(() => {
+      const select = document.querySelector('#languageSelect');
+      select.value = ${JSON.stringify(locale)};
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await waitFor(win, `document.documentElement.lang === ${JSON.stringify(lang)} && document.querySelector('#settingsTitle').textContent === ${JSON.stringify(title)} && localStorage.getItem('loadtoagent:locale:v1') === ${JSON.stringify(locale)}`, `${locale} 언어 전환과 저장 실패`);
+  }
+  mark('settings:language');
+  round.observed.languages = ['ko', 'en', 'zh-CN'];
 }
 
 async function exerciseDashboardControls(win, round) {
@@ -766,6 +785,7 @@ async function runRound(win, index) {
   rounds.push(round);
   await step(round, 'guide-mobile-tools', () => exerciseGuideAndMobileTools(win, round));
   await step(round, 'navigation', () => exerciseNavigation(win, round));
+  await step(round, 'language-settings', () => exerciseLanguageSettings(win, round));
   await step(round, 'updates', () => exerciseUpdates(win, round));
   await step(round, 'dashboard-controls', () => exerciseDashboardControls(win, round));
   await step(round, 'new-run-modal', () => exerciseRunModal(win, round));

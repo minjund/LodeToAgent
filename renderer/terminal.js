@@ -2,6 +2,7 @@
 
 (() => {
   const $ = selector => document.querySelector(selector);
+  const uiLocale = () => window.LoadToAgentI18n?.getLocaleTag() || 'ko-KR';
   const esc = value => String(value == null ? '' : value)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -52,7 +53,7 @@
 
   function timeLabel(value) {
     const date = new Date(value || 0);
-    return Number.isFinite(date.getTime()) ? date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '';
+    return Number.isFinite(date.getTime()) ? date.toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit' }) : '';
   }
 
   function historyMessageHtml(value) {
@@ -990,5 +991,10 @@
     openForAgent,
     resumeForAgent,
   };
+  window.addEventListener('loadtoagent:locale-changed', () => {
+    if (!state.initialized) return;
+    configurePlatform();
+    renderAll();
+  });
   init().catch(error => notice(`명령창 준비 실패: ${errorMessage(error)}`, 'error'));
 })();
