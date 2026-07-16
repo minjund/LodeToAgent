@@ -3,7 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
-  const { $, state, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, performUiAction, toast } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, performUiAction, toast } = context;
 
   function bindFilterAndWorkspaceEvents() {
     $("#loadMoreBtn").addEventListener("click", () => {
@@ -58,6 +58,26 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.sort = event.target.value;
       state.visibleLimit = 30;
       renderSessions("filter");
+    });
+    $("#providerVisibilityList").addEventListener("change", (event) => {
+      const input = event.target.closest("[data-provider-visibility]");
+      if (!input) return;
+      const selectedBeforeChange = (state.rawSnapshot?.sessions || []).find((session) => session.id === state.selectedId)
+        || state.details.get(state.selectedId);
+      setProviderVisible(input.dataset.providerVisibility, input.checked);
+      Promise.resolve(window.loadtoagent.setProviderVisibility?.({ hidden: [...state.hiddenProviders] })).catch((error) => {
+        window.LoadToAgentRendererUtils.reportRecoverableError("provider-visibility-persistence", error);
+        toast("AI 표시 설정을 저장하지 못했습니다.");
+      });
+      state.visibleLimit = 30;
+      if (state.selectedId) {
+        if (selectedBeforeChange && state.hiddenProviders.has(selectedBeforeChange.provider)) {
+          closeDrawer();
+        }
+      }
+      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
+      render("filter");
+      toast(input.checked ? "선택한 AI를 다시 표시합니다." : "선택한 AI를 앱에서 숨겼습니다.");
     });
     $("#addWorkspaceBtn").addEventListener("click", async () => {
       const workspaces = await performUiAction(() => window.loadtoagent.addWorkspaces(), "작업 폴더를 추가하지 못했습니다.");

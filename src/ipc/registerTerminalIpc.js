@@ -1,9 +1,9 @@
 'use strict';
 
-function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, manager, listWslDistros, sendError }) {
+function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, manager, isProviderVisible = () => true, listWslDistros, sendError }) {
   ipcMain.handle('terminals:list', event => {
     requireTrustedSender(event);
-    return manager() ? manager().list() : [];
+    return manager() ? manager().list().filter(session => session.type !== 'agent' || isProviderVisible(session.provider)) : [];
   });
   ipcMain.handle('wsl:list-distros', event => {
     requireTrustedSender(event);
@@ -11,10 +11,12 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
   });
   ipcMain.handle('terminals:get', (event, id) => {
     requireTrustedSender(event);
-    return manager() ? manager().get(id, true) : null;
+    const session = manager() ? manager().get(id, true) : null;
+    return session && session.type === 'agent' && !isProviderVisible(session.provider) ? null : session;
   });
   ipcMain.handle('terminals:create', (event, options) => {
     requireTrustedSender(event);
+    if (options && options.type === 'agent' && !isProviderVisible(options.provider)) throw new Error('설정에서 숨긴 AI는 실행할 수 없습니다.');
     return requireManager(manager).create(options || {});
   });
   ipcMain.on('terminals:write', (event, id, data) => {

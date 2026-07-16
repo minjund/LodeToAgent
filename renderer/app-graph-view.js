@@ -14,6 +14,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     timeOnly,
     providerInfo,
     providerStyle,
+    isProviderVisible = () => true,
+    visibleProviders = () => state.providers,
     agentRoleLabel,
     statusClass,
     currentActivity,
@@ -209,7 +211,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       for (const tmuxSession of distro.sessions || []) {
         for (const window of tmuxSession.windows || []) {
           for (const pane of window.panes || []) {
-            if (!pane.agent || pane.dead) continue;
+            if (!pane.agent || pane.dead || !isProviderVisible(pane.agent.provider)) continue;
             entries.push({ distro, tmuxSession, window, pane, agent: pane.agent });
           }
         }
@@ -268,7 +270,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const tmuxLinkedIds = new Set(tmuxEntries.map((entry) => entry.agent.linkedSessionId).filter(Boolean));
     const tmuxRoots = roots.filter((root) => agentExecutionMode(root).kind === "tmux");
     const standardRoots = roots.filter((root) => agentExecutionMode(root).kind !== "tmux" && !tmuxLinkedIds.has(root.id));
-    const providerOrder = [...new Set([...state.providers.map((item) => item.id), ...roots.map((item) => item.provider)])];
+    const providerOrder = [...new Set([...visibleProviders().map((item) => item.id), ...roots.map((item) => item.provider).filter(isProviderVisible)])];
     const lanesFor = (items) =>
       providerOrder.map((providerId) => ({ providerId, roots: items.filter((root) => root.provider === providerId) })).filter((item) => item.roots.length);
     const standardLanes = lanesFor(standardRoots);
@@ -302,7 +304,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       <section class="runtime-segment standard-runtime" data-runtime-segment="standard">
         <header>
           <span class="runtime-segment-icon">›_</span>
-          <span><small>TMUX 미사용</small><b>일반 실행 세션</b><em>Codex 앱·외부 터미널에서 실행 중인 메인 AI</em></span>
+          <span><small>TMUX 미사용</small><b>일반 실행 세션</b><em>데스크톱 앱·외부 터미널에서 실행 중인 메인 AI</em></span>
           <strong>${standardRoots.length}개</strong>
         </header>
         ${standardHtml}

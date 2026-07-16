@@ -4,7 +4,7 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDialogEventBindings = function createDialogEventBindings(context = {}) {
   const {
-    $, $$, state, providerInfo, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
+    $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus,
   } = context;
@@ -39,7 +39,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), "AI CLI 연결 상태를 확인하지 못했습니다.");
         if (!nextAvailability) return;
         state.availability = nextAvailability;
-        const installed = state.providers.find((provider) => state.availability[provider.id]);
+        const installed = visibleProviders().find((provider) => state.availability[provider.id]);
         if (installed) state.runProvider = installed.id;
         $("#runProviderPicker").innerHTML = providerPickerHtml();
         renderProviderRail();

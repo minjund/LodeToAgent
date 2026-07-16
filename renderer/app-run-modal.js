@@ -15,10 +15,12 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     restoreDialogTrigger,
     providerInfo,
     providerStyle,
+    visibleProviders = () => state.providers,
+    isProviderVisible = () => true,
   } = context;
 
   function providerPickerHtml() {
-    return state.providers
+    return visibleProviders()
       .map((provider) => {
         const installed = !!state.availability[provider.id];
         const selected = state.runProvider === provider.id;
@@ -39,9 +41,9 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   }
 
   function runProviderHelpHtml() {
-    const available = state.providers.filter((provider) => state.availability[provider.id]);
+    const available = visibleProviders().filter((provider) => state.availability[provider.id]);
     if (available.length) return "";
-    const docs = state.providers
+    const docs = visibleProviders()
       .map(
         (provider) => `<button type="button" data-provider-docs="${esc(provider.id)}">
       <span class="provider-mini-mark" style="${providerStyle(provider.id)}">${esc(provider.mark)}</span>
@@ -82,13 +84,13 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     if (prompt && count) count.textContent = `${prompt.value.length.toLocaleString(uiLocale())} / 8,000`;
     const submitLabel = $("#runSubmitLabel");
     const submit = $('#runForm button[type="submit"]');
-    const hasProvider = Boolean(state.availability[state.runProvider]);
+    const hasProvider = isProviderVisible(state.runProvider) && Boolean(state.availability[state.runProvider]);
     const providerHelp = $("#runProviderHelp");
     if (providerHelp) {
       providerHelp.innerHTML = runProviderHelpHtml();
       providerHelp.classList.toggle(
         "hidden",
-        state.providers.some((provider) => state.availability[provider.id]),
+        visibleProviders().some((provider) => state.availability[provider.id]),
       );
     }
     if (submit) submit.disabled = submit.dataset.submitting === "true" || !hasProvider;
@@ -110,7 +112,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const submit = $('#runForm button[type="submit"]');
     if (!submit) return;
     submit.dataset.submitting = submitting ? "true" : "false";
-    submit.disabled = submitting || !state.availability[state.runProvider];
+    submit.disabled = submitting || !isProviderVisible(state.runProvider) || !state.availability[state.runProvider];
     submit.setAttribute("aria-busy", submitting ? "true" : "false");
     const label = $("#runSubmitLabel");
     if (label) label.textContent = submitting
@@ -120,8 +122,9 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
 
   function openRunModal() {
     rememberDialogTrigger();
-    const installed = state.providers.find((provider) => state.availability[provider.id]);
-    if (!state.availability[state.runProvider] && installed) state.runProvider = installed.id;
+    const installed = visibleProviders().find((provider) => state.availability[provider.id]);
+    if ((!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) && installed) state.runProvider = installed.id;
+    if (!isProviderVisible(state.runProvider)) state.runProvider = visibleProviders()[0]?.id || "";
     $("#runProviderPicker").innerHTML = providerPickerHtml();
     if (!$("#runCwd").value) $("#runCwd").value = state.workspace !== "all" ? state.workspace : (state.workspaces[0] && state.workspaces[0].path) || "";
     $("#runCwd").placeholder = state.platform.id === "win32" ? "D:\\project" : "/Users/me/project";
@@ -177,7 +180,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
 
   async function handleRun(event) {
     event.preventDefault();
-    if (!state.availability[state.runProvider]) {
+    if (!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) {
       $("#runError").textContent = window.LoadToAgentI18n.t("ui.no_ai_cli_is_ready_follow_the_official_setup_guide");
       $("#runError").classList.remove("hidden");
       return;

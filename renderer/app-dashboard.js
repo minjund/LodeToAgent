@@ -11,10 +11,13 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     state,
     compact,
     providerStyle,
+    visibleProviders = () => state.providers,
+    visibleSessions = () => ((state.snapshot && state.snapshot.sessions) || []),
+    isProviderVisible = () => true,
   } = context;
 
   function renderProviderRail() {
-    $("#providerRail").innerHTML = state.providers
+    $("#providerRail").innerHTML = visibleProviders()
       .map((provider) => {
         const available = !!state.availability[provider.id];
         return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}">
@@ -50,7 +53,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
 
   function renderWorkspaces() {
     const list = $("#workspaceList");
-    const projectlessCount = ((state.snapshot && state.snapshot.sessions) || []).filter((session) => !session.parentId && isProjectlessSession(session)).length;
+    const projectlessCount = visibleSessions().filter((session) => !session.parentId && isProjectlessSession(session)).length;
     list.innerHTML =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
@@ -83,8 +86,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function renderGlobalStats() {
-    const totals = (state.snapshot && state.snapshot.summary && state.snapshot.summary.totals) || {};
-    const sessions = (state.snapshot && state.snapshot.sessions) || [];
+    const sessions = visibleSessions();
+    const totals = {
+      active: sessions.filter((session) => session.status === "running" || session.status === "starting").length,
+      waiting: sessions.filter((session) => session.status === "waiting").length,
+      usage: { total: sessions.reduce((sum, session) => sum + Number(session.usage && session.usage.total || 0), 0) },
+    };
     const rootCount = sessions.filter((session) => !session.parentId).length;
     const helperCount = sessions.filter((session) => session.parentId).length;
     const items = [
@@ -106,7 +113,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#navAllCount").textContent = rootCount;
     $("#navActiveCount").textContent = totals.active || 0;
     $("#navWaitingCount").textContent = totals.waiting || 0;
-    $("#navTmuxCount").textContent = (state.snapshot && state.snapshot.tmux && state.snapshot.tmux.summary && state.snapshot.tmux.summary.aiPanes) || 0;
+    let visibleTmuxPanes = 0;
+    for (const distro of state.snapshot?.tmux?.distros || [])
+      for (const tmuxSession of distro.sessions || [])
+        for (const window of tmuxSession.windows || [])
+          visibleTmuxPanes += (window.panes || []).filter((pane) => pane.agent && isProviderVisible(pane.agent.provider)).length;
+    $("#navTmuxCount").textContent = visibleTmuxPanes;
   }
 
   function formatBytes(value) {
@@ -231,8 +243,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   function renderProviderOverview() {
     pruneProviderFilters();
     const summaries = (state.snapshot && state.snapshot.summary && state.snapshot.summary.providers) || state.providers;
-    const sessions = (state.snapshot && state.snapshot.sessions) || [];
+    const sessions = visibleSessions();
     $("#providerOverview").innerHTML = summaries
+      .filter((provider) => isProviderVisible(provider.id))
       .map((provider) => {
         const rootCount = sessions.filter((session) => session.provider === provider.id && !session.parentId).length;
         const selected = state.providerFilters.has(provider.id);
@@ -263,7 +276,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function pruneProviderFilters() {
-    const valid = new Set(state.providers.map((provider) => provider.id));
+    const valid = new Set(visibleProviders().map((provider) => provider.id));
     for (const id of [...state.providerFilters]) if (!valid.has(id)) state.providerFilters.delete(id);
     if (valid.size > 0 && state.providerFilters.size === valid.size) state.providerFilters.clear();
   }
@@ -273,7 +286,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     if (providerId === "all") state.providerFilters.clear();
     else if (state.providerFilters.has(providerId)) state.providerFilters.delete(providerId);
     else state.providerFilters.add(providerId);
-    if (state.providers.length > 0 && state.providerFilters.size === state.providers.length) state.providerFilters.clear();
+    if (visibleProviders().length > 0 && state.providerFilters.size === visibleProviders().length) state.providerFilters.clear();
   }
 
   function renderProviderFilter() {
@@ -289,12 +302,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     };
     $("#providerFilter").innerHTML =
       button("all", window.LoadToAgentI18n.t("ui.all_ai")) +
-      state.providers.map((provider) => button(provider.id, provider.label, provider.mark)).join("");
+      visibleProviders().map((provider) => button(provider.id, provider.label, provider.mark)).join("");
   }
 
   function announceProviderFilter() {
     const labels = state.providerFilters.size
-      ? state.providers.filter((provider) => state.providerFilters.has(provider.id)).map((provider) => provider.label).join(", ")
+      ? visibleProviders().filter((provider) => state.providerFilters.has(provider.id)).map((provider) => provider.label).join(", ")
       : window.LoadToAgentI18n.t("ui.all_ai");
     $("#providerFilterStatus").textContent = window.LoadToAgentI18n.t("filter.result_summary", {
       providers: labels,
@@ -303,7 +316,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function filteredSessions() {
-    const allSessions = [...((state.snapshot && state.snapshot.sessions) || [])];
+    const allSessions = [...visibleSessions()];
     let sessions = state.view === "waiting" ? allSessions : allSessions.filter((session) => !session.parentId);
     if (state.view === "active") sessions = sessions.filter((session) => session.status === "running" || session.status === "starting");
     if (state.view === "waiting") sessions = sessions.filter((session) => session.status === "waiting");
@@ -330,7 +343,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function graphFilteredSessions() {
-    let sessions = [...((state.snapshot && state.snapshot.sessions) || [])];
+    let sessions = [...visibleSessions()];
     if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);
     const query = state.search.trim().toLowerCase();
@@ -342,6 +355,23 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           .includes(query),
       );
     return sessions;
+  }
+
+  function renderProviderVisibilitySettings() {
+    const list = $("#providerVisibilityList");
+    if (!list) return;
+    list.innerHTML = state.providers.map((provider) => {
+      const visible = isProviderVisible(provider.id);
+      const status = window.LoadToAgentI18n.t(visible ? "settings.providers.visible" : "settings.providers.hidden");
+      return `<label class="provider-visibility-option ${visible ? "enabled" : "disabled"}" style="${providerStyle(provider.id)}">
+        <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
+        <span class="provider-visibility-name"><b>${esc(provider.label)}</b><small>${esc(provider.company)}</small></span>
+        <span class="provider-visibility-status">${esc(status)}</span>
+        <input type="checkbox" data-provider-visibility="${esc(provider.id)}" ${visible ? "checked" : ""}
+          aria-label="${esc(`${provider.label} ${status}`)}">
+        <span class="provider-toggle" aria-hidden="true"><i></i></span>
+      </label>`;
+    }).join("");
   }
 
   return {
@@ -361,5 +391,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     announceProviderFilter,
     filteredSessions,
     graphFilteredSessions,
+    renderProviderVisibilitySettings,
   };
 };

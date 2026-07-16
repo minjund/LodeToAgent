@@ -27,6 +27,7 @@ const ACTION_MANIFEST = [
   { selector: '#installUpdateBtn', action: 'update:download' },
   { selector: '#openReleaseBtn', action: 'update:release-open' },
   { selector: '#languageSelect', action: 'settings:language' },
+  { selector: '[data-provider-visibility]', action: 'settings:provider-visibility' },
   { selector: '#probeBtn', action: 'dashboard:probe' },
   { selector: '#addWorkspaceBtn', action: 'workspace:add' },
   { selector: '#newRunBtn', action: 'run:open' },
@@ -272,6 +273,38 @@ async function exerciseLanguageSettings(win, round) {
   }
   mark('settings:language');
   round.observed.languages = ['ko', 'en', 'zh-CN'];
+}
+
+async function exerciseProviderVisibility(win, round) {
+  await click(win, '[data-view="settings"]', 'nav:settings');
+  const initial = await win.webContents.executeJavaScript(`(() => ({
+    options: document.querySelectorAll('[data-provider-visibility]').length,
+    enabled: document.querySelectorAll('[data-provider-visibility]:checked').length,
+    providers: window.LoadToAgentApp.state.providers.length,
+  }))()`);
+  assert(initial.options === initial.providers && initial.enabled === initial.providers, `AI 표시 기본값이 모두 ON이 아닙니다: ${JSON.stringify(initial)}`);
+  await click(win, '[data-provider-visibility="claude"]', 'settings:provider-visibility');
+  await waitFor(win, `window.LoadToAgentApp.state.hiddenProviders.has('claude')
+    && !window.LoadToAgentApp.state.snapshot.sessions.some(session => session.provider === 'claude')
+    && JSON.parse(localStorage.getItem('loadtoagent:provider-visibility:v1')).hidden.includes('claude')`, 'Claude 숨김 설정과 저장이 적용되지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  const hidden = await win.webContents.executeJavaScript(`(() => ({
+    rail: Boolean(document.querySelector('#providerRail .provider-rail-item strong')?.textContent === 'Claude' || [...document.querySelectorAll('#providerRail .provider-rail-item strong')].some(node => node.textContent === 'Claude')),
+    overview: Boolean(document.querySelector('[data-provider-card="claude"]')),
+    filter: Boolean(document.querySelector('[data-provider-filter="claude"]')),
+    session: window.LoadToAgentApp.state.snapshot.sessions.some(session => session.provider === 'claude'),
+    tmux: (window.LoadToAgentApp.state.snapshot.tmux?.distros || []).some(d => d.sessions.some(s => s.windows.some(w => w.panes.some(p => p.agent?.provider === 'claude')))),
+  }))()`);
+  assert(!hidden.rail && !hidden.overview && !hidden.filter && !hidden.session && !hidden.tmux, `숨긴 Claude가 화면에 남았습니다: ${JSON.stringify(hidden)}`);
+  await click(win, '#newRunBtn', 'run:open');
+  assert(await win.webContents.executeJavaScript(`!document.querySelector('[data-run-provider="claude"]')`), '숨긴 Claude가 새 작업 선택지에 남았습니다.');
+  await click(win, '#closeRunModalBtn', 'run:close-x');
+  await click(win, '[data-view="settings"]', 'nav:settings');
+  await click(win, '[data-provider-visibility="claude"]', 'settings:provider-visibility');
+  await waitFor(win, `!window.LoadToAgentApp.state.hiddenProviders.has('claude')
+    && window.LoadToAgentApp.state.snapshot.sessions.some(session => session.provider === 'claude')
+    && document.querySelector('[data-provider-visibility="claude"]')?.checked`, 'Claude 다시 표시가 즉시 복원되지 않았습니다.');
+  round.observed.providerVisibility = { defaultOn: initial.providers, hiddenLeakCount: 0, restored: true };
 }
 
 async function exerciseDashboardControls(win, round) {
@@ -1006,6 +1039,7 @@ async function runRound(win, index) {
   await step(round, 'guide-mobile-tools', () => exerciseGuideAndMobileTools(win, round));
   await step(round, 'navigation', () => exerciseNavigation(win, round));
   await step(round, 'language-settings', () => exerciseLanguageSettings(win, round));
+  await step(round, 'provider-visibility', () => exerciseProviderVisibility(win, round));
   await step(round, 'updates', () => exerciseUpdates(win, round));
   await step(round, 'attention-notification', () => exerciseAttentionNotification(win, round));
   await step(round, 'dashboard-controls', () => exerciseDashboardControls(win, round));

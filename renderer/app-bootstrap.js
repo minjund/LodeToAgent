@@ -30,7 +30,7 @@
   ].forEach(install);
   window.LoadToAgentApp = app;
 
-  const { $, esc, state, loadGuideState, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast } = app;
+  const { $, esc, state, loadGuideState, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast } = app;
 
   async function init() {
     loadGuideState();
@@ -43,9 +43,11 @@
     if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || "ko");
     state.providers = bootstrap.providers || [];
     state.providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
+    loadProviderVisibility(bootstrap.providerVisibility);
     state.availability = bootstrap.availability || {};
     state.workspaces = bootstrap.workspaces || [];
-    state.snapshot = bootstrap.snapshot;
+    state.rawSnapshot = bootstrap.snapshot;
+    state.snapshot = projectVisibleSnapshot(bootstrap.snapshot);
     state.activeRuns = bootstrap.activeRuns || [];
     state.platform = bootstrap.platform || state.platform;
     state.versions = bootstrap.versions || {};
@@ -54,8 +56,9 @@
     render();
     $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);
     window.loadtoagent.onSnapshot((snapshot) => {
-      state.snapshot = snapshot;
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(snapshot, state.workspaces);
+      state.rawSnapshot = snapshot;
+      state.snapshot = projectVisibleSnapshot(snapshot);
+      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       $("#lastSync").textContent = timeOnly(snapshot.generatedAt);
       render();
       if (state.selectedId && $("#detailDrawer").classList.contains("open") && !state.detailLoadingIds.has(state.selectedId)) {
@@ -68,6 +71,7 @@
       window.loadtoagent.onAttentionRequested((payload) => {
         const sessionId = String(payload && payload.sessionId || '');
         const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
+        if (session && !isProviderVisible(session.provider)) return;
         selectView('waiting');
         if (session) {
           if (session.parentId) openSubagentConversation(session.id);

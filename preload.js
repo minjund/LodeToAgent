@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   backgroundState: () => ipcRenderer.invoke('app:background-state'),
   showApp: () => ipcRenderer.invoke('app:show'),
   setLocale: locale => ipcRenderer.invoke('app:set-locale', locale),
+  setProviderVisibility: preference => ipcRenderer.invoke('app:set-provider-visibility', preference),
   checkForUpdate: () => ipcRenderer.invoke('app:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
   openDownloadedUpdate: () => ipcRenderer.invoke('app:update-open'),

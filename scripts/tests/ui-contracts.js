@@ -95,6 +95,7 @@ const REQUIRED_UI_IDS = [
   'settingsSection',
   'languageSettingsTitle',
   'languageSelect',
+  'providerVisibilityList',
   'currentVersion',
   'latestVersion',
   'checkUpdateBtn',
@@ -476,7 +477,7 @@ const MAIN_PROCESS_CONTRACTS = [
   'mainWindow.hide()',
   'function registerIpcHandlers',
   'function createAttentionNotifier',
-  "attentionNotifier.sync(lastSnapshot)",
+  "attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot))",
   "agents:attention-requested",
 ];
 
@@ -774,6 +775,57 @@ function registerUiContractTests(context) {
       Array.from(rows, ({ session, depth }) => [session.id, depth]),
       [['child-a', 1], ['child-b', 2]],
     );
+  });
+
+  test('AI 표시 설정은 기본값·저장값·세션과 tmux 투영을 일관되게 적용한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
+    const values = new Map();
+    const sandbox = {
+      localStorage: {
+        getItem: key => values.get(key) || null,
+        setItem: (key, value) => values.set(key, value),
+      },
+      document: { documentElement: { dataset: {} } },
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentRendererUtils: {
+          $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
+          providerLabel: value => value, reportRecoverableError: () => {},
+        },
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        LoadToAgentI18n: { t: key => key },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app.js' });
+    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    core.state.providers = ['claude', 'codex', 'gemini', 'grok'].map(id => ({ id }));
+    core.loadProviderVisibility();
+    assert.deepStrictEqual(Array.from(core.state.hiddenProviders), []);
+    core.setProviderVisible('claude', false);
+    assert.deepStrictEqual(JSON.parse(values.get(core.PROVIDER_VISIBILITY_STORAGE_KEY)), { hidden: ['claude'] });
+    core.state.rawSnapshot = {
+      sessions: [
+        { id: 'hidden', provider: 'claude', status: 'waiting', usage: { total: 10 } },
+        { id: 'shown', provider: 'codex', status: 'running', usage: { total: 20 } },
+      ],
+      summary: { providers: [{ id: 'claude' }, { id: 'codex' }] },
+      tmux: { distros: [{ id: 'd', sessions: [{ id: 's', windows: [{ id: 'w', panes: [
+        { id: 'hidden-pane', agent: { provider: 'claude' } },
+        { id: 'shown-pane', agent: { provider: 'codex', linkedSessionId: 'shown' } },
+        { id: 'shell-pane', agent: null },
+      ] }] }] }] },
+    };
+    const projected = core.projectVisibleSnapshot(core.state.rawSnapshot);
+    assert.deepStrictEqual(Array.from(projected.sessions, session => session.id), ['shown']);
+    assert.deepStrictEqual(
+      Array.from(projected.tmux.distros[0].sessions[0].windows[0].panes, pane => pane.id),
+      ['shown-pane', 'shell-pane'],
+    );
+    assert.equal(projected.summary.totals.active, 1);
+    assert.equal(projected.summary.totals.waiting, 0);
+    assert.equal(projected.tmux.summary.aiPanes, 1);
+    core.loadProviderVisibility({ hidden: ['gemini', 'unknown'] });
+    assert.deepStrictEqual(Array.from(core.state.hiddenProviders), ['gemini']);
   });
 
 }

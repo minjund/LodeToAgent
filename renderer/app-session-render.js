@@ -33,6 +33,8 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderUpdateSettings,
     renderProviderOverview,
     renderProviderFilter,
+    renderProviderVisibilitySettings = () => {},
+    visibleSnapshot = () => state.snapshot,
     filteredSessions,
     graphFilteredSessions,
     executionModeBadge,
@@ -173,6 +175,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderUpdateSettings();
     if (settingsView) {
       $("#liveSection").classList.add("hidden");
+      renderProviderVisibilitySettings();
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
@@ -180,7 +183,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     }
     if (terminalView) {
       $("#liveSection").classList.add("hidden");
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(state.snapshot, state.workspaces, "general");
+      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(visibleSnapshot(), state.workspaces, "general");
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
@@ -188,7 +191,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     if (tmuxView) {
       $("#liveSection").classList.add("hidden");
       renderTmuxMap();
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(state.snapshot, state.workspaces, "tmux");
+      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(visibleSnapshot(), state.workspaces, "tmux");
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
@@ -228,6 +231,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderGlobalStats();
     renderProviderOverview();
     renderProviderFilter();
+    renderProviderVisibilitySettings();
     renderSessions(motionKind, true);
     if (state.selectedId && $("#detailDrawer").classList.contains("open")) context.renderDrawer();
     playMotionLayout(previousLayout, motionKind);

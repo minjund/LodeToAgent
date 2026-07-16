@@ -303,6 +303,7 @@
   function modeSessions(mode = state.mode) {
     const rank = new Map(normalizedSessionOrder().map((id, index) => [id, index]));
     return state.sessions
+      .filter(session => session.type !== 'agent' || window.LoadToAgentApp?.isProviderVisible?.(session.provider) !== false)
       .filter(session => mode === 'tmux' ? session.type === 'tmux' : session.type !== 'tmux')
       .sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER));
   }
@@ -435,12 +436,16 @@
   }
 
   function updateSnapshot(snapshot, workspaces = state.workspaces) {
-    state.snapshot = snapshot || state.snapshot;
+    const projected = snapshot && window.LoadToAgentApp?.projectVisibleSnapshot
+      ? window.LoadToAgentApp.projectVisibleSnapshot(snapshot)
+      : snapshot;
+    state.snapshot = projected || state.snapshot;
     state.workspaces = Array.isArray(workspaces) ? workspaces : state.workspaces;
     if (!state.initialized) return;
     if (state.boundAgent && state.snapshot && Array.isArray(state.snapshot.sessions)) {
       const updated = state.snapshot.sessions.find(session => session.id === state.boundAgent.id);
-      if (updated && updated.updatedAt !== state.boundAgent.updatedAt) queueHistoryRefresh(updated);
+      if (!updated) bindAgent(null, null);
+      else if (updated.updatedAt !== state.boundAgent.updatedAt) queueHistoryRefresh(updated);
     }
     renderTmuxResources();
     renderTarget();

@@ -125,6 +125,15 @@
           </label>
         </section>
 
+        <section class="provider-visibility-card" aria-labelledby="providerVisibilityTitle">
+          <div class="provider-visibility-copy">
+            <span data-i18n="settings.providers.eyebrow">AI 표시 맞춤 설정</span>
+            <h3 id="providerVisibilityTitle" data-i18n="settings.providers.title">화면에 표시할 AI</h3>
+            <p data-i18n="settings.providers.description">끄면 해당 AI의 현황, 필터, 세션, 작업 실행 항목이 앱 전체에서 숨겨집니다. 언제든 다시 켤 수 있습니다.</p>
+          </div>
+          <div id="providerVisibilityList" class="provider-visibility-list"></div>
+        </section>
+
         <div id="updatePanel" class="update-panel" data-update-status="idle">
           <div class="version-route" aria-label="설치 버전과 최신 버전 비교" data-i18n-aria-label="ui.compare_installed_and_latest_versions">
             <article class="version-node local-version-node">
@@ -350,7 +359,7 @@
         <label><span data-i18n="ui.workspace_name">작업 묶음 이름</span><input id="tmuxCreateName" required pattern="[A-Za-z0-9_.\-]+" placeholder="my-work" /></label>
       </div>
       <label><span>시작 폴더 <small data-i18n="ui.optional">선택 사항</small></span><input id="tmuxCreateCwd" placeholder="프로젝트의 절대 경로" data-i18n-placeholder="ui.absolute_project_path" /></label>
-      <label><span>처음 실행할 명령 <small data-i18n="ui.optional">선택 사항</small></span><textarea id="tmuxCreateCommand" rows="4" placeholder="예: claude 또는 codex" data-i18n-placeholder="ui.example_claude_or_codex"></textarea></label>
+      <label><span>처음 실행할 명령 <small data-i18n="ui.optional">선택 사항</small></span><textarea id="tmuxCreateCommand" rows="4" placeholder="예: 실행할 AI 명령" data-i18n-placeholder="ui.example_claude_or_codex"></textarea></label>
       <div id="tmuxCreateError" class="form-error hidden" role="alert" aria-live="assertive"></div>
       <div class="modal-actions"><button type="button" id="cancelTmuxCreateBtn" class="ghost-button" data-i18n="common.cancel">취소</button><button type="submit" class="primary-button" data-i18n="ui.create_workspace">작업 묶음 만들기</button></div>
     </form>

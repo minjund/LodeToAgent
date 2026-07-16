@@ -1,10 +1,11 @@
 'use strict';
 
-function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLocale, updateManager }) {
+function registerAppIpc({ handleTrusted, bootstrap, backgroundState, show, setLocale, setProviderVisibility, updateManager }) {
   handleTrusted('app:bootstrap', bootstrap);
   handleTrusted('app:background-state', backgroundState);
   handleTrusted('app:show', show);
   handleTrusted('app:set-locale', setLocale);
+  handleTrusted('app:set-provider-visibility', setProviderVisibility);
   handleTrusted('app:update-check', () => requireUpdateManager(updateManager).check());
   handleTrusted('app:update-download', () => requireUpdateManager(updateManager).download());
   handleTrusted('app:update-open', () => requireUpdateManager(updateManager).openDownloaded());

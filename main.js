@@ -40,6 +40,7 @@ let updateManager = null;
 let attentionNotifier = null;
 let isQuitting = false;
 let appLocale = 'ko';
+let hiddenProviders = new Set();
 const tmuxController = new TmuxController({ platform: process.platform });
 let availability = {};
 let detailRequestId = 0;
@@ -133,6 +134,36 @@ function listWorkspaces() {
   return readWorkspaces(userFile('workspaces.json'));
 }
 
+function isProviderVisible(providerId) {
+  return !hiddenProviders.has(String(providerId || ''));
+}
+
+function loadProviderVisibility() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(userFile('provider-visibility.json'), 'utf8'));
+    const known = new Set(providerList().map(provider => provider.id));
+    hiddenProviders = new Set((saved.hidden || []).filter(id => known.has(id)));
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') reportRecoverableError('provider-visibility-load', error);
+    hiddenProviders = new Set();
+  }
+  return { hidden: [...hiddenProviders] };
+}
+
+function saveProviderVisibility(value = {}) {
+  const known = new Set(providerList().map(provider => provider.id));
+  hiddenProviders = new Set((Array.isArray(value.hidden) ? value.hidden : []).filter(id => known.has(id)));
+  const target = userFile('provider-visibility.json');
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, JSON.stringify({ hidden: [...hiddenProviders] }, null, 2), 'utf8');
+  updateBackgroundTrayMenu();
+  return { hidden: [...hiddenProviders] };
+}
+
+function visibleSnapshotSessions(snapshot = lastSnapshot) {
+  return { ...snapshot, sessions: (snapshot.sessions || []).filter(session => isProviderVisible(session.provider)) };
+}
+
 function saveWorkspaces(items) {
   return writeWorkspaces(userFile('workspaces.json'), items);
 }
@@ -199,6 +230,10 @@ function createWindow() {
 function backgroundAgentSessions() {
   if (!terminalManager) return [];
   return terminalManager.list().filter(session => session.type === 'agent' && (session.status === 'running' || session.status === 'starting'));
+}
+
+function visibleTerminalSessions(sessions) {
+  return (sessions || []).filter(session => session.type !== 'agent' || isProviderVisible(session.provider));
 }
 
 function showMainWindow() {
@@ -268,6 +303,7 @@ function sendSnapshot(snapshot) {
 }
 
 function openAttentionSession(session) {
+  if (!isProviderVisible(session && session.provider)) return;
   showMainWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.flashFrame(false);
@@ -311,6 +347,7 @@ function installationType() {
 }
 
 function setupRuntime() {
+  loadProviderVisibility();
   const runsDir = userFile('agent-runs');
   runner = new AgentRunner({ runsDir });
   terminalManager = new TerminalManager();
@@ -338,7 +375,9 @@ function setupRuntime() {
   }
   terminalManager.on('data', payload => sendTerminal('terminals:data', payload));
   terminalManager.on('state', payload => {
-    sendTerminal('terminals:state', payload);
+    if (!payload.session || payload.session.type !== 'agent' || isProviderVisible(payload.session.provider)) {
+      sendTerminal('terminals:state', { ...payload, sessions: visibleTerminalSessions(payload.sessions) });
+    }
     updateBackgroundTrayMenu();
     if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
   });
@@ -352,7 +391,7 @@ function setupRuntime() {
   monitorWorker.on('message', message => {
     if (message && message.type === 'snapshot') {
       lastSnapshot = message.snapshot;
-      attentionNotifier.sync(lastSnapshot);
+      attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
       sendSnapshot(lastSnapshot);
     }
     if (message && message.type === 'detail-result') {
@@ -406,12 +445,15 @@ function bootstrapState() {
     },
     bridgeCli: bridgeLauncher,
     update: updateManager ? updateManager.getState() : null,
+    providerVisibility: { hidden: [...hiddenProviders] },
   };
 }
 
 function requestAgentDetail(sessionId) {
   return new Promise(resolve => {
     if (!monitorWorker || String(sessionId || '').length > 500) return resolve(null);
+    const card = (lastSnapshot.sessions || []).find(session => session.id === String(sessionId || ''));
+    if (card && !isProviderVisible(card.provider)) return resolve(null);
     const requestId = ++detailRequestId;
     const timer = setTimeout(() => {
       if (!pendingDetails.has(requestId)) return;
@@ -443,6 +485,7 @@ function registerIpcHandlers() {
       updateBackgroundTrayMenu();
       return { locale: appLocale };
     },
+    setProviderVisibility: saveProviderVisibility,
     updateManager: () => updateManager,
   });
   registerAgentIpc({
@@ -450,6 +493,7 @@ function registerIpcHandlers() {
     snapshot: () => { refreshMonitor(); return lastSnapshot; },
     requestDetail: requestAgentDetail,
     runner: () => runner,
+    isProviderVisible,
     probeProviders: () => {
       availability = probeProviders();
       if (monitorWorker) monitorWorker.postMessage({ type: 'availability', availability });
@@ -462,6 +506,7 @@ function registerIpcHandlers() {
     requireTrustedSender,
     trustedSender,
     manager: () => terminalManager,
+    isProviderVisible,
     listWslDistros,
     sendError: payload => sendTerminal('terminals:error', payload),
   });

@@ -16,6 +16,9 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     latestWorkCopy,
     readablePreview,
     timeAgo,
+    isProviderVisible = () => true,
+    visibleTmux = () => state.snapshot && state.snapshot.tmux,
+    visibleSessions = () => ((state.snapshot && state.snapshot.sessions) || []),
   } = context;
 
   function tmuxEntities(tmux) {
@@ -75,7 +78,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
 
   function linkedTmuxSubagents(agent) {
     if (!agent || !agent.linkedSessionId) return [];
-    const sessions = (state.snapshot && state.snapshot.sessions) || [];
+    const sessions = visibleSessions();
     const byId = new Map(sessions.map((session) => [session.id, session]));
     const root = byId.get(agent.linkedSessionId);
     const queue = (root && root.childIds || agent.childIds || []).map((id) => ({ id, depth: 1 }));
@@ -252,8 +255,16 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   }
 
   function renderTmuxMap() {
-    const tmux = (state.snapshot && state.snapshot.tmux) || { available: false, status: "확인 중", distros: [], summary: {} };
-    const summary = tmux.summary || {};
+    const tmux = visibleTmux() || { available: false, status: "확인 중", distros: [], summary: {} };
+    const panes = (tmux.distros || []).flatMap((distro) => (distro.sessions || []).flatMap((session) => (session.windows || []).flatMap((window) => window.panes || [])));
+    const summary = {
+      distros: (tmux.distros || []).length,
+      sessions: (tmux.distros || []).reduce((sum, distro) => sum + (distro.sessions || []).length, 0),
+      windows: (tmux.distros || []).reduce((sum, distro) => sum + (distro.sessions || []).reduce((count, session) => count + (session.windows || []).length, 0), 0),
+      panes: panes.length,
+      aiPanes: panes.filter((pane) => pane.agent && isProviderVisible(pane.agent.provider)).length,
+      linked: panes.filter((pane) => pane.agent && pane.agent.linkedSessionId).length,
+    };
     $("#tmuxStats").innerHTML = [
       ["Linux 환경", summary.distros || 0, window.LoadToAgentI18n.t("ui.items")],
       ["작업 묶음", summary.sessions || 0, window.LoadToAgentI18n.t("ui.items")],
