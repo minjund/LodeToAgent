@@ -245,8 +245,11 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       <div class="poc-head">
         <span class="provider-mark">${esc(provider.mark)}</span>
         <div><strong>${esc(provider.label)}</strong><small>${esc(provider.company)}</small></div>
-        <span class="poc-state ${provider.installed ? "online" : ""}">
-          ${provider.installed ? window.LoadToAgentI18n.t("ui.available") : window.LoadToAgentI18n.t("ui.setup_required")}
+        <span class="poc-head-states">
+          <span class="poc-filter-state ${selected ? "visible" : ""}" aria-hidden="true">✓ ${window.LoadToAgentI18n.t("filter.applied")}</span>
+          <span class="poc-state ${provider.installed ? "online" : ""}">
+            ${provider.installed ? window.LoadToAgentI18n.t("ui.available") : window.LoadToAgentI18n.t("ui.setup_required")}
+          </span>
         </span>
       </div>
       <div class="poc-metrics">
@@ -280,7 +283,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       const selected = id === "all" ? allSelected : state.providerFilters.has(id);
       return `<button type="button" class="provider-filter-chip ${selected ? "selected" : ""}"
         data-provider-filter="${esc(id)}" aria-pressed="${selected ? "true" : "false"}">
-        ${mark ? `<span aria-hidden="true">${esc(mark)}</span>` : ""}<b>${esc(label)}</b>
+        <i class="provider-filter-check" aria-hidden="true">✓</i>
+        ${mark ? `<span class="provider-filter-mark" aria-hidden="true">${esc(mark)}</span>` : ""}<b>${esc(label)}</b>
       </button>`;
     };
     $("#providerFilter").innerHTML =

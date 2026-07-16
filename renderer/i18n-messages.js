@@ -28,6 +28,7 @@
     "common.send": {"ko":"보내기","en":"Send","zh-CN":"发送"},
     "drawer.title": {"ko":"작업 자세히 보기","en":"View task details","zh-CN":"查看任务详情"},
     "filter.result_summary": {"ko":"{providers} 선택 · {count}개 결과","en":"{providers} selected · {count} results","zh-CN":"已选择 {providers} · {count} 条结果"},
+    "filter.applied": {"ko":"필터 적용","en":"Filter applied","zh-CN":"已应用筛选"},
     "guide.steps_remaining": {"ko":"{count}단계 남았어요. 하나씩 눌러 직접 둘러보세요.","en":"{count} steps left. Try each one to explore the app.","zh-CN":"还剩 {count} 步。请逐项点击体验。"},
     "provider.assign": {"ko":"{provider}에게 맡기기","en":"Assign to {provider}","zh-CN":"交给 {provider}"},
     "provider.install_guide": {"ko":"{provider} 설치 안내","en":"{provider} setup guide","zh-CN":"{provider} 安装指南"},

@@ -42,15 +42,25 @@ jobs:
         if: steps.npm_version.outputs.published == 'true'
         run: echo "This version is already available on npm; desktop builds will continue."
       - name: Publish npm package
-        id: publish_npm
         if: steps.npm_version.outputs.published != 'true'
-        continue-on-error: true
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Report skipped npm publication
-        if: steps.publish_npm.outcome == 'failure'
-        run: echo "::warning::npm publication failed; desktop release creation will continue."
+        run: npm publish --access public --tag latest
+      - name: Verify npm publication and latest tag
+        if: steps.npm_version.outputs.published != 'true'
+        shell: bash
+        run: |
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          for attempt in {1..12}; do
+            published="$(npm view "${package_name}@${package_version}" version 2>/dev/null || true)"
+            latest="$(npm view "${package_name}" dist-tags.latest 2>/dev/null || true)"
+            if [ "$published" = "$package_version" ] && [ "$latest" = "$package_version" ]; then
+              echo "${package_name}@${package_version} is published and tagged latest."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::npm did not expose ${package_name}@${package_version} as latest after publication."
+          exit 1
 
   build-desktop:
     strategy:
@@ -88,7 +98,7 @@ jobs:
           if-no-files-found: error
 
   attach-desktop-files:
-    needs: [publish-npm, build-desktop]
+    needs: [build-desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -5,13 +5,16 @@ const os = require('os');
 const path = require('path');
 
 const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-responsive-${process.pid}-`));
+const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-responsive-user-${process.pid}-`));
 process.env.LOADTOAGENT_TEST_INSTANCE = '1';
 process.env.LOADTOAGENT_BRIDGE_HOME = isolatedBridgeHome;
 
 const { app, BrowserWindow } = require('electron');
+app.setPath('userData', isolatedUserData);
 
 app.once('quit', () => {
   try { fs.rmSync(isolatedBridgeHome, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(isolatedUserData, { recursive: true, force: true }); } catch {}
 });
 
 require('../main');

@@ -95,6 +95,7 @@ const ACTION_MANIFEST = [
   { selector: '[data-open-subagent-chat]', action: 'subagent:open-conversation' },
   { selector: '[data-resume-agent]', action: 'subagent:resume-terminal' },
   { selector: '[data-control-tmux]', action: 'tmux:control-pane' },
+  { selector: '[data-tmux-subagents-toggle]', action: 'tmux:subagents-toggle' },
   { selector: '[data-tmux-type][data-tmux-id]', action: 'tmux:focus-node' },
   { selector: '.live-tmux-overview-open', action: 'tmux:open-live-overview' },
 ];
@@ -246,6 +247,15 @@ async function exerciseUpdates(win, round) {
   round.observed.update = { available: true, downloaded: true, installerOpened: true };
 }
 
+async function exerciseAttentionNotification(win, round) {
+  await win.webContents.executeJavaScript(`window.interactionTest.triggerAttention('fixture-waiting')`);
+  await waitFor(win, `window.LoadToAgentApp.state.view === 'waiting' && window.LoadToAgentApp.state.selectedId === 'fixture-waiting' && document.querySelector('#detailDrawer').classList.contains('open')`, '확인 필요 알림을 눌렀을 때 해당 세션이 열리지 않았습니다.');
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, '확인 필요 알림 상세 창을 닫지 못했습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  round.observed.attentionNotification = { openedWaitingView: true, openedSession: 'fixture-waiting' };
+}
+
 async function exerciseLanguageSettings(win, round) {
   await click(win, '[data-view="settings"]', 'nav:settings');
   for (const [locale, title, lang] of [
@@ -317,8 +327,10 @@ async function exerciseDashboardControls(win, round) {
   const allProviderCardCount = await win.webContents.executeJavaScript(`document.querySelectorAll('#sessionGrid [data-session-id]').length`);
   await click(win, '[data-provider-card="gpt"]', 'filter:provider-card');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'gpt' && window.LoadToAgentApp.state.providerFilters.has('gpt') && document.querySelector('[data-provider-filter="gpt"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#sessionGrid [data-session-id]').length > 0 && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider === 'gpt')`, '제공사 카드 단일 필터가 실제 GPT 결과에 적용되지 않았습니다.');
+  await waitFor(win, `document.querySelector('[data-provider-card="gpt"] .poc-filter-state.visible')?.textContent.includes('필터 적용') && document.querySelector('[data-provider-card="gpt"]')?.classList.contains('filter-clicked')`, '제공사 카드가 필터 선택 상태를 직관적으로 표시하지 않습니다.');
   await click(win, '[data-provider-filter="codex"]', 'filter:provider');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'multiple' && window.LoadToAgentApp.state.providerFilters.has('gpt') && window.LoadToAgentApp.state.providerFilters.has('codex') && document.querySelector('[data-provider-card="codex"]')?.getAttribute('aria-pressed') === 'true'`, '제공사 다중 필터가 적용되지 않았습니다.');
+  await waitFor(win, `(() => { const chip = document.querySelector('[data-provider-filter="codex"]'); const check = chip?.querySelector('.provider-filter-check'); return chip?.classList.contains('filter-clicked') && check && Number.parseFloat(getComputedStyle(check).opacity) > .95 && check.getBoundingClientRect().width >= 15; })()`, '제공사 필터 칩에 체크 표시와 클릭 피드백이 보이지 않습니다.');
   assert(await win.webContents.executeJavaScript(`(() => { const providers = [...document.querySelectorAll('#sessionGrid [data-session-id]')].map(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider); return providers.length >= 2 && providers.includes('gpt') && providers.includes('codex') && providers.every(provider => ['gpt', 'codex'].includes(provider)); })()`), '다중 필터가 GPT와 Codex 실제 결과를 함께 표시하지 못했습니다.');
   await click(win, '[data-provider-filter="gpt"]', 'filter:provider');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'codex' && !window.LoadToAgentApp.state.providerFilters.has('gpt') && document.querySelectorAll('#sessionGrid [data-session-id]').length > 0 && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider === 'codex')`, '다중 필터에서 GPT를 해제한 뒤 Codex 결과만 남지 않았습니다.');
@@ -695,7 +707,19 @@ async function exerciseAgentControls(win, round) {
   await click(win, '[data-subagent-completed-toggle="fixture-root"]', 'subagent:toggle-completed');
   await waitFor(win, `document.querySelectorAll('.child-session.work-working').length === 1 && document.querySelectorAll('.child-session.work-resting').length === 1 && Boolean(document.querySelector('[data-open-subagent-chat="fixture-resting"]'))`, '완료된 서브에이전트 펼치기가 정확히 동작하지 않았습니다.');
   await click(win, '[data-open-subagent-chat="fixture-resting"]', 'subagent:open-conversation');
-  await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-root' && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('[data-subagent-dialog-count="4"]') && document.querySelector('.subagent-dialog-list').innerText.includes('보호된 추가 작업 지시를 전달했습니다.') && !document.querySelector('.subagent-dialog-list').innerText.includes('gAAAA') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent="fixture-resting"]')`, '서브카드 클릭이 보호된 본문을 숨긴 메인↔서브 대화를 열지 않았습니다.');
+  await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-root'
+    && window.LoadToAgentApp.state.drawerMode === 'subagent'
+    && window.LoadToAgentApp.state.details.has('fixture-resting')
+    && document.querySelector('[data-subagent-work-messages="2"]')
+    && document.querySelector('[data-subagent-coordination-count="2"]')
+    && document.querySelector('#drawerContent').innerText.includes('상호작용 테스트를 진행해줘')
+    && document.querySelector('#drawerContent').innerText.includes('버튼과 입력 동작을 확인하고 있습니다.')
+    && !document.querySelector('#drawerContent').textContent.includes('gAAAA')
+    && !document.querySelector('#drawerContent').innerText.includes('보호된 메시지')
+    && !document.querySelector('#drawerContent').innerText.includes('내용 없이 통신 상태')
+    && document.querySelector('.drawer-tab:not(.hidden)').textContent === '작업 내용'
+    && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1
+    && document.querySelector('[data-resume-agent="fixture-resting"]')`, '서브카드 클릭이 실제 서브에이전트 작업 기록을 열지 않았습니다.');
   await clearCalls(win);
   await click(win, '[data-resume-agent="fixture-resting"]', 'subagent:resume-terminal');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0].type === 'agent' && item.args[0].provider === 'codex' && item.args[0].args.join(' ') === 'resume fixture-resting-external')`, '쉬는 Codex 서브에이전트가 정확한 세션 ID로 재개되지 않았습니다.');
@@ -849,6 +873,24 @@ async function verifyOneCall(win, actionName, selector, apiName) {
 async function exerciseTmux(win, round) {
   await click(win, '[data-view="tmux"]', 'nav:tmux');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'tmux' && document.querySelector('[data-control-tmux="tmux-pane-id"]')`, 'tmux 화면 로드 실패', 120);
+  const collapsedSubagents = await win.webContents.executeJavaScript(`(() => ({
+    count: document.querySelectorAll('[data-tmux-subagent-id]').length,
+    hidden: document.querySelector('[data-tmux-subagents="tmux-pane-id"] .tmux-subagent-list')?.classList.contains('hidden'),
+    expanded: document.querySelector('[data-tmux-subagents-toggle="tmux-pane-id"]')?.getAttribute('aria-expanded'),
+  }))()`);
+  assert(
+    collapsedSubagents.count === 3 && collapsedSubagents.hidden && collapsedSubagents.expanded === 'false',
+    `tmux 도움 AI 목록의 기본 접힘 상태가 올바르지 않습니다: ${JSON.stringify(collapsedSubagents)}`,
+  );
+  await click(win, '[data-tmux-subagents-toggle="tmux-pane-id"]', 'tmux:subagents-toggle');
+  await waitFor(win, `document.querySelector('[data-tmux-subagents-toggle="tmux-pane-id"]')?.getAttribute('aria-expanded') === 'true' && !document.querySelector('[data-tmux-subagents="tmux-pane-id"] .tmux-subagent-list').classList.contains('hidden')`, 'tmux 도움 AI 목록 펼치기 실패');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.renderTmuxMap()`);
+  await waitFor(win, `document.querySelector('[data-tmux-subagents-toggle="tmux-pane-id"]')?.getAttribute('aria-expanded') === 'true' && document.querySelectorAll('[data-tmux-subagent-id]').length === 3`, 'tmux 갱신 뒤 도움 AI 펼침 상태가 유지되지 않았습니다.');
+  await click(win, '[data-tmux-subagent-id="fixture-child"] [data-open-subagent-chat]', 'subagent:open-conversation');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && window.LoadToAgentApp.state.drawerMode === 'subagent' && window.LoadToAgentApp.state.selectedId === 'fixture-child'`, 'tmux 도움 AI 대화 열기 실패');
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, 'tmux 도움 AI 대화 닫기 실패');
+  round.observed.tmuxSubagents = { count: 3, expansionPersists: true, conversationOpens: true };
   await clearCalls(win);
   await click(win, '[data-tmux-distro="FixtureLinux"][data-tmux-pane="%7"]', 'tmux:select-resource');
   await waitFor(win, `!document.querySelector('#terminalTmuxTools').classList.contains('hidden')`, 'tmux resource 목록 선택 실패');
@@ -965,6 +1007,7 @@ async function runRound(win, index) {
   await step(round, 'navigation', () => exerciseNavigation(win, round));
   await step(round, 'language-settings', () => exerciseLanguageSettings(win, round));
   await step(round, 'updates', () => exerciseUpdates(win, round));
+  await step(round, 'attention-notification', () => exerciseAttentionNotification(win, round));
   await step(round, 'dashboard-controls', () => exerciseDashboardControls(win, round));
   await step(round, 'new-run-modal', () => exerciseRunModal(win, round));
   await step(round, 'drawer', () => exerciseDrawer(win, round));

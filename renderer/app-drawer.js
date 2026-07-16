@@ -7,7 +7,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger,
     providerInfo, isLiveSession, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionWorkspaceLabel,
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
-    chatHtml, lifecycleHtml, tokensHtml, subagentCommunicationEvents, subagentConversationHtml,
+    chatHtml, lifecycleHtml, tokensHtml, subagentCoordinationEvents, subagentConversationHtml,
   } = context;
 
   function openDrawer(id) {
@@ -44,6 +44,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     $("#detailDrawer").removeAttribute("inert");
     $("#detailDrawer").setAttribute("aria-hidden", "false");
     renderDrawer();
+    loadSessionDetail(id);
     loadSubagentParentDetail(child);
     setTimeout(() => $("#closeDrawerBtn").focus(), 0);
   }
@@ -71,12 +72,12 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     if (!session) return closeDrawer();
     const provider = providerInfo(session.provider);
     const subagentMode = state.drawerMode === "subagent" && Boolean(session.parentId);
-    const detailLoading = !subagentMode && state.detailLoadingIds.has(state.selectedId);
+    const detailLoading = state.detailLoadingIds.has(state.selectedId);
     $("#detailDrawer").style.setProperty("--drawer-provider", provider.accent);
     $("#drawerProviderMark").style.setProperty("--provider", provider.accent);
     $("#drawerProviderMark").textContent = provider.mark;
     $("#drawerProvider").textContent = subagentMode
-      ? `${session.agentName || provider.label} · 메인 AI와의 소통`
+      ? `${session.agentName || provider.label} · 서브에이전트 작업 기록`
       : `${provider.company} · ${STATUS[session.status] || session.status}`;
     $("#drawerTitle").textContent = subagentMode ? session.taskName || (session.delegation && session.delegation.taskName) || session.title : session.title;
     const stopping = session.runId && state.stopRequests.has(session.runId);
@@ -93,14 +94,19 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
           <b>${originAppInfo(session) ? "백그라운드 터미널로 이어가기" : "터미널로 다시 일 시키기"}</b>
         </button>`
         : "";
-    const communicationCount = subagentMode ? subagentCommunicationEvents(session).length : 0;
+    const communicationCount = subagentMode ? subagentCoordinationEvents(session).length : 0;
+    const subagentMessageCount = subagentMode
+      ? (session.messages || []).filter((message) => message.role === "user" || message.role === "assistant").length
+      : 0;
     $("#drawerMeta").innerHTML = subagentMode
       ? `<span class="meta-chip work-state ${subagentWorkState(session)}">
         <b>${esc(subagentWorkLabel(session))}</b>
         </span>
         <span class="meta-chip">사용 모델 <b>${esc(session.model || "정보 없음")}</b>
         </span>
-        <span class="meta-chip">메인과 소통 <b>${communicationCount}건</b>
+        <span class="meta-chip">작업 기록 <b>${subagentMessageCount}건</b>
+        </span>
+        <span class="meta-chip">메인 지시·결과 <b>${communicationCount}건</b>
         </span>${resume}`
       : `<span class="meta-chip">사용 모델 <b>${esc(session.model || "정보 없음")}</b>
         </span>
@@ -124,7 +130,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     $$(".drawer-tab").forEach((tab) => {
       const hidden = subagentMode && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);
-      if (tab.dataset.tab === "chat") tab.textContent = subagentMode ? "메인과의 대화" : window.LoadToAgentI18n.t("ui.conversation");
+      if (tab.dataset.tab === "chat") tab.textContent = subagentMode ? "작업 내용" : window.LoadToAgentI18n.t("ui.conversation");
       const active = tab.dataset.tab === state.drawerTab;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", active ? "true" : "false");
@@ -144,7 +150,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const detailError = state.detailErrors.get(state.selectedId);
     content.innerHTML = detailLoading
       ? '<div class="drawer-loading"><span></span><b>전체 작업 기록을 불러오는 중</b><small>잠시만 기다리면 대화와 진행 과정을 볼 수 있어요.</small></div>'
-      : detailError && !subagentMode
+      : detailError
         ? `<div class="drawer-error">
         <b>작업 기록을 불러오지 못했습니다</b>
         <span>${esc(detailError)}</span>

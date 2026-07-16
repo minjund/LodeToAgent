@@ -3,7 +3,20 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(context = {}) {
-  const { $, esc, state, compact, providerInfo, providerStyle } = context;
+  const {
+    $,
+    esc,
+    state,
+    compact,
+    providerInfo,
+    providerStyle,
+    agentRoleLabel,
+    subagentWorkState,
+    subagentWorkLabel,
+    latestWorkCopy,
+    readablePreview,
+    timeAgo,
+  } = context;
 
   function tmuxEntities(tmux) {
     const distros = new Map();
@@ -60,6 +73,65 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       : [];
   }
 
+  function linkedTmuxSubagents(agent) {
+    if (!agent || !agent.linkedSessionId) return [];
+    const sessions = (state.snapshot && state.snapshot.sessions) || [];
+    const byId = new Map(sessions.map((session) => [session.id, session]));
+    const root = byId.get(agent.linkedSessionId);
+    const queue = (root && root.childIds || agent.childIds || []).map((id) => ({ id, depth: 1 }));
+    const seen = new Set(root ? [root.id] : []);
+    const children = [];
+    for (let cursor = 0; cursor < queue.length; cursor += 1) {
+      const item = queue[cursor];
+      if (!item.id || seen.has(item.id)) continue;
+      seen.add(item.id);
+      const child = byId.get(item.id);
+      if (!child) continue;
+      children.push({ session: child, depth: item.depth });
+      for (const childId of child.childIds || []) queue.push({ id: childId, depth: item.depth + 1 });
+    }
+    return children;
+  }
+
+  function tmuxSubagentPanel(pane, agent) {
+    const children = linkedTmuxSubagents(agent);
+    if (!children.length) return "";
+    const expanded = state.expandedTmuxSubagents.has(pane.id);
+    const listId = `tmux-subagents-list-${encodeURIComponent(pane.id)}`;
+    const working = children.filter(({ session }) => subagentWorkState(session) === "working").length;
+    const attention = children.filter(({ session }) => subagentWorkState(session) === "attention").length;
+    const statusSummary = [
+      working ? `${working}개 작업 중` : "",
+      attention ? `${attention}개 확인 필요` : "",
+    ].filter(Boolean).join(" · ") || "현재 모두 쉬는 중";
+    const rows = children
+      .map(({ session, depth }) => {
+        const provider = providerInfo(session.provider);
+        const role = session.agentName || agentRoleLabel(session.agentRole);
+        const assigned = session.delegation && session.delegation.assignment || session.taskName || session.title || "담당 작업 확인 중";
+        const work = readablePreview(latestWorkCopy(session) || session.statusDetail || "상태 확인 중", 96);
+        const workState = subagentWorkState(session);
+        return `<article class="tmux-subagent-row work-${workState}" data-tmux-subagent-id="${esc(session.id)}"
+          style="${providerStyle(session.provider)};--tmux-subagent-depth:${Math.min(2, Math.max(0, depth - 1))}">
+          <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
+          <span class="tmux-subagent-copy">
+            <span><b>${esc(role)}</b><i>${esc(subagentWorkLabel(session))}</i><small>${esc(timeAgo(session.updatedAt))}</small></span>
+            <strong>${esc(assigned)}</strong>
+            <em title="${esc(work.full)}">${esc(work.text)}</em>
+          </span>
+          <button type="button" data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(`${role} · ${assigned} 대화 보기`)}">대화 보기 ↗</button>
+        </article>`;
+      })
+      .join("");
+    return `<section class="tmux-subagents ${expanded ? "expanded" : ""}" data-tmux-subagents="${esc(pane.id)}">
+      <button type="button" class="tmux-subagents-toggle" data-tmux-subagents-toggle="${esc(pane.id)}" aria-expanded="${expanded}" aria-controls="${esc(listId)}">
+        <span><b>연결된 도움 AI ${children.length}개</b><small>${statusSummary} · tmux 메인 세션 기준</small></span>
+        <i aria-hidden="true">↓</i>
+      </button>
+      <div id="${esc(listId)}" class="tmux-subagent-list ${expanded ? "" : "hidden"}">${rows}</div>
+    </section>`;
+  }
+
   function tmuxPaneCard(pane) {
     const agent = pane.agent;
     const provider = agent && providerInfo(agent.provider);
@@ -103,6 +175,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
             : '<span class="tmux-shell-note">AI가 아닌 일반 명령창입니다.</span>'
         }
       </button>
+      ${tmuxSubagentPanel(pane, agent)}
       <footer>
         <span>${agent ? (agent.linkedSessionId ? "대화 기록과 연결됨" : "AI가 실행 중인 것을 확인함") : pane.title || "명령창"}</span>
         <span class="tmux-pane-actions">
@@ -243,5 +316,5 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       .join("");
   }
 
-  return { tmuxEntities, tmuxFocusPath, tmuxPaneCard, tmuxWindowTree, tmuxSessionTree, filteredTmuxDistros, renderTmuxMap };
+  return { tmuxEntities, tmuxFocusPath, linkedTmuxSubagents, tmuxPaneCard, tmuxWindowTree, tmuxSessionTree, filteredTmuxDistros, renderTmuxMap };
 };

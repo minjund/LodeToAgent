@@ -5,9 +5,12 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 window.LoadToAgentAppFactories.createDrawerContent = function createDrawerContent(context = {}) {
   const { esc, uiLocale, state, messageContentHtml, compact, fullNumber, timeOnly, providerInfo, statusIcon, agentPathTaskName, snapshotSession } = context;
 
-  function chatHtml(session) {
+  function chatHtml(session, options = {}) {
     const messages = session.messages || [];
     if (!messages.length) return '<div class="empty-state"><h3>표시할 대화가 없습니다</h3></div>';
+    const userLabel = options.userLabel || "사용자";
+    const assistantLabel = options.assistantLabel || providerInfo(session.provider).label;
+    const conversationLabel = options.conversationLabel || "대화";
     const conversation = messages.filter((message) => message.role === "user" || message.role === "assistant");
     const activities = messages.filter((message) => message.role !== "user" && message.role !== "assistant");
     const omitted = Number(session.omittedMessages || 0);
@@ -25,12 +28,12 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         const role = message.role === "assistant" ? "assistant" : message.role === "tool" ? "tool" : message.role === "system" ? "system" : "user";
         const label =
           role === "assistant"
-            ? providerInfo(session.provider).label
+            ? assistantLabel
             : role === "tool"
               ? message.title || "도구"
               : message.role === "system"
                 ? "시스템"
-                : "사용자";
+                : userLabel;
         const avatar = role === "assistant" ? providerInfo(session.provider).mark : role === "tool" ? "⌘" : role === "system" ? "i" : "ME";
         const fullTime = new Date(message.timestamp).toLocaleString(uiLocale());
         return `<div class="chat-row ${role}" data-message-id="${esc(message.id || "")}">
@@ -60,7 +63,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       : "";
     const emptyConversation = conversation.length ? "" : '<div class="empty-state compact"><h3>사용자와 AI의 대화는 아직 없습니다</h3></div>';
     return `${notice}<div class="chat-history-head">
-      <span>대화 ${conversation.length}개${activities.length ? ` · 활동 ${activities.length}건` : ""}</span>
+      <span>${esc(conversationLabel)} ${conversation.length}개${activities.length ? ` · 활동 ${activities.length}건` : ""}</span>
       <button type="button" data-scroll-latest>가장 최근 대화 ↓</button>
       </div>
       <div class="chat-list">${rows}${emptyConversation}${activityHtml}<div class="chat-latest-anchor" aria-label="가장 최근 대화">
@@ -136,68 +139,78 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     return { text: `${text.slice(0, maxCharacters).trimEnd()}…`, truncated: true };
   }
 
-  function protectedSubagentEventText(event, taskName) {
-    if (event.kind === "followup") return "보호된 추가 작업 지시를 전달했습니다.";
-    if (event.kind === "message") return "보호된 메시지를 전달했습니다.";
-    return `${taskName || "이 작업"}을 서브에이전트에게 배정했습니다.`;
+  function subagentCoordinationEvents(session) {
+    return subagentCommunicationEvents(session).filter((event) => {
+      if (!event || event.protected || event.kind === "started") return false;
+      if (!["assignment", "followup", "message", "result", "interrupt"].includes(event.kind)) return false;
+      const text = String(event.text || "").trim();
+      return Boolean(text && text.toLowerCase() !== "started");
+    });
   }
 
-  function subagentConversationHtml(session) {
-    const events = subagentCommunicationEvents(session);
+  function subagentWorkMessages(session) {
+    const messages = [...(session.messages || [])];
+    const hasConversation = messages.some((message) =>
+      (message.role === "user" || message.role === "assistant") && String(message.text || "").trim(),
+    );
+    if (hasConversation) return messages;
+    const delegation = session.delegation || {};
+    if (delegation.assignmentObserved && !delegation.assignmentProtected && String(delegation.assignment || "").trim()) {
+      messages.push({
+        id: `${session.id}:delegation`, role: "user", text: delegation.assignment,
+        timestamp: delegation.startedAt || session.startedAt || session.updatedAt,
+      });
+    }
+    if (String(session.result || delegation.result || "").trim()) {
+      messages.push({
+        id: `${session.id}:result`, role: "assistant", text: session.result || delegation.result,
+        timestamp: session.completedAt || delegation.completedAt || session.updatedAt,
+      });
+    }
+    return messages.sort((left, right) => Date.parse(left.timestamp || 0) - Date.parse(right.timestamp || 0));
+  }
+
+  function subagentCoordinationHtml(session) {
+    const events = subagentCoordinationEvents(session);
+    if (!events.length) return "";
     const taskName = session.taskName || (session.delegation && session.delegation.taskName) || session.title;
     const childPath = String(session.agentPath || "");
     const endpointIsChild = (value) => {
       const endpoint = String(value || "");
       return endpoint === childPath || endpoint === session.id || agentPathTaskName(endpoint) === taskName;
     };
-    const enriched = events.map((event) => ({ ...event, fromChild: event.kind === "result" || endpointIsChild(event.from) }));
-    const received = enriched.filter((event) => !event.fromChild && event.kind !== "started").length;
-    const answered = enriched.filter((event) => event.fromChild).length;
-    if (!events.length)
-      return '<div class="empty-state"><h3>메인 AI와 주고받은 기록이 없습니다</h3><p>세션 로그에서 배정·추가 지시·결과 반환 이벤트를 찾지 못했습니다.</p></div>';
-    const provider = providerInfo(session.provider);
-    const rows = enriched
+    const rows = events
       .map((event) => {
-        const runtime = event.kind === "started";
-        const role = runtime ? "system" : event.fromChild ? "assistant" : "user";
-        const label = runtime ? "실행 상태" : event.fromChild ? `서브 AI · ${session.agentName || taskName}` : "메인 AI";
-        const avatar = runtime ? "↗" : event.fromChild ? provider.mark : "M";
-        const route = runtime ? "런타임 → 서브 AI" : event.fromChild ? "서브 AI → 메인 AI" : "메인 AI → 서브 AI";
-        const text = event.protected
-          ? protectedSubagentEventText(event, taskName)
-          : event.text || (runtime ? "서브에이전트 실행이 시작되었습니다." : "내용 없이 통신 상태만 기록되었습니다.");
-        const preview = subagentTextPreview(text);
-        const eventLabel = `${event.label || event.kind}${event.assignmentSource === "parent-narration" ? " · 작업 시작 직전 메인 AI 설명" : ""}`;
-        return `<div class="chat-row ${role} subagent-dialog-row" data-subagent-communication="${esc(event.kind)}">
-        <span class="chat-avatar">${esc(avatar)}</span>
-        <div class="chat-bubble">
-          <div class="chat-bubble-head">
-            <b>${esc(label)}</b><span class="subagent-route">${esc(route)}</span>
-            <span>${esc(timeOnly(event.timestamp))}</span>
-          </div>
-          <small class="subagent-event-label">${esc(eventLabel)}</small>
-          <div class="chat-content subagent-message-preview${preview.truncated ? " is-truncated" : ""}"
-            data-subagent-message-preview data-truncated="${preview.truncated ? "true" : "false"}">
-            <p>${esc(preview.text)}</p>
-          </div>
-        </div>
-      </div>`;
+        const fromChild = event.kind === "result" || endpointIsChild(event.from);
+        const preview = subagentTextPreview(event.text);
+        const label = fromChild ? `${session.agentName || taskName} → 메인 AI` : "메인 AI → 서브에이전트";
+        return `<article data-subagent-communication="${esc(event.kind)}">
+          <header><b>${esc(event.label || event.kind)}</b><span>${esc(label)} · ${esc(timeOnly(event.timestamp))}</span></header>
+          <div class="chat-content plain subagent-message-preview${preview.truncated ? " is-truncated" : ""}"
+            data-subagent-message-preview data-truncated="${preview.truncated ? "true" : "false"}"><p>${esc(preview.text)}</p></div>
+        </article>`;
       })
       .join("");
-    return `<div class="subagent-conversation-summary" data-subagent-dialog-count="${events.length}">
-      <span>
-      <small>받은 지시·응답</small>
-      <b>${received}</b>건</span>
-      <span>
-      <small>메인에 보낸 답변</small>
-      <b>${answered}</b>건</span>
-      <span>
-      <small>전체 소통</small>
-      <b>${events.length}</b>건</span>
-      </div>
-      <div class="chat-history-head"><span><b>${esc(taskName)}</b>와 메인 AI가 주고받은 내용만 표시</span><button type="button" data-scroll-latest>가장 최근 대화 ↓</button></div>
-      <div class="chat-list subagent-dialog-list">${rows}<div class="chat-latest-anchor" aria-label="가장 최근 대화"></div></div>`;
+    return `<details class="chat-activities subagent-coordination" data-subagent-coordination-count="${events.length}">
+      <summary>메인 AI와 주고받은 지시·결과 ${events.length}건</summary><div>${rows}</div>
+    </details>`;
   }
 
-  return { chatHtml, lifecycleHtml, tokensHtml, subagentCommunicationEvents, subagentTextPreview, protectedSubagentEventText, subagentConversationHtml };
+  function subagentConversationHtml(session) {
+    const messages = subagentWorkMessages(session);
+    const conversationCount = messages.filter((message) => message.role === "user" || message.role === "assistant").length;
+    const workSession = { ...session, messages };
+    const sourceCopy = session.source === "collaboration-history"
+      ? "별도 세션 로그가 없어 협업 기록에서 복원한 작업 결과입니다."
+      : "이 서브에이전트 세션에 실제로 저장된 작업 지시와 답변을 시간순으로 표시합니다.";
+    return `<section class="subagent-work-source" data-subagent-work-messages="${conversationCount}">
+      <b>서브에이전트 실제 작업 기록</b><span>${esc(sourceCopy)}</span>
+    </section>${chatHtml(workSession, {
+      userLabel: "작업 지시",
+      assistantLabel: session.agentName || "서브 AI",
+      conversationLabel: "작업 기록",
+    })}${subagentCoordinationHtml(session)}`;
+  }
+
+  return { chatHtml, lifecycleHtml, tokensHtml, subagentCommunicationEvents, subagentCoordinationEvents, subagentTextPreview, subagentConversationHtml };
 };

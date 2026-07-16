@@ -330,7 +330,50 @@
 
 .provider-overview-card.selected {
   border-color: color-mix(in srgb,var(--provider) 66%,#344151);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb,var(--provider) 28%,transparent),0 10px 30px rgba(0,0,0,.2);
+  background: linear-gradient(145deg,color-mix(in srgb,var(--provider) 15%,#10151f),#0d111a 68%);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb,var(--provider) 30%,transparent),0 10px 30px rgba(0,0,0,.28),0 0 24px color-mix(in srgb,var(--provider) 10%,transparent);
+}
+
+.provider-overview-card.selected:before {
+  width: 5px;
+  opacity: 1;
+}
+
+.poc-head-states {
+  display: grid;
+  justify-items: end;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.poc-head-states .poc-state {
+  margin-left: 0;
+}
+
+.poc-filter-state {
+  display: none;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb,var(--provider) 58%,#28483f);
+  border-radius: 999px;
+  background: color-mix(in srgb,var(--provider) 16%,#0b1515);
+  color: color-mix(in srgb,var(--provider) 72%,#eafff8);
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.poc-filter-state.visible {
+  display: inline-flex;
+}
+
+.provider-overview-card.filter-clicked {
+  animation: provider-card-confirm .38s cubic-bezier(.22,1,.36,1);
+}
+
+@keyframes provider-card-confirm {
+  0% { transform: scale(.97); }
+  60% { transform: translateY(-3px) scale(1.015); }
+  100% { transform: translateY(0) scale(1); }
 }
 
 .poc-head strong {

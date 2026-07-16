@@ -204,6 +204,7 @@ let delays = new Map();
 let terminalSequence = 0;
 let tmuxCaptureSequence = 0;
 const snapshotListeners = new Set();
+const attentionListeners = new Set();
 const terminalDataListeners = new Set();
 const terminalStateListeners = new Set();
 const terminalErrorListeners = new Set();
@@ -313,6 +314,7 @@ const api = {
   onTerminalState: callback => { terminalStateListeners.add(callback); return () => terminalStateListeners.delete(callback); },
   onTerminalError: callback => { terminalErrorListeners.add(callback); return () => terminalErrorListeners.delete(callback); },
   onSnapshot: callback => { snapshotListeners.add(callback); return () => snapshotListeners.delete(callback); },
+  onAttentionRequested: callback => { attentionListeners.add(callback); return () => attentionListeners.delete(callback); },
   onUpdateState: callback => { updateStateListeners.add(callback); return () => updateStateListeners.delete(callback); },
 };
 
@@ -329,6 +331,7 @@ const testApi = {
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
+  triggerAttention: sessionId => { attentionListeners.forEach(listener => listener({ sessionId })); return attentionListeners.size; },
 };
 
 contextBridge.exposeInMainWorld('loadtoagent', api);

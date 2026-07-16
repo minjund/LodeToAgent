@@ -30,7 +30,7 @@
   ].forEach(install);
   window.LoadToAgentApp = app;
 
-  const { $, esc, state, loadGuideState, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, toast } = app;
+  const { $, esc, state, loadGuideState, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast } = app;
 
   async function init() {
     loadGuideState();
@@ -64,6 +64,16 @@
         if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
       }
     });
+    if (window.loadtoagent.onAttentionRequested)
+      window.loadtoagent.onAttentionRequested((payload) => {
+        const sessionId = String(payload && payload.sessionId || '');
+        const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
+        selectView('waiting');
+        if (session) {
+          if (session.parentId) openSubagentConversation(session.id);
+          else openDrawer(session.id);
+        } else toast('확인이 필요한 세션 목록을 열었습니다.');
+      });
     if (window.loadtoagent.onUpdateState)
       window.loadtoagent.onUpdateState((update) => {
         state.update = update;

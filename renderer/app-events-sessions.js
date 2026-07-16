@@ -18,7 +18,11 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       renderProviderOverview();
       renderSessions("filter");
       announceProviderFilter();
-      requestAnimationFrame(() => $("#providerOverview").querySelector(`[data-provider-card="${CSS.escape(card.dataset.providerCard)}"]`)?.focus());
+      requestAnimationFrame(() => {
+        const next = $("#providerOverview").querySelector(`[data-provider-card="${CSS.escape(card.dataset.providerCard)}"]`);
+        next?.classList.add("filter-clicked");
+        next?.focus();
+      });
     });
     $("#sessionGrid").addEventListener("click", (event) => {
       const card = event.target.closest("[data-session-id]");
@@ -150,6 +154,22 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
 
   function bindTmuxMapEvents() {
     $("#tmuxMap").addEventListener("click", (event) => {
+      const subagentToggle = event.target.closest("[data-tmux-subagents-toggle]");
+      if (subagentToggle) {
+        event.stopPropagation();
+        const paneId = subagentToggle.dataset.tmuxSubagentsToggle;
+        if (state.expandedTmuxSubagents.has(paneId)) state.expandedTmuxSubagents.delete(paneId);
+        else state.expandedTmuxSubagents.add(paneId);
+        renderTmuxMap();
+        requestAnimationFrame(() => $("#tmuxMap").querySelector(`[data-tmux-subagents-toggle="${CSS.escape(paneId)}"]`)?.focus());
+        return;
+      }
+      const subagentChat = event.target.closest("[data-open-subagent-chat]");
+      if (subagentChat) {
+        event.stopPropagation();
+        openSubagentConversation(subagentChat.dataset.openSubagentChat);
+        return;
+      }
       const control = event.target.closest("[data-control-tmux]");
       if (control) {
         event.stopPropagation();

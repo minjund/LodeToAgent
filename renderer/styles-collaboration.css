@@ -336,103 +336,33 @@
   font-size: 10px;
 }
 
-.subagent-conversation-summary {
+.subagent-work-source {
   display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 5px;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb,var(--drawer-provider) 28%,#263844);
+  border-radius: 11px;
+  background: color-mix(in srgb,var(--drawer-provider) 6%,#0c151d);
 }
 
-.subagent-conversation-summary>span {
-  padding: 11px;
-  border: 1px solid #263b45;
-  border-radius: 10px;
-  background: #0c171e;
+.subagent-work-source b {
+  color: #dbe8e9;
+  font-size: 11px;
 }
 
-.subagent-conversation-summary small {
-  display: block;
-  color: #718591;
-  font-size: 9px;
+.subagent-work-source span {
+  color: #78909a;
+  font-size: 10px;
+  line-height: 1.55;
 }
 
-.subagent-conversation-summary b {
-  display: block;
-  margin-top: 5px;
-  color: #dce8ec;
-  font-size: 17px;
+.subagent-coordination {
+  margin-top: 16px;
 }
 
-.subagent-conversation-summary>span:nth-child(1) b {
-  color: #76dfb8;
-}
-
-.subagent-conversation-summary>span:nth-child(2) b {
-  color: #8fc8df;
-}
-
-.subagent-dialog-row.user .chat-bubble {
-  background: #10231e;
-}
-
-.subagent-dialog-row.assistant .chat-bubble {
-  background: #111d28;
-}
-
-.subagent-dialog-row.system .chat-bubble {
-  background: #0d151c;
-}
-
-.subagent-dialog-list .chat-row.assistant {
-  padding-left: 28px;
-}
-
-.subagent-dialog-list .chat-row.user {
-  padding-right: 28px;
-}
-
-.subagent-dialog-row .chat-bubble {
-  border-color: #283c46;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-}
-
-.subagent-dialog-row .chat-bubble-head {
-  gap: 7px;
-  min-width: 0;
-}
-
-.subagent-dialog-row .chat-bubble-head b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.subagent-dialog-row .subagent-route {
-  margin-right: auto;
-  padding: 3px 6px;
-  border-radius: 6px;
-  background: #13242a;
-  color: #6fa89b;
-  font-size: 8px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.subagent-event-label {
-  display: block;
-  margin: 6px 0 -2px;
-  color: #6b8f8a;
-  font-size: 8px;
-  font-weight: 750;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.subagent-coordination .subagent-message-preview p {
+  margin: 0;
 }
 
 .subagent-message-preview {

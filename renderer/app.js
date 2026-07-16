@@ -28,6 +28,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     graphFocusId: null,
     graphExpandedProviders: new Set(),
     expandedCompletedSubagents: new Set(),
+    expandedTmuxSubagents: new Set(),
     tmuxFocus: null,
     agentCommandDrafts: new Map(),
     agentCommandTargets: new Map(),

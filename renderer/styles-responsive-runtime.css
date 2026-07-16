@@ -666,6 +666,15 @@
     flex-direction: column;
   }
 
+  .tmux-subagent-row {
+    grid-template-columns: 26px minmax(0,1fr);
+  }
+
+  .tmux-subagent-row>button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
   .tmux-pane-actions {
     width: 100%;
     justify-content: flex-start;

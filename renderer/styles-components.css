@@ -778,12 +778,29 @@ button {
   color: #7f8da1;
   white-space: nowrap;
   cursor: pointer;
-  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+  transition: color var(--motion-fast) ease, background-color var(--motion-fast) ease, border-color var(--motion-fast) ease, box-shadow var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
-.provider-filter-chip span {
+.provider-filter-mark {
   font-family: "Cascadia Code", Consolas, monospace;
   font-size: 9px;
+}
+
+.provider-filter-check {
+  display: inline-grid;
+  place-items: center;
+  width: 0;
+  height: 16px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: #53d6aa;
+  color: #07130f;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 900;
+  opacity: 0;
+  transform: scale(.45);
+  transition: width var(--motion-fast) ease, opacity var(--motion-fast) ease, transform var(--motion-fast) ease;
 }
 
 .provider-filter-chip b {
@@ -796,9 +813,27 @@ button {
 }
 
 .provider-filter-chip.selected {
-  color: #e7f8f2;
-  border-color: #315f54;
-  background: rgba(66,207,164,.13);
+  color: #f2fffb;
+  border-color: #53d6aa;
+  background: linear-gradient(135deg,rgba(66,207,164,.24),rgba(66,207,164,.11));
+  box-shadow: inset 0 0 0 1px rgba(119,238,198,.17),0 0 0 2px rgba(66,207,164,.08),0 6px 18px rgba(0,0,0,.22);
+  transform: translateY(-1px);
+}
+
+.provider-filter-chip.selected .provider-filter-check {
+  width: 16px;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.provider-filter-chip.filter-clicked {
+  animation: provider-filter-confirm .36s cubic-bezier(.22,1,.36,1);
+}
+
+@keyframes provider-filter-confirm {
+  0% { transform: scale(.93); }
+  55% { transform: scale(1.06); }
+  100% { transform: translateY(-1px) scale(1); }
 }
 
 .session-grid {

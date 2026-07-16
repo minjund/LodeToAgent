@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { execFileSync } = require('child_process');
 
 const SYNTAX_CHECK_FILES = [
@@ -18,6 +19,7 @@ const SYNTAX_CHECK_FILES = [
   'src/terminalManager.js',
   'src/processMonitor.js',
   'src/monitorWorker.js',
+  'src/attentionNotifier.js',
   'src/ipc/registerAppIpc.js',
   'src/ipc/registerAgentIpc.js',
   'src/ipc/registerTerminalIpc.js',
@@ -411,7 +413,11 @@ const INTERACTION_STYLE_CONTRACTS = [
   'execution-mode-badge',
   'work-working',
   'work-resting',
-  'subagent-conversation-summary',
+  'subagent-work-source',
+  'subagent-coordination',
+  'provider-filter-check',
+  'provider-filter-confirm',
+  'poc-filter-state',
   'subagent-message-preview',
   'resume-ready',
   'control-handoff',
@@ -469,6 +475,9 @@ const MAIN_PROCESS_CONTRACTS = [
   'event.preventDefault()',
   'mainWindow.hide()',
   'function registerIpcHandlers',
+  'function createAttentionNotifier',
+  "attentionNotifier.sync(lastSnapshot)",
+  "agents:attention-requested",
 ];
 
 const APP_IPC_CHANNELS = [
@@ -502,6 +511,7 @@ const PRELOAD_IPC_CONTRACTS = [
   'downloadUpdate',
   'openDownloadedUpdate',
   'onUpdateState',
+  'onAttentionRequested',
 ];
 
 const LEGACY_NAME_TARGETS = [
@@ -541,6 +551,9 @@ const RELEASE_WORKFLOW_CONTRACTS = [
   'LoadToAgent-Windows',
   'LoadToAgent-macOS',
   'npm_version.outputs.published',
+  'id-token: write',
+  'npm publish --access public --tag latest',
+  'Verify npm publication and latest tag',
 ];
 
 function assertIncludesAll(source, contracts, messageForContract) {
@@ -744,6 +757,25 @@ function registerUiContractTests(context) {
     assert.ok(pkg.build.mac.target.some(item => item.arch.includes('arm64') && item.arch.includes('x64')));
   });
 
+  test('tmux 도움 AI 순회가 자기·상호 순환과 중복 자식을 안전하게 제외한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-tmux-render.js'), 'utf8');
+    const sandbox = { window: { LoadToAgentAppFactories: {} } };
+    vm.runInNewContext(source, sandbox, { filename: 'app-tmux-render.js' });
+    const sessions = [
+      { id: 'root', childIds: ['root', 'child-a', 'child-a'] },
+      { id: 'child-a', childIds: ['child-b'] },
+      { id: 'child-b', childIds: ['child-a'] },
+    ];
+    const renderer = sandbox.window.LoadToAgentAppFactories.createTmuxRenderer({
+      state: { snapshot: { sessions } },
+    });
+    const rows = renderer.linkedTmuxSubagents({ linkedSessionId: 'root' });
+    assert.deepStrictEqual(
+      Array.from(rows, ({ session, depth }) => [session.id, depth]),
+      [['child-a', 1], ['child-b', 2]],
+    );
+  });
+
 }
 
 function registerLegacyNameTests(context) {
@@ -803,6 +835,8 @@ function registerDocumentationContractTests(context) {
     for (const contract of RELEASE_WORKFLOW_CONTRACTS) {
       assert.ok(workflow.includes(contract), `release.yml에 ${contract} 계약이 없습니다.`);
     }
+    assert.equal(workflow.includes('continue-on-error'), false, 'npm 게시 실패를 성공으로 숨기면 안 됩니다.');
+    assert.equal(workflow.includes('NODE_AUTH_TOKEN'), false, 'npm 게시는 장기 토큰 대신 OIDC Trusted Publisher를 사용해야 합니다.');
   });
 }
 

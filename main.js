@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -21,6 +21,7 @@ const { registerTerminalIpc } = require('./src/ipc/registerTerminalIpc');
 const { registerTmuxIpc } = require('./src/ipc/registerTmuxIpc');
 const { registerWorkspaceIpc } = require('./src/ipc/registerWorkspaceIpc');
 const { reportRecoverableError } = require('./src/diagnostics');
+const { AttentionNotifier } = require('./src/attentionNotifier');
 
 const PRODUCT_NAME = 'LoadToAgent';
 app.setName(PRODUCT_NAME);
@@ -36,6 +37,7 @@ let bridgeServer = null;
 let bridgeLauncher = null;
 let backgroundTray = null;
 let updateManager = null;
+let attentionNotifier = null;
 let isQuitting = false;
 let appLocale = 'ko';
 const tmuxController = new TmuxController({ platform: process.platform });
@@ -50,6 +52,8 @@ const MAIN_COPY = {
     trayQuit: '프로그램 끝내기 · AI 세션도 종료',
     addWorkspaces: 'AI 작업 폴더 선택',
     pickWorkspace: '작업 폴더 선택',
+    attentionTitle: '내 확인이 필요합니다',
+    attentionBody: '{provider} · {title}',
   },
   en: {
     trayTooltip: 'LoadToAgent · {count} background AI sessions',
@@ -58,6 +62,8 @@ const MAIN_COPY = {
     trayQuit: 'Quit app · End AI sessions too',
     addWorkspaces: 'Choose AI workspaces',
     pickWorkspace: 'Choose workspace',
+    attentionTitle: 'Your review is needed',
+    attentionBody: '{provider} · {title}',
   },
   'zh-CN': {
     trayTooltip: 'LoadToAgent · {count} 个后台 AI 会话',
@@ -66,6 +72,8 @@ const MAIN_COPY = {
     trayQuit: '退出应用 · 同时结束 AI 会话',
     addWorkspaces: '选择 AI 工作文件夹',
     pickWorkspace: '选择工作文件夹',
+    attentionTitle: '需要你的确认',
+    attentionBody: '{provider} · {title}',
   },
 };
 let lastSnapshot = {
@@ -259,6 +267,39 @@ function sendSnapshot(snapshot) {
   try { mainWindow.webContents.send('agents:snapshot', snapshot); } catch (error) { reportRecoverableError('ipc-send:agents:snapshot', error); }
 }
 
+function openAttentionSession(session) {
+  showMainWindow();
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.flashFrame(false);
+  try {
+    mainWindow.webContents.send('agents:attention-requested', { sessionId: String(session && session.id || '') });
+  } catch (error) {
+    reportRecoverableError('ipc-send:agents:attention-requested', error);
+  }
+}
+
+function createAttentionNotifier() {
+  return new AttentionNotifier({
+    Notification,
+    isSupported: () => Notification.isSupported(),
+    copy: session => {
+      const provider = providerList().find(item => item.id === session.provider);
+      return {
+        title: mainText('attentionTitle'),
+        body: mainText('attentionBody', {
+          provider: provider && provider.label || session.provider || 'AI',
+          title: session.title || '이름 없는 세션',
+        }),
+      };
+    },
+    onOpen: openAttentionSession,
+    onFallback: session => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(true);
+      openAttentionSession(session);
+    },
+  });
+}
+
 function sendUpdateState(update) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try { mainWindow.webContents.send('app:update-state', update); } catch (error) { reportRecoverableError('ipc-send:app:update-state', error); }
@@ -283,6 +324,7 @@ function setupRuntime() {
     downloadsDir: path.join(app.getPath('userData'), 'updates'),
   });
   updateManager.on('state', sendUpdateState);
+  attentionNotifier = createAttentionNotifier();
   updateManager.check().catch(error => reportRecoverableError('startup-update-check', error));
   if (demoCapture) {
     availability = Object.fromEntries(providerList().map(provider => [provider.id, true]));
@@ -310,6 +352,7 @@ function setupRuntime() {
   monitorWorker.on('message', message => {
     if (message && message.type === 'snapshot') {
       lastSnapshot = message.snapshot;
+      attentionNotifier.sync(lastSnapshot);
       sendSnapshot(lastSnapshot);
     }
     if (message && message.type === 'detail-result') {
@@ -484,6 +527,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (attentionNotifier) attentionNotifier.dispose();
   if (bridgeServer) bridgeServer.dispose();
   if (terminalManager) terminalManager.dispose();
   if (monitorWorker) {

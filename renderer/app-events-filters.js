@@ -48,7 +48,11 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       renderProviderOverview();
       renderSessions("filter");
       announceProviderFilter();
-      requestAnimationFrame(() => $("#providerFilter").querySelector(`[data-provider-filter="${CSS.escape(chip.dataset.providerFilter)}"]`)?.focus());
+      requestAnimationFrame(() => {
+        const next = $("#providerFilter").querySelector(`[data-provider-filter="${CSS.escape(chip.dataset.providerFilter)}"]`);
+        next?.classList.add("filter-clicked");
+        next?.focus();
+      });
     });
     $("#sortSelect").addEventListener("change", (event) => {
       state.sort = event.target.value;

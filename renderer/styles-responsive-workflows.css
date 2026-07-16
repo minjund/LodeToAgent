@@ -375,20 +375,6 @@
     grid-column: 1/-1;
   }
 
-  .subagent-conversation-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .subagent-dialog-list .chat-row.assistant {
-    padding-left: 0;
-    padding-right: 0;
-  }
-
-  .subagent-dialog-list .chat-row.user {
-    padding-left: 0;
-    padding-right: 0;
-  }
-
   .completed-subagent-list {
     grid-template-columns: 1fr;
   }

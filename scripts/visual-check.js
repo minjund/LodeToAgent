@@ -10,10 +10,15 @@ function markerCommand(marker) {
 }
 
 const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-visual-${process.pid}-`));
+const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-visual-user-${process.pid}-`));
 process.env.LOADTOAGENT_TEST_INSTANCE = '1';
 process.env.LOADTOAGENT_BRIDGE_HOME = isolatedBridgeHome;
 const { app, BrowserWindow } = require('electron');
-app.once('quit', () => { try { fs.rmSync(isolatedBridgeHome, { recursive: true, force: true }); } catch {} });
+app.setPath('userData', isolatedUserData);
+app.once('quit', () => {
+  try { fs.rmSync(isolatedBridgeHome, { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(isolatedUserData, { recursive: true, force: true }); } catch {}
+});
 
 require('../main');
 
@@ -917,11 +922,11 @@ app.whenReady().then(() => {
         }
         window.LoadToAgentApp.renderSessions();
         document.querySelector('.downstream-column [data-open-subagent-chat="visual-density:child:2"]')?.click();
-      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('[data-subagent-dialog-count="3"]') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent]')`);
+      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('[data-subagent-work-messages="1"]') && document.querySelector('[data-subagent-coordination-count="2"]') && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1 && document.querySelector('[data-resume-agent]')`);
       const subagentConversationOutput = path.join(outputDir, 'loadtoagent-subagent-conversation.png');
       fs.writeFileSync(subagentConversationOutput, subagentConversationImage.toPNG());
-      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => { const preview = document.querySelector('[data-subagent-message-preview][data-truncated="true"]'); const paragraph = preview?.querySelector('p'); const style = paragraph ? getComputedStyle(paragraph) : null; return { focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, dialogEvents: document.querySelectorAll('[data-subagent-communication]').length, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, resumeAvailable: Boolean(document.querySelector('[data-resume-agent]')), truncatedPreview: Boolean(preview), previewCharacters: paragraph?.textContent?.length || 0, endsWithEllipsis: paragraph?.textContent?.endsWith('…') || false, previewClamped: Boolean(paragraph && style && style.overflow === 'hidden' && paragraph.clientHeight <= parseFloat(style.lineHeight) * 5 + 2), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }; })()`);
-      if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.dialogEvents !== 3 || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.resumeAvailable || !subagentConversationMetrics.truncatedPreview || subagentConversationMetrics.previewCharacters > 361 || !subagentConversationMetrics.endsWithEllipsis || !subagentConversationMetrics.previewClamped || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 전용 대화 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
+      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, resumeAvailable: Boolean(document.querySelector('[data-resume-agent]')), actualWorkVisible: document.querySelector('#drawerContent')?.innerText.includes('동시에 실행되는 작업의 상태를 확인하고 있습니다.') || false, placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
+      if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 2 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.resumeAvailable || !subagentConversationMetrics.actualWorkVisible || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 작업 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
 
       setTestWindowSize(win, 1080, 700);
@@ -932,6 +937,12 @@ app.whenReady().then(() => {
         window.LoadToAgentApp.state.expandedCompletedSubagents.add(${JSON.stringify(densityFocusId)});
         window.LoadToAgentApp.renderSessions();
         window.LoadToAgentApp.drawAgentWorkflowConnections();
+        const stage = document.querySelector('.main-stage');
+        const selectedTarget = document.querySelector('.agent-workflow-selected');
+        if (stage && selectedTarget) {
+          const stageTop = stage.getBoundingClientRect().top;
+          stage.scrollTo(0, Math.max(0, stage.scrollTop + selectedTarget.getBoundingClientRect().top - stageTop - 12));
+        }
         const upstream = document.querySelector('.upstream-column')?.getBoundingClientRect();
         const selected = document.querySelector('.selected-column')?.getBoundingClientRect();
         const downstream = document.querySelector('.downstream-column')?.getBoundingClientRect();
@@ -977,7 +988,12 @@ app.whenReady().then(() => {
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.renderSessions();
         window.LoadToAgentApp.drawAgentWorkflowConnections();
-        document.querySelector('.main-stage')?.scrollTo(0, 0);
+        const stage = document.querySelector('.main-stage');
+        const selectedTarget = document.querySelector('.agent-workflow-selected');
+        if (stage && selectedTarget) {
+          const stageTop = stage.getBoundingClientRect().top;
+          stage.scrollTo(0, Math.max(0, stage.scrollTop + selectedTarget.getBoundingClientRect().top - stageTop - 12));
+        }
       })()`, `(() => {
         const current = document.querySelector('.agent-workflow-selected .agent-current')?.getBoundingClientRect();
         return window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && document.querySelector('#beginnerGuide')?.classList.contains('hidden') && current && current.bottom <= window.innerHeight;

@@ -67,6 +67,11 @@ contextBridge.exposeInMainWorld('loadtoagent', {
     ipcRenderer.on('agents:snapshot', handler);
     return () => ipcRenderer.removeListener('agents:snapshot', handler);
   },
+  onAttentionRequested: callback => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('agents:attention-requested', handler);
+    return () => ipcRenderer.removeListener('agents:attention-requested', handler);
+  },
   onUpdateState: callback => {
     const handler = (_event, update) => callback(update);
     ipcRenderer.on('app:update-state', handler);
