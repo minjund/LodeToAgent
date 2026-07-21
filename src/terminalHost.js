@@ -239,11 +239,13 @@ function launchTerminalHost(options = {}) {
 
 function resolveTerminalHostExecutable(options = {}) {
   const platform = options.platform || process.platform;
-  const executable = path.resolve(options.executable || process.execPath);
+  const executable = String(options.executable || process.execPath);
   if (platform !== 'darwin' || !options.isPackaged) return executable;
-  const productName = path.basename(executable);
-  const helper = path.resolve(
-    path.dirname(executable),
+  const targetPath = path.posix;
+  const resolvedExecutable = targetPath.resolve(executable);
+  const productName = targetPath.basename(resolvedExecutable);
+  const helper = targetPath.resolve(
+    targetPath.dirname(resolvedExecutable),
     '..',
     'Frameworks',
     `${productName} Helper.app`,

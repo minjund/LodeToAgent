@@ -538,7 +538,7 @@ function registerTerminalLifecycleTests(context) {
       } },
     };
     const manager = new TerminalManager(options);
-    const session = manager.create({ type: 'shell', cwd: root });
+    const session = manager.create({ type: 'powershell', cwd: root });
     processes[0].exitCallback({ exitCode: 0, signal: 0 });
 
     const afterHostCrash = new TerminalManager(options);
