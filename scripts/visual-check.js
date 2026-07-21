@@ -80,7 +80,7 @@ app.whenReady().then(() => {
         if (tmuxReady) break;
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { window.LoadToAgentI18n?.setLocale('ko'); window.LoadToAgentApp.state.view = 'all'; window.LoadToAgentApp.state.graphFocusId = null; document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all')); window.LoadToAgentApp.renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
+      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { window.LoadToAgentI18n?.setLocale('ko'); window.LoadToAgentApp.state.view = 'all'; window.LoadToAgentApp.state.graphFocusId = null; window.LoadToAgentApp.state.guideExpanded = true; document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all')); window.LoadToAgentApp.renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
       await new Promise(resolve => setTimeout(resolve, 500));
       const bridgeInfo = await win.webContents.executeJavaScript(`(async () => {
         const bootstrap = await window.loadtoagent.bootstrap();
@@ -107,7 +107,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('내 확인 필요') || !beginnerMetrics.navLabels.includes('스케줄·루프') || !beginnerMetrics.navLabels.includes('세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 작업') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('확인·주의') || !beginnerMetrics.navLabels.includes('예약·반복') || !beginnerMetrics.navLabels.includes('대화·명령창') || !beginnerMetrics.navLabels.includes('여러 명령창') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -162,7 +162,7 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript("window.LoadToAgentI18n.setLocale('ko')");
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      await win.webContents.executeJavaScript("document.querySelector('[data-view=\"terminal\"]')?.click(); document.querySelector('.main-stage')?.scrollTo(0, 0)");
+      await win.webContents.executeJavaScript("document.querySelector('[data-view=\"terminal\"]')?.click(); document.querySelector('.terminal-session-tools')?.setAttribute('open', ''); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 300));
       await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
       const firstTerminalId = await waitForRenderer(win, "document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''", 50, 200);

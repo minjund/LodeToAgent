@@ -75,6 +75,7 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
       const menu = $("#mobileToolsMenu");
       const opening = menu.classList.contains("hidden");
       if (!opening) return closeMobileTools(true);
+      $("#mobileMoreBtn").focus({ preventScroll: true });
       rememberDialogTrigger();
       menu.classList.remove("hidden");
       setDialogOpenState(menu, true);

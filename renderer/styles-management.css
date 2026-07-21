@@ -248,7 +248,27 @@
 .management-health.warning > header strong { color: #e9b949; }
 .management-health.healthy > header strong { color: var(--green); }
 
-.management-detail { display: grid; gap: 12px; }
+.management-detail {
+  container: management-detail / inline-size;
+  display: grid;
+  gap: 12px;
+}
+.management-detail .management-health li {
+  display: grid;
+  grid-template-columns: 7px minmax(148px, max-content) minmax(0, 1fr);
+  align-items: start;
+}
+.management-detail .management-health li > i { margin-top: .4em; }
+.management-detail .management-health li > b {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.management-detail .management-health li > span {
+  min-width: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .management-outcome { padding: 16px; border-color: #2b3a4d; }
 .management-outcome > header { display: flex; justify-content: space-between; gap: 16px; }
 .management-outcome h3 { margin: 4px 0 0; font-size: 20px; }
@@ -262,7 +282,20 @@
 .management-attention-detail .management-quick-actions { margin-top: 12px; }
 .management-attention-detail .agent-command-panel { margin-top: 12px; }
 .management-artifacts li i { min-width: 50px; padding: 3px 6px; border-radius: 6px; color: #7ddaf1; background: #142330; font-size: 12px; font-style: normal; text-align: center; text-transform: uppercase; }
-.management-artifacts li b { min-width: 0; overflow-wrap: anywhere; }
+.management-artifacts li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.management-artifacts li b {
+  min-width: 0;
+  overflow: hidden;
+  color: #e5ebf3;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .management-evidence dl { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0; }
 .management-evidence dl div { padding: 11px 13px; border-right: 1px solid var(--line-soft); }
 .management-evidence dl div:last-child { border-right: 0; }
@@ -281,6 +314,23 @@
 
 .global-stat.critical strong { color: #ff7d87; }
 .global-stat.warning strong { color: #e9b949; }
+
+@container management-detail (max-width: 600px) {
+  .management-detail .management-health li {
+    grid-template-columns: 7px minmax(0, 1fr);
+    column-gap: 10px;
+    row-gap: 2px;
+  }
+  .management-detail .management-health li > b,
+  .management-detail .management-health li > span { grid-column: 2; }
+  .management-detail .management-health li > span {
+    display: -webkit-box;
+    margin-left: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
 
 @media (max-width: 980px) {
   .operations-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }

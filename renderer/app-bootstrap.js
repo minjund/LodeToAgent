@@ -37,12 +37,32 @@
 
   const { $, esc, state, loadGuideState, loadQualityState = () => {}, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast } = app;
 
+  let initializationError = "";
+  const showInitializationError = (message) => {
+    initializationError = String(message || t("ui.connection_failed"));
+    $("#lastSync").textContent = t("ui.connection_failed");
+    $("#appConnectionState")?.classList.add("connection-error");
+    $("#appErrorMessage").textContent = initializationError;
+    $("#appErrorBanner").classList.remove("hidden");
+  };
+  $("#appRetryBtn")?.addEventListener("click", () => window.location.reload());
+  $("#appErrorCopyBtn")?.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(initializationError);
+      toast(t("quality.copy_success"));
+    } catch (error) {
+      window.LoadToAgentRendererUtils.reportRecoverableError("initialization-error-copy", error);
+      toast(t("quality.copy_failed"));
+    }
+  });
+
   async function init() {
     loadQualityState();
     loadGuideState();
     if (!window.loadtoagent) {
       $("#emptyState").classList.remove("hidden");
       $("#emptyState p").textContent = t("bootstrap.open_in_app");
+      showInitializationError(t("bootstrap.open_in_app"));
       return;
     }
     const bootstrap = await window.loadtoagent.bootstrap();
@@ -71,6 +91,8 @@
     if (window.loadtoagent.onAttentionRequested) window.loadtoagent.onAttentionRequested(handleAttentionRequested);
     bindEvents();
     render();
+    $("#appConnectionState")?.classList.remove("connection-error");
+    $("#appErrorBanner").classList.add("hidden");
     app.initialized = true;
     $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);
     window.loadtoagent.onSnapshot((snapshot) => {
@@ -111,7 +133,8 @@
 
   init().catch((error) => {
     console.error(error);
-    $("#lastSync").textContent = window.LoadToAgentI18n.t("ui.connection_failed");
-    toast(t("bootstrap.initialization_failed", { message: window.LoadToAgentI18n.errorText(error, "ui.connection_failed") }));
+    const message = t("bootstrap.initialization_failed", { message: window.LoadToAgentI18n.errorText(error, "ui.connection_failed") });
+    showInitializationError(message);
+    toast(message);
   });
 })();

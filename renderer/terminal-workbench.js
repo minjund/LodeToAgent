@@ -118,7 +118,14 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const attention = general.filter(item => terminalPresentation(item).tone === 'attention').length;
     $('#navTerminalCount').textContent = running;
     const terminalNav = document.querySelector('.nav-item[data-view="terminal"]');
-    if (terminalNav) terminalNav.setAttribute('aria-label', t('quality.nav_count', { label: t('app.nav.session_terminal'), count: running }));
+    if (terminalNav) terminalNav.setAttribute('aria-label', t('quality.nav_count_detailed', { label: t('app.nav.session_terminal'), count: running, unit: t('quality.unit.sessions') }));
+    const advancedCount = ['navRuntimeCount', 'navTerminalCount', 'navTmuxCount']
+      .reduce((total, id) => total + Number(document.getElementById(id)?.textContent || 0), 0);
+    const advancedCounter = document.getElementById('advancedToolsCount');
+    if (advancedCounter) advancedCounter.textContent = String(advancedCount);
+    document.querySelector('#advancedToolsNav > summary')?.setAttribute('aria-label', t('quality.nav_count_detailed', {
+      label: t('management.advanced_tools'), count: advancedCount, unit: t('quality.unit.items'),
+    }));
     $('#terminalSessionSummary').textContent = [
       window.LoadToAgentI18n.t('common.active', { count: running }),
       attention ? t('terminal.monitor.attention_count', { count: attention }) : '',

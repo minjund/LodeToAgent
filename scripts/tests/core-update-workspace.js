@@ -12,6 +12,7 @@ const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath } = require
 const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
+const { ensureMacNodePtySpawnHelpersExecutable } = require('../after-pack');
 
 function registerProviderAndWorkspaceTests(context) {
   const { test, temp } = context;
@@ -91,6 +92,35 @@ function registerCliAndUpdateTests(context) {
     assert(entries.includes(path.join(versions, 'v24.1.0', 'bin')));
     assert(!entries.includes(path.join(versions, 'v15.0.1', 'bin')));
     assert(!entries.includes(path.join(versions, 'v22.16.0', 'bin')));
+  });
+
+  test('macOS 앱 패키징 후 node-pty spawn-helper 실행 권한을 복구한다', () => {
+    const appOutDir = path.join(temp, 'mac-after-pack');
+    const helper = path.join(
+      appOutDir,
+      'LoadToAgent.app',
+      'Contents',
+      'Resources',
+      'app.asar.unpacked',
+      'node_modules',
+      'node-pty',
+      'prebuilds',
+      'darwin-x64',
+      'spawn-helper',
+    );
+    fs.mkdirSync(path.dirname(helper), { recursive: true });
+    fs.writeFileSync(helper, 'fixture', { mode: 0o644 });
+    fs.chmodSync(helper, 0o644);
+
+    const helpers = ensureMacNodePtySpawnHelpersExecutable({
+      electronPlatformName: 'darwin',
+      appOutDir,
+      packager: { appInfo: { productFilename: 'LoadToAgent' } },
+    });
+
+    assert.deepStrictEqual(helpers, [helper]);
+    assert.equal(fs.statSync(helper).mode & 0o111, 0o111);
+    fs.accessSync(helper, fs.constants.X_OK);
   });
 
   test('Git 태그 버전을 SemVer 순서로 비교한다', () => {

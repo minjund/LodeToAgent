@@ -97,18 +97,6 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
         requestAnimationFrame(() => $("#automationOverview")?.querySelector(`[data-loop-select="${CSS.escape(state.selectedRuntimeLoopId)}"]`)?.focus({ preventScroll: true }));
         return;
       }
-      const schedule = event.target.closest("[data-automation-id]");
-      if (!schedule || !["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-      const cards = Array.from(event.currentTarget.querySelectorAll("[data-automation-id]"));
-      const current = Math.max(0, cards.indexOf(schedule));
-      const next = event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? cards.length - 1
-          : (current + (event.key === "ArrowDown" ? 1 : -1) + cards.length) % cards.length;
-      event.preventDefault();
-      cards.forEach((candidate, index) => { candidate.tabIndex = index === next ? 0 : -1; });
-      cards[next]?.focus();
     });
     $("#providerOverview").addEventListener("click", (event) => {
       const card = event.target.closest("[data-provider-card]");

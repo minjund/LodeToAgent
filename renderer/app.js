@@ -45,7 +45,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     detailErrors: new Map(),
     disclosureStates: new Map(),
     guideCompleted: new Set(),
-    guideExpanded: true,
+    guideExpanded: false,
     platform: { id: "win32", label: "Windows", localShell: "powershell", localShellLabel: t("terminal.windows_shell"), nativeTmux: false },
   };
   Object.defineProperty(state, "provider", {
@@ -184,11 +184,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     try {
       const saved = JSON.parse(localStorage.getItem(GUIDE_STORAGE_KEY) || "{}");
       state.guideCompleted = new Set((saved.completed || []).filter((step) => GUIDE_STEPS.includes(step)));
-      state.guideExpanded = saved.expanded !== false;
+      state.guideExpanded = saved.expanded === true;
     } catch (error) {
       reportRecoverableError("guide-state-load", error);
       state.guideCompleted = new Set();
-      state.guideExpanded = true;
+      state.guideExpanded = false;
     }
   }
   function saveGuideState() {
@@ -253,7 +253,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (view === "active" || view === "waiting") markGuideStep(view);
     syncViewChrome();
     context.renderSessions(options.motionKind || "view");
-    $("#mobileToolsMenu")?.classList.add("hidden");
+    const mobileToolsMenu = $("#mobileToolsMenu");
+    if (mobileToolsMenu && !mobileToolsMenu.classList.contains("hidden")) {
+      setDialogOpenState(mobileToolsMenu, false);
+      mobileToolsMenu.classList.add("hidden");
+    }
     $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
     document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
     if (options.focusMain) $("#mainContent")?.focus({ preventScroll: true });

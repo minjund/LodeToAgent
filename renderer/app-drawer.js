@@ -177,22 +177,30 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     clearTimeout(motionState.drawerContentTimer);
     if (shouldAnimateContent)
       motionState.drawerContentTimer = setTimeout(() => content.classList.remove("motion-content-in"), motionPreference.matches ? 0 : 520);
-    if (!detailLoading)
-      requestAnimationFrame(() => {
-        const forceLatest = state.drawerForceLatest;
-        if (state.drawerTab === "chat" && forceLatest) {
-          const rows = [...content.querySelectorAll(".chat-row")];
-          const latest = rows[rows.length - 1];
-          if (latest && latest.offsetHeight > content.clientHeight - 90) {
-            const contentTop = content.getBoundingClientRect().top;
-            const stickyHeight = content.querySelector(".chat-history-head")?.getBoundingClientRect().height || 0;
-            content.scrollTop = Math.max(0, content.scrollTop + latest.getBoundingClientRect().top - contentTop - stickyHeight - 12);
-          } else content.scrollTop = content.scrollHeight;
-        } else if (tabChanged) content.scrollTop = 0;
-        else if (state.drawerTab === "chat" && wasAtBottom) content.scrollTop = content.scrollHeight;
-        else content.scrollTop = Math.min(previousTop, Math.max(0, content.scrollHeight - content.clientHeight));
+    if (!detailLoading) {
+      if (tabChanged) {
+        content.scrollTop = 0;
         state.drawerForceLatest = false;
-      });
+      } else {
+        const scrollGeneration = (motionState.drawerScrollGeneration || 0) + 1;
+        motionState.drawerScrollGeneration = scrollGeneration;
+        requestAnimationFrame(() => {
+          if (motionState.drawerScrollGeneration !== scrollGeneration) return;
+          const forceLatest = state.drawerForceLatest;
+          if (state.drawerTab === "chat" && forceLatest) {
+            const rows = [...content.querySelectorAll(".chat-row")];
+            const latest = rows[rows.length - 1];
+            if (latest && latest.offsetHeight > content.clientHeight - 90) {
+              const contentTop = content.getBoundingClientRect().top;
+              const stickyHeight = content.querySelector(".chat-history-head")?.getBoundingClientRect().height || 0;
+              content.scrollTop = Math.max(0, content.scrollTop + latest.getBoundingClientRect().top - contentTop - stickyHeight - 12);
+            } else content.scrollTop = content.scrollHeight;
+          } else if (state.drawerTab === "chat" && wasAtBottom) content.scrollTop = content.scrollHeight;
+          else content.scrollTop = Math.min(previousTop, Math.max(0, content.scrollHeight - content.clientHeight));
+          state.drawerForceLatest = false;
+        });
+      }
+    }
   }
 
   return { openDrawer, openSubagentConversation, closeDrawer, renderDrawer };

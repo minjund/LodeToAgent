@@ -7,7 +7,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   const {
     $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
-    handleRun, trapDialogFocus, selectView, saveRunDraft = () => {}, safeBackdrop = null,
+    handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     copyText = async () => false,
     dispatchAgentCommand, controlManagedRun, quickRespond, prepareReassignment,
   } = context;
@@ -242,7 +242,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     document.addEventListener("keydown", (event) => {
       trapDialogFocus(event);
       const editable = event.target instanceof HTMLElement && Boolean(event.target.closest("input, textarea, select, [contenteditable='true']"));
-      const dialogOpen = !$("#runModal").classList.contains("hidden") || !$("#tmuxCreateModal").classList.contains("hidden") || $("#detailDrawer").classList.contains("open");
+      const dialogOpen = Boolean(currentDialog?.());
       const viewShortcuts = ["all", "active", "waiting", "runtime", "terminal", "tmux", "settings"];
       if (!editable && !dialogOpen && (event.metaKey || event.ctrlKey) && /^[1-7]$/.test(event.key)) {
         event.preventDefault();
@@ -255,16 +255,14 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         $("#searchInput").focus();
         return;
       }
-      if (event.key.toLowerCase() === "n" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+      if (!editable && !dialogOpen && event.key.toLowerCase() === "n" && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         if ($("#runModal").classList.contains("hidden")) openRunModal();
         return;
       }
       if (event.key !== "Escape") return;
       if (!$("#mobileToolsMenu").classList.contains("hidden")) {
-        $("#mobileToolsMenu").classList.add("hidden");
-        $("#mobileMoreBtn").setAttribute("aria-expanded", "false");
-        $("#mobileMoreBtn").focus();
+        $("#mobileToolsCloseBtn")?.click();
       } else if (!$("#runModal").classList.contains("hidden")) closeRunModal();
       else closeDrawer();
     });

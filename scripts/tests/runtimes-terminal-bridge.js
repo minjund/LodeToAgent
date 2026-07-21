@@ -3,6 +3,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { parseArguments } = require('../../bin/loadtoagent');
@@ -436,7 +437,7 @@ function registerTerminalLifecycleTests(context) {
     });
     const endpoint = process.platform === 'win32'
       ? `\\\\.\\pipe\\loadtoagent-host-test-${process.pid}-${Date.now()}`
-      : path.join(temp, `terminal-host-${Date.now()}.sock`);
+      : path.join(os.tmpdir(), `lta-host-${process.pid}-${Date.now()}.sock`);
     const discovery = path.join(temp, 'terminal-host-discovery.json');
     const server = new TerminalHostServer({ manager, endpoint, discoveryFile: discovery, token: 'host-test-token' });
     await server.start();

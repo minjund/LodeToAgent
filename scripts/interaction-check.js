@@ -49,6 +49,7 @@ const ACTION_MANIFEST = [
   { selector: '#terminalAttachBtn', action: 'terminal:attach' },
   { selector: '#terminalCloseBtn', action: 'terminal:close' },
   { selector: '#terminalHistoryToggle', action: 'terminal:history-collapse' },
+  { selector: '.terminal-session-tools > summary', action: 'terminal:session-controls' },
   { selector: '#terminalFontDecreaseBtn', action: 'terminal:font-decrease' },
   { selector: '#terminalFontIncreaseBtn', action: 'terminal:font-increase' },
   { selector: '#terminalFocusBtn', action: 'terminal:focus-mode' },
@@ -135,7 +136,8 @@ const mark = action => coverage.set(action, Number(coverage.get(action) || 0) + 
 async function recordManifest(win) {
   const result = await win.webContents.executeJavaScript(`(() => {
     const selectors = ${JSON.stringify(ACTION_MANIFEST.map(item => item.selector))};
-    const discovered = [...document.querySelectorAll('button, form, input[type="search"], input[type="checkbox"], select, [data-provider-card], [data-workspace], [data-session-id]')];
+    const discovered = [...document.querySelectorAll('button, form, input[type="search"], input[type="checkbox"], select, [data-provider-card], [data-workspace], [data-session-id], .terminal-session-tools > summary')]
+      .filter(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden');
     const unknown = discovered.filter(element => !selectors.some(selector => { try { return element.matches(selector); } catch { return false; } })).map(element => element.outerHTML.slice(0, 240));
     const seen = selectors.filter(selector => { try { return Boolean(document.querySelector(selector)); } catch { return false; } });
     return { unknown, seen };
@@ -368,6 +370,10 @@ async function exerciseTabDataRouting(win, round) {
 
 async function exerciseGuideAndMobileTools(win, round) {
   await click(win, '[data-view="all"]', 'nav:all');
+  if (await win.webContents.executeJavaScript(`document.querySelector('#beginnerGuide').classList.contains('hidden')`)) {
+    await click(win, '#guideBtn', 'guide:open-before-dismiss');
+    await waitFor(win, `!document.querySelector('#beginnerGuide').classList.contains('hidden')`, '시작 가이드 열기 실패');
+  }
   await click(win, '#dismissGuideBtn', 'guide:dismiss');
   await waitFor(win, `document.querySelector('#beginnerGuide').classList.contains('hidden')`, '시작 가이드 접기 실패');
   await win.webContents.executeJavaScript(`(() => {
@@ -400,6 +406,14 @@ async function exerciseGuideAndMobileTools(win, round) {
     && document.querySelector('#mobileToolsMenu').getAttribute('aria-hidden') === 'false'
     && !document.querySelector('#mobileToolsMenu').inert
     && document.querySelector('#appShell').inert`, '모바일 더보기 메뉴의 모달 상태와 배경 차단 실패');
+  const viewBeforeMobileShortcutGuard = await win.webContents.executeJavaScript(`window.LoadToAgentApp.state.view`);
+  await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown', { key: '3', metaKey: true, bubbles: true, cancelable: true }))`);
+  await win.webContents.executeJavaScript(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, bubbles: true, cancelable: true }))`);
+  await waitFor(win, `window.LoadToAgentApp.state.view === ${JSON.stringify(viewBeforeMobileShortcutGuard)}
+    && !document.querySelector('#mobileToolsMenu').classList.contains('hidden')
+    && document.querySelector('#runModal').classList.contains('hidden')
+    && document.querySelector('#appShell').inert`, '모바일 더보기에서 전역 화면·새 작업 단축키가 차단되지 않았습니다.');
+  mark('mobile:shortcut-guard');
   const mobileFocusTrap = await win.webContents.executeJavaScript(`(() => {
     const menu = document.querySelector('#mobileToolsMenu');
     const buttons = [...menu.querySelectorAll('button:not([disabled])')].filter(button => button.getClientRects().length);
@@ -653,7 +667,7 @@ async function exerciseDashboardControls(win, round) {
     const rect = button.getBoundingClientRect();
     return { count: Number(document.querySelector('#agentWorkTmuxCount').textContent), height: rect.height, accessibleName: button.getAttribute('aria-label') };
   })()`);
-  assert(tmuxShortcut.count === 1 && tmuxShortcut.height >= 40 && tmuxShortcut.accessibleName.includes('세션 1개'), `AI 작업의 tmux 바로가기 표시가 올바르지 않습니다: ${JSON.stringify(tmuxShortcut)}`);
+  assert(tmuxShortcut.count === 1 && tmuxShortcut.height >= 44 && tmuxShortcut.accessibleName.includes('묶음 1개'), `AI 작업의 tmux 바로가기 표시가 올바르지 않습니다: ${JSON.stringify(tmuxShortcut)}`);
   await click(win, '#openTmuxFromAgentWork', 'tmux:shortcut-from-agent-work');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'tmux' && !document.querySelector('#tmuxSection').classList.contains('hidden') && document.activeElement?.id === 'mainContent'`, 'AI 작업의 tmux 바로가기가 포커스를 옮기며 tmux 탭을 열지 못했습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
@@ -797,17 +811,18 @@ async function exerciseRuntimeOverview(win, round) {
 
   const runtimeSemantics = await win.webContents.executeJavaScript(`(() => ({
     scheduleRole: document.querySelector('.runtime-schedule-list')?.getAttribute('role'),
+    scheduleListTabIndex: document.querySelector('.runtime-schedule-list')?.tabIndex,
+    scheduleItems: document.querySelectorAll('.runtime-schedule-list [role="listitem"]').length,
+    scheduleButtons: document.querySelectorAll('.runtime-schedule-list button[data-automation-id]').length,
     scheduleOptions: document.querySelectorAll('.runtime-schedule-list [role="option"]').length,
-    scheduleTabStops: document.querySelectorAll('.runtime-schedule-list [tabindex="0"]').length,
+    scheduleTabStops: [...document.querySelectorAll('.runtime-schedule-list button[data-automation-id]')].filter(item => item.tabIndex === 0).length,
     loopRole: document.querySelector('.runtime-loop-tabs')?.getAttribute('role'),
     loopTabs: document.querySelectorAll('.runtime-loop-tabs [role="tab"]').length,
     loopTabStops: document.querySelectorAll('.runtime-loop-tabs [tabindex="0"]').length,
     selectedTabs: document.querySelectorAll('.runtime-loop-tabs [aria-selected="true"]').length,
     panelLabelled: Boolean(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-labelledby')),
   }))()`);
-  assert(runtimeSemantics.scheduleRole === 'listbox' && runtimeSemantics.scheduleOptions === 7 && runtimeSemantics.scheduleTabStops === 1 && runtimeSemantics.loopRole === 'tablist' && runtimeSemantics.loopTabs === 6 && runtimeSemantics.loopTabStops === 1 && runtimeSemantics.selectedTabs === 1 && runtimeSemantics.panelLabelled, `런타임 목록·탭 ARIA 계약 실패: ${JSON.stringify(runtimeSemantics)}`);
-  await win.webContents.executeJavaScript(`(() => { const first = document.querySelector('.runtime-schedule-list [role="option"]'); first.focus(); first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })); })()`);
-  await waitFor(win, `document.activeElement === document.querySelectorAll('.runtime-schedule-list [role="option"]')[1] && document.querySelectorAll('.runtime-schedule-list [tabindex="0"]').length === 1 && document.activeElement.tabIndex === 0`, '예약 목록 방향키와 roving tabindex 이동 실패');
+  assert(runtimeSemantics.scheduleRole === 'list' && runtimeSemantics.scheduleListTabIndex === -1 && runtimeSemantics.scheduleItems === 7 && runtimeSemantics.scheduleOptions === 0 && runtimeSemantics.scheduleButtons > 0 && runtimeSemantics.scheduleTabStops === runtimeSemantics.scheduleButtons && runtimeSemantics.loopRole === 'tablist' && runtimeSemantics.loopTabs === 6 && runtimeSemantics.loopTabStops === 1 && runtimeSemantics.selectedTabs === 1 && runtimeSemantics.panelLabelled, `런타임 목록·탭 ARIA 계약 실패: ${JSON.stringify(runtimeSemantics)}`);
   mark('quality:runtime-schedule-keyboard');
   const selectedLoopBefore = await win.webContents.executeJavaScript(`document.querySelector('.runtime-loop-tabs [aria-selected="true"]')?.dataset.loopSelect`);
   await win.webContents.executeJavaScript(`document.querySelector('.runtime-loop-tabs [aria-selected="true"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))`);
@@ -1433,7 +1448,8 @@ async function exerciseAgentControls(win, round) {
 async function exerciseTerminal(win, round) {
   await click(win, '[data-view="terminal"]', 'nav:terminal');
   await waitFor(win, `Boolean(document.querySelector('[data-terminal-id="terminal-main"]'))`, '터미널 목록 로드 실패');
-  await sleep(120);
+  await click(win, '.terminal-session-tools > summary', 'terminal:session-controls');
+  await waitFor(win, `document.querySelector('.terminal-session-tools')?.hasAttribute('open')`, '터미널 세션 관리 메뉴가 열리지 않았습니다.');
   const initialFontSize = await win.webContents.executeJavaScript(`Number.parseInt(document.querySelector('#terminalFontSizeLabel')?.textContent || '0', 10)`);
   await click(win, '#terminalFontDecreaseBtn', 'terminal:font-decrease');
   await waitFor(win, `Number.parseInt(document.querySelector('#terminalFontSizeLabel')?.textContent || '0', 10) === ${Math.max(12, initialFontSize - 1)}`, '터미널 글자 축소가 반영되지 않았습니다.');
@@ -1496,8 +1512,14 @@ async function exerciseTerminal(win, round) {
   await click(win, '[data-terminal-id="terminal-ended"]', 'terminal:select-session');
   await waitFor(win, `!document.querySelector('#terminalRestartBtn').classList.contains('hidden')`, '종료 세션 다시 시작 버튼이 표시되지 않았습니다.');
   await clearCalls(win);
-  await click(win, '#terminalRestartBtn', 'terminal:restart');
-  assert(await win.webContents.executeJavaScript(`document.querySelector('#terminalRestartBtn').disabled && document.querySelector('#terminalRestartBtn').getAttribute('aria-busy') === 'true'`), '터미널 다시 시작 중 바쁜 상태가 표시되지 않았습니다.');
+  const restartBusy = await win.webContents.executeJavaScript(`(() => {
+    const button = document.querySelector('#terminalRestartBtn');
+    button.click();
+    return button.disabled && button.getAttribute('aria-busy') === 'true';
+  })()`);
+  mark('terminal:restart');
+  assert(restartBusy, '터미널 다시 시작 중 바쁜 상태가 표시되지 않았습니다.');
+  await recordManifest(win);
   await win.webContents.executeJavaScript(`document.querySelector('#terminalRestartBtn').click()`);
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalRestart')`, '종료 세션 다시 시작 실패');
   await sleep(240);
@@ -1878,7 +1900,7 @@ app.whenReady().then(async () => {
       'drawer:close-scroll', 'drawer:background-inert', 'terminal:reorder', 'tmux:wheel-scroll-preserve', 'tmux:kill-window-wheel-closed',
       'nav:keyboard-roaming', 'nav:keyboard-shortcut', 'filter:search-shortcut', 'run:background-inert', 'run:background-restore', 'tmux:background-inert',
       'run:provider-keyboard', 'run:workspace-keyboard', 'terminal:create-single-flight',
-      'mobile:keyboard-roaming', 'mobile:outside-dismiss', 'filter:keyboard-roaming', 'run:submit-close-guard', 'terminal:keyboard-roaming',
+      'mobile:keyboard-roaming', 'mobile:outside-dismiss', 'mobile:shortcut-guard', 'filter:keyboard-roaming', 'run:submit-close-guard', 'terminal:keyboard-roaming',
       'settings:provider-visibility-rollback',
       'quality:quick-keyboard', 'quality:quick-empty', 'quality:dashboard-storage',
       'quality:runtime-schedule-keyboard', 'quality:runtime-loop-keyboard', 'quality:run-draft-restore',

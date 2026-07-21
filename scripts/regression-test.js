@@ -24,8 +24,8 @@ registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 68) {
-  throw new Error(`회귀 테스트 등록 수가 68개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 69) {
+  throw new Error(`회귀 테스트 등록 수가 69개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

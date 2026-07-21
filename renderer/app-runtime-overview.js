@@ -131,7 +131,7 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     return t("runtime.elapsed_hours", { count: Math.floor(minutes / 60) });
   }
 
-  function scheduleCard(item, index = 0) {
+  function scheduleCard(item) {
     const session = automationSession(item);
     const cwd = (item.cwds || [])[0] || "";
     const workspace = String(cwd).replace(/\\/g, "/").split("/").filter(Boolean).pop();
@@ -139,9 +139,10 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const body = `<span class="runtime-schedule-time" ${item.enabled ? `data-runtime-next-run-at="${esc(item.nextRunAt || "")}"` : ""}>${esc(item.enabled ? scheduleTime(item.nextRunAt) : t("runtime.paused"))}</span>
       <strong>${esc(item.name)}</strong>
       <small>${esc(scheduleRule(item.rrule))} · ${esc(location)}</small>`;
-    return session
-      ? `<button type="button" role="option" aria-selected="false" tabindex="${index === 0 ? "0" : "-1"}" class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}" data-automation-session="${esc(session.id)}">${body}<i aria-hidden="true">↗</i></button>`
-      : `<article role="option" aria-selected="false" aria-disabled="true" tabindex="${index === 0 ? "0" : "-1"}" class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}">${body}<i aria-hidden="true">${item.enabled ? "●" : "Ⅱ"}</i></article>`;
+    const card = session
+      ? `<button type="button" class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}" data-automation-session="${esc(session.id)}">${body}<i aria-hidden="true">↗</i></button>`
+      : `<article class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}">${body}<i aria-hidden="true">${item.enabled ? "●" : "Ⅱ"}</i></article>`;
+    return `<div class="runtime-schedule-item" role="listitem">${card}</div>`;
   }
 
   function emptySchedules() {
@@ -249,6 +250,11 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     if (detectedFocus) pendingRuntimeFocus = detectedFocus;
     const focusIntent = detectedFocus || pendingRuntimeFocus;
     const automations = visibleAutomations();
+    const interactiveScheduleCount = automations.filter((item) => automationSession(item)).length;
+    const scheduleListFocusable = automations.length > 0 && interactiveScheduleCount === 0;
+    const scheduleListLabel = scheduleListFocusable
+      ? t("runtime.schedule_list_scroll_label")
+      : interactiveScheduleCount > 0 ? t("runtime.schedule_list_action_label") : t("runtime.schedule_list_label");
     const loops = activeRootLoops();
     const enabled = automations.filter((item) => item.enabled);
     const paused = automations.filter((item) => !item.enabled);
@@ -257,12 +263,12 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const selectedId = selected?.id || "";
     section.innerHTML = `<header class="runtime-overview-head">
       <div class="runtime-overview-title"><span class="runtime-overview-emblem" aria-hidden="true"><i></i><b>↻</b></span><div><p>${esc(t("runtime.eyebrow"))}</p><h2>${esc(t("runtime.status_summary"))}</h2></div></div>
-      <div class="runtime-overview-counts"><span><i></i>${esc(t("runtime.schedules_count", { count: enabled.length }))}</span>${paused.length ? `<span class="paused"><i></i>${esc(t("runtime.paused_count", { count: paused.length }))}</span>` : ""}<span><i></i>${esc(t("runtime.loops_count", { count: loops.length }))}</span><b><i></i>LIVE</b></div>
+      <div class="runtime-overview-counts"><span><i></i>${esc(t("runtime.schedules_count", { count: enabled.length }))}</span>${paused.length ? `<span class="paused"><i></i>${esc(t("runtime.paused_count", { count: paused.length }))}</span>` : ""}<span><i></i>${esc(t("runtime.loops_count", { count: loops.length }))}</span><b><i></i>${esc(t("runtime.live_status"))}</b></div>
     </header>
     <div class="runtime-overview-grid">
       <aside class="runtime-schedule-lane">
         <header><div><span>${esc(t("runtime.schedule_lane"))}</span><b>${esc(t("runtime.schedule_list"))}</b></div><em>${String(automations.length).padStart(2, "0")}</em></header>
-        <div class="runtime-schedule-list" role="listbox" tabindex="-1" aria-label="${esc(t("runtime.schedule_list_label"))}">${automations.length ? automations.map(scheduleCard).join("") : emptySchedules()}</div>
+        <div class="runtime-schedule-list" role="list" tabindex="${scheduleListFocusable ? "0" : "-1"}" aria-label="${esc(scheduleListLabel)}">${automations.length ? automations.map(scheduleCard).join("") : emptySchedules()}</div>
       </aside>
       <section class="runtime-loop-lane" aria-label="${esc(t("runtime.loop_lane"))}">
         <header class="runtime-loop-lane-head"><div><span>${esc(t("runtime.loop_lane"))}</span><b>${esc(t("runtime.loop_system"))}</b><small>${esc(t("runtime.inferred_phase"))}</small></div>${loops.length ? `<div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map((loop) => loopSelector(loop, loop.id === selectedId)).join("")}</div>` : ""}</header>

@@ -80,6 +80,26 @@ async function layoutMetrics(win) {
     const sectionOverflow = visibleSections
       .filter(section => section.scrollWidth > section.clientWidth + 2)
       .map(section => section.id || section.className);
+    const sectionOverflowDetails = visibleSections
+      .filter(section => section.scrollWidth > section.clientWidth + 2)
+      .map(section => {
+        const bounds = section.getBoundingClientRect();
+        const offenders = [...section.querySelectorAll('*')]
+          .filter(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1 || element.scrollWidth > element.clientWidth + 2);
+          })
+          .slice(0, 12)
+          .map(element => ({
+            tag: element.tagName,
+            id: element.id,
+            className: typeof element.className === 'string' ? element.className : '',
+            width: Math.round(element.getBoundingClientRect().width),
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+          }));
+        return { section: section.id || section.className, scrollWidth: section.scrollWidth, clientWidth: section.clientWidth, offenders };
+      });
     const compact = window.innerWidth <= 720;
     const narrowSidebar = window.innerWidth > 720 && window.innerWidth <= 980;
     const terminalActionLabels = [...document.querySelectorAll('[data-terminal-signal="interrupt"] span, [data-terminal-signal="clear"] span')]
@@ -87,13 +107,22 @@ async function layoutMetrics(win) {
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
     const tmuxShortcutRect = tmuxShortcut?.getBoundingClientRect();
     const liveSectionVisible = !document.querySelector('#liveSection')?.classList.contains('hidden');
+    const stageRect = stage?.getBoundingClientRect();
+    const topbar = document.querySelector('.topbar');
+    const topbarRect = topbar?.getBoundingClientRect();
+    const topbarCopyRect = topbar?.firstElementChild?.getBoundingClientRect();
     return {
       width: window.innerWidth,
       height: window.innerHeight,
       compact,
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       stageOverflow: Boolean(stage && stage.scrollWidth > stage.clientWidth + 2),
+      stageScrollLeft: stage?.scrollLeft || 0,
+      stageRect: stageRect ? { left: stageRect.left, right: stageRect.right, width: stageRect.width } : null,
+      topbarRect: topbarRect ? { left: topbarRect.left, right: topbarRect.right, width: topbarRect.width } : null,
+      topbarCopyRect: topbarCopyRect ? { left: topbarCopyRect.left, right: topbarCopyRect.right, width: topbarCopyRect.width } : null,
       sectionOverflow,
+      sectionOverflowDetails,
       sidebarInsideViewport: Boolean(sidebarRect && sidebarRect.left >= -1 && sidebarRect.right <= window.innerWidth + 1 && sidebarRect.bottom <= window.innerHeight + 1),
       compactNavAtBottom: !compact || Boolean(sidebarRect && sidebarRect.top > window.innerHeight / 2 && Math.abs(sidebarRect.bottom - window.innerHeight) <= 1),
       navCount: navItems.length,
@@ -127,7 +156,7 @@ async function layoutMetrics(win) {
 function assertLayout(metrics, context) {
   const compactNavValid = !metrics.compact
     || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'runtime', 'mobileMoreBtn']);
-  if (metrics.documentOverflow || metrics.stageOverflow || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.compactContentClearance || !compactNavValid || !metrics.tmuxShortcutVisible || !metrics.tmuxShortcutInsideViewport) {
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.compactContentClearance || !compactNavValid || !metrics.tmuxShortcutVisible || !metrics.tmuxShortcutInsideViewport) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -151,6 +180,7 @@ async function overlayMetrics(win, capturePath = '') {
   await win.webContents.executeJavaScript(`(() => {
     const drawer = document.querySelector('#detailDrawer');
     const backdrop = document.querySelector('#drawerBackdrop');
+    if (drawer) drawer.style.transition = 'none';
     drawer?.classList.add('open');
     backdrop?.classList.remove('hidden');
   })()`);
@@ -187,6 +217,7 @@ async function overlayMetrics(win, capturePath = '') {
     const backdrop = document.querySelector('#drawerBackdrop');
     const drawerRect = drawer?.getBoundingClientRect();
     drawer?.classList.remove('open');
+    if (drawer) drawer.style.transition = '';
     backdrop?.classList.add('hidden');
     return {
       modalInsideViewport: viewportContains(modal),
@@ -345,6 +376,84 @@ function assertWorkflow(metrics) {
   }
 }
 
+async function managementDetailMetrics(win) {
+  return win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const sessions = app.state.snapshot?.sessions || [];
+    const base = sessions.find(session => !session.parentId) || sessions[0] || {
+      provider: 'codex', model: 'gpt-5.6', cwd: '/responsive/project', originCwd: '/responsive/project', workspace: 'responsive-project',
+      status: 'waiting', statusDetail: '사용자 확인 대기', updatedAt: new Date().toISOString(), messages: [], lifecycle: [], usage: {}, context: {}, runtimePresence: [],
+    };
+    const id = 'responsive-management-detail';
+    const signalDetail = '보고서를 작성했지만 이메일 발송은 확인되지 않았습니다. 긴 설명도 제목 영역을 누르지 않아야 합니다.';
+    const artifactPath = '/Users/example/Desktop/ToyProject/efficiencyAlarm/reports/loop/daily/2026-07-21.md';
+    const fixture = {
+      ...base,
+      id,
+      externalId: id,
+      parentId: null,
+      childIds: [],
+      title: '반응형 관리 상세 검증',
+      attention: { required: false },
+      progress: { stage: 'waiting', percent: 65, completedSteps: 4, totalSteps: 6, currentStep: '사용자 확인 대기', checkpoints: [] },
+      health: { level: 'critical', score: 65, signals: [{ code: 'waiting-too-long', severity: 'critical', detail: signalDetail }] },
+      outcome: {
+        status: 'in-progress', summary: '좁은 상세 패널에서도 실행 결과를 읽기 쉽게 표시합니다.', verified: false,
+        artifacts: [
+          { kind: 'file', value: artifactPath, verified: false },
+          { kind: 'test', value: '/Users/example/Desktop/ToyProject/efficiencyAlarm/reports/loop/LATEST.md', verified: false },
+        ],
+        checks: [],
+      },
+      evidence: { confidence: 'high', status: 'observed', hierarchy: 'observed', completion: 'unverified', sources: ['responsive-fixture'] },
+      controlCapabilities: {},
+    };
+    app.state.snapshot.sessions = [...sessions.filter(session => session.id !== id), fixture];
+    app.state.selectedId = id;
+    app.state.drawerMode = 'session';
+    app.state.drawerTab = 'summary';
+    document.querySelector('#drawerBackdrop')?.classList.remove('hidden');
+    const drawer = document.querySelector('#detailDrawer');
+    drawer?.classList.add('open');
+    app.renderDrawer();
+    for (const animation of drawer?.getAnimations() || []) {
+      try { animation.finish(); } catch {}
+    }
+
+    const detail = document.querySelector('.management-detail');
+    const healthRow = detail?.querySelector('.management-health li');
+    const healthTitle = healthRow?.querySelector('b');
+    const healthDetail = healthRow?.querySelector('span');
+    const artifact = detail?.querySelector('.management-artifacts li b');
+    const artifactStyle = artifact && getComputedStyle(artifact);
+    const healthTitleRect = healthTitle?.getBoundingClientRect();
+    const healthDetailRect = healthDetail?.getBoundingClientRect();
+    const drawerRect = drawer?.getBoundingClientRect();
+    return {
+      available: Boolean(detail && healthRow && healthTitle && healthDetail && artifact),
+      viewportWidth: window.innerWidth,
+      drawerWidth: drawerRect?.width || 0,
+      drawerInsideViewport: Boolean(drawerRect && drawerRect.left >= -1 && drawerRect.right <= window.innerWidth + 1),
+      detailWidth: detail?.getBoundingClientRect().width || 0,
+      noHorizontalOverflow: Boolean(detail && detail.scrollWidth <= detail.clientWidth + 2),
+      healthStacked: Boolean(healthTitleRect && healthDetailRect && healthDetailRect.top >= healthTitleRect.bottom - 1),
+      healthTitleLines: healthTitleRect ? Math.round(healthTitleRect.height / Number.parseFloat(getComputedStyle(healthTitle).lineHeight)) : 0,
+      healthDetailLines: healthDetailRect ? Math.round(healthDetailRect.height / Number.parseFloat(getComputedStyle(healthDetail).lineHeight)) : 0,
+      healthDetailTitlePreserved: healthDetail?.title === signalDetail,
+      artifactFontSize: artifactStyle?.fontSize || '',
+      artifactEllipsisReady: artifactStyle?.overflowX === 'hidden' && artifactStyle?.textOverflow === 'ellipsis' && artifactStyle?.whiteSpace === 'nowrap',
+      artifactTruncated: Boolean(artifact && artifact.scrollWidth > artifact.clientWidth),
+      artifactTitlePreserved: artifact?.title === artifactPath,
+    };
+  })()`);
+}
+
+function assertManagementDetail(metrics) {
+  if (!metrics.available || metrics.drawerWidth > 611 || !metrics.drawerInsideViewport || metrics.detailWidth > 600 || !metrics.noHorizontalOverflow || !metrics.healthStacked || metrics.healthTitleLines !== 1 || metrics.healthDetailLines > 2 || !metrics.healthDetailTitlePreserved || metrics.artifactFontSize !== '13px' || !metrics.artifactEllipsisReady || !metrics.artifactTruncated || !metrics.artifactTitlePreserved) {
+    throw new Error(`실행 상세의 건강 상태·산출물 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+  }
+}
+
 app.whenReady().then(async () => {
   let exitCode = 0;
   try {
@@ -364,6 +473,24 @@ app.whenReady().then(async () => {
     const reports = [];
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
+
+    const managementDetailReports = [];
+    for (const [width, height] of [[1600, 900], [480, 720]]) {
+      setWindowSize(win, width, height);
+      await wait(240);
+      const metrics = await managementDetailMetrics(win);
+      assertManagementDetail(metrics);
+      fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-management-detail-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      managementDetailReports.push(metrics);
+    }
+    await win.webContents.executeJavaScript(`(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      window.LoadToAgentA11y?.setDialogOpenState(drawer, false);
+      drawer?.classList.remove('open');
+      document.querySelector('#drawerBackdrop')?.classList.add('hidden');
+      window.LoadToAgentApp.state.selectedId = null;
+    })()`);
+    console.log(`management detail responsive check passed ${JSON.stringify(managementDetailReports)}`);
 
     for (const [width, height] of sizes) {
       setWindowSize(win, width, height);
@@ -426,6 +553,7 @@ app.whenReady().then(async () => {
       assertLayout(runtime, `${width}×${height} 스케줄·루프 화면`);
 
       await openView(win, 'terminal');
+      await win.webContents.executeJavaScript(`document.querySelector('.terminal-session-tools')?.setAttribute('open', '')`);
       const terminal = await layoutMetrics(win);
       assertLayout(terminal, `${width}×${height} 터미널 화면`);
       if (width <= 720 && !terminal.terminalActionLabels) throw new Error(`${width}×${height} 터미널 중단·지우기 버튼의 텍스트가 보이지 않습니다: ${JSON.stringify(terminal)}`);
@@ -433,7 +561,12 @@ app.whenReady().then(async () => {
       await openView(win, 'tmux');
       const tmux = await layoutMetrics(win);
       assertLayout(tmux, `${width}×${height} tmux 화면`);
-      reports.push({ requested: `${width}×${height}`, actual: `${home.width}×${home.height}`, overlays });
+      reports.push({
+        requested: `${width}×${height}`,
+        actual: `${home.width}×${home.height}`,
+        homeFrame: { stageScrollLeft: home.stageScrollLeft, stageRect: home.stageRect, topbarRect: home.topbarRect, topbarCopyRect: home.topbarCopyRect },
+        overlays,
+      });
     }
 
     const workflowReports = [];
@@ -472,7 +605,7 @@ app.whenReady().then(async () => {
       workflowReports.push(metrics);
     }
 
-    console.log(`responsive check passed ${JSON.stringify({ views: reports, workflows: workflowReports })}`);
+    console.log(`responsive check passed ${JSON.stringify({ views: reports, workflows: workflowReports, managementDetails: managementDetailReports })}`);
   } catch (error) {
     exitCode = 1;
     console.error(error && error.stack || error);

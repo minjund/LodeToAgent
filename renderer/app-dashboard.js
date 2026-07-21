@@ -177,7 +177,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#navAllCount").textContent = rootCount;
     const activeRootCount = sessions.filter((session) => !session.parentId && ["running", "starting"].includes(session.status)).length;
     $("#navActiveCount").textContent = activeRootCount;
-    $("#navWaitingCount").textContent = totals.waiting || 0;
+    const reviewCount = sessions.filter((session) => context.managementBucket?.(session) !== "healthy").length;
+    $("#navWaitingCount").textContent = reviewCount;
     const scheduledCount = (state.snapshot?.automations || [])
       .filter((item) => isProviderVisible(item.provider || "codex")).length;
     const loopCount = sessions.filter(isRuntimeLoopSession).length;
@@ -188,7 +189,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const navCounts = {
       all: rootCount,
       active: activeRootCount,
-      waiting: totals.waiting || 0,
+      waiting: reviewCount,
       runtime: scheduledCount + loopCount,
       terminal: Number($("#navTerminalCount").textContent || 0),
       tmux: tmuxSessionCount,
@@ -200,8 +201,16 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       }[button.dataset.view];
       const label = t(key);
       const count = navCounts[button.dataset.view];
-      button.setAttribute("aria-label", Number.isFinite(count) ? t("quality.nav_count", { label, count }) : label);
+      const unitKey = { all: "tasks", active: "tasks", waiting: "tasks", runtime: "runs", terminal: "sessions", tmux: "groups" }[button.dataset.view];
+      const unit = unitKey ? t(`quality.unit.${unitKey}`) : "";
+      const accessibleLabel = Number.isFinite(count) ? t("quality.nav_count_detailed", { label, count, unit }) : label;
+      button.setAttribute("aria-label", accessibleLabel);
+      button.setAttribute("title", accessibleLabel);
     });
+    const advancedCount = scheduledCount + loopCount + Number($("#navTerminalCount").textContent || 0) + tmuxSessionCount;
+    $("#advancedToolsNav")?.querySelector("summary")?.setAttribute("aria-label", t("quality.nav_count_detailed", {
+      label: t("management.advanced_tools"), count: advancedCount, unit: t("quality.unit.items"),
+    }));
     const tmuxShortcut = $("#openTmuxFromAgentWork");
     $("#agentWorkTmuxCount").textContent = tmuxSessionCount;
     tmuxShortcut.dataset.i18nParams = JSON.stringify({ count: tmuxSessionCount });
