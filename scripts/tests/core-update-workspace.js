@@ -108,19 +108,28 @@ function registerCliAndUpdateTests(context) {
       'darwin-x64',
       'spawn-helper',
     );
-    fs.mkdirSync(path.dirname(helper), { recursive: true });
-    fs.writeFileSync(helper, 'fixture', { mode: 0o644 });
-    fs.chmodSync(helper, 0o644);
+    const calls = { chmod: null, access: null };
+    const fileSystem = {
+      constants: { X_OK: 1 },
+      readdirSync: () => [{ name: 'darwin-x64', isDirectory: () => true }],
+      existsSync: file => file === helper,
+      statSync: file => {
+        assert.equal(file, helper);
+        return { mode: 0o100644 };
+      },
+      chmodSync: (file, mode) => { calls.chmod = { file, mode }; },
+      accessSync: (file, mode) => { calls.access = { file, mode }; },
+    };
 
     const helpers = ensureMacNodePtySpawnHelpersExecutable({
       electronPlatformName: 'darwin',
       appOutDir,
       packager: { appInfo: { productFilename: 'LoadToAgent' } },
-    });
+    }, fileSystem);
 
     assert.deepStrictEqual(helpers, [helper]);
-    assert.equal(fs.statSync(helper).mode & 0o111, 0o111);
-    fs.accessSync(helper, fs.constants.X_OK);
+    assert.deepStrictEqual(calls.chmod, { file: helper, mode: 0o100755 });
+    assert.deepStrictEqual(calls.access, { file: helper, mode: 1 });
   });
 
   test('Git 태그 버전을 SemVer 순서로 비교한다', () => {
