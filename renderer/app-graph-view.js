@@ -527,15 +527,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         ? t("control.project_live_attention_summary", { active: activeCount, attention: attentionCount })
         : t("control.project_live_summary", { active: activeCount });
       const disclosureKey = `control-project:${key}`;
-      const presentation = index === 0 ? "is-primary" : index === 1 ? "is-preview" : "is-collapsed";
+      const presentation = index === 0 ? "is-primary" : "is-secondary";
       const projectFocusId = projectRoots[0]?.id || "";
-      return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-disclosure-key="${esc(disclosureKey)}" ${index < 2 ? "open" : ""}>
+      return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-disclosure-key="${esc(disclosureKey)}" ${index === 0 ? "open" : ""}>
         <summary class="control-project-header" data-project-toggle="${esc(name)}">
           <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small><em>${projectTotals.length}</em></span>
           <span class="control-project-handle" role="img" aria-label="프로젝트 그룹" title="프로젝트 그룹 · 세션은 최근 활동순으로 표시됩니다"></span>
         </summary>
         <button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>
-        <div class="control-project-body" ${index === 1 ? 'inert aria-hidden="true"' : ""}>${projectRoots.map(root => controlRoomSession(root, model)).join("")}</div>
+        <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}</div>
       </details>`;
     }).join("");
     return `<div class="control-room-overview" data-control-room-overview="true">

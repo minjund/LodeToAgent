@@ -7,13 +7,25 @@
 
 /* Compact screens ≤ 1280px: collapse content columns and simplify the side rail. */
 @media (max-width:1280px) {
+  body[data-current-view="all"] .topbar {
+    display: block;
+  }
+
+  body[data-current-view="all"] .top-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    margin-top: 16px;
+  }
+
+  body[data-current-view="all"] .top-actions > * {
+    flex: 0 0 auto;
+  }
+
   .session-grid {
     grid-template-columns: 1fr;
   }
-}
 
-/* Compact screens ≤ 1100px: collapse content columns and simplify the side rail. */
-@media (max-width:1100px) {
   .sessions-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -33,11 +45,6 @@
   .provider-filter {
     max-width: 100%;
     overflow-x: auto;
-  }
-
-  .top-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
   }
 }
 

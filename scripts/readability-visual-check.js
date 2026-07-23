@@ -115,6 +115,48 @@ async function auditVisibleText(win, view) {
       }
       if (overlaps.length >= 20) break;
     }
+    const spacingGroups = [
+      '.top-actions',
+      '.view-nav',
+      '.workspace-list',
+      '.session-tools',
+      '.provider-filter',
+      '.app-error-actions',
+      '.management-filter-group',
+      '.management-quick-actions',
+      '.management-control-buttons',
+      '.terminal-create-actions',
+      '.terminal-workspace-actions',
+      '.terminal-key-actions',
+      '.terminal-tmux-tools',
+      '.tmux-section-actions',
+      '.tmux-pane-actions',
+      '.run-modal-actions',
+      '.modal-actions',
+      '.detail-meta-actions',
+      '.mobile-bottom-nav',
+    ];
+    const crowdedGroups = spacingGroups.flatMap(selector => [...document.querySelectorAll(selector)].flatMap(group => {
+      const rect = group.getBoundingClientRect();
+      const style = getComputedStyle(group);
+      if (rect.width < 2 || rect.height < 2 || style.display === 'none' || style.visibility === 'hidden') return [];
+      const interactiveChildren = [...group.children].filter(child => {
+        if (!child.matches('button, select, input, textarea, summary, a[href], label, [role="button"], details, div')) return false;
+        const childRect = child.getBoundingClientRect();
+        const childStyle = getComputedStyle(child);
+        return childRect.width >= 2 && childRect.height >= 2 && childStyle.display !== 'none' && childStyle.visibility !== 'hidden';
+      });
+      if (interactiveChildren.length < 2) return [];
+      const rowGap = Number.parseFloat(style.rowGap) || 0;
+      const columnGap = Number.parseFloat(style.columnGap) || 0;
+      const minimumGap = Math.min(rowGap, columnGap);
+      return minimumGap + .01 < 10 ? [{
+        selector,
+        rowGap,
+        columnGap,
+        children: interactiveChildren.length,
+      }] : [];
+    }));
     return {
       view: ${JSON.stringify(view)},
       textNodes: candidates.length,
@@ -124,6 +166,7 @@ async function auditVisibleText(win, view) {
       minimumContrast: candidates.length ? Math.min(...candidates.map(item => item.ratio)) : 0,
       tooSmallTargets: hitTargets.filter(item => item.width < 43.5 || item.height < 43.5).slice(0, 30).map(({ element, ...item }) => item),
       overlaps,
+      crowdedGroups,
     };
   })()`);
 }
@@ -322,7 +365,7 @@ app.whenReady().then(async () => {
     viewReports.push(await auditVisibleText(win, 'tmux-create-modal'));
     await win.webContents.executeJavaScript(`(() => { document.querySelector('#cancelTmuxCreateBtn')?.click(); return true; })()`);
 
-    const failures = viewReports.filter(report => report.tooSmall.length || report.lowContrast.length || report.tooSmallTargets.length || report.overlaps.length);
+    const failures = viewReports.filter(report => report.tooSmall.length || report.lowContrast.length || report.tooSmallTargets.length || report.overlaps.length || report.crowdedGroups.length);
     if (failures.length) throw new Error(`전 화면 텍스트 가독성 기준 미달: ${JSON.stringify(failures)}`);
 
     process.stdout.write(`readability visual check passed ${JSON.stringify(viewReports)}\n`);

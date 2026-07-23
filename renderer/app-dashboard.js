@@ -185,7 +185,22 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       (!liveProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
     const desktopList = $("#workspaceList");
     const mobileList = $("#mobileWorkspaceList");
-    if (desktopList) desktopList.innerHTML = desktopHtml;
+    if (desktopList) {
+      desktopList.innerHTML = desktopHtml;
+      const updateProjectOverflow = () => {
+        const overflowing = desktopList.scrollWidth > desktopList.clientWidth + 2;
+        const scrolledEnd = desktopList.scrollLeft + desktopList.clientWidth >= desktopList.scrollWidth - 2;
+        desktopList.classList.toggle("is-overflowing", overflowing);
+        desktopList.classList.toggle("is-scrolled-end", overflowing && scrolledEnd);
+      };
+      if (desktopList.dataset.overflowBound !== "true") {
+        desktopList.dataset.overflowBound = "true";
+        desktopList.addEventListener("scroll", updateProjectOverflow, { passive: true });
+        desktopList._overflowObserver = new ResizeObserver(updateProjectOverflow);
+        desktopList._overflowObserver.observe(desktopList);
+      }
+      requestAnimationFrame(updateProjectOverflow);
+    }
     if (mobileList) mobileList.innerHTML = mobileHtml;
     const projectSelect = $("#controlRoomProjectSelect");
     if (projectSelect) {

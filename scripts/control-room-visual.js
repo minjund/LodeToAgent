@@ -192,6 +192,9 @@ app.whenReady().then(async () => {
           const box = node.getBoundingClientRect();
           return { project: node.dataset.controlProject, top: box.top, bottom: box.bottom, height: box.height };
         }),
+        clippedOpenProjectBodies: [...document.querySelectorAll('.control-room-project-group[open] .control-project-body')]
+          .filter(node => node.scrollHeight > node.clientHeight + 2).length,
+        inaccessibleProjectBodies: document.querySelectorAll('.control-project-body[inert], .control-project-body[aria-hidden="true"]').length,
         liveSectionBox: (() => { const box = section.getBoundingClientRect(); return { top: box.top, bottom: box.bottom, height: box.height }; })(),
         flowColumns: getComputedStyle(root?.querySelector('.control-room-flow')).gridTemplateColumns,
         openProjectGroups: document.querySelectorAll('.control-room-project-group[open]').length,
@@ -227,10 +230,12 @@ app.whenReady().then(async () => {
       || overviewMetrics.semanticSamples.phase !== '요구사항과 단계 완료 조건 확인'
       || !overviewMetrics.noSectionOverflow || !overviewMetrics.noStageOverflow || overviewMetrics.sessionRecords < 1
       || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.projectToolbarVisible || !overviewMetrics.stateTabsRemoved
+      || overviewMetrics.projectHeaderHeight < 49.5
       || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타'].every(name => overviewMetrics.projectChips.includes(name))
       || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend'].every(name => overviewMetrics.projectGroups.includes(name))
       || overviewMetrics.projectGroups.length !== 3
-      || overviewMetrics.openProjectGroups < 2 || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
+      || overviewMetrics.openProjectGroups !== 1 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
+      || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
       || !overviewMetrics.addProjectAtRight || !overviewMetrics.singleTopPager
       || !/^1\s*[–-]\s*4\s*\/\s*12$/.test(overviewMetrics.pageSummary) || !overviewMetrics.pageNextEnabled || !overviewMetrics.noBottomPager) {
       throw new Error(`세션 관제 홈 검증 실패: ${JSON.stringify(overviewMetrics)}`);
@@ -438,6 +443,59 @@ app.whenReady().then(async () => {
     }
     const executionOutput = await capture(win, outputDir, 'loadtoagent-control-room-execution.png');
 
+    win.setContentSize(1224, 792);
+    await wait(260);
+    await win.webContents.executeJavaScript(`(() => {
+      document.querySelector('#closeDrawerBtn')?.click();
+      document.querySelector('#toast')?.classList.add('hidden');
+      window.LoadToAgentApp.state.disclosureStates.clear();
+      window.LoadToAgentApp.renderSessions('filter');
+      const stage = document.querySelector('.main-stage');
+      const live = document.querySelector('#liveSection');
+      if (stage && live) stage.scrollTo(0, Math.max(0, live.offsetTop - 8));
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    })()`);
+    const desktop1224Metrics = await win.webContents.executeJavaScript(`(() => {
+      const stage = document.querySelector('.main-stage');
+      const live = document.querySelector('#liveSection');
+      const groups = [...document.querySelectorAll('.control-room-project-group')];
+      const openBodies = [...document.querySelectorAll('.control-room-project-group[open] .control-project-body')];
+      const projectList = document.querySelector('#workspaceList');
+      const projectToolbar = document.querySelector('#controlRoomProjectToolbar');
+      const listToolbar = document.querySelector('#controlRoomListToolbar');
+      const projectChips = [...projectList.querySelectorAll('button')];
+      const listControls = [...listToolbar.querySelectorAll('button, select')];
+      return {
+        width: innerWidth,
+        groups: groups.length,
+        openGroups: groups.filter(group => group.open).length,
+        collapsedHeights: groups.filter(group => !group.open).map(group => group.getBoundingClientRect().height),
+        projectToolbarGap: Number.parseFloat(getComputedStyle(projectToolbar).columnGap),
+        projectChipGap: Number.parseFloat(getComputedStyle(projectList).columnGap),
+        projectChipHeights: projectChips.map(control => control.getBoundingClientRect().height),
+        listToolbarGap: Number.parseFloat(getComputedStyle(listToolbar).columnGap),
+        listControlHeights: listControls.map(control => control.getBoundingClientRect().height),
+        projectGroupGap: Number.parseFloat(getComputedStyle(document.querySelector('.control-room-overview')).rowGap),
+        projectOverflowAffordance: projectList.scrollWidth <= projectList.clientWidth + 2
+          || projectList.classList.contains('is-overflowing'),
+        clippedOpenBodies: openBodies.filter(body => body.scrollHeight > body.clientHeight + 2).length,
+        inaccessibleBodies: document.querySelectorAll('.control-project-body[inert], .control-project-body[aria-hidden="true"]').length,
+        noLiveOverflow: live.scrollWidth <= live.clientWidth + 2,
+        noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
+      };
+    })()`);
+    if (desktop1224Metrics.width !== 1224 || desktop1224Metrics.groups < 1 || desktop1224Metrics.openGroups !== 1
+      || desktop1224Metrics.collapsedHeights.some(height => height > 60)
+      || desktop1224Metrics.projectToolbarGap < 10 || desktop1224Metrics.projectChipGap < 10
+      || desktop1224Metrics.projectChipHeights.some(height => height < 39.5)
+      || desktop1224Metrics.listToolbarGap < 10 || desktop1224Metrics.listControlHeights.some(height => height < 39.5)
+      || desktop1224Metrics.projectGroupGap < 12 || !desktop1224Metrics.projectOverflowAffordance
+      || desktop1224Metrics.clippedOpenBodies !== 0 || desktop1224Metrics.inaccessibleBodies !== 0
+      || !desktop1224Metrics.noLiveOverflow || !desktop1224Metrics.noStageOverflow) {
+      throw new Error(`1224×792 세션 관제 검증 실패: ${JSON.stringify(desktop1224Metrics)}`);
+    }
+    const desktop1224Output = await capture(win, outputDir, 'loadtoagent-control-room-1224.png');
+
     win.setContentSize(390, 844);
     await wait(260);
     await win.webContents.executeJavaScript(`(() => {
@@ -449,21 +507,37 @@ app.whenReady().then(async () => {
     const mobileMetrics = await win.webContents.executeJavaScript(`(() => {
       const stage = document.querySelector('.main-stage');
       const overview = document.querySelector('[data-control-room-overview]');
+      const projectList = document.querySelector('#workspaceList');
+      const projectToolbar = document.querySelector('#controlRoomProjectToolbar');
+      const listToolbar = document.querySelector('#controlRoomListToolbar');
       return {
         width: innerWidth,
         overviewVisible: Boolean(overview),
         flowColumns: getComputedStyle(document.querySelector('.control-room-flow')).gridTemplateColumns,
+        projectToolbarGap: Number.parseFloat(getComputedStyle(projectToolbar).columnGap),
+        listToolbarGap: Number.parseFloat(getComputedStyle(listToolbar).columnGap),
+        projectChipHeights: [...projectList.querySelectorAll('button')].map(control => control.getBoundingClientRect().height),
+        listControlHeights: [...listToolbar.querySelectorAll('button, select')]
+          .map(control => control.getBoundingClientRect())
+          .filter(rect => rect.width >= 2 && rect.height >= 2)
+          .map(rect => rect.height),
+        projectOverflowAffordance: projectList.scrollWidth <= projectList.clientWidth + 2
+          || projectList.classList.contains('is-overflowing'),
         noOverviewOverflow: overview.scrollWidth <= overview.clientWidth + 2,
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
         attentionVisible: Boolean(document.querySelector('[data-home-attention]')),
       };
     })()`);
-    if (!mobileMetrics.overviewVisible || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow || !mobileMetrics.attentionVisible) {
+    if (!mobileMetrics.overviewVisible || mobileMetrics.projectToolbarGap < 10 || mobileMetrics.listToolbarGap < 10
+      || mobileMetrics.projectChipHeights.some(height => height < 43.5)
+      || mobileMetrics.listControlHeights.some(height => height < 43.5)
+      || !mobileMetrics.projectOverflowAffordance
+      || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow || !mobileMetrics.attentionVisible) {
       throw new Error(`모바일 세션 관제 검증 실패: ${JSON.stringify(mobileMetrics)}`);
     }
     const mobileOutput = await capture(win, outputDir, 'loadtoagent-control-room-mobile.png');
 
-    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ overviewMetrics, drawerMetrics, executionMetrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${drawerOutput}\n${executionOutput}\n${mobileOutput}\n`);
+    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ overviewMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${mobileOutput}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

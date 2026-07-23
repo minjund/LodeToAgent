@@ -252,10 +252,10 @@
 }
 
 .control-room-project-toolbar {
-  min-height: 40px;
-  gap: 10px;
-  margin: -4px 0 6px;
-  padding: 4px;
+  min-height: 52px;
+  gap: var(--space-3,12px);
+  margin: 0 0 var(--space-3,12px);
+  padding: 6px;
   border: 1px solid rgba(89,216,255,.14);
   border-radius: 11px;
   background: rgba(7,13,20,.58);
@@ -266,7 +266,7 @@
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   max-height: none;
   padding: 0;
   overflow-x: auto;
@@ -278,15 +278,41 @@
   display: none;
 }
 
+.control-room-project-list.is-overflowing {
+  padding-bottom: 5px;
+  scrollbar-color: rgba(89,216,255,.58) rgba(89,216,255,.08);
+  scrollbar-width: thin;
+  mask-image: linear-gradient(to right,#000 0,#000 calc(100% - 28px),transparent 100%);
+}
+
+.control-room-project-list.is-overflowing.is-scrolled-end {
+  mask-image: none;
+}
+
+.control-room-project-list.is-overflowing::-webkit-scrollbar {
+  display: block;
+  height: 5px;
+}
+
+.control-room-project-list.is-overflowing::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(89,216,255,.08);
+}
+
+.control-room-project-list.is-overflowing::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(89,216,255,.58);
+}
+
 .control-room-project-toolbar .workspace-item {
   width: auto;
   min-width: max-content;
-  min-height: 30px !important;
+  min-height: 40px !important;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
-  padding: 0 10px;
+  gap: 8px;
+  padding: 0 12px;
   border: 1px solid rgba(106,132,154,.25);
   border-radius: 8px;
   background: rgba(13,21,30,.88);
@@ -306,7 +332,7 @@
 
 .control-room-project-toolbar .workspace-item small {
   min-width: 20px;
-  height: 20px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
   margin: 0;
@@ -314,7 +340,7 @@
   border-radius: 999px;
   background: rgba(115,139,159,.15);
   color: #bcc8d2;
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -338,13 +364,13 @@
 
 .control-room-add-project {
   min-width: max-content;
-  min-height: 30px !important;
+  min-height: 40px !important;
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  padding: 0 11px;
+  gap: 8px;
+  padding: 0 13px;
   border: 1px solid rgba(89,216,255,.72);
   border-radius: 8px;
   background: rgba(9,27,37,.72);
@@ -355,7 +381,7 @@
 }
 
 #controlRoomProjectToolbar #addWorkspaceBtn {
-  min-height: 30px !important;
+  min-height: 40px !important;
 }
 
 .control-room-add-project:hover {
@@ -364,9 +390,9 @@
 }
 
 .control-room-list-toolbar {
-  min-height: 34px;
-  gap: 7px;
-  margin-bottom: 8px;
+  min-height: 40px;
+  gap: 10px;
+  margin-bottom: var(--space-3,12px);
 }
 
 .control-room-toolbar-spacer {
@@ -381,8 +407,8 @@
 .control-room-select-field select {
   width: 136px;
   min-width: 136px;
-  height: 34px;
-  min-height: 34px !important;
+  height: 40px;
+  min-height: 40px !important;
   padding: 0 31px 0 12px;
   border: 1px solid rgba(104,130,151,.28);
   border-radius: 8px;
@@ -397,13 +423,13 @@
 }
 
 #controlRoomListToolbar select {
-  height: 34px;
-  min-height: 34px !important;
+  height: 40px;
+  min-height: 40px !important;
 }
 
 .control-room-search {
-  width: 36px;
-  height: 34px;
+  width: 42px;
+  height: 40px;
   position: relative;
   display: flex;
   flex: 0 0 auto;
@@ -440,10 +466,10 @@
 }
 
 .control-room-search button {
-  width: 42px;
-  height: 32px;
-  min-width: 34px;
-  min-height: 32px !important;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px !important;
   position: absolute;
   right: 0;
   display: grid;
@@ -459,15 +485,15 @@
 }
 
 #controlRoomSearchBtn {
-  min-width: 34px;
-  min-height: 32px !important;
+  min-width: 40px;
+  min-height: 40px !important;
 }
 
 .control-room-pagination {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
 
 .control-room-page-summary {
@@ -482,14 +508,14 @@
 .control-room-page-buttons {
   display: flex;
   flex: 0 0 auto;
-  gap: 5px;
+  gap: 10px;
 }
 
 .control-room-page-buttons button {
   width: 40px;
-  height: 34px;
-  min-width: 38px;
-  min-height: 34px !important;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px !important;
   display: grid;
   place-items: center;
   border: 1px solid rgba(104,130,151,.28);
@@ -520,7 +546,7 @@
 #controlRoomPagePrev,
 #controlRoomPageNext {
   min-width: 40px;
-  min-height: 34px !important;
+  min-height: 40px !important;
 }
 
 .control-room-legend {
@@ -567,7 +593,7 @@
 
 .control-room-overview {
   display: grid;
-  gap: 6px;
+  gap: var(--space-3,12px);
 }
 
 .control-room-project-group {
@@ -580,8 +606,8 @@
   box-shadow: inset 0 1px rgba(255,255,255,.018);
 }
 
-.control-project-header {
-  min-height: 42px;
+body details.control-room-project-group > summary.control-project-header {
+  min-height: 50px !important;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -640,20 +666,20 @@
 }
 
 .control-project-heading small {
-  color: #76879a;
+  color: #9aabba;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .control-project-heading em {
   min-width: 22px;
-  height: 20px;
+  height: 22px;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: rgba(89,216,255,.12);
   color: #73deee;
-  font-size: 11px;
+  font-size: 12px;
   font-style: normal;
   font-weight: 750;
 }
@@ -662,7 +688,7 @@
   width: 24px;
   height: 28px;
   position: absolute;
-  top: 7px;
+  top: 11px;
   right: 133px;
   display: grid;
   place-items: center;
@@ -741,8 +767,8 @@
 }
 
 .control-project-body .control-room-session > header {
-  min-height: 34px;
-  padding: 1px 15px;
+  min-height: 42px;
+  padding: 5px 15px;
 }
 
 .control-project-body .control-room-session > header > .session-drag-handle,
@@ -751,58 +777,41 @@
 }
 
 .control-project-body .control-room-flow {
-  padding: 3px 15px 6px 16px;
+  padding: 10px 15px 12px 16px;
 }
 
 .control-project-body .control-column-label {
-  min-height: 14px;
-  height: 14px;
-  line-height: 14px;
+  min-height: 24px;
+  height: 24px;
+  line-height: 24px;
 }
 
 .control-project-body .control-room-main {
-  gap: 8px;
-  padding: 11px 13px;
+  gap: 10px;
+  padding: 14px;
 }
 
 .control-project-body .control-main-now {
-  padding: 7px 9px;
+  padding: 9px 10px;
 }
 
-.control-room-project-group.is-preview[open] .control-project-body {
-  max-height: 94px;
-  overflow: hidden;
-  position: relative;
-}
-
-.control-room-project-group.is-preview[open] .control-project-body::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 22px;
-  background: linear-gradient(transparent,rgba(7,12,18,.94));
-  content: "";
-  pointer-events: none;
-}
-
-.control-room-project-group.is-collapsed .control-project-header {
+.control-room-project-group:not([open]) .control-project-header {
   min-height: 50px !important;
 }
 
-.control-room-project-group.is-collapsed {
-  margin-top: 3px;
+.control-room-project-group:not([open]) {
+  margin-top: 0;
 }
 
-.control-room-project-group.is-collapsed .control-project-handle {
+.control-room-project-group:not([open]) .control-project-handle {
   display: none;
 }
 
-.control-room-project-group.is-collapsed .control-project-heading {
+.control-room-project-group:not([open]) .control-project-heading {
   padding-left: 10px;
 }
 
-.control-room-project-group.is-collapsed .control-project-heading > i {
+.control-room-project-group:not([open]) .control-project-heading > i {
   display: none;
 }
 
@@ -940,7 +949,7 @@
   flex: 0 0 auto;
   color: #9d8a68;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .control-room-session > header > button {
@@ -1220,7 +1229,7 @@
 .control-room-node-list {
   display: grid;
   grid-template-columns: repeat(2,minmax(0,1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
 .control-room-node {
@@ -1335,7 +1344,7 @@
 
 .completed-list {
   grid-template-columns: 1fr;
-  gap: 6px;
+  gap: 10px;
 }
 
 .completed-list .control-room-node {
@@ -1991,9 +2000,9 @@
   }
 
   .control-room-project-toolbar {
-    gap: 7px;
-    margin-top: 3px;
-    padding: 4px;
+    gap: 10px;
+    margin-top: 4px;
+    padding: 6px;
   }
 
   .control-room-project-toolbar .workspace-item,
@@ -2010,7 +2019,7 @@
   }
 
   .control-room-list-toolbar {
-    gap: 6px;
+    gap: 10px;
     flex-wrap: nowrap;
   }
 
@@ -2064,7 +2073,7 @@
 
   .control-room-pagination {
     margin-left: auto;
-    gap: 5px;
+    gap: 10px;
   }
 
   .control-room-page-summary {

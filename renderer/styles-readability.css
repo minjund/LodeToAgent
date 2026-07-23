@@ -16,6 +16,13 @@
   --panel-2: #121d28;
   --panel-3: #172532;
   --focus: #99ebff;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --control-gap: 12px;
+  --control-height: 44px;
 }
 
 html,
@@ -116,6 +123,10 @@ body[data-current-view="all"] #sessionSection { order: 8; }
 
 .top-actions :is(button, .sync-state) {
   min-height: 48px;
+}
+
+.top-actions {
+  gap: var(--space-4);
 }
 
 .sync-state.connection-error > span {
@@ -879,7 +890,7 @@ body :is(
 
 body button:not(.icon-button) {
   min-width: 44px;
-  min-height: 44px !important;
+  min-height: var(--control-height) !important;
   font-size: 12px !important;
   line-height: 1.35;
 }
@@ -916,7 +927,7 @@ body :is(
   .detail-meta-actions,
   .mobile-bottom-nav
 ) {
-  gap: 8px !important;
+  gap: var(--control-gap) !important;
 }
 
 /* Keep adjacent controls visually and physically distinct at every breakpoint. */
@@ -930,18 +941,30 @@ body :is(
   .run-prompt-examples,
   .path-field
 ) {
-  gap: 8px !important;
+  gap: var(--control-gap) !important;
 }
 
 .sidebar .section-title {
   height: auto;
   min-height: 44px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-3);
   padding-block: 2px;
 }
 
 .sidebar .workspace-list {
-  gap: 8px !important;
+  gap: 10px !important;
+}
+
+.session-tools,
+.modal-actions,
+.run-modal-actions,
+.app-error-actions {
+  gap: var(--control-gap) !important;
+}
+
+.modal-actions,
+.run-modal-actions {
+  margin-top: var(--space-5);
 }
 
 .run-modal.terminal-modal :is(.field-label, label, small),
@@ -1017,7 +1040,7 @@ body .primary-button:disabled {
   }
 
   .mobile-bottom-nav {
-    gap: 8px !important;
+    gap: 10px !important;
   }
 }
 

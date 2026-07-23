@@ -107,6 +107,10 @@ async function layoutMetrics(win) {
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
     const tmuxShortcutRect = tmuxShortcut?.getBoundingClientRect();
     const liveSectionVisible = !document.querySelector('#liveSection')?.classList.contains('hidden');
+    const projectGroups = [...document.querySelectorAll('.control-room-project-group')];
+    const openProjectBodies = [...document.querySelectorAll('.control-room-project-group[open] .control-project-body')];
+    const clippedOpenProjectBodies = openProjectBodies.filter(body => body.scrollHeight > body.clientHeight + 2).length;
+    const inaccessibleProjectBodies = document.querySelectorAll('.control-project-body[inert], .control-project-body[aria-hidden="true"]').length;
     const stageRect = stage?.getBoundingClientRect();
     const topbar = document.querySelector('.topbar');
     const topbarRect = topbar?.getBoundingClientRect();
@@ -149,6 +153,11 @@ async function layoutMetrics(win) {
       terminalActionLabels,
       tmuxShortcutVisible: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40),
       tmuxShortcutInsideViewport: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1),
+      openProjectGroups: projectGroups.filter(group => group.open).length,
+      clippedOpenProjectBodies,
+      inaccessibleProjectBodies,
+      projectLayoutValid: !liveSectionVisible || projectGroups.length === 0
+        || (projectGroups.filter(group => group.open).length === 1 && clippedOpenProjectBodies === 0 && inaccessibleProjectBodies === 0),
     };
   })()`);
 }
@@ -156,7 +165,7 @@ async function layoutMetrics(win) {
 function assertLayout(metrics, context) {
   const compactNavValid = !metrics.compact
     || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'runtime', 'mobileMoreBtn']);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.compactContentClearance || !compactNavValid || (!metrics.compact && !metrics.tmuxShortcutVisible) || (!metrics.compact && !metrics.tmuxShortcutInsideViewport)) {
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.projectLayoutValid || !metrics.compactContentClearance || !compactNavValid || (!metrics.compact && !metrics.tmuxShortcutVisible) || (!metrics.compact && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -462,6 +471,7 @@ app.whenReady().then(async () => {
     await waitForRenderer(win);
     const sizes = [
       [1600, 980],
+      [1224, 792],
       [1080, 700],
       [980, 700],
       [901, 700],
@@ -501,7 +511,7 @@ app.whenReady().then(async () => {
       await openView(win, 'all');
       const home = await layoutMetrics(win);
       assertLayout(home, `${width}×${height} 홈 화면`);
-      if (width === 720 || width === 360) {
+      if (width === 1224 || width === 720 || width === 360) {
         const image = await win.webContents.capturePage();
         fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-${width}.png`), image.toPNG());
       }
