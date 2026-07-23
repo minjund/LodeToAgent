@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 const { endpointFor, safeWriteJson } = require('./bridgeServer');
 const { runBestEffort } = require('./diagnostics');
 
-const TERMINAL_HOST_PROTOCOL = 2;
+const TERMINAL_HOST_PROTOCOL = 3;
 const TERMINAL_HOST_RUNTIME = `node-pty-${require('node-pty/package.json').version}`;
 const MAX_FRAME_CHARS = 4 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 5_000;

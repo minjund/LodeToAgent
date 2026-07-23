@@ -38,7 +38,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       if (message.role === "tool" && current && current.assistants.length) current.activityAfterAssistant = true;
     }
     const latestIndex = turns.length - 1;
-    const live = session.status === "running" || session.status === "starting";
+    const live = options.forceLatestLive || session.status === "running" || session.status === "starting";
     return turns.map((turn, index) => ({
       ...turn,
       representative: turn.assistants.at(-1) || null,
@@ -57,14 +57,64 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const answerKind = assistant && options.answerKind
       ? `<span class="chat-answer-kind${options.live ? " is-live" : ""}">${esc(options.answerKind)}</span>`
       : "";
-    return `<div class="chat-row ${assistant ? "assistant" : "user"}" data-message-id="${esc(message.id || "")}">
+    const deliveryStatus = !assistant && message.deliveryStatus
+      ? `<span class="chat-delivery-status ${esc(message.deliveryStatus)}">${esc(t(message.deliveryStatus === "failed"
+        ? "drawer.message_failed"
+        : message.deliveryStatus === "sending"
+          ? "drawer.message_sending"
+          : "drawer.message_sent"))}</span>`
+      : "";
+    const optimisticClasses = message.optimistic
+      ? ` is-optimistic is-${esc(message.deliveryStatus || "awaiting")}${message.animate ? " is-new" : ""}`
+      : "";
+    return `<div class="chat-row ${assistant ? "assistant" : "user"}${optimisticClasses}" data-message-id="${esc(message.id || "")}">
       <span class="chat-avatar">${esc(avatar)}</span>
       <div class="chat-bubble">
       <div class="chat-bubble-head">
       <b>${esc(label)}</b>
-      <span title="${esc(fullTime)}">${esc(timeOnly(message.timestamp))}</span>${answerKind}
+      <span title="${esc(fullTime)}">${esc(timeOnly(message.timestamp))}</span>${deliveryStatus}${answerKind}
       </div>${messageContentHtml(message, session.id)}</div>
       </div>`;
+  }
+
+  function conversationOverlay(session) {
+    const pending = state.pendingConversationMessages.get(session.id) || [];
+    if (!pending.length) return { session, forceLatestLive: false };
+    const messages = [...(session.messages || [])];
+    const messageKey = (message) => {
+      const id = String(message?.id || "").trim();
+      if (id) return `id:${id}`;
+      return `${message?.role || ""}:${String(message?.text || "").replace(/\s+/g, " ").trim()}:${message?.timestamp || ""}`;
+    };
+    const normalizedText = (value) => String(value || "").replace(/\s+/g, " ").trim();
+    const retained = [];
+    let forceLatestLive = false;
+    for (const entry of pending) {
+      const newMessages = messages.filter(message => !entry.baselineMessageKeys?.has(messageKey(message)));
+      const actualUser = newMessages.find(message =>
+        message.role === "user" && normalizedText(message.text) === normalizedText(entry.text));
+      const newAssistant = newMessages.find(message => message.role === "assistant" && normalizedText(message.text));
+      if (actualUser && newAssistant) continue;
+      if (!actualUser) {
+        messages.push({
+          id: entry.id,
+          role: "user",
+          text: entry.text,
+          timestamp: entry.timestamp,
+          optimistic: true,
+          animate: !entry.presented,
+          deliveryStatus: entry.status,
+        });
+        entry.presented = true;
+      }
+      if (newAssistant) entry.status = "resolved";
+      if (entry.status === "sending" || entry.status === "awaiting") forceLatestLive = true;
+      retained.push(entry);
+    }
+    if (retained.length) state.pendingConversationMessages.set(session.id, retained);
+    else state.pendingConversationMessages.delete(session.id);
+    messages.sort((left, right) => Date.parse(left.timestamp || 0) - Date.parse(right.timestamp || 0));
+    return { session: { ...session, messages }, forceLatestLive };
   }
 
   function progressUpdatesHtml(turn, session) {
@@ -224,13 +274,15 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
   }
 
   function chatHtml(session, options = {}) {
+    const overlay = conversationOverlay(session);
+    session = overlay.session;
     const messages = session.messages || [];
     const calls = options.showSubagentCalls === false ? [] : subagentCallEvents(session);
     if (!messages.length && !calls.length) return `<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
     const userLabel = options.userLabel || t("drawer.user");
     const assistantLabel = options.assistantLabel || providerInfo(session.provider).label;
     const conversationLabel = options.conversationLabel || t("drawer.conversation");
-    const turns = conversationTurns(session, options);
+    const turns = conversationTurns(session, { ...options, forceLatestLive: overlay.forceLatestLive });
     const progressCount = turns.reduce((sum, turn) => sum + turn.progress.length, 0);
     const omitted = Number(session.omittedMessages || 0);
     const notice =

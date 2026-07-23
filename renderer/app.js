@@ -24,6 +24,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     search: "",
     sort: "recent",
     sessionOrder: [],
+    projectOrder: [],
     sessionArchives: new Map(),
     controlRoomObservedIds: new Set(),
     selectedId: null,
@@ -36,8 +37,6 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     drawerForceLatest: false,
     visibleLimit: 30,
     graphFocusId: null,
-    controlRoomPage: 0,
-    controlRoomPageSize: 4,
     controlRoomSort: "recent",
     supervisionFocusId: null,
     graphExpandedProviders: new Set(),
@@ -50,6 +49,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     agentCommandTargets: new Map(),
     agentCommandRoutes: new Map(),
     agentCommandSending: new Set(),
+    pendingConversationMessages: new Map(),
     stopRequests: new Set(),
     runControlRequests: new Set(),
     managementFilter: "all",
@@ -614,14 +614,18 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function isControlRoomSession(session, now = Date.now()) {
     if (!session) return false;
-    if (isLiveSession(session) || hasRunningExecution(session)) {
+    if (isLiveSession(session)) {
+      state.controlRoomObservedIds.add(String(session.id || ""));
+      return true;
+    }
+    if (isSessionManuallyArchived(session)) return false;
+    if (hasRunningExecution(session)) {
       state.controlRoomObservedIds.add(String(session.id || ""));
       return true;
     }
     if (!state.controlRoomObservedIds.has(String(session.id || ""))) return false;
     const responseAt = sessionResponseTimestamp(session);
     const retained = Boolean(responseAt
-      && !isSessionManuallyArchived(session)
       && Math.max(0, Number(now) - responseAt) < SESSION_RETENTION_MS);
     if (!retained && responseAt && Math.max(0, Number(now) - responseAt) >= SESSION_RETENTION_MS) {
       state.controlRoomObservedIds.delete(String(session.id || ""));

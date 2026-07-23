@@ -98,12 +98,16 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       state.sessionOrder = Array.isArray(dashboard.sessionOrder)
         ? dashboard.sessionOrder.filter(id => typeof id === "string" && id.length <= 500).slice(0, 1_000)
         : [];
+      state.projectOrder = Array.isArray(dashboard.projectOrder)
+        ? dashboard.projectOrder.filter(id => typeof id === "string" && id.length <= 2_000).slice(0, 1_000)
+        : [];
     } else {
       state.search = "";
       state.providerFilters.clear();
       state.workspace = "all";
       state.sort = "recent";
       state.sessionOrder = [];
+      state.projectOrder = [];
     }
     const search = $("#searchInput");
     if (search) search.value = state.search;
@@ -133,6 +137,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       sort: ["recent", "tokens", "context"].includes(state.sort) ? state.sort : "recent",
       controlRoomSort: ["recent", "tokens", "context"].includes(state.controlRoomSort) ? state.controlRoomSort : "recent",
       sessionOrder: (state.sessionOrder || []).filter(id => typeof id === "string" && id.length <= 500).slice(0, 1_000),
+      projectOrder: (state.projectOrder || []).filter(id => typeof id === "string" && id.length <= 2_000).slice(0, 1_000),
     };
     try {
       localStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(value));

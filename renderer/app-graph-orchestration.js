@@ -25,6 +25,14 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
   } = context;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
 
+  function syncControlRoomDisclosureButtons() {
+    const groups = Array.from(document.querySelectorAll("#liveSessionGrid .control-room-project-group"));
+    const canExpand = groups.some(group => !group.open);
+    const canCollapse = groups.some(group => group.open);
+    if ($("#controlRoomExpandAll")) $("#controlRoomExpandAll").disabled = !canExpand;
+    if ($("#controlRoomCollapseAll")) $("#controlRoomCollapseAll").disabled = !canCollapse;
+  }
+
   function renderAgentMap(sessions, motionKind = "refresh") {
     const liveSessionGrid = $("#liveSessionGrid");
     rememberDisclosureStates(liveSessionGrid);
@@ -45,9 +53,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#agentMapToolbar")?.classList.add("hidden");
       $("#controlRoomProjectToolbar")?.classList.remove("hidden");
       $("#controlRoomListToolbar")?.classList.remove("hidden");
-      if ($("#controlRoomPageSummary")) $("#controlRoomPageSummary").textContent = t("control.page_summary", { start: 0, end: 0, total: 0 });
-      if ($("#controlRoomPagePrev")) $("#controlRoomPagePrev").disabled = true;
-      if ($("#controlRoomPageNext")) $("#controlRoomPageNext").disabled = true;
+      syncControlRoomDisclosureButtons();
       return 0;
     }
 
@@ -71,30 +77,18 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       scheduleAgentWorkflowConnections();
     } else {
       const runtime = runtimeAgentSummary(model, liveTmuxEntries(state.snapshot && state.snapshot.tmux));
-      const pageSize = Math.max(1, Number(state.controlRoomPageSize || 4));
-      const maxPage = Math.max(0, Math.ceil(roots.length / pageSize) - 1);
-      state.controlRoomPage = Math.min(maxPage, Math.max(0, Number(state.controlRoomPage || 0)));
-      const startIndex = state.controlRoomPage * pageSize;
-      const endIndex = Math.min(roots.length, startIndex + pageSize);
-      const visibleRoots = roots.slice(startIndex, endIndex);
-      liveSessionGrid.innerHTML = runtimeSeparatedOverview(visibleRoots, model, roots);
+      liveSessionGrid.innerHTML = runtimeSeparatedOverview(roots, model, roots);
       restoreDisclosureStates(liveSessionGrid);
       $("#graphBreadcrumbs").innerHTML = "";
       $("#agentMapToolbar")?.classList.add("hidden");
       $("#controlRoomProjectToolbar")?.classList.remove("hidden");
       $("#controlRoomListToolbar")?.classList.remove("hidden");
-      if ($("#controlRoomPageSummary")) $("#controlRoomPageSummary").textContent = t("control.page_summary", {
-        start: roots.length ? startIndex + 1 : 0,
-        end: endIndex,
-        total: roots.length,
-      });
-      if ($("#controlRoomPagePrev")) $("#controlRoomPagePrev").disabled = state.controlRoomPage === 0;
-      if ($("#controlRoomPageNext")) $("#controlRoomPageNext").disabled = state.controlRoomPage >= maxPage;
+      syncControlRoomDisclosureButtons();
       $("#graphResetBtn").classList.add("hidden");
       return runtime.activeCount;
     }
     return model.nodes.filter(isControlRoomSession).length;
   }
 
-  return { renderAgentMap };
+  return { renderAgentMap, syncControlRoomDisclosureButtons };
 };

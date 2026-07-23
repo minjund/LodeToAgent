@@ -126,6 +126,8 @@ function registerTmuxAndProcessTests(context) {
     const active = applyRuntimePresence(sessions, base, { processes }, Date.parse('2026-07-14T03:01:00Z'));
     assert.equal(active.filter(item => item.status === 'running').length, 2);
     assert.equal(active.find(item => item.id === 'claude:wsl').runtimePresence[0].kind, 'tmux');
+    assert.equal(active.find(item => item.id === 'claude:wsl').runtimePresence[0].distro, 'Ubuntu');
+    assert.equal(active.find(item => item.id === 'claude:wsl').runtimePresence[0].paneNativeId, '%1');
     assert.equal(active.find(item => item.id === 'claude:win').status, 'idle');
     assert.equal(active.find(item => item.id === 'claude:win').runtimePresence[0].pid, 101);
     assert.equal(active.find(item => item.id === 'codex:win').runtimePresence[0].pid, 202);
@@ -879,6 +881,23 @@ function registerTerminalFailureTests(context) {
     const spec = launchSpec(normalizeLaunchOptions({ type: 'agent', provider: 'codex', args: ['resume', 'session-id'], cwd: root }), 'win32', { codex: { command: shim, label: 'Codex' } });
     assert.ok(/powershell|pwsh/i.test(spec.file));
     assert.deepStrictEqual(spec.args.slice(-3), [shim, 'resume', 'session-id']);
+    const options = normalizeLaunchOptions({
+      type: 'agent',
+      provider: 'codex',
+      args: ['resume', 'wsl-session-id'],
+      cwd: '/mnt/c/Users/dev/board-migration-loop',
+      distro: 'Ubuntu',
+    }, 'win32');
+    assert.equal(options.cwd, '/mnt/c/Users/dev/board-migration-loop');
+    assert.equal(options.distro, 'Ubuntu');
+    const wslSpec = launchSpec(options, 'win32', { codex: { command: 'codex', label: 'Codex' } });
+    assert.equal(wslSpec.file, 'wsl.exe');
+    assert.deepStrictEqual(wslSpec.args, [
+      '-d', 'Ubuntu',
+      '--cd', '/mnt/c/Users/dev/board-migration-loop',
+      '--', 'codex', 'resume', 'wsl-session-id',
+    ]);
+    assert.equal(wslSpec.cwd, os.homedir());
   });
 
 }

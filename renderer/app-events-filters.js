@@ -4,7 +4,7 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {} } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
 
   function bindFilterAndWorkspaceEvents() {
     const syncFilterResetButton = () => {
@@ -62,7 +62,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       if (item) {
         const label = item.querySelector("strong")?.textContent.trim() || t("project.all");
         state.workspace = item.dataset.workspace;
-        state.controlRoomPage = 0;
         state.visibleLimit = 30;
         renderWorkspaces();
         renderSessions("filter");
@@ -74,9 +73,12 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
           setDialogOpenState(menu, false);
           menu?.classList.add("hidden");
           $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
-          const focusResults = () => ($("#liveSessionGrid")?.querySelector("[data-graph-focus], [data-open-session]")
-            || $("#sessionGrid")?.querySelector("[data-session-id]")
-            || $("#mainContent"))?.focus({ preventScroll: true });
+          const focusResults = () => {
+            const result = $("#liveSessionGrid")?.querySelector("[data-graph-focus], [data-open-session]")
+              || $("#sessionGrid")?.querySelector("[data-session-id]");
+            result?.focus({ preventScroll: true });
+            if (document.activeElement !== result) $("#mainContent")?.focus({ preventScroll: true });
+          };
           restoreDialogTrigger();
           focusResults();
           requestAnimationFrame(focusResults);
@@ -93,7 +95,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const controlProjectSelect = $("#controlRoomProjectSelect");
     controlProjectSelect?.addEventListener("change", (event) => {
       state.workspace = event.target.value;
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       renderWorkspaces();
       renderSessions("filter");
@@ -104,7 +105,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const controlSortSelect = $("#controlRoomSortSelect");
     controlSortSelect?.addEventListener("change", (event) => {
       state.controlRoomSort = event.target.value;
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       renderSessions("filter");
       syncFilterResetButton();
@@ -131,7 +131,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       if ($("#searchInput")) $("#searchInput").value = value;
       controlSearchTimer = setTimeout(() => {
         state.search = normalizedSearch(value);
-        state.controlRoomPage = 0;
         state.visibleLimit = 30;
         renderSessions("filter");
         syncFilterResetButton();
@@ -150,16 +149,18 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         controlSearchButton?.focus();
       }
     });
-    $("#controlRoomPagePrev")?.addEventListener("click", (event) => {
-      state.controlRoomPage = Math.max(0, Number(state.controlRoomPage || 0) - 1);
-      renderSessions("filter");
-      event.currentTarget.focus({ preventScroll: true });
-    });
-    $("#controlRoomPageNext")?.addEventListener("click", (event) => {
-      state.controlRoomPage = Math.max(0, Number(state.controlRoomPage || 0) + 1);
-      renderSessions("filter");
-      event.currentTarget.focus({ preventScroll: true });
-    });
+    const setAllControlRoomGroups = (open) => {
+      document.querySelectorAll("#liveSessionGrid .control-room-project-group").forEach(group => {
+        group.open = open;
+      });
+      syncControlRoomDisclosureButtons();
+      announce(t(open ? "control.all_projects_expanded" : "control.all_projects_collapsed"));
+    };
+    $("#controlRoomExpandAll")?.addEventListener("click", () => setAllControlRoomGroups(true));
+    $("#controlRoomCollapseAll")?.addEventListener("click", () => setAllControlRoomGroups(false));
+    $("#liveSessionGrid")?.addEventListener("toggle", (event) => {
+      if (event.target.matches?.(".control-room-project-group")) syncControlRoomDisclosureButtons();
+    }, true);
     let searchTimer = null;
     $("#searchInput").addEventListener("input", (event) => {
       clearTimeout(searchTimer);
@@ -168,7 +169,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       syncFilterResetButton();
       searchTimer = setTimeout(() => {
         state.search = normalizedSearch(value);
-        state.controlRoomPage = 0;
         state.visibleLimit = 30;
         renderSessions("filter");
         announce(window.LoadToAgentI18n.t("filter.search_results", { count: filteredSessions().length }));
@@ -181,7 +181,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       $("#searchInput").value = "";
       $("#searchClearBtn").classList.add("hidden");
       state.search = "";
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       renderSessions("filter");
       announce(window.LoadToAgentI18n.t("filter.search_cleared"));
@@ -212,7 +211,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       const chip = event.target.closest("[data-provider-filter]");
       if (!chip) return;
       toggleProviderFilter(chip.dataset.providerFilter);
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       renderProviderFilter();
       renderProviderOverview();
@@ -229,7 +227,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     });
     $("#sortSelect").addEventListener("change", (event) => {
       state.sort = event.target.value;
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       renderSessions("filter");
       const label = event.target.selectedOptions[0]?.textContent || event.target.value;
@@ -244,7 +241,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.workspace = "all";
       state.sort = "recent";
       state.controlRoomSort = "recent";
-      state.controlRoomPage = 0;
       state.visibleLimit = 30;
       $("#searchInput").value = "";
       $("#searchClearBtn").classList.add("hidden");

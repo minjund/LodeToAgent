@@ -523,7 +523,7 @@ async function setupRuntime() {
 
 function bridgePresence() {
   if (!terminalManager) return [];
-  const environment = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
+  const localEnvironment = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
   return terminalManager.list()
     .filter(session => !session.transient && session.type === 'agent' && (session.status === 'running' || session.status === 'starting'))
     .map(session => ({
@@ -535,7 +535,8 @@ function bridgePresence() {
       pid: session.pid,
       cwd: session.cwd,
       startedAt: session.createdAt,
-      environment,
+      environment: session.distro && process.platform === 'win32' ? 'wsl' : localEnvironment,
+      distro: session.distro || '',
       kind: 'bridge',
       label: 'LoadToAgent 외부 터미널 브리지',
     }));

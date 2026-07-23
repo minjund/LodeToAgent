@@ -91,6 +91,39 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     return session?.parentId ? `${session.id}:${route}` : session.id;
   }
 
+  function conversationMessageKey(message) {
+    const id = String(message?.id || "").trim();
+    if (id) return `id:${id}`;
+    return `${message?.role || ""}:${String(message?.text || "").replace(/\s+/g, " ").trim()}:${message?.timestamp || ""}`;
+  }
+
+  function beginConversationMessage(session, command) {
+    const detail = state.details.get(session.id);
+    const baselineMessages = [...(session.messages || []), ...(detail?.messages || [])];
+    const entry = {
+      id: `local:${session.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      text: command,
+      timestamp: new Date().toISOString(),
+      status: "sending",
+      presented: false,
+      baselineMessageKeys: new Set(baselineMessages.map(conversationMessageKey)),
+    };
+    const pending = state.pendingConversationMessages.get(session.id) || [];
+    pending.push(entry);
+    state.pendingConversationMessages.set(session.id, pending);
+    state.drawerForceLatest = true;
+    context.renderDrawer?.();
+    return entry;
+  }
+
+  function updateConversationMessage(sessionId, entry, status, error = "") {
+    if (!entry) return;
+    entry.status = status;
+    entry.error = error;
+    state.drawerForceLatest = true;
+    context.renderDrawer?.();
+  }
+
   function agentControlMode(session, targets) {
     if (targets.length && isLiveSession(session)) return "direct";
     const resume = agentResumeSupport(session);
@@ -194,7 +227,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const placeholder = editable ? t(options.conversation ? "agent.conversation_placeholder" : "agent.command_example") : status;
     const availabilityClass = mode === "direct" ? "connected" : ["resume", "handoff", "origin-resume"].includes(mode) ? "resume-ready" : "unavailable";
     return `<form class="agent-command-panel ${availabilityClass} control-${mode} ${options.conversation ? "conversation-composer" : ""}"
-      data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}" data-agent-command-routing="${routingEnabled ? "conversation" : "session"}">
+      data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}" data-agent-command-routing="${options.conversation ? "conversation" : "session"}">
       <header>
         <span class="agent-command-icon" aria-hidden="true">›_</span>
         <span><b>${esc(t(options.conversation ? "agent.conversation_title" : "agent.command_title"))}</b><small>${esc(status)}</small></span>
@@ -255,7 +288,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId);
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
-    const routingEnabled = form?.dataset.agentCommandRouting === "conversation" && Boolean(session.parentId);
+    const conversationSubmission = form?.dataset.agentCommandRouting === "conversation";
+    const routingEnabled = conversationSubmission && Boolean(session.parentId);
     const requestedRoute = routingEnabled ? form?.dataset.agentCommandRouteSelected || selectedAgentCommandRoute(session) : "direct";
     const routeContext = routingEnabled
       ? routedAgentCommandContext(session, requestedRoute)
@@ -274,26 +308,20 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (mode === "resume" || mode === "handoff" || mode === "origin-resume") {
       if (input) state.agentCommandDrafts.set(sessionId, input.value);
       if (!command) return context.toast(t("agent.enter_command"));
-      if (routingEnabled && routeContext.route === "parent") {
+      if (conversationSubmission) {
         state.agentCommandSending.add(sessionId);
-        const submit = form.querySelector('[type="submit"]');
-        if (submit) {
-          submit.disabled = true;
-          submit.textContent = t("agent.sending");
-        }
+        const pendingMessage = beginConversationMessage(session, command);
         try {
           await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false });
           state.agentCommandDrafts.delete(sessionId);
-          if (input) input.value = "";
-          context.toast(t("agent.command_routed_via_parent"));
+          updateConversationMessage(sessionId, pendingMessage, "awaiting");
+          context.toast(t(routingEnabled && routeContext.route === "parent" ? "agent.command_routed_via_parent" : "agent.command_sent_background"));
         } catch (error) {
+          updateConversationMessage(sessionId, pendingMessage, "failed", errorText(error, "agent.send_failed"));
           context.toast(errorText(error, "agent.send_failed"));
         } finally {
           state.agentCommandSending.delete(sessionId);
-          if (submit && submit.isConnected) {
-            submit.disabled = false;
-            submit.textContent = t("agent.send_via_parent");
-          }
+          context.renderDrawer?.();
         }
         return;
       }
@@ -307,6 +335,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       return context.toast(t(agentCommandTargets(session).length ? "agent.select_target_first" : "agent.no_writable_terminal"));
     if (!command) return context.toast(t("agent.enter_command"));
     state.agentCommandSending.add(sessionId);
+    if (input) state.agentCommandDrafts.set(sessionId, input.value);
+    const pendingMessage = conversationSubmission ? beginConversationMessage(session, command) : null;
     const submit = form.querySelector('[type="submit"]');
     if (submit) {
       submit.disabled = true;
@@ -316,28 +346,33 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id);
       state.agentCommandDrafts.delete(sessionId);
       if (input) input.value = "";
+      updateConversationMessage(sessionId, pendingMessage, "awaiting");
       context.toast(t(routingEnabled && routeContext.route === "parent" ? "agent.command_routed_via_parent" : "agent.command_sent", { target: target.label }));
     } catch (error) {
-      if (session.parentId) {
-        context.toast(errorText(error, "agent.send_failed"));
-        return;
-      }
-      const latest = snapshotSession(sessionId) || session;
+      const latest = snapshotSession(targetSession.id) || targetSession;
       const support = agentResumeSupport(latest);
-      if (!agentCommandTargets(latest).length && support.supported) {
+      const shouldRecover = support.supported
+        && (conversationSubmission || !agentCommandTargets(latest).length);
+      if (shouldRecover) {
         try {
           state.agentCommandDrafts.set(sessionId, command);
-          await window.LoadToAgentTerminal.resumeForAgent(latest, command, true);
+          await window.LoadToAgentTerminal.resumeForAgent(latest, routedCommand, true, { focus: conversationSubmission ? false : true });
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
+          updateConversationMessage(sessionId, pendingMessage, "awaiting");
           context.toast(t("agent.recovered_and_sent"));
           return;
         } catch (resumeError) {
+          updateConversationMessage(sessionId, pendingMessage, "failed", errorText(resumeError, "agent.recovery_failed"));
           context.toast(errorText(resumeError, "agent.recovery_failed"));
         }
-      } else context.toast(errorText(error, "agent.send_failed"));
+      } else {
+        updateConversationMessage(sessionId, pendingMessage, "failed", errorText(error, "agent.send_failed"));
+        context.toast(errorText(error, "agent.send_failed"));
+      }
     } finally {
       state.agentCommandSending.delete(sessionId);
+      if (conversationSubmission) context.renderDrawer?.();
       if (submit && submit.isConnected) {
         submit.disabled = false;
         submit.textContent = t(routingEnabled && routeContext.route === "parent" ? "agent.send_via_parent" : "agent.send_now");

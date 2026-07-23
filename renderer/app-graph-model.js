@@ -11,6 +11,7 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
     compact,
     isLiveSession,
     isControlRoomSession = isLiveSession,
+    isSessionManuallyArchived = () => false,
     stableSessionSort = sessions => [...sessions],
   } = context;
 
@@ -33,7 +34,7 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
       let current = session;
       const seen = new Set();
       while (current && !seen.has(current.id)) {
-        included.add(current.id);
+        if (!isSessionManuallyArchived(current) || isControlRoomSession(current)) included.add(current.id);
         seen.add(current.id);
         current = current.parentId ? byId.get(current.parentId) : null;
       }
@@ -58,7 +59,10 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
     }
     for (const id of [...included]) {
       const session = byId.get(id);
-      for (const childId of (session && session.childIds) || []) included.add(childId);
+      for (const childId of (session && session.childIds) || []) {
+        const child = byId.get(childId);
+        if (child && (!isSessionManuallyArchived(child) || isControlRoomSession(child))) included.add(childId);
+      }
     }
     return { byId, included, nodes: sessions.filter((session) => included.has(session.id)) };
   }

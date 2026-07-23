@@ -91,9 +91,8 @@ const REQUIRED_UI_IDS = [
   'controlRoomSearch',
   'controlRoomSearchInput',
   'controlRoomSearchBtn',
-  'controlRoomPageSummary',
-  'controlRoomPagePrev',
-  'controlRoomPageNext',
+  'controlRoomExpandAll',
+  'controlRoomCollapseAll',
   'agentMapToolbar',
   'liveSessionGrid',
   'activeEmptyState',
@@ -940,7 +939,8 @@ function registerUiContractTests(context) {
     assert.equal(sidebarBlock.includes('id="addWorkspaceBtn"'), false, '프로젝트 추가 버튼은 사이드바가 아니라 실행 세션 영역에 있어야 합니다.');
     assert.ok(liveBlock.includes('id="workspaceList"') && liveBlock.includes('id="addWorkspaceBtn"'), '프로젝트 목록과 추가 버튼이 실행 세션 영역에 없습니다.');
     assert.ok(liveBlock.indexOf('id="workspaceList"') < liveBlock.indexOf('id="addWorkspaceBtn"'), '프로젝트 추가 버튼은 프로젝트 목록 오른쪽 순서에 있어야 합니다.');
-    assert.ok(liveBlock.indexOf('id="controlRoomPageSummary"') < liveBlock.indexOf('id="liveSessionGrid"'), '페이징은 프로젝트 그룹 아래가 아니라 목록 상단에 있어야 합니다.');
+    assert.ok(liveBlock.indexOf('id="controlRoomExpandAll"') < liveBlock.indexOf('id="liveSessionGrid"'), '프로젝트 전체 열기·닫기 버튼은 목록 상단에 있어야 합니다.');
+    assert.equal(liveBlock.includes('controlRoomPagePrev'), false, '실행 세션 페이징 버튼이 남아 있습니다.');
     const rendererSource = files => files
       .map(file => fs.readFileSync(path.join(root, 'renderer', file), 'utf8'))
       .join('\n');

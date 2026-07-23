@@ -120,10 +120,11 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   const type = TERMINAL_TYPES.has(options.type) ? options.type : fallbackType;
   const suppliedCwd = String(options.cwd || '').trim();
   const localCwd = suppliedCwd || os.homedir();
-  if (['powershell', 'cmd', 'shell', 'agent'].includes(type) && (!fs.existsSync(localCwd) || !fs.statSync(localCwd).isDirectory())) {
+  const distro = cleanText(options.distro, 100);
+  const wslAgent = platform === 'win32' && type === 'agent' && Boolean(distro);
+  if (['powershell', 'cmd', 'shell', 'agent'].includes(type) && !wslAgent && (!fs.existsSync(localCwd) || !fs.statSync(localCwd).isDirectory())) {
     throw new Error(`작업 폴더를 찾을 수 없습니다: ${localCwd}`);
   }
-  const distro = cleanText(options.distro, 100);
   if ((type === 'wsl' || type === 'tmux') && !distro) throw new Error(type === 'tmux' ? 'tmux 환경을 선택하세요.' : 'WSL 배포판을 선택하세요.');
   const tmuxSession = cleanText(options.tmuxSession, 100);
   const tmuxPane = cleanText(options.tmuxPane, 100);
@@ -135,7 +136,7 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
     : [];
   return {
     type,
-    cwd: ['powershell', 'cmd', 'shell', 'agent'].includes(type) ? path.resolve(localCwd) : suppliedCwd,
+    cwd: ['powershell', 'cmd', 'shell', 'agent'].includes(type) && !wslAgent ? path.resolve(localCwd) : suppliedCwd,
     distro,
     tmuxSession,
     tmuxPane,
@@ -162,6 +163,17 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   if (options.type === 'agent') {
     const provider = agentProviders[options.provider] || AGENT_PROVIDERS[options.provider];
     if (platform === 'win32') {
+      if (options.distro) {
+        const args = ['-d', options.distro];
+        if (options.cwd) args.push('--cd', options.cwd);
+        args.push('--', provider.command, ...(provider.args || []), ...options.args);
+        return {
+          file: 'wsl.exe',
+          args,
+          cwd: os.homedir(),
+          label: `${provider.label} · ${options.distro}`,
+        };
+      }
       const command = resolveWindowsCommand(provider.command);
       if (path.extname(command).toLowerCase() === '.ps1') {
         return {

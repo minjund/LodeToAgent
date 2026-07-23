@@ -132,6 +132,19 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     if (!support.supported) throw new Error(support.reason);
     const cwd = String(agentSession.cwd || preferredWorkspace() || '').trim();
     if (!cwd) throw new Error(t('terminal.agent.cwd_missing'));
+    const environment = agentSession.environment || {};
+    const tmuxPresence = (agentSession.runtimePresence || []).find(item => item.kind === 'tmux') || {};
+    const tmuxPresenceId = String(tmuxPresence.id || '');
+    const distroFromPresenceId = tmuxPresenceId.startsWith('tmux:')
+      ? tmuxPresenceId.slice(5, tmuxPresenceId.lastIndexOf(':'))
+      : '';
+    const wslCwd = state.platform.id === 'win32'
+      && (environment.kind === 'wsl' || /^\/(?:mnt|home|root|workspace)(?:\/|$)/.test(cwd));
+    const distro = wslCwd
+      ? String(environment.distro || tmuxPresence.distro || distroFromPresenceId
+        || (state.wslDistros.length === 1 ? state.wslDistros[0] : '')).trim()
+      : '';
+    if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
     const prompt = String(draft || '').trim();
     const title = t('terminal.agent.resume_title', {
       provider: providerLabel(agentSession.provider),
@@ -142,6 +155,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       provider: support.provider,
       args: resumeLaunchArgs(support, sendDraft ? prompt : '', { background: options.focus === false }),
       cwd,
+      distro,
       bridgeId: agentSession.id,
       title,
       transient: options.focus === false,

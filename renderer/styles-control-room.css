@@ -344,6 +344,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+.control-room-project-toolbar .workspace-live-state b {
+  display: inline;
+}
+
+.control-room-project-toolbar .workspace-item.has-live-sessions {
+  border-color: rgba(76,227,154,.28);
+}
+
 .control-room-project-toolbar .workspace-item:hover {
   border-color: rgba(89,216,255,.38);
   background: rgba(89,216,255,.065);
@@ -489,63 +497,39 @@
   min-height: 40px !important;
 }
 
-.control-room-pagination {
+.control-room-disclosure-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 10px;
 }
 
-.control-room-page-summary {
-  min-width: 76px;
-  color: #c3d0d8;
-  text-align: center;
-  white-space: nowrap;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.control-room-page-buttons {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 10px;
-}
-
-.control-room-page-buttons button {
-  width: 40px;
+.control-room-disclosure-actions button {
   height: 40px;
-  min-width: 40px;
+  min-width: 76px;
   min-height: 40px !important;
-  display: grid;
-  place-items: center;
+  padding: 0 12px;
   border: 1px solid rgba(104,130,151,.28);
+  border-radius: 8px;
   background: rgba(11,18,27,.88);
   color: #a8b7c4;
+  font-size: 12px;
   cursor: pointer;
 }
 
-.control-room-page-buttons button:first-child {
-  border-radius: 8px;
-}
-
-.control-room-page-buttons button:last-child {
-  margin-left: 0;
-  border-radius: 8px;
-}
-
-.control-room-page-buttons button:hover:not(:disabled) {
+.control-room-disclosure-actions button:hover:not(:disabled) {
   border-color: rgba(89,216,255,.45);
   color: #80e6f4;
 }
 
-.control-room-page-buttons button:disabled {
+.control-room-disclosure-actions button:disabled {
   opacity: .36;
   cursor: default;
 }
 
-#controlRoomPagePrev,
-#controlRoomPageNext {
-  min-width: 40px;
+#controlRoomExpandAll,
+#controlRoomCollapseAll {
+  min-width: 76px;
   min-height: 40px !important;
 }
 
@@ -693,6 +677,7 @@ body details.control-room-project-group > summary.control-project-header {
   display: grid;
   place-items: center;
   color: #718597;
+  cursor: grab;
 }
 
 .control-project-handle::before {
@@ -803,16 +788,42 @@ body details.control-room-project-group > summary.control-project-header {
   margin-top: 0;
 }
 
-.control-room-project-group:not([open]) .control-project-handle {
-  display: none;
-}
-
 .control-room-project-group:not([open]) .control-project-heading {
   padding-left: 10px;
 }
 
 .control-room-project-group:not([open]) .control-project-heading > i {
   display: none;
+}
+
+.control-room-project-group.project-sort-dragging {
+  opacity: .48;
+}
+
+.control-room-project-group[data-project-drop-edge]::after {
+  position: absolute;
+  z-index: 9;
+  right: 12px;
+  left: 12px;
+  height: 3px;
+  border-radius: 999px;
+  background: #64e2b5;
+  box-shadow: 0 0 0 3px rgba(100,226,181,.13),0 0 16px rgba(100,226,181,.55);
+  content: "";
+  pointer-events: none;
+}
+
+.control-room-project-group[data-project-drop-edge="top"]::after {
+  top: 3px;
+}
+
+.control-room-project-group[data-project-drop-edge="bottom"]::after {
+  bottom: 3px;
+}
+
+.control-project-header[draggable="true"]:active,
+.control-room-project-group.project-sort-dragging .control-project-header {
+  cursor: grabbing;
 }
 
 .control-room-session {
@@ -2020,7 +2031,7 @@ body details.control-room-project-group > summary.control-project-header {
 
   .control-room-list-toolbar {
     gap: 10px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .control-room-toolbar-spacer,
@@ -2042,13 +2053,13 @@ body details.control-room-project-group > summary.control-project-header {
 
   #controlRoomListToolbar select,
   #controlRoomSearchBtn,
-  #controlRoomPagePrev,
-  #controlRoomPageNext {
+  #controlRoomExpandAll,
+  #controlRoomCollapseAll {
     min-height: 44px !important;
   }
 
   .control-room-search,
-  .control-room-page-buttons button {
+  .control-room-disclosure-actions button {
     height: 44px;
     min-height: 44px !important;
   }
@@ -2060,6 +2071,16 @@ body details.control-room-project-group > summary.control-project-header {
   .control-room-search.is-open {
     width: min(210px,55vw);
     flex: 1 1 180px;
+  }
+
+  .control-room-disclosure-actions {
+    display: grid;
+    flex: 1 1 100%;
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+
+  .control-room-disclosure-actions button {
+    width: 100%;
   }
 
   .control-room-search button {

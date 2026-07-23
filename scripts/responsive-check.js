@@ -157,7 +157,7 @@ async function layoutMetrics(win) {
       clippedOpenProjectBodies,
       inaccessibleProjectBodies,
       projectLayoutValid: !liveSectionVisible || projectGroups.length === 0
-        || (projectGroups.filter(group => group.open).length === 1 && clippedOpenProjectBodies === 0 && inaccessibleProjectBodies === 0),
+        || (projectGroups.every(group => !group.open) && clippedOpenProjectBodies === 0 && inaccessibleProjectBodies === 0),
     };
   })()`);
 }

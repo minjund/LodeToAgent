@@ -518,23 +518,13 @@ app.whenReady().then(() => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = null;
         window.LoadToAgentApp.state.graphExpandedProviders.clear();
-        window.LoadToAgentApp.state.controlRoomPage = 0;
         window.LoadToAgentApp.renderSessions();
         const defaultRooms = document.querySelectorAll('[data-control-session]').length;
-        const pageSummary = document.querySelector('#controlRoomPageSummary')?.textContent.trim() || '';
-        const pageTotal = Number(pageSummary.split('/').pop()?.trim() || 0);
-        const pageNextEnabled = !document.querySelector('#controlRoomPageNext')?.disabled;
-        const originalPageSize = window.LoadToAgentApp.state.controlRoomPageSize;
-        window.LoadToAgentApp.state.controlRoomPageSize = 100;
-        window.LoadToAgentApp.state.controlRoomPage = 0;
-        window.LoadToAgentApp.renderSessions();
         const grid = document.querySelector('#liveSessionGrid');
         const densityRoom = document.querySelector('[data-control-session="visual-density:root:0"]');
+        const groups = [...document.querySelectorAll('.control-room-project-group')];
         const metrics = {
           defaultRooms,
-          pageSummary,
-          pageTotal,
-          pageNextEnabled,
           rooms: document.querySelectorAll('[data-control-session]').length,
           mains: document.querySelectorAll('.control-room-main').length,
           densityRoom: Boolean(densityRoom),
@@ -542,19 +532,21 @@ app.whenReady().then(() => {
           mainWorkColumn: Boolean(densityRoom?.querySelector('.main-column .control-room-main')),
           legends: document.querySelectorAll('#graphBreadcrumbs .control-room-legend > span').length,
           projectGroups: document.querySelectorAll('.control-room-project-group').length,
+          allCollapsedByDefault: groups.every(group => !group.open),
+          expandEnabled: !document.querySelector('#controlRoomExpandAll')?.disabled,
+          collapseDisabled: Boolean(document.querySelector('#controlRoomCollapseAll')?.disabled),
+          pagerRemoved: !document.querySelector('#controlRoomPageSummary, #controlRoomPagePrev, #controlRoomPageNext'),
           structureVisibleWithoutFocus: Boolean(document.querySelector('[data-control-room-overview]')),
           noHorizontalOverflow: grid ? grid.scrollWidth <= grid.clientWidth + 2 : false,
           subagentTabRemoved: !document.querySelector('[data-view="subagents"]'),
         };
-        window.LoadToAgentApp.state.controlRoomPageSize = originalPageSize;
-        window.LoadToAgentApp.state.controlRoomPage = 0;
-        window.LoadToAgentApp.renderSessions();
         return metrics;
       })()`);
-      if (!densityMetrics.subagentTabRemoved || densityMetrics.defaultRooms !== 4 || densityMetrics.pageTotal < 32
-        || !densityMetrics.pageNextEnabled || densityMetrics.rooms < 32 || densityMetrics.mains !== densityMetrics.rooms
+      if (!densityMetrics.subagentTabRemoved || densityMetrics.defaultRooms < 32
+        || densityMetrics.rooms < 32 || densityMetrics.mains !== densityMetrics.rooms
         || !densityMetrics.densityRoom || densityMetrics.completedPreview !== 3 || !densityMetrics.mainWorkColumn
         || densityMetrics.legends !== 0 || densityMetrics.projectGroups < 1
+        || !densityMetrics.allCollapsedByDefault || !densityMetrics.expandEnabled || !densityMetrics.collapseDisabled || !densityMetrics.pagerRemoved
         || !densityMetrics.structureVisibleWithoutFocus || !densityMetrics.noHorizontalOverflow) {
         throw new Error(`대규모 세션 관제 밀도 조절이 올바르지 않습니다: ${JSON.stringify(densityMetrics)}`);
       }

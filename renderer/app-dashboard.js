@@ -51,7 +51,11 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function normalizedProjectPath(value) {
-    return String(value || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLocaleLowerCase();
+    let normalized = String(value || "").trim().replace(/\\/g, "/");
+    normalized = normalized.replace(/^\/\/\?\/([a-z]:\/)/i, "$1");
+    const wslWindowsMount = normalized.match(/^\/mnt\/([a-z])(?:\/(.*))?$/i);
+    if (wslWindowsMount) normalized = `${wslWindowsMount[1]}:/${wslWindowsMount[2] || ""}`;
+    return normalized.replace(/\/+$/, "").toLocaleLowerCase();
   }
 
   function projectContainsPath(projectPath, candidatePath) {
@@ -67,8 +71,15 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
 
   function observedProjects(sessions = displaySessions().filter((session) => !session.parentId)) {
     const projects = new Map();
-    const saved = state.workspaces.map((item) => ({ ...item, key: normalizedProjectPath(item.path) }));
-    saved.forEach((item) => projects.set(item.key, { path: item.path, name: item.name || projectName(item.path), saved: true, count: 0 }));
+    const saved = state.workspaces.map((item, index) => ({ ...item, key: normalizedProjectPath(item.path), order: index }));
+    saved.forEach((item) => projects.set(item.key, {
+      path: item.path,
+      name: item.name || projectName(item.path),
+      saved: true,
+      order: item.order,
+      count: 0,
+      liveCount: 0,
+    }));
     sessions.filter((session) => !session.parentId && !isProjectlessSession(session)).forEach((session) => {
       const originPath = sessionOriginPath(session);
       if (!originPath) return;
@@ -77,8 +88,16 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         .sort((a, b) => b.key.length - a.key.length)[0];
       const path = owner ? owner.path : originPath;
       const key = normalizedProjectPath(path);
-      const project = projects.get(key) || { path, name: projectName(path), saved: false, count: 0 };
+      const project = projects.get(key) || {
+        path,
+        name: projectName(path),
+        saved: false,
+        order: Number.MAX_SAFE_INTEGER,
+        count: 0,
+        liveCount: 0,
+      };
       project.count += 1;
+      if (isControlRoomSession(session)) project.liveCount += 1;
       project.lastActivityAt = !project.lastActivityAt || Date.parse(session.updatedAt || 0) > Date.parse(project.lastActivityAt || 0)
         ? session.updatedAt
         : project.lastActivityAt;
@@ -93,7 +112,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       item.name = parts.slice(-2).join("/") || item.name;
     });
     return items.sort((a, b) => Number(b.count || 0) - Number(a.count || 0)
-      || Number(b.saved) - Number(a.saved)
+      || Number(a.order ?? Number.MAX_SAFE_INTEGER) - Number(b.order ?? Number.MAX_SAFE_INTEGER)
       || String(a.name).localeCompare(String(b.name), uiLocale()));
   }
 
@@ -130,24 +149,20 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const rootSessions = displaySessions().filter((session) => !session.parentId);
     const liveRootSessions = rootSessions.filter(isControlRoomSession);
     const projects = observedProjects(rootSessions);
-    const savedProjectOrder = new Map(state.workspaces.map((workspace, index) => [normalizedProjectPath(workspace.path), index]));
-    const liveProjects = observedProjects(liveRootSessions).sort((a, b) => {
-      const aOrder = savedProjectOrder.get(normalizedProjectPath(a.path));
-      const bOrder = savedProjectOrder.get(normalizedProjectPath(b.path));
-      if (aOrder != null || bOrder != null) return (aOrder ?? Number.MAX_SAFE_INTEGER) - (bOrder ?? Number.MAX_SAFE_INTEGER);
-      return Number(b.count || 0) - Number(a.count || 0) || String(a.name).localeCompare(String(b.name), uiLocale());
-    });
+    const liveProjects = observedProjects(liveRootSessions);
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
     const savedWorkspaceExists = state.workspace === "all"
       || (state.workspace === PROJECTLESS_WORKSPACE && projectlessCount > 0)
       || projects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
     if (!savedWorkspaceExists) state.workspace = "all";
-    const projectButton = (item, compactClass = "") => `<button type="button" class="workspace-item observed-project ${compactClass} ${state.workspace === item.path ? "selected" : ""}"
+    const projectButton = (item, compactClass = "") => `<button type="button" class="workspace-item observed-project ${compactClass} ${Number(item.liveCount || 0) ? "has-live-sessions" : ""} ${state.workspace === item.path ? "selected" : ""}"
       data-workspace="${esc(item.path)}" title="${esc(item.path)}"
+      data-live-session-count="${Number(item.liveCount || 0)}"
       aria-label="${esc(t("project.filter_named", { name: item.name, count: item.count }))}"
       aria-pressed="${state.workspace === item.path ? "true" : "false"}">
       <strong>${esc(item.name)}</strong><small>${Number(item.count || 0)}</small>
+      ${Number(item.liveCount || 0) ? `<span class="workspace-live-state" title="${esc(t("project.in_progress"))}"><i aria-hidden="true"></i><b>${esc(t("project.in_progress"))}</b></span>` : ""}
       </button>`;
     const mobileHtml =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"
@@ -551,6 +566,32 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     return true;
   }
 
+  function ensureProjectOrder(projectKeys = []) {
+    if (!Array.isArray(state.projectOrder)) state.projectOrder = [];
+    const known = new Set(state.projectOrder);
+    for (const value of projectKeys) {
+      const key = String(value || "");
+      if (!key || known.has(key)) continue;
+      state.projectOrder.push(key);
+      known.add(key);
+    }
+    return state.projectOrder;
+  }
+
+  function moveProjectOrder(sourceId, targetId, placeAfter = false) {
+    const source = String(sourceId || "");
+    const target = String(targetId || "");
+    if (!source || !target || source === target) return false;
+    const order = ensureProjectOrder([source, target]);
+    const sourceIndex = order.indexOf(source);
+    if (sourceIndex < 0 || !order.includes(target)) return false;
+    order.splice(sourceIndex, 1);
+    const targetIndex = order.indexOf(target);
+    order.splice(targetIndex + (placeAfter ? 1 : 0), 0, source);
+    state.projectOrder = order;
+    return true;
+  }
+
   function graphFilteredSessions() {
     let sessions = displaySessions();
     if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
@@ -607,6 +648,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     graphFilteredSessions,
     stableSessionSort,
     moveSessionOrder,
+    ensureProjectOrder,
+    moveProjectOrder,
     renderProviderVisibilitySettings,
   };
 };

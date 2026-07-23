@@ -10,10 +10,12 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     copyText = async () => false,
     announce = () => {},
     moveSessionOrder = () => false,
+    moveProjectOrder = () => false,
     archiveSession = () => false,
   } = context;
 
   let sessionDragJustEnded = false;
+  let projectDragEndedAt = 0;
 
   const sortableSessionId = node => String(node?.dataset.sessionSortable || "");
   const clearSessionDropState = container => {
@@ -115,6 +117,96 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       event.preventDefault();
       event.stopPropagation();
       commitSessionPosition(container, sortableSessionId(item), sortableSessionId(target), offset > 0, true);
+    });
+  };
+
+  const bindSortableProjectGroups = (container) => {
+    const selector = ".control-room-project-group[data-project-sortable]";
+    let draggedProjectId = "";
+    const projectId = node => String(node?.dataset.projectSortable || "");
+    const clearProjectDropState = () => {
+      container.querySelectorAll(selector).forEach(group => {
+        group.classList.remove("project-sort-dragging");
+        group.removeAttribute("data-project-drop-edge");
+        group.querySelector(":scope > .control-project-header")?.setAttribute("aria-grabbed", "false");
+      });
+    };
+    const finishProjectDrag = () => {
+      clearProjectDropState();
+      draggedProjectId = "";
+      projectDragEndedAt = Date.now();
+    };
+    const commitProjectPosition = (sourceId, targetId, placeAfter, focusSource = false) => {
+      if (!moveProjectOrder(sourceId, targetId, placeAfter)) return false;
+      saveDashboardPreferences();
+      renderSessions("reorder");
+      announce(window.LoadToAgentI18n.t("project.position_changed"));
+      if (focusSource) {
+        requestAnimationFrame(() => container
+          .querySelector(`${selector}[data-project-sortable="${CSS.escape(sourceId)}"] > .control-project-header`)
+          ?.focus({ preventScroll: true }));
+      }
+      return true;
+    };
+    container.addEventListener("dragstart", (event) => {
+      const header = event.target.closest(".control-project-header[draggable='true']");
+      const group = header?.closest(selector);
+      if (!group) return;
+      draggedProjectId = projectId(group);
+      if (!draggedProjectId) {
+        event.preventDefault();
+        return;
+      }
+      group.classList.add("project-sort-dragging");
+      header.setAttribute("aria-grabbed", "true");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", draggedProjectId);
+        event.dataTransfer.setData("application/x-loadtoagent-project-list", container.id);
+        event.dataTransfer.setDragImage(header, 20, 20);
+      }
+    });
+    container.addEventListener("dragover", (event) => {
+      if (!draggedProjectId) return;
+      const target = event.target.closest(selector);
+      if (!target || projectId(target) === draggedProjectId) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      container.querySelectorAll(`${selector}[data-project-drop-edge]`).forEach(group => group.removeAttribute("data-project-drop-edge"));
+      const bounds = target.getBoundingClientRect();
+      target.dataset.projectDropEdge = event.clientY > bounds.top + bounds.height / 2 ? "bottom" : "top";
+    });
+    container.addEventListener("drop", (event) => {
+      if (!draggedProjectId) return;
+      const target = event.target.closest(selector);
+      if (!target || projectId(target) === draggedProjectId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const bounds = target.getBoundingClientRect();
+      const changed = commitProjectPosition(
+        draggedProjectId,
+        projectId(target),
+        event.clientY > bounds.top + bounds.height / 2,
+      );
+      finishProjectDrag();
+      if (!changed) clearProjectDropState();
+    });
+    container.addEventListener("dragend", finishProjectDrag);
+    container.addEventListener("dragleave", (event) => {
+      if (!container.contains(event.relatedTarget)) clearProjectDropState();
+    });
+    container.addEventListener("keydown", (event) => {
+      const header = event.target.closest(".control-project-header[draggable='true']");
+      if (!header || event.target !== header || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+      const group = header.closest(selector);
+      const groups = Array.from(container.querySelectorAll(selector));
+      const current = groups.indexOf(group);
+      const offset = event.key === "ArrowUp" ? -1 : 1;
+      const target = groups[current + offset];
+      if (current < 0 || !target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      commitProjectPosition(projectId(group), projectId(target), offset > 0, true);
     });
   };
 
@@ -336,7 +428,13 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
 
   function bindLiveAgentEvents() {
     bindSortableSessionList($("#liveSessionGrid"), "[data-control-session][data-session-sortable]");
+    bindSortableProjectGroups($("#liveSessionGrid"));
     $("#liveSessionGrid").addEventListener("click", async (event) => {
+      if (Date.now() - projectDragEndedAt < 250 && event.target.closest(".control-project-header")) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       if (sessionDragJustEnded) return;
       const archive = event.target.closest("[data-session-archive]");
       if (archive) {

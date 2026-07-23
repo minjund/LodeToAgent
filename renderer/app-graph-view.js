@@ -34,6 +34,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     graphDescendantCount,
     sessionWorkspaceLabel,
     controlRoomProject = session => ({ key: String(session?.workspace || session?.id || "unknown"), label: sessionWorkspaceLabel(session) }),
+    ensureProjectOrder = projectKeys => projectKeys,
   } = context;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const statusLabel = (status) => ({
@@ -519,7 +520,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       if (!groups.has(key)) groups.set(key, { name, roots: [] });
       groups.get(key).roots.push(root);
     });
-    const projectGroups = [...groups.entries()].map(([key, { name, roots: projectRoots }], index) => {
+    const defaultOrderedGroups = [...groups.entries()].sort(([leftKey], [rightKey]) =>
+      Number(allGroups.get(rightKey)?.roots.length || 0) - Number(allGroups.get(leftKey)?.roots.length || 0));
+    const projectOrder = ensureProjectOrder(defaultOrderedGroups.map(([key]) => key));
+    const projectRank = new Map(projectOrder.map((key, index) => [key, index]));
+    const orderedGroups = defaultOrderedGroups.sort(([leftKey], [rightKey]) =>
+      Number(projectRank.get(leftKey) ?? Number.MAX_SAFE_INTEGER) - Number(projectRank.get(rightKey) ?? Number.MAX_SAFE_INTEGER));
+    const projectGroups = orderedGroups.map(([key, { name, roots: projectRoots }], index) => {
       const projectTotals = allGroups.get(key)?.roots || projectRoots;
       const activeCount = projectTotals.filter((root) => isLiveSession(root)).length;
       const attentionCount = projectTotals.filter((root) =>
@@ -532,10 +539,11 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       const disclosureKey = `control-project:${key}`;
       const presentation = index === 0 ? "is-primary" : "is-secondary";
       const projectFocusId = projectRoots[0]?.id || "";
-      return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-disclosure-key="${esc(disclosureKey)}" ${index === 0 ? "open" : ""}>
-        <summary class="control-project-header" data-project-toggle="${esc(name)}">
+      return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}">
+        <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
+          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
           <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small><em>${projectTotals.length}</em></span>
-          <span class="control-project-handle" role="img" aria-label="프로젝트 그룹" title="프로젝트 그룹 · 세션은 최근 활동순으로 표시됩니다"></span>
+          <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
         </summary>
         <button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>
         <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}</div>

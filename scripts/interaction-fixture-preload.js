@@ -150,6 +150,10 @@ const extraLiveSessions = Array.from({ length: 7 }, (_, index) => ({
   title: `추가 진행 작업 ${index + 1}`,
   childIds: [],
   runtimePresence: [],
+  ...(index === 0 ? {
+    cwd: '/mnt/c/Users/fixture/board-migration-loop',
+    environment: { kind: 'wsl', distro: 'FixtureLinux', label: 'WSL · FixtureLinux' },
+  } : {}),
   executions: [],
   runId: '',
   loop: index < 5 ? { iteration: index + 1, phase: index === 0 ? 'act' : 'observe' } : null,
@@ -458,6 +462,14 @@ const testApi = {
     const session = snapshot.sessions.find(item => item.id === id);
     if (!session) return false;
     session.runtimePresence = clone(presence || []);
+    return true;
+  },
+  appendSessionMessages: (id, messages) => {
+    const session = snapshot.sessions.find(item => item.id === id);
+    if (!session) return false;
+    session.messages = [...(session.messages || []), ...clone(messages || [])];
+    session.updatedAt = new Date(Date.now() + 1000).toISOString();
+    snapshot.generatedAt = session.updatedAt;
     return true;
   },
   clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); detailResponses = new Map(); },

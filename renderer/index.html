@@ -294,6 +294,7 @@
       </section>
 
       <p id="sessionReorderHelp" class="sr-only" data-i18n="session.reorder_help">세션 카드를 끌어 놓아 위치를 바꿀 수 있습니다. 키보드에서는 카드에 초점을 둔 뒤 Alt와 위아래 화살표 키를 사용하세요.</p>
+      <p id="projectReorderHelp" class="sr-only" data-i18n="project.reorder_help">프로젝트 헤더를 끌어 놓아 위치를 바꿀 수 있습니다. 프로젝트가 닫혀 있어도 이동할 수 있으며, 키보드에서는 헤더에 초점을 둔 뒤 Alt와 위아래 화살표 키를 사용하세요.</p>
       <section id="liveSection" class="live-section hidden" aria-label="현재 진행 중인 AI 작업" data-i18n-aria-label="ui.ai_work_currently_in_progress">
         <div class="live-section-head">
           <div class="live-section-title"><span class="live-beacon"></span><div><p class="eyebrow" data-i18n="ui.active_now">지금 진행 중</p><h2 data-i18n="ui.work_assigned_to_ai">전체 에이전트 작동 지도</h2></div></div>
@@ -328,12 +329,9 @@
             <input id="controlRoomSearchInput" type="search" maxlength="240" tabindex="-1" aria-hidden="true" aria-label="실행 세션 검색" data-i18n-aria-label="control.search_sessions" placeholder="세션 검색" data-i18n-placeholder="control.search_sessions" autocomplete="off" />
             <button id="controlRoomSearchBtn" type="button" aria-label="실행 세션 검색 열기" data-i18n-aria-label="control.open_search" aria-controls="controlRoomSearchInput" aria-expanded="false"><span aria-hidden="true">⌕</span></button>
           </div>
-          <div class="control-room-pagination">
-            <output id="controlRoomPageSummary" class="control-room-page-summary" aria-live="polite">0–0 / 0</output>
-            <div class="control-room-page-buttons">
-              <button id="controlRoomPagePrev" type="button" aria-label="이전 실행 세션" data-i18n-aria-label="control.previous_page">‹</button>
-              <button id="controlRoomPageNext" type="button" aria-label="다음 실행 세션" data-i18n-aria-label="control.next_page">›</button>
-            </div>
+          <div class="control-room-disclosure-actions" role="group" aria-label="프로젝트 그룹 열기와 닫기" data-i18n-aria-label="control.project_group_actions">
+            <button id="controlRoomExpandAll" type="button" aria-controls="liveSessionGrid" data-i18n="control.expand_all_projects">모두 열기</button>
+            <button id="controlRoomCollapseAll" type="button" aria-controls="liveSessionGrid" data-i18n="control.collapse_all_projects">모두 닫기</button>
           </div>
         </div>
         <div id="agentMapToolbar" class="agent-map-toolbar">

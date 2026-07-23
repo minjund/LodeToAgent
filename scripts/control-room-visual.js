@@ -60,7 +60,6 @@ app.whenReady().then(async () => {
       control.state.workspace = 'all';
       control.state.provider = 'all';
       control.state.providerFilters.clear();
-      control.state.controlRoomPage = 0;
       control.state.controlRoomSort = 'recent';
       control.state.workspaces = [
         { name: ['Lode', 'star'].join(''), path: 'D:\\\\fixture' },
@@ -187,7 +186,11 @@ app.whenReady().then(async () => {
         projectHeaderHeight: firstProject?.querySelector('.control-project-header')?.getBoundingClientRect().height || 0,
         stateTabsRemoved: Boolean(document.querySelector('#agentMapToolbar')?.classList.contains('hidden')),
         projectChips: [...(projectList?.querySelectorAll('[data-workspace]') || [])].map(node => node.querySelector('strong')?.textContent.trim()),
+        projectChipCounts: [...(projectList?.querySelectorAll('[data-workspace]:not([data-workspace="all"])') || [])]
+          .map(node => Number(node.querySelector('small')?.textContent || 0)),
         projectGroups: [...document.querySelectorAll('.control-room-project-group')].map(node => node.dataset.controlProject),
+        projectGroupCounts: [...document.querySelectorAll('.control-room-project-group')]
+          .map(node => Number(node.querySelector('.control-project-heading em')?.textContent || 0)),
         projectBoxes: [...document.querySelectorAll('.control-room-project-group')].map(node => {
           const box = node.getBoundingClientRect();
           return { project: node.dataset.controlProject, top: box.top, bottom: box.bottom, height: box.height };
@@ -201,11 +204,11 @@ app.whenReady().then(async () => {
         projectFlowIsButton: document.querySelector('.control-project-flow-link')?.tagName === 'BUTTON',
         projectHandleVisible: Boolean(document.querySelector('.control-project-handle')),
         addProjectAtRight: Boolean(toolbarBox && addBox && addBox.right >= toolbarBox.right - 14 && addBox.left > toolbarBox.left + toolbarBox.width * .7),
-        singleTopPager: Boolean(listToolbarBox && firstProjectBox && listToolbarBox.bottom <= firstProjectBox.top + 2
-          && document.querySelector('#controlRoomPageSummary') && document.querySelectorAll('#controlRoomPageSummary').length === 1),
-        pageSummary: document.querySelector('#controlRoomPageSummary')?.textContent.trim() || '',
-        pageNextEnabled: !document.querySelector('#controlRoomPageNext')?.disabled,
-        noBottomPager: !document.querySelector('.control-room-overview + .pagination, .control-room-overview .pagination, #liveSessionGrid + .pagination'),
+        bulkActionsAtTop: Boolean(listToolbarBox && firstProjectBox && listToolbarBox.bottom <= firstProjectBox.top + 2
+          && document.querySelector('#controlRoomExpandAll') && document.querySelector('#controlRoomCollapseAll')),
+        expandEnabled: !document.querySelector('#controlRoomExpandAll')?.disabled,
+        collapseDisabled: Boolean(document.querySelector('#controlRoomCollapseAll')?.disabled),
+        pagerRemoved: !document.querySelector('#controlRoomPageSummary, #controlRoomPagePrev, #controlRoomPageNext'),
         semanticSamples: {
           copy: window.LoadToAgentApp.controlRoomSummary('메인이랑 서브 에이전트 그리고 실행중인 세션 문구를 사람이 알아보기 좋게 요약해줘', 64).text,
           loop: window.LoadToAgentApp.controlRoomSummary('/' + ['w', 'c', 'c'].join('') + '-loop --tick v18-seo-blog', 64).text,
@@ -232,12 +235,15 @@ app.whenReady().then(async () => {
       || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.projectToolbarVisible || !overviewMetrics.stateTabsRemoved
       || overviewMetrics.projectHeaderHeight < 49.5
       || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타'].every(name => overviewMetrics.projectChips.includes(name))
+      || overviewMetrics.projectChips.join('|') !== ['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', '기타', 'cras_backend'].join('|')
+      || overviewMetrics.projectChipCounts.some((count, index, counts) => index > 0 && counts[index - 1] < count)
       || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend'].every(name => overviewMetrics.projectGroups.includes(name))
-      || overviewMetrics.projectGroups.length !== 3
-      || overviewMetrics.openProjectGroups !== 1 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
+      || overviewMetrics.projectGroups.length !== 4
+      || overviewMetrics.projectGroupCounts.some((count, index, counts) => index > 0 && counts[index - 1] < count)
+      || overviewMetrics.openProjectGroups !== 0 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
       || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
-      || !overviewMetrics.addProjectAtRight || !overviewMetrics.singleTopPager
-      || !/^1\s*[–-]\s*4\s*\/\s*12$/.test(overviewMetrics.pageSummary) || !overviewMetrics.pageNextEnabled || !overviewMetrics.noBottomPager) {
+      || !overviewMetrics.addProjectAtRight || !overviewMetrics.bulkActionsAtTop
+      || !overviewMetrics.expandEnabled || !overviewMetrics.collapseDisabled || !overviewMetrics.pagerRemoved) {
       throw new Error(`세션 관제 홈 검증 실패: ${JSON.stringify(overviewMetrics)}`);
     }
 
@@ -266,29 +272,20 @@ app.whenReady().then(async () => {
     const projectControlMetrics = await win.webContents.executeJavaScript(`(() => {
       const control = window.LoadToAgentApp;
       const firstGroup = document.querySelector('.control-room-project-group');
-      const firstSummary = firstGroup?.querySelector('.control-project-header');
-      firstSummary?.click();
-      const collapsed = Boolean(firstGroup && !firstGroup.open);
-      firstSummary?.click();
-      const expanded = Boolean(firstGroup?.open);
-      firstSummary?.click();
+      const initiallyCollapsed = [...document.querySelectorAll('.control-room-project-group')].every(group => !group.open);
+      document.querySelector('#controlRoomExpandAll')?.click();
+      const allExpanded = [...document.querySelectorAll('.control-room-project-group')].every(group => group.open);
       control.renderSessions('refresh');
-      const persistedClosed = !document.querySelector('.control-room-project-group')?.open;
-      document.querySelector('.control-room-project-group .control-project-header')?.click();
-
-      control.state.controlRoomPageSize = 1;
-      control.state.controlRoomPage = 0;
-      control.renderSessions('filter');
-      const next = document.querySelector('#controlRoomPageNext');
-      const nextEnabled = Boolean(next && !next.disabled);
-      next?.click();
-      const advanced = control.state.controlRoomPage === 1
-        && document.querySelector('#controlRoomPageSummary')?.textContent.includes('2');
-      const pagerFocused = document.activeElement === document.querySelector('#controlRoomPageNext');
-
-      control.state.controlRoomPageSize = 4;
-      control.state.controlRoomPage = 0;
-      control.renderSessions('filter');
+      const persistedExpanded = [...document.querySelectorAll('.control-room-project-group')].every(group => group.open);
+      document.querySelector('#controlRoomCollapseAll')?.click();
+      const allCollapsed = [...document.querySelectorAll('.control-room-project-group')].every(group => !group.open);
+      control.renderSessions('refresh');
+      const persistedCollapsed = [...document.querySelectorAll('.control-room-project-group')].every(group => !group.open);
+      const firstSummary = document.querySelector('.control-room-project-group .control-project-header');
+      firstSummary?.click();
+      const individualExpanded = Boolean(document.querySelector('.control-room-project-group')?.open);
+      firstSummary?.click();
+      const individualCollapsed = !document.querySelector('.control-room-project-group')?.open;
       const cmsChip = [...document.querySelectorAll('#workspaceList [data-workspace]')]
         .find(node => node.querySelector('strong')?.textContent.trim() === 'CMS_WEB');
       cmsChip?.click();
@@ -301,21 +298,23 @@ app.whenReady().then(async () => {
         && !document.querySelector('#agentMapToolbar')?.classList.contains('hidden');
       document.querySelector('#graphResetBtn')?.click();
       return {
-        collapsed,
-        expanded,
-        persistedClosed,
-        nextEnabled,
-        advanced,
-        pagerFocused,
+        initiallyCollapsed,
+        allExpanded,
+        persistedExpanded,
+        allCollapsed,
+        persistedCollapsed,
+        individualExpanded,
+        individualCollapsed,
         projectFiltered,
         fullStructureOpened,
-        restoredAll: control.state.workspace === 'all' && control.state.controlRoomPage === 0,
+        restoredAll: control.state.workspace === 'all',
       };
     })()`);
-    if (!projectControlMetrics.collapsed || !projectControlMetrics.expanded || !projectControlMetrics.persistedClosed || !projectControlMetrics.nextEnabled
-      || !projectControlMetrics.advanced || !projectControlMetrics.pagerFocused || !projectControlMetrics.projectFiltered
+    if (!projectControlMetrics.initiallyCollapsed || !projectControlMetrics.allExpanded || !projectControlMetrics.persistedExpanded
+      || !projectControlMetrics.allCollapsed || !projectControlMetrics.persistedCollapsed
+      || !projectControlMetrics.individualExpanded || !projectControlMetrics.individualCollapsed || !projectControlMetrics.projectFiltered
       || !projectControlMetrics.fullStructureOpened || !projectControlMetrics.restoredAll) {
-      throw new Error(`프로젝트 그룹·상단 페이징 검증 실패: ${JSON.stringify(projectControlMetrics)}`);
+      throw new Error(`프로젝트 그룹·전체 열기·닫기 검증 실패: ${JSON.stringify(projectControlMetrics)}`);
     }
 
     await win.webContents.executeJavaScript(`document.querySelector('[data-open-subagent-chat="fixture-child"]')?.click()`);
@@ -484,7 +483,7 @@ app.whenReady().then(async () => {
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
       };
     })()`);
-    if (desktop1224Metrics.width !== 1224 || desktop1224Metrics.groups < 1 || desktop1224Metrics.openGroups !== 1
+    if (desktop1224Metrics.width !== 1224 || desktop1224Metrics.groups < 1 || desktop1224Metrics.openGroups !== 0
       || desktop1224Metrics.collapsedHeights.some(height => height > 60)
       || desktop1224Metrics.projectToolbarGap < 10 || desktop1224Metrics.projectChipGap < 10
       || desktop1224Metrics.projectChipHeights.some(height => height < 39.5)

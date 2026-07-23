@@ -168,6 +168,30 @@ button[aria-busy="true"] {
   color: #81ddf8;
 }
 
+.workspace-live-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: #64dca9;
+  font-size: 10px;
+}
+
+.workspace-live-state i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ce39a;
+  box-shadow: 0 0 8px rgba(76,227,154,.6);
+  animation: control-room-pulse 1.5s ease-in-out infinite;
+}
+
+.workspace-live-state b {
+  display: none;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
 .workspace-item.projectless.selected small {
   background: rgba(79,209,167,.15);
   color: #6ee0b8;
@@ -462,6 +486,59 @@ button[aria-busy="true"] {
   border-color: color-mix(in srgb,var(--drawer-provider) 30%,#253044);
   background: color-mix(in srgb,var(--drawer-provider) 8%,#141a24);
   color: var(--drawer-provider);
+}
+
+.chat-row.is-optimistic .chat-bubble {
+  padding: 9px 11px;
+  border: 1px solid rgba(89,223,167,.2);
+  border-radius: 12px;
+  background: linear-gradient(135deg,rgba(35,104,78,.12),rgba(10,15,22,.72));
+}
+
+.chat-row.is-optimistic.is-new {
+  animation: chat-message-send 420ms cubic-bezier(.22,1,.36,1) both;
+}
+
+.chat-row.is-failed .chat-bubble {
+  border-color: rgba(255,107,127,.36);
+  background: rgba(94,31,44,.12);
+}
+
+.chat-delivery-status {
+  margin-left: auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(89,223,167,.08);
+  color: #79c9a8 !important;
+  font-size: 10px !important;
+  font-weight: 750;
+}
+
+.chat-delivery-status.sending::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #59dfa7;
+  content: "";
+  animation: control-room-pulse 1s ease-in-out infinite;
+}
+
+.chat-delivery-status.failed {
+  background: rgba(255,107,127,.1);
+  color: #ff9baa !important;
+}
+
+@keyframes chat-message-send {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .chat-row.tool .chat-avatar {

@@ -76,9 +76,11 @@ const ACTION_MANIFEST = [
   { selector: '#controlRoomProjectSelect', action: 'control-room:project-select' },
   { selector: '#controlRoomSearchInput', action: 'control-room:search' },
   { selector: '#controlRoomSearchBtn', action: 'control-room:search-toggle' },
-  { selector: '#controlRoomPagePrev', action: 'control-room:page-prev' },
-  { selector: '#controlRoomPageNext', action: 'control-room:page-next' },
+  { selector: '#controlRoomExpandAll', action: 'control-room:expand-all' },
+  { selector: '#controlRoomCollapseAll', action: 'control-room:collapse-all' },
+  { selector: '.control-project-header[draggable="true"]', action: 'control-room:project-reorder-drag' },
   { selector: '[data-project-toggle]', action: 'control-room:project-toggle' },
+  { selector: '[data-session-archive]', action: 'control-room:move-to-history' },
   { selector: '#loadMoreBtn', action: 'filter:load-more' },
   { selector: '[data-open-run]', action: 'run:open-empty' },
   { selector: '#closeDrawerBtn', action: 'drawer:close' },
@@ -170,6 +172,7 @@ async function waitFor(win, expression, message, attempts = 80, interval = 50) {
 }
 
 async function click(win, selector, action) {
+  await recordManifest(win);
   const result = await win.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!element) return { ok: false, reason: 'missing' };
@@ -834,7 +837,7 @@ async function exerciseDashboardControls(win, round) {
     humanSummaries: [...document.querySelectorAll('.control-room-main, .helper-node, .execution-node')]
       .map(node => node.dataset.controlSummary || ''),
   }))()`);
-  assert(controlRoom.rooms >= 1 && controlRoom.rooms <= 4 && controlRoom.mains === controlRoom.rooms && controlRoom.helperNodes >= 3
+  assert(controlRoom.rooms === 9 && controlRoom.mains === controlRoom.rooms && controlRoom.helperNodes >= 3
     && controlRoom.executionNodes >= 3 && controlRoom.completedNodes >= 3 && controlRoom.legends === 0
     && !controlRoom.mainLeakedIntoWorkColumns && controlRoom.invalidRunningUnits === 0
     && controlRoom.invalidCompletedUnits === 0 && controlRoom.emptyRunningColumns >= 1
@@ -856,10 +859,61 @@ async function exerciseDashboardControls(win, round) {
   await click(win, '#openTmuxFromAgentWork', 'tmux:shortcut-from-agent-work');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'tmux' && !document.querySelector('#tmuxSection').classList.contains('hidden') && document.activeElement?.id === 'mainContent'`, 'AI 작업의 tmux 바로가기가 포커스를 옮기며 tmux 탭을 열지 못했습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
+  await waitFor(win, `[...document.querySelectorAll('.control-room-project-group')].every(group => !group.open)
+    && !document.querySelector('#controlRoomExpandAll').disabled
+    && document.querySelector('#controlRoomCollapseAll').disabled`, '프로젝트 그룹이 기본으로 모두 닫히지 않았습니다.');
   await click(win, '.control-project-header', 'control-room:project-toggle');
-  await waitFor(win, `!document.querySelector('.control-room-project-group')?.open`, '프로젝트 그룹을 접지 못했습니다.');
+  await waitFor(win, `document.querySelector('.control-room-project-group')?.open`, '프로젝트 그룹을 펼치지 못했습니다.');
   await click(win, '.control-project-header', 'control-room:project-toggle');
-  await waitFor(win, `document.querySelector('.control-room-project-group')?.open`, '프로젝트 그룹을 다시 펼치지 못했습니다.');
+  await waitFor(win, `!document.querySelector('.control-room-project-group')?.open`, '프로젝트 그룹을 다시 접지 못했습니다.');
+  await click(win, '#controlRoomExpandAll', 'control-room:expand-all');
+  await waitFor(win, `[...document.querySelectorAll('.control-room-project-group')].every(group => group.open)
+    && document.querySelector('#controlRoomExpandAll').disabled
+    && !document.querySelector('#controlRoomCollapseAll').disabled`, '모두 열기가 모든 프로젝트 그룹을 펼치지 못했습니다.');
+  await click(win, '#controlRoomCollapseAll', 'control-room:collapse-all');
+  await waitFor(win, `[...document.querySelectorAll('.control-room-project-group')].every(group => !group.open)
+    && !document.querySelector('#controlRoomExpandAll').disabled
+    && document.querySelector('#controlRoomCollapseAll').disabled`, '모두 닫기가 모든 프로젝트 그룹을 접지 못했습니다.');
+  const projectOrderBefore = await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#liveSessionGrid [data-project-sortable]'), node => node.dataset.projectSortable)`);
+  assert(projectOrderBefore.length >= 2, '프로젝트 위치 변경을 검증할 그룹이 부족합니다.');
+  const collapsedProjectDrag = await win.webContents.executeJavaScript(`(() => {
+    const groups = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')];
+    const sourceGroup = groups[1];
+    const targetGroup = groups[0];
+    const source = sourceGroup?.querySelector(':scope > .control-project-header');
+    if (!source || !targetGroup || !source.draggable) return { ok: false, reason: 'draggable project headers missing' };
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    const bounds = targetGroup.getBoundingClientRect();
+    targetGroup.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY: bounds.top + 1, dataTransfer: transfer }));
+    targetGroup.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientY: bounds.top + 1, dataTransfer: transfer }));
+    const after = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].map(node => node.dataset.projectSortable);
+    const saved = JSON.parse(localStorage.getItem('loadtoagent:dashboard-preferences:v2') || '{}').projectOrder || [];
+    return {
+      ok: after[0] === sourceGroup.dataset.projectSortable && saved.indexOf(after[0]) < saved.indexOf(after[1]),
+      after,
+      allCollapsed: [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].every(group => !group.open),
+      handlesVisible: [...document.querySelectorAll('#liveSessionGrid [data-project-sortable] .control-project-handle')]
+        .every(handle => getComputedStyle(handle).display !== 'none'),
+    };
+  })()`);
+  assert(collapsedProjectDrag.ok && collapsedProjectDrag.allCollapsed && collapsedProjectDrag.handlesVisible,
+    `닫힌 프로젝트 그룹의 드래그 위치 변경 실패: ${JSON.stringify(collapsedProjectDrag)}`);
+  mark('control-room:project-reorder-drag');
+  await win.webContents.executeJavaScript(`(() => {
+    const groups = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')];
+    const sourceGroup = groups[0];
+    const targetGroup = groups[1];
+    const source = sourceGroup.querySelector(':scope > .control-project-header');
+    const transfer = new DataTransfer();
+    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    const bounds = targetGroup.getBoundingClientRect();
+    targetGroup.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY: bounds.bottom - 1, dataTransfer: transfer }));
+    targetGroup.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientY: bounds.bottom - 1, dataTransfer: transfer }));
+  })()`);
+  await waitFor(win, `Array.from(document.querySelectorAll('#liveSessionGrid [data-project-sortable]'), node => node.dataset.projectSortable).join(',') === ${JSON.stringify(projectOrderBefore.join(','))}
+    && [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].every(group => !group.open)`,
+  '프로젝트 드래그로 원래 순서를 복원하지 못했거나 닫힌 상태가 바뀌었습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const select = document.querySelector('#controlRoomSortSelect');
     select.value = 'tokens';
@@ -888,10 +942,6 @@ async function exerciseDashboardControls(win, round) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   await waitFor(win, `window.LoadToAgentApp.state.search === ''`, '관제 검색을 초기화하지 못했습니다.');
-  await click(win, '#controlRoomPageNext', 'control-room:page-next');
-  await waitFor(win, `window.LoadToAgentApp.state.controlRoomPage === 1 && document.querySelector('#controlRoomPageSummary')?.textContent.startsWith('5')`, '상단 다음 페이징이 적용되지 않았습니다.');
-  await click(win, '#controlRoomPagePrev', 'control-room:page-prev');
-  await waitFor(win, `window.LoadToAgentApp.state.controlRoomPage === 0 && document.querySelector('#controlRoomPageSummary')?.textContent.startsWith('1')`, '상단 이전 페이징이 적용되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const select = document.querySelector('#controlRoomProjectSelect');
     select.value = 'D:\\\\unregistered-origin';
@@ -905,6 +955,42 @@ async function exerciseDashboardControls(win, round) {
     select.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'all'`, '관제 프로젝트 전체 선택을 복원하지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const root = app.state.snapshot.sessions.find(session => session.id === 'fixture-root');
+    root.status = 'completed';
+    root.statusDetail = '메인 작업 완료 · 백그라운드 작업 정리 중';
+    root.completedAt = root.messages.findLast(message => message.role === 'assistant')?.timestamp || root.updatedAt;
+    app.renderSessions('archive-fixture');
+  })()`);
+  await waitFor(win, `Boolean(document.querySelector('[data-control-session="fixture-root"] [data-session-archive="fixture-root"]'))`, '완료됐지만 백그라운드 실행이 남은 세션에 지난 기록 이동 버튼이 표시되지 않았습니다.');
+  await click(win, '[data-control-session="fixture-root"] [data-session-archive="fixture-root"]', 'control-room:move-to-history');
+  await sleep(240);
+  const archiveResult = await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const root = app.state.snapshot.sessions.find(session => session.id === 'fixture-root');
+    return {
+      liveRoot: Boolean(document.querySelector('[data-control-session="fixture-root"]')),
+      liveChildIncluded: app.connectedGraphSessions(app.graphFilteredSessions()).included.has('fixture-child'),
+      historyRoot: Boolean(document.querySelector('#sessionGrid [data-session-id="fixture-root"]')),
+      manuallyArchived: app.isSessionManuallyArchived(root),
+      controlRoomSession: app.isControlRoomSession(root),
+      hasRunningExecution: app.hasRunningExecution(root),
+      liveIds: [...document.querySelectorAll('[data-control-session]')].map(node => node.dataset.controlSession),
+      historyIds: [...document.querySelectorAll('#sessionGrid [data-session-id]')].map(node => node.dataset.sessionId),
+    };
+  })()`);
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.snapshot = window.interactionTest.getSnapshot();
+    app.state.sessionArchives.clear();
+    localStorage.removeItem(app.SESSION_ARCHIVE_STORAGE_KEY);
+    app.renderSessions('archive-fixture-restore');
+  })()`);
+  assert(!archiveResult.liveRoot && archiveResult.liveChildIncluded && archiveResult.historyRoot
+    && archiveResult.manuallyArchived && !archiveResult.controlRoomSession,
+  `지난 기록 이동이 완료 세션을 관제 영역에서 내리고 진행 중인 도움 AI만 남기지 못했습니다: ${JSON.stringify(archiveResult)}`);
+  await waitFor(win, `Boolean(document.querySelector('[data-control-session="fixture-root"]'))`, '지난 기록 이동 검증 후 관제 fixture를 복원하지 못했습니다.');
   round.observed.controlRoom = controlRoom;
   await clearCalls(win);
   await click(win, '#probeBtn', 'dashboard:probe');
@@ -919,6 +1005,38 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'D:\\\\unregistered-origin' && window.LoadToAgentApp.filteredSessions().length === 1 && window.LoadToAgentApp.filteredSessions()[0].id === 'fixture-origin' && Boolean(document.querySelector('[data-control-session="fixture-origin"]'))`, '감지된 폴더별 세션 필터가 홈 관제 구조에 적용되지 않았습니다.');
   await click(win, '[data-workspace="all"]', 'workspace:select');
   await waitFor(win, `document.querySelector('#sessionGrid .origin-project small')?.textContent === '작업 시작 폴더'`, '세션 카드에 작업 시작 폴더가 명시되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspaces.push({ name: 'board-migration-loop', path: 'C:\\\\Users\\\\fixture\\\\board-migration-loop' });
+    const session = app.state.snapshot.sessions.find(item => item.id === 'fixture-live-0');
+    session.originCwd = '/mnt/c/Users/fixture/board-migration-loop';
+    app.render('wsl-project-alias');
+  })()`);
+  await waitFor(win, `(() => {
+    const chip = [...document.querySelectorAll('#workspaceList [data-workspace]')]
+      .find(item => item.dataset.workspace === 'C:\\\\Users\\\\fixture\\\\board-migration-loop');
+    return chip?.querySelector('small')?.textContent === '1'
+      && chip?.dataset.liveSessionCount === '1'
+      && chip?.querySelector('.workspace-live-state')?.innerText.includes('진행 중')
+      && ![...document.querySelectorAll('#workspaceList [data-workspace]')]
+        .some(item => item.dataset.workspace === '/mnt/c/Users/fixture/board-migration-loop');
+  })()`, 'Windows 프로젝트와 같은 WSL 실행 경로를 하나의 진행 중 프로젝트로 합치지 못했습니다.');
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')]
+    .find(item => item.dataset.workspace === 'C:\\\\Users\\\\fixture\\\\board-migration-loop')?.click()`);
+  mark('workspace:select');
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === 'C:\\\\Users\\\\fixture\\\\board-migration-loop'
+    && window.LoadToAgentApp.graphFilteredSessions().some(session => session.id === 'fixture-live-0')
+    && Boolean(document.querySelector('[data-control-session="fixture-live-0"]'))
+    && !document.querySelector('#emptyState:not(.hidden)')`,
+  '세션 0개로 보이던 Windows 프로젝트를 선택했을 때 같은 WSL 진행 세션이 홈에서 사라졌습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspace = 'all';
+    app.state.workspaces = app.state.workspaces.filter(item => item.path !== 'C:\\\\Users\\\\fixture\\\\board-migration-loop');
+    const session = app.state.snapshot.sessions.find(item => item.id === 'fixture-live-0');
+    session.originCwd = 'D:\\\\fixture';
+    app.render('wsl-project-alias-restore');
+  })()`);
   await click(win, '[data-workspace="__projectless__"]', 'workspace:select-projectless');
   await waitFor(win, `window.LoadToAgentApp.state.workspace === '__projectless__' && document.querySelectorAll('#sessionGrid [data-session-id]').length === 1 && document.querySelector('[data-session-id="fixture-projectless"] .card-subtitle')?.textContent.includes('작업 시작 폴더 정보 없음') && document.querySelector('#globalStatus')?.textContent.includes('작업 시작 폴더 정보 없음') && document.querySelector('#globalStatus')?.textContent.includes('결과 1개')`, '작업 시작 폴더 정보가 없는 세션 필터 또는 결과 안내가 적용되지 않았습니다.');
   await click(win, '[data-workspace="all"]', 'workspace:select');
@@ -1646,6 +1764,27 @@ async function exerciseAgentControls(win, round) {
   mark('agent:command-submit');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')`, 'AI 직접 지시 form submit이 terminalCommand를 호출하지 않았습니다.');
   assert(await callCount(win, 'terminalCommand') === 1, 'AI 직접 지시가 한 번보다 많이 전송되었습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const picker = document.querySelector('[data-agent-command-target="fixture-root"]');
+    picker.value = 'tmux:FixtureLinux:%7';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  mark('agent:target-select');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[data-agent-command-draft="fixture-root"]');
+    input.value = 'TMUX_DIRECT_COMMAND';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.closest('form').requestSubmit();
+  })()`);
+  mark('agent:command-submit');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'tmuxSendText'
+    && item.args[0].distro === 'FixtureLinux'
+    && item.args[0].target === '%7'
+    && item.args[0].text === 'TMUX_DIRECT_COMMAND')
+    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')`,
+  '연결된 tmux 세션의 지시가 기존 pane 대신 새 세션 터미널을 만들었습니다.');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.state.agentCommandTargets.set('fixture-root', 'terminal-main')`);
 
   await resetGraphToOverview(win);
   await focusRoot(win);
@@ -1674,15 +1813,52 @@ async function exerciseAgentControls(win, round) {
   await resetGraphToOverview(win);
   await click(win, '[data-graph-focus="fixture-live-0"]', 'graph:focus');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-live-0' && document.querySelector('.agent-command-panel.control-handoff textarea:not([disabled])')`, '외부 CLI 세션 이어받기 UI가 표시되지 않았습니다.');
+  await click(win, '[data-open-session="fixture-live-0"]', 'drawer:open-session');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
+    && document.querySelector('#drawerComposer .agent-command-panel.control-handoff[data-agent-command-routing="conversation"] textarea:not([disabled])')`,
+  '외부 CLI 세션의 대화 입력창이 열리지 않았습니다.');
   await clearCalls(win);
+  await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalCreate: 180 } })`);
   await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('[data-agent-command-draft="fixture-live-0"]');
+    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
     input.value = 'HANDOFF_EXISTING_SESSION';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.closest('form').requestSubmit();
   })()`);
   mark('agent:handoff-submit');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0].provider === 'claude' && item.args[0].args.join(' ') === '--resume fixture-live-0-external HANDOFF_EXISTING_SESSION')`, '실행 중인 외부 CLI를 같은 세션 ID와 지시로 이어받지 못했습니다.');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#drawerContent .chat-row.user.is-optimistic.is-sending')?.innerText.includes('HANDOFF_EXISTING_SESSION')
+    && Boolean(document.querySelector('#drawerContent .chat-turn-waiting'))
+    && !document.querySelector('#terminalSection:not(.hidden)')`,
+  '대화 전송 직후 내 메시지와 AI 응답 대기 상태를 표시하면서 상세 창을 유지하지 못했습니다.');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
+    && item.args[0].provider === 'claude'
+    && item.args[0].distro === 'FixtureLinux'
+    && item.args[0].cwd === '/mnt/c/Users/fixture/board-migration-loop'
+    && item.args[0].transient === true
+    && item.args[0].args.join(' ') === '--resume fixture-live-0-external --print HANDOFF_EXISTING_SESSION')
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#detailDrawer').classList.contains('open')
+    && document.querySelector('#drawerContent .chat-row.user.is-optimistic.is-awaiting')`,
+  'WSL 외부 CLI를 백그라운드에서 이어받고 대화 상세 화면을 유지하지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const now = Date.now();
+    window.interactionTest.appendSessionMessages('fixture-live-0', [
+      { id: 'fixture-live-0-user-reply-test', role: 'user', text: 'HANDOFF_EXISTING_SESSION', timestamp: new Date(now).toISOString() },
+      { id: 'fixture-live-0-assistant-reply-test', role: 'assistant', text: 'BACKGROUND_AI_RESPONSE', timestamp: new Date(now + 1).toISOString() },
+    ]);
+    window.interactionTest.emitSnapshot();
+  })()`);
+  await waitFor(win, `document.querySelector('#drawerContent [data-message-id="fixture-live-0-user-reply-test"]')
+    && document.querySelector('#drawerContent [data-message-id="fixture-live-0-assistant-reply-test"]')?.innerText.includes('BACKGROUND_AI_RESPONSE')
+    && !document.querySelector('#drawerContent .chat-row.is-optimistic')
+    && !document.querySelector('#drawerContent .chat-turn-waiting')
+    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-live-0')`,
+  '백그라운드 AI 응답이 도착한 뒤 임시 메시지를 실제 대화로 교체하지 못했습니다.');
+  await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '이어받기 후 대화 상세 drawer가 닫히지 않았습니다.');
 
   await click(win, '[data-view="all"]', 'nav:all');
   await resetGraphToOverview(win);
@@ -1732,6 +1908,7 @@ async function exerciseAgentControls(win, round) {
     && document.querySelector('[data-agent-command-route="parent"]')?.getAttribute('aria-pressed') === 'true'
     && !document.querySelector('[data-agent-command-form="fixture-resting"] button[type="submit"]')?.disabled`, '서브카드 클릭이 실제 서브에이전트 작업 기록과 인라인 전달창을 열지 않았습니다.');
   await clearCalls(win);
+  await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalCommand: 180 } })`);
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('[data-agent-command-draft="fixture-resting"]');
     input.value = 'RESTING_HELPER_INLINE_COMMAND';
@@ -1739,6 +1916,11 @@ async function exerciseAgentControls(win, round) {
     input.closest('form').requestSubmit();
   })()`);
   mark('agent:command-submit');
+  await waitFor(win, `document.querySelector('#drawerContent .chat-row.user.is-optimistic.is-sending')?.innerText.includes('RESTING_HELPER_INLINE_COMMAND')
+    && Boolean(document.querySelector('#drawerContent .chat-turn-waiting'))
+    && document.querySelector('#detailDrawer').classList.contains('open')
+    && window.LoadToAgentApp.state.view === 'all'`,
+  '메인 에이전트 경유 메시지가 대화에 즉시 올라가거나 AI 응답 대기 상태가 표시되지 않았습니다.');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
     && item.args[0] === 'terminal-main'
     && item.args[1].includes('RESTING_HELPER_INLINE_COMMAND'))
@@ -1746,6 +1928,10 @@ async function exerciseAgentControls(win, round) {
     && window.LoadToAgentApp.state.drawerMode === 'subagent'
     && document.querySelector('#detailDrawer').classList.contains('open')
     && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0]?.bridgeId === 'fixture-resting')`, '쉬는 서브에이전트 지시가 화면 이동 없이 메인 에이전트를 통해 전달되지 않았습니다.');
+  await waitFor(win, `document.querySelector('#drawerContent .chat-row.user.is-optimistic.is-awaiting')
+    && Boolean(document.querySelector('#drawerContent .chat-turn-waiting'))`,
+  '전송 완료 뒤 실제 AI 답변이 올 때까지 대기 상태를 유지하지 못했습니다.');
+  await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
   round.observed.agentControlModes = ['direct', 'connect', 'handoff', 'origin-resume', 'parent-relay'];
   round.observed.subagentConversationOnly = true;
   round.observed.subagentCompletedDefault = 'hidden-until-expanded';
