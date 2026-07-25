@@ -245,7 +245,11 @@ function createWindow() {
 
 function backgroundTerminalSessions() {
   if (!terminalManager) return [];
-  return terminalManager.list().filter(session => !session.transient && (session.status === 'running' || session.status === 'starting'));
+  return terminalManager.list().filter(session => !session.transient && (
+    session.status === 'running'
+    || session.status === 'starting'
+    || session.status === 'detached'
+  ));
 }
 
 function visibleTerminalSessions(sessions) {

@@ -70,7 +70,7 @@ On startup, LoadToAgent compares its package version with the newest stable GitH
 - macOS or Windows
 - Node.js 18 or newer only when installing through npm
 - At least one installed and authenticated CLI: Claude Code, Codex CLI, Gemini CLI, or Grok CLI
-- tmux only if you want the optional tmux workspace map
+- tmux for persistent AI sessions on macOS or managed WSL sessions on Windows. Native Windows AI sessions and ordinary shells keep using the direct PTY backend.
 
 ## Your first 10 minutes
 
@@ -128,9 +128,11 @@ Arguments after `--` are passed to the provider CLI:
 loadtoagent run claude -- --model claude-sonnet-4-6
 ```
 
-The external terminal and LoadToAgent dashboard control the same LoadToAgent-owned PTY. Opening a terminal from an AI card reuses the exact connected terminal instead of creating a new shell, keeps its PTY output intact across UI navigation, and shows that session's prior conversation in a live side rail. Sessions started arbitrarily elsewhere remain visible but read-only unless the original app exposes a supported handoff.
+The external terminal and LoadToAgent dashboard control the same LoadToAgent-owned session. Opening a terminal from an AI card reuses the exact connected terminal instead of creating a new shell, keeps its output intact across UI navigation, and shows that session's prior conversation in a live side rail. Sessions started arbitrarily elsewhere remain visible but read-only unless the original app exposes a supported handoff.
 
-A terminal opened by LoadToAgent remains in the session-terminal list, with its output intact, whether it is running, idle, naturally exited, or failed to start. When any terminal is active, closing the window with `X` hides LoadToAgent in the system tray. An explicit `Quit app` closes the dashboard while a separate authenticated local terminal host keeps live PTYs running; the next launch reconnects to the same session ID, process, and output. A live terminal ends only when you choose `Close session`, the terminal exits naturally, or the operating-system session/terminal host itself stops.
+Persistent AI terminals on macOS and WSL run on the isolated `tmux -L loadtoagent` server, separate from your personal tmux server. `Close terminal view` detaches only the attached view while the AI keeps working in the background. `Reconnect existing work` attaches to that same tmux session and LoadToAgent session ID without starting another AI conversation. `End AI session` stops the tmux work but keeps its record for inspection; a stopped record can then be removed separately.
+
+If the dashboard or terminal host exits unexpectedly, the next host reconnects to the same session when its tmux work is still alive. If the stored tmux session is gone, LoadToAgent marks the record stopped instead of silently starting a duplicate conversation. Native Windows AI sessions and ordinary shells retain the direct PTY/terminal-host backend. In both backends, running, detached, naturally exited, and failed-start records remain in Session terminal until explicitly removed.
 
 ## Local-first by design
 
@@ -154,6 +156,7 @@ Additional checks and distributable builds:
 
 ```bash
 npm run test:terminal
+npm run test:terminal:managed
 npm run test:bridge
 npm run test:tmux -- macOS
 npm run test:visual

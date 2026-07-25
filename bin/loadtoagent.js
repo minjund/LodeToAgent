@@ -140,7 +140,9 @@ function run(argv = process.argv.slice(2)) {
         process.stdin.on('data', data => writeFrame(socket, { type: 'input', data: Buffer.from(data).toString('base64') }));
         process.stdout.on('resize', sendResize);
       } else if (message.type === 'output') process.stdout.write(Buffer.from(String(message.data || ''), 'base64'));
-      else if (message.type === 'state' && (message.status === 'exited' || message.status === 'failed')) exitCode = Number(message.exitCode || 0);
+      else if (message.type === 'state' && ['detached', 'stopped', 'exited', 'failed'].includes(message.status)) {
+        exitCode = Number(message.exitCode || 0);
+      }
       else if (message.type === 'error') {
         process.stderr.write(`\nLoadToAgent: ${message.message}\n`);
         exitCode = 1;

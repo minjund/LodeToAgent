@@ -209,7 +209,7 @@ class BridgeServer {
     for (const client of this.clients.values()) {
       if (client.terminalId !== session.id) continue;
       sendFrame(client.socket, { type: 'state', status: session.status, exitCode: session.exitCode, signal: session.signal });
-      if (session.status === 'exited' || session.status === 'failed') client.socket.end();
+      if (['detached', 'stopped', 'exited', 'failed'].includes(session.status)) client.socket.end();
     }
   }
 

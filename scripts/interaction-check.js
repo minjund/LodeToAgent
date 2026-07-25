@@ -1082,7 +1082,11 @@ async function exerciseDashboardControls(win, round) {
     sort.value = 'tokens';
     sort.dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
-  await waitFor(win, `!document.querySelector('#resetFiltersBtn').classList.contains('hidden')`, '복합 필터 사용 중 초기화 버튼이 표시되지 않았습니다.');
+  await waitFor(win, `window.LoadToAgentApp.state.search === 'fixture'
+    && window.LoadToAgentApp.state.providerFilters.has('gpt')
+    && window.LoadToAgentApp.state.workspace === '__projectless__'
+    && window.LoadToAgentApp.state.sort === 'tokens'
+    && !document.querySelector('#resetFiltersBtn').classList.contains('hidden')`, '복합 필터가 모두 적용되거나 초기화 버튼이 표시되지 않았습니다.');
   await click(win, '#resetFiltersBtn', 'filter:reset-all');
   await waitFor(win, `window.LoadToAgentApp.state.search === '' && window.LoadToAgentApp.state.providerFilters.size === 0 && window.LoadToAgentApp.state.workspace === 'all' && window.LoadToAgentApp.state.sort === 'recent' && document.activeElement?.id === 'searchInput' && document.querySelector('#resetFiltersBtn').classList.contains('hidden')`, '필터 전체 초기화가 검색·AI·작업 폴더·정렬을 복원하지 못했습니다.');
 
@@ -2025,7 +2029,7 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `document.querySelectorAll('#terminalSessionList [data-terminal-id]')[1]?.dataset.terminalId === ${JSON.stringify(reordered.before[0])}`, 'Alt+아래 키로 터미널 세션 순서를 변경하지 못했습니다.');
   await win.webContents.executeJavaScript(`document.querySelector('[data-terminal-id="${reordered.before[0]}"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', altKey: true, bubbles: true, cancelable: true }))`);
   await waitFor(win, `JSON.stringify(${JSON.stringify(reordered.before)}) === JSON.stringify([...document.querySelectorAll('#terminalSessionList [data-terminal-id]')].map(item => item.dataset.terminalId))`, 'Alt+위 키로 터미널 세션 순서를 복원하지 못했습니다.');
-  expectedTerminalFirstAfterReload = reordered.before.find(id => id !== 'terminal-main') || '';
+  expectedTerminalFirstAfterReload = reordered.before.find(id => !['terminal-main', 'terminal-managed'].includes(id)) || '';
   round.observed.terminalReorder = { drag: true, keyboard: true, arrowsRemoved: true, persisted: round.index > 1 };
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => { const button = document.querySelector('#newPowerShellBtn'); button.click(); button.click(); })()`);

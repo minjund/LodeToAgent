@@ -271,7 +271,17 @@ function registerBridgeIntegrationTests(context) {
     socket.write(`${JSON.stringify({ type: 'input', data: Buffer.from('hello').toString('base64') })}\n`);
     await new Promise(resolve => setTimeout(resolve, 20));
     assert.deepStrictEqual(manager.writes, [['terminal:bridge', 'hello']]);
-    socket.destroy();
+    const closed = new Promise(resolve => socket.once('close', resolve));
+    manager.emit('state', {
+      session: { ...manager.sessions[0], status: 'stopped', exitCode: 0, signal: 0 },
+    });
+    const stopped = await nextFrame();
+    assert.equal(stopped.type, 'state');
+    assert.equal(stopped.status, 'stopped');
+    await Promise.race([
+      closed,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('중단된 관리형 브리지 연결이 닫히지 않았습니다.')), 2_000)),
+    ]);
     server.dispose();
     assert.equal(fs.existsSync(discovery), false);
     assert.deepStrictEqual(parseArguments(['run', 'codex', '--', '--model', 'gpt-5.4']), { provider: 'codex', args: ['--model', 'gpt-5.4'] });

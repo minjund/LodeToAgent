@@ -70,7 +70,7 @@ LoadToAgent 启动时会比较当前包版本与最新的稳定 GitHub Release �
 - macOS 或 Windows
 - 仅通过 npm 安装时需要 Node.js 18 或更高版本
 - 至少安装并登录一个 CLI：Claude Code、Codex CLI、Gemini CLI 或 Grok CLI
-- 只有使用 tmux 工作区地图时才需要安装 tmux
+- macOS 持久 AI 会话或 Windows WSL 托管会话需要 tmux。Windows 原生 AI 会话和普通命令行仍使用直接 PTY 后端。
 
 ## 前 10 分钟上手
 
@@ -128,9 +128,11 @@ loadtoagent run grok
 loadtoagent run claude -- --model claude-sonnet-4-6
 ```
 
-外部终端与 LoadToAgent 仪表盘会共同控制同一个 LoadToAgent 专用 PTY。在其他地方启动的现有会话仍然可见，但除非原应用提供受支持的交接方式，否则会保持只读。
+外部终端与 LoadToAgent 仪表盘会共同控制同一个 LoadToAgent 专用会话。在 AI 卡片中打开终端时，会复用准确的现有终端和会话 ID，不会创建新的 Shell；切换页面时输出也会保留。在其他地方启动的现有会话仍然可见，但除非原应用提供受支持的交接方式，否则会保持只读。
 
-LoadToAgent 打开的终端无论处于运行、空闲、自然退出或启动失败状态，都会连同输出保留在会话终端列表中。只要有终端仍在运行，点击窗口的 `X` 就会把 LoadToAgent 隐藏到系统托盘。即使从托盘明确选择“退出应用”来关闭仪表盘，独立且经过认证的本地终端主机仍会继续维护活动 PTY；下次启动会重新连接到相同的会话 ID、进程和输出。只有选择“关闭会话”、终端自然退出，或操作系统会话/终端主机本身停止时，活动终端才会结束。
+macOS 和 WSL 的持久 AI 终端运行在隔离的 `tmux -L loadtoagent` 服务器中，不会混入个人 tmux。`关闭终端视图`只会分离当前 attach 画面，AI 工作仍在后台继续。`重新连接现有工作`会连接到相同的 tmux 会话和 LoadToAgent 会话 ID，不会创建新的 AI 对话。`结束 AI 会话`会停止实际 tmux 工作但保留记录，随后可以单独移除已停止的记录。
+
+即使仪表盘或终端主机意外退出，只要 tmux 工作仍然存在，下次启动就会恢复同一个会话。若保存的 tmux 会话已经消失，LoadToAgent 会将记录标记为已停止，而不会静默创建重复的 AI 对话。Windows 原生 AI 会话和普通命令行继续使用直接 PTY/终端主机方式。运行中、已分离、自然退出或启动失败的记录都会保留到用户明确移除为止。
 
 ## 本地优先与安全
 
@@ -154,6 +156,7 @@ npm test
 
 ```bash
 npm run test:terminal
+npm run test:terminal:managed
 npm run test:bridge
 npm run test:tmux -- macOS
 npm run test:visual

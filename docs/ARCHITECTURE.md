@@ -25,6 +25,13 @@ Recoverable main-process failures go through `src/diagnostics.js`. Expected
 best-effort cleanup is logged with an operation name, while user-visible IPC
 failures are returned to the renderer and shown near the initiating action.
 
+Persistent POSIX and WSL AI terminals use the managed-session contract in
+`docs/MANAGED-TERMINAL-SESSIONS.md`. The PTY is only an attach view over a
+session on the isolated `tmux -L loadtoagent` server. Session metadata persists
+independently, so a host restart reconnects to a live tmux session instead of
+starting a duplicate provider conversation. Native Windows and transient
+commands remain on the direct PTY backend.
+
 Regression tests are registered by feature suites in `scripts/tests/` and run
 through a shared harness. Electron integration scripts cover renderer events,
 responsive layouts, the terminal bridge, and real BrowserWindow interaction.

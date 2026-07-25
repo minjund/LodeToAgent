@@ -1472,6 +1472,8 @@ body[data-current-view="terminal"] .topbar h1 {
 }
 
 .terminal-session-item[data-status="running"] { border-left-color: #51dbae; }
+.terminal-session-item[data-status="detached"] { border-left-color: #7ba9d8; }
+.terminal-session-item[data-status="stopped"] { border-left-color: #667783; opacity: .88; }
 .terminal-session-item[data-status="attention"] { border-color: #60482f; border-left-color: #f0ad62; background: linear-gradient(100deg,rgba(133,83,31,.18),#0d171e 58%); }
 .terminal-session-item[data-status="failed"] { border-color: #58323c; border-left-color: #ef7d8e; }
 .terminal-session-item[data-status="completed"] { border-left-color: #6cbdd1; }
@@ -1500,6 +1502,10 @@ body[data-current-view="terminal"] .topbar h1 {
 .terminal-session-status i { width: 6px; height: 6px; border-radius: 50%; background: #657581; }
 .terminal-session-status[data-status="running"] { border-color: #2e6958; color: #86e8c5; background: #102921; }
 .terminal-session-status[data-status="running"] i { background: #55e2ad; box-shadow: 0 0 8px rgba(85,226,173,.65); }
+.terminal-session-status[data-status="detached"] { border-color: #365875; color: #a8d1f2; background: #112333; }
+.terminal-session-status[data-status="detached"] i { background: #78afe0; }
+.terminal-session-status[data-status="stopped"] { border-color: #3b4a54; color: #a8b4bc; background: #141d23; }
+.terminal-session-status[data-status="stopped"] i { background: #71818c; }
 .terminal-session-status[data-status="attention"] { border-color: #725432; color: #f3bb77; background: #2a2014; }
 .terminal-session-status[data-status="attention"] i { background: #ffbd66; box-shadow: 0 0 8px rgba(255,189,102,.5); }
 .terminal-session-status[data-status="failed"] { border-color: #6f3b47; color: #f3a0ad; background: #29161d; }

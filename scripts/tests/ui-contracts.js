@@ -781,6 +781,7 @@ const MAIN_PROCESS_CONTRACTS = [
   "sendTerminal('terminals:connection'",
   'terminalManager.dispose({ shutdownIfIdle: true })',
   "session.status === 'running' || session.status === 'starting'",
+  "session.status === 'detached'",
   'event.preventDefault()',
   'mainWindow.hide()',
   'const showFallback = setTimeout(showWindow, 2_000)',
