@@ -7,15 +7,18 @@ const crypto = require('crypto');
 const { EventEmitter } = require('events');
 const { spawn: spawnChild } = require('child_process');
 const { runBestEffort } = require('./diagnostics');
+const { ManagedTmuxRuntime } = require('./managedTmuxRuntime');
 const { ensureMacNodePtyRuntime } = require('./nodePtyRuntime');
 
 const MAX_SESSIONS = 24;
 const MAX_INPUT_CHARS = 128 * 1024;
 const MAX_REPLAY_CHARS = 2 * 1024 * 1024;
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 const PERSIST_DELAY_MS = 150;
 const TERMINAL_TYPES = new Set(['powershell', 'cmd', 'shell', 'wsl', 'tmux', 'agent']);
+const SESSION_BACKENDS = new Set(['direct', 'managed-tmux']);
+const DEFAULT_TMUX_SOCKET = 'loadtoagent';
 const AGENT_PROVIDERS = Object.freeze({
   claude: { command: 'claude', label: 'Claude' },
   codex: { command: 'codex', label: 'GPT · Codex' },
@@ -25,6 +28,13 @@ const AGENT_PROVIDERS = Object.freeze({
 
 function cleanText(value, max = 200) {
   return String(value == null ? '' : value).replace(/[\u0000\r\n]/g, ' ').trim().slice(0, max);
+}
+
+function safeTmuxName(value, fallback = '') {
+  const text = cleanText(value, 100);
+  if (!text) return fallback;
+  if (!/^[A-Za-z0-9_.-]+$/.test(text)) throw new Error('tmux 이름에는 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.');
+  return text;
 }
 
 function shellQuote(value) {
@@ -131,6 +141,16 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   if (type === 'tmux' && !tmuxSession) throw new Error('연결할 tmux 세션이 필요합니다.');
   const provider = cleanText(options.provider, 30).toLowerCase();
   if (type === 'agent' && !AGENT_PROVIDERS[provider]) throw new Error('지원하지 않는 AI 제공사입니다.');
+  const requestedBackend = cleanText(options.sessionBackend || options.backend, 40);
+  const managedByDefault = type === 'agent'
+    && !options.transient
+    && (platform !== 'win32' || Boolean(distro));
+  const sessionBackend = SESSION_BACKENDS.has(requestedBackend)
+    ? requestedBackend
+    : (managedByDefault ? 'managed-tmux' : 'direct');
+  if (sessionBackend === 'managed-tmux' && type !== 'agent') {
+    throw new Error('관리형 tmux 백엔드는 AI 터미널에서만 사용할 수 있습니다.');
+  }
   const args = Array.isArray(options.args)
     ? options.args.slice(0, 80).map(value => cleanText(value, 2_000))
     : [];
@@ -142,6 +162,13 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
     tmuxPane,
     provider,
     args,
+    sessionBackend,
+    tmuxSocket: sessionBackend === 'managed-tmux'
+      ? safeTmuxName(options.tmuxSocket, DEFAULT_TMUX_SOCKET)
+      : '',
+    managedTmuxSession: sessionBackend === 'managed-tmux'
+      ? safeTmuxName(options.managedTmuxSession)
+      : '',
     bridgeId: cleanText(options.bridgeId, 100),
     title: cleanText(options.title, 100),
     transient: Boolean(options.transient),
@@ -162,6 +189,32 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   }
   if (options.type === 'agent') {
     const provider = agentProviders[options.provider] || AGENT_PROVIDERS[options.provider];
+    if (options.sessionBackend === 'managed-tmux') {
+      if (!options.managedTmuxSession) throw new Error('관리형 tmux 세션 이름이 필요합니다.');
+      const tmuxArgs = [
+        '-L', options.tmuxSocket,
+        'new-session', '-A',
+        '-s', options.managedTmuxSession,
+        '-c', options.cwd,
+        provider.command,
+        ...(provider.args || []),
+        ...options.args,
+      ];
+      if (platform !== 'win32') {
+        return {
+          file: 'tmux',
+          args: tmuxArgs,
+          cwd: options.cwd,
+          label: provider.label,
+        };
+      }
+      return {
+        file: 'wsl.exe',
+        args: ['-d', options.distro, '--cd', options.cwd, '--', 'tmux', ...tmuxArgs],
+        cwd: os.homedir(),
+        label: `${provider.label} · ${options.distro}`,
+      };
+    }
     if (platform === 'win32') {
       if (options.distro) {
         const args = ['-d', options.distro];
@@ -220,6 +273,9 @@ function publicSession(session, includeReplay = false) {
     tmuxSession: session.options.tmuxSession,
     tmuxPane: session.options.tmuxPane,
     provider: session.options.provider,
+    backend: session.options.sessionBackend,
+    tmuxSocket: session.options.tmuxSocket,
+    managedTmuxSession: session.options.managedTmuxSession,
     bridgeId: session.options.bridgeId,
     transient: Boolean(session.options.transient),
     background: session.options.type === 'agent',
@@ -243,7 +299,7 @@ function validTimestamp(value, fallback) {
   return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : fallback;
 }
 
-function restoredOptions(value = {}, platform = process.platform) {
+function restoredOptions(value = {}, platform = process.platform, storeVersion = STORE_VERSION) {
   const fallbackType = platform === 'win32' ? 'powershell' : 'shell';
   const type = TERMINAL_TYPES.has(value.type) ? value.type : fallbackType;
   const provider = cleanText(value.provider, 30).toLowerCase();
@@ -256,6 +312,11 @@ function restoredOptions(value = {}, platform = process.platform) {
     tmuxPane: cleanText(value.tmuxPane, 100),
     provider,
     args: Array.isArray(value.args) ? value.args.slice(0, 80).map(item => cleanText(item, 2_000)) : [],
+    sessionBackend: SESSION_BACKENDS.has(value.sessionBackend)
+      ? value.sessionBackend
+      : (storeVersion < STORE_VERSION ? 'direct' : undefined),
+    tmuxSocket: cleanText(value.tmuxSocket, 100),
+    managedTmuxSession: cleanText(value.managedTmuxSession, 100),
     bridgeId: cleanText(value.bridgeId, 100),
     title: cleanText(value.title, 100),
     transient: Boolean(value.transient),
@@ -294,6 +355,7 @@ class TerminalManager extends EventEmitter {
     this.killTree = options.killTree || killPtyTree;
     this.platform = options.platform || process.platform;
     this.agentProviders = options.agentProviders || AGENT_PROVIDERS;
+    this.managedTmuxRuntime = options.managedTmuxRuntime || new ManagedTmuxRuntime({ platform: this.platform });
     this.fileSystem = options.fileSystem || fs;
     this.storeFile = typeof options.storeFile === 'string' && options.storeFile.trim()
       ? path.resolve(options.storeFile)
@@ -316,15 +378,20 @@ class TerminalManager extends EventEmitter {
       const stat = this.fileSystem.statSync(this.storeFile);
       if (!stat.isFile() || stat.size > MAX_STORE_BYTES) throw new Error('터미널 기록 파일의 크기가 허용 범위를 초과했습니다.');
       const parsed = JSON.parse(this.fileSystem.readFileSync(this.storeFile, 'utf8'));
-      if (parsed?.version !== STORE_VERSION || !Array.isArray(parsed.sessions)) throw new Error('지원하지 않는 터미널 기록 형식입니다.');
+      if (![1, STORE_VERSION].includes(parsed?.version) || !Array.isArray(parsed.sessions)) throw new Error('지원하지 않는 터미널 기록 형식입니다.');
       for (const value of parsed.sessions.slice(0, MAX_SESSIONS)) {
         const id = cleanText(value?.id, 200);
-        const options = restoredOptions(value?.options, this.platform);
+        const options = normalizeLaunchOptions(
+          restoredOptions(value?.options, this.platform, parsed.version),
+          this.platform,
+        );
         if (!id || !options || this.sessions.has(id)) continue;
         const now = new Date().toISOString();
         const createdAt = validTimestamp(value.createdAt, now);
         const updatedAt = validTimestamp(value.updatedAt, createdAt);
-        const status = value.status === 'failed' ? 'failed' : 'exited';
+        const status = options.sessionBackend === 'managed-tmux' && ['detached', 'stopped'].includes(value.status)
+          ? value.status
+          : (value.status === 'failed' ? 'failed' : 'exited');
         this.sessions.set(id, {
           id,
           options,
@@ -395,6 +462,28 @@ class TerminalManager extends EventEmitter {
     for (const session of this.sessions.values()) {
       if (!session.recoveryPending) continue;
       session.recoveryPending = false;
+      if (session.options.sessionBackend === 'managed-tmux') {
+        if (!this.managedTmuxRuntime.exists(session.options)) {
+          session.status = 'stopped';
+          session.pid = null;
+          session.recoveredAfterHostRestart = false;
+          session.recoverySkippedReason = 'managed-tmux-missing';
+          const missingMessage = '\r\n[LoadToAgent] 저장된 tmux 세션이 없어 자동으로 새 AI 대화를 시작하지 않았습니다.\r\n';
+          session.replay = `${session.replay}${missingMessage}`.slice(-MAX_REPLAY_CHARS);
+          continue;
+        }
+        session.recoveredAfterHostRestart = true;
+        session.recoverySkippedReason = '';
+        const reattachMessage = '\r\n[LoadToAgent] 터미널 호스트 중단 뒤 살아 있는 tmux 세션에 다시 연결했습니다.\r\n';
+        session.replay = `${session.replay}${reattachMessage}`.slice(-MAX_REPLAY_CHARS);
+        try {
+          this.spawn(session);
+          recovered.push(publicSession(session, true));
+        } catch (_recoveryFailed) {
+          session.recoveredAfterHostRestart = false;
+        }
+        continue;
+      }
       if (session.options.type === 'agent'
         && /TERM is set to ["']?dumb["']?[\s\S]{0,500}Continue anyway\?/i.test(session.replay)) {
         this.sessions.delete(session.id);
@@ -427,8 +516,11 @@ class TerminalManager extends EventEmitter {
   create(rawOptions = {}) {
     if (this.sessions.size >= MAX_SESSIONS) throw new Error(`동시에 열 수 있는 터미널은 최대 ${MAX_SESSIONS}개입니다.`);
     const options = normalizeLaunchOptions(rawOptions, this.platform);
-    const spec = launchSpec(options, this.platform, this.agentProviders);
     const id = `terminal:${Date.now().toString(36)}:${crypto.randomBytes(4).toString('hex')}`;
+    if (options.sessionBackend === 'managed-tmux' && !options.managedTmuxSession) {
+      options.managedTmuxSession = safeTmuxName(`lta-${options.provider}-${id.split(':').slice(1).join('-')}`);
+    }
+    const spec = launchSpec(options, this.platform, this.agentProviders);
     const now = new Date().toISOString();
     const session = {
       id,
@@ -590,15 +682,19 @@ class TerminalManager extends EventEmitter {
     throw new Error('지원하지 않는 터미널 신호입니다.');
   }
 
+  releaseProcess(session) {
+    if (!session.process) return false;
+    const handle = session.process;
+    const pid = session.pid;
+    session.process = null;
+    session.generation += 1;
+    this.killTree(handle, pid);
+    return true;
+  }
+
   kill(id) {
     const session = this.required(id);
-    if (session.process) {
-      const handle = session.process;
-      const pid = session.pid;
-      session.process = null;
-      session.generation += 1;
-      this.killTree(handle, pid);
-    }
+    this.releaseProcess(session);
     session.pid = null;
     session.status = 'exited';
     session.updatedAt = new Date().toISOString();
@@ -611,27 +707,46 @@ class TerminalManager extends EventEmitter {
     const session = this.required(id);
     session.recoveredAfterHostRestart = false;
     session.recoverySkippedReason = '';
-    if (session.process) {
-      const handle = session.process;
-      const pid = session.pid;
-      session.process = null;
-      session.generation += 1;
-      this.killTree(handle, pid);
-    }
+    this.releaseProcess(session);
     session.pid = null;
     session.replay = '';
     this.spawn(session);
     return publicSession(session, true);
   }
 
+  detach(id) {
+    const session = this.required(id);
+    if (session.options.sessionBackend !== 'managed-tmux') {
+      throw new Error('직접 실행 터미널은 작업을 유지한 채 화면만 분리할 수 없습니다.');
+    }
+    this.releaseProcess(session);
+    session.pid = null;
+    session.status = 'detached';
+    session.updatedAt = new Date().toISOString();
+    this.emitState('updated', session);
+    this.persistNow();
+    return publicSession(session, true);
+  }
+
+  stop(id) {
+    const session = this.required(id);
+    this.releaseProcess(session);
+    if (session.options.sessionBackend === 'managed-tmux') {
+      this.managedTmuxRuntime.stop(session.options);
+    }
+    session.pid = null;
+    session.status = 'stopped';
+    session.updatedAt = new Date().toISOString();
+    this.emitState('updated', session);
+    this.persistNow();
+    return publicSession(session, true);
+  }
+
   close(id) {
     const session = this.required(id);
-    if (session.process) {
-      const handle = session.process;
-      const pid = session.pid;
-      session.process = null;
-      session.generation += 1;
-      this.killTree(handle, pid);
+    this.releaseProcess(session);
+    if (session.options.sessionBackend === 'managed-tmux') {
+      this.managedTmuxRuntime.stop(session.options);
     }
     session.pid = null;
     session.status = 'exited';
@@ -647,13 +762,10 @@ class TerminalManager extends EventEmitter {
       const now = new Date().toISOString();
       for (const session of this.sessions.values()) {
         const shouldRecover = session.status === 'running' || session.status === 'starting';
-        if (session.process) {
-          const handle = session.process;
-          session.process = null;
-          session.generation += 1;
-          this.killTree(handle, session.pid);
+        this.releaseProcess(session);
+        if (shouldRecover) {
+          session.status = session.options.sessionBackend === 'managed-tmux' ? 'detached' : 'running';
         }
-        if (shouldRecover) session.status = 'running';
         session.pid = null;
         session.updatedAt = now;
       }

@@ -369,6 +369,199 @@ function registerGenericAgentTests(context) {
 
 function registerTerminalLifecycleTests(context) {
   const { test, temp, root } = context;
+  test('지속형 AI 터미널은 독립 tmux 소켓의 관리 세션으로 시작한다', () => {
+    const spawns = [];
+    class FakePty {
+      constructor() { this.pid = 8_001; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-create.json'),
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args, options) => {
+          spawns.push({ file, args, options });
+          return new FakePty();
+        },
+      },
+    });
+
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    assert.equal(session.backend, 'managed-tmux');
+    assert.equal(session.tmuxSocket, 'loadtoagent');
+    assert.match(session.managedTmuxSession, /^lta-codex-/);
+    assert.equal(spawns[0].file, 'tmux');
+    assert.deepStrictEqual(spawns[0].args.slice(0, 5), ['-L', 'loadtoagent', 'new-session', '-A', '-s']);
+    assert.equal(spawns[0].args.includes(session.managedTmuxSession), true);
+    assert.equal(spawns[0].args.at(-1), 'codex');
+    manager.close(session.id);
+  });
+
+  test('관리형 AI 터미널 detach는 화면 PTY만 닫고 세션을 유지한다', () => {
+    const processes = [];
+    const stopped = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.killed = false; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write() {}
+      resize() {}
+      kill() { this.killed = true; }
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-detach.json'),
+      killTree: handle => handle.kill(),
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: options => stopped.push(options.managedTmuxSession),
+      },
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(8_100 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    const detached = manager.detach(session.id);
+
+    assert.equal(detached.status, 'detached');
+    assert.equal(detached.pid, null);
+    assert.equal(processes[0].killed, true);
+    assert.equal(manager.get(session.id).status, 'detached');
+    assert.deepStrictEqual(stopped, []);
+    manager.close(session.id);
+  });
+
+  test('관리형 AI 터미널 stop은 tmux 작업을 종료하되 기록을 보존한다', () => {
+    const stopped = [];
+    class FakePty {
+      constructor() { this.pid = 8_201; this.killed = false; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() { this.killed = true; }
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-stop.json'),
+      killTree: handle => handle.kill(),
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: options => stopped.push({
+          socket: options.tmuxSocket,
+          session: options.managedTmuxSession,
+        }),
+      },
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    const result = manager.stop(session.id);
+
+    assert.equal(result.status, 'stopped');
+    assert.equal(result.pid, null);
+    assert.equal(processHandle.killed, true);
+    assert.deepStrictEqual(stopped, [{
+      socket: 'loadtoagent',
+      session: session.managedTmuxSession,
+    }]);
+    assert.equal(manager.list().length, 1);
+    assert.equal(manager.get(session.id).status, 'stopped');
+    manager.close(session.id);
+  });
+
+  test('터미널 호스트 장애 뒤 살아 있는 관리형 tmux 세션에 같은 ID로 재접속한다', () => {
+    const storeFile = path.join(temp, 'managed-tmux-recovery.json');
+    const spawned = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const runtime = {
+      exists: () => true,
+      stop: () => ({ ok: true }),
+    };
+    const managerOptions = {
+      platform: 'darwin',
+      storeFile,
+      managedTmuxRuntime: runtime,
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args) => {
+          spawned.push({ file, args });
+          return new FakePty(8_300 + spawned.length);
+        },
+      },
+    };
+    const beforeCrash = new TerminalManager(managerOptions);
+    const created = beforeCrash.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      args: [],
+    });
+    beforeCrash.persistNow();
+
+    const afterCrash = new TerminalManager(managerOptions);
+    const recovered = afterCrash.recoverPersistedSessions();
+
+    assert.equal(recovered.length, 1);
+    assert.equal(recovered[0].id, created.id);
+    assert.equal(recovered[0].status, 'running');
+    assert.equal(recovered[0].managedTmuxSession, created.managedTmuxSession);
+    assert.equal(spawned.length, 2);
+    assert.equal(spawned[1].file, 'tmux');
+    assert.equal(spawned[1].args.includes(created.managedTmuxSession), true);
+    assert.match(afterCrash.get(created.id, true).replay, /살아 있는 tmux 세션에 다시 연결/);
+    afterCrash.close(created.id);
+  });
+
+  test('관리형 AI 터미널 close는 tmux 작업과 저장 기록을 함께 제거한다', () => {
+    const stopped = [];
+    class FakePty {
+      constructor() { this.pid = 8_401; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const storeFile = path.join(temp, 'managed-tmux-close.json');
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: options => stopped.push(options.managedTmuxSession),
+      },
+      ptyModule: { spawn: () => new FakePty() },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    manager.close(session.id);
+
+    assert.deepStrictEqual(stopped, [session.managedTmuxSession]);
+    assert.equal(manager.get(session.id), null);
+    assert.equal(fs.readFileSync(storeFile, 'utf8').includes(session.id), false);
+  });
+
   test('macOS 패키지는 터미널 호스트를 숨김 Helper 실행 파일로 연다', () => {
     const executable = '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent';
     const helper = '/Applications/LoadToAgent.app/Contents/Frameworks/LoadToAgent Helper.app/Contents/MacOS/LoadToAgent Helper';
@@ -435,7 +628,7 @@ function registerTerminalLifecycleTests(context) {
     manager.dispose({ preserveSessions: true });
     assert.equal(processes[2].killed, true);
     manager = new TerminalManager(managerOptions);
-    assert.equal(manager.get(backgroundAgent.id).status, 'exited');
+    assert.equal(manager.get(backgroundAgent.id).status, 'detached');
     assert.equal(manager.get(backgroundAgent.id).pid, null);
     manager.close(backgroundAgent.id);
     manager = new TerminalManager(managerOptions);
@@ -637,9 +830,9 @@ function registerTerminalLifecycleTests(context) {
       } },
     };
     const beforeCrash = new TerminalManager(options);
-    const created = beforeCrash.create({ type: 'agent', provider: 'codex', args: ['resume', 'session-123'], cwd: root, bridgeId: 'codex:session-123' });
-    const freshAgent = beforeCrash.create({ type: 'agent', provider: 'codex', args: [], cwd: root, bridgeId: 'external-bridge' });
-    const stalledAgent = beforeCrash.create({ type: 'agent', provider: 'codex', args: ['resume', 'session-stalled'], cwd: root, bridgeId: 'codex:session-stalled' });
+    const created = beforeCrash.create({ type: 'agent', provider: 'codex', args: ['resume', 'session-123'], cwd: root, bridgeId: 'codex:session-123', sessionBackend: 'direct' });
+    const freshAgent = beforeCrash.create({ type: 'agent', provider: 'codex', args: [], cwd: root, bridgeId: 'external-bridge', sessionBackend: 'direct' });
+    const stalledAgent = beforeCrash.create({ type: 'agent', provider: 'codex', args: ['resume', 'session-stalled'], cwd: root, bridgeId: 'codex:session-stalled', sessionBackend: 'direct' });
     processes[2].dataCallback('WARNING: TERM is set to "dumb". Codex interactive mode may not work.\r\nContinue anyway? [y/N]:');
     beforeCrash.persistNow();
 
@@ -878,7 +1071,12 @@ function registerTerminalFailureTests(context) {
     const shim = path.join(bin, 'codex.ps1');
     fs.writeFileSync(shim, 'Write-Output codex', 'utf8');
     assert.equal(resolveWindowsCommand('codex', { Path: bin }), shim);
-    const spec = launchSpec(normalizeLaunchOptions({ type: 'agent', provider: 'codex', args: ['resume', 'session-id'], cwd: root }), 'win32', { codex: { command: shim, label: 'Codex' } });
+    const spec = launchSpec(normalizeLaunchOptions({
+      type: 'agent',
+      provider: 'codex',
+      args: ['resume', 'session-id'],
+      cwd: root,
+    }, 'win32'), 'win32', { codex: { command: shim, label: 'Codex' } });
     assert.ok(/powershell|pwsh/i.test(spec.file));
     assert.deepStrictEqual(spec.args.slice(-3), [shim, 'resume', 'session-id']);
     const options = normalizeLaunchOptions({
@@ -887,6 +1085,7 @@ function registerTerminalFailureTests(context) {
       args: ['resume', 'wsl-session-id'],
       cwd: '/mnt/c/Users/dev/board-migration-loop',
       distro: 'Ubuntu',
+      sessionBackend: 'direct',
     }, 'win32');
     assert.equal(options.cwd, '/mnt/c/Users/dev/board-migration-loop');
     assert.equal(options.distro, 'Ubuntu');
