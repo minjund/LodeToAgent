@@ -83,6 +83,8 @@
     Object.assign(STATUS_LABELS, {
       starting: t('ui.preparing'),
       running: t('terminal.status.running'),
+      detached: t('terminal.status.detached'),
+      stopped: t('terminal.status.stopped'),
       exited: t('terminal.status.exited'),
       failed: t('terminal.status.failed'),
     });

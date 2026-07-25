@@ -31,7 +31,7 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
     requireTrustedSender(event);
     return requireManager(manager).resize(id, cols, rows);
   });
-  for (const operation of ['signal', 'restart', 'close']) {
+  for (const operation of ['signal', 'restart', 'reconnect', 'detach', 'stop', 'close']) {
     ipcMain.handle(`terminals:${operation}`, (event, ...args) => {
       requireTrustedSender(event);
       return requireManager(manager)[operation](...args);

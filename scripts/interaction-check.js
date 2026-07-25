@@ -2174,6 +2174,31 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `document.querySelector('#terminalCommandInput').value === '' && document.activeElement?.id === 'terminalCommandInput' && document.querySelector('#terminalCommandClearBtn').classList.contains('hidden')`, '터미널 명령 지우기가 값·버튼·초점을 초기화하지 못했습니다.');
 
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls(); window.interactionTest.clearCalls()`);
+  await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
+  await click(win, '#terminalCloseBtn', 'terminal:close');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalDetach')`, '관리형 AI 터미널 화면 닫기가 tmux 작업을 분리하지 않았습니다.');
+  assert(await callCount(win, 'terminalDetach') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 화면 닫기는 terminalDetach만 한 번 호출해야 합니다.');
+  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('분리됨')`, '분리된 관리형 세션이 목록에 유지되지 않았습니다.');
+  await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
+  await waitFor(win, `!document.querySelector('#terminalRestartBtn').classList.contains('hidden') && document.querySelector('#terminalRestartBtn').textContent.includes('다시 연결')`, '분리된 관리형 세션에 다시 연결 동작이 표시되지 않았습니다.');
+  await click(win, '#terminalRestartBtn', 'terminal:restart');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalReconnect')`, '분리된 관리형 세션이 기존 tmux 작업에 재접속하지 않았습니다.');
+  assert(await callCount(win, 'terminalReconnect') === 1 && await callCount(win, 'terminalRestart') === 0, '관리형 재접속은 새 프로세스 재시작 대신 terminalReconnect를 호출해야 합니다.');
+  await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalStop: 180 } })`);
+  await click(win, '#terminalEndSessionBtn', 'terminal:end-session');
+  assert(await win.webContents.executeJavaScript(`document.querySelector('#terminalEndSessionBtn').disabled && document.querySelector('#terminalEndSessionBtn').getAttribute('aria-busy') === 'true'`), '관리형 AI 작업 중단 중 바쁜 상태가 표시되지 않았습니다.');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalStop')`, '관리형 AI 작업 중단이 terminalStop을 호출하지 않았습니다.');
+  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('작업 중지됨')`, '중단된 관리형 세션 기록이 목록에 보존되지 않았습니다.');
+  assert(await callCount(win, 'terminalStop') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 작업 중단은 기록을 삭제하지 않아야 합니다.');
+  await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
+  await waitFor(win, `document.querySelector('#terminalEndSessionBtn').textContent.includes('기록 제거')`, '중단된 관리형 세션에 기록 삭제 동작이 표시되지 않았습니다.');
+  await click(win, '#terminalEndSessionBtn', 'terminal:end-session');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalClose')`, '중단된 관리형 세션 기록을 삭제하지 못했습니다.');
+  await waitFor(win, `!document.querySelector('[data-terminal-id="terminal-managed"]')`, '삭제한 관리형 세션 기록이 목록에 남아 있습니다.');
+  assert(await callCount(win, 'terminalClose') === 1, '관리형 세션 기록 삭제는 terminalClose를 정확히 한 번 호출해야 합니다.');
+
+  await win.webContents.executeJavaScript(`window.interactionTest.clearControls(); window.interactionTest.clearCalls()`);
+  await click(win, '[data-terminal-id="terminal-main"]', 'terminal:select-session');
   await click(win, '#terminalCloseBtn', 'terminal:close');
   await sleep(220);
   const aiCloseView = await win.webContents.executeJavaScript(`(() => ({

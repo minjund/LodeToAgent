@@ -262,7 +262,14 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       const session = currentSession();
       if (!session) return;
       await runBusy(event.currentTarget, async () => {
-        const restarted = await guarded(() => window.loadtoagent.terminalRestart(session.id), t('terminal.session.restarted'), `terminal-restart:${session.id}`);
+        const managedSession = session.backend === 'managed-tmux';
+        const restarted = await guarded(
+          () => managedSession
+            ? window.loadtoagent.terminalReconnect(session.id)
+            : window.loadtoagent.terminalRestart(session.id),
+          managedSession ? t('terminal.session.reconnected') : t('terminal.session.restarted'),
+          `${managedSession ? 'terminal-reconnect' : 'terminal-restart'}:${session.id}`,
+        );
         if (restarted) {
           const entry = state.terminals.get(session.id);
           if (entry) entry.terminal.reset();
@@ -273,11 +280,21 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     const endTerminalSession = async (button, session) => {
       if (!session) return;
+      const managedSession = session.backend === 'managed-tmux';
+      const stopManagedSession = managedSession && session.status !== 'stopped';
       const confirmation = isAiTerminalSession(session) ? 'terminal.session.confirm_end_ai' : 'terminal.session.confirm_end';
-      if (session.type !== 'tmux' && session.status === 'running' && !window.confirm(t(confirmation, { title: session.title }))) return;
+      if (session.type !== 'tmux' && ['running', 'detached'].includes(session.status) && !window.confirm(t(confirmation, { title: session.title }))) return;
       await runBusy(button, async () => {
-        const message = session.type === 'tmux' ? t('terminal.tmux.detached_input') : t('terminal.session.ended');
-        const closed = await guarded(() => window.loadtoagent.terminalClose(session.id), message, `terminal-close:${session.id}`);
+        const message = stopManagedSession
+          ? t('terminal.session.stopped')
+          : session.type === 'tmux' ? t('terminal.tmux.detached_input') : t('terminal.session.ended');
+        const closed = await guarded(
+          () => stopManagedSession
+            ? window.loadtoagent.terminalStop(session.id)
+            : window.loadtoagent.terminalClose(session.id),
+          message,
+          `${stopManagedSession ? 'terminal-stop' : 'terminal-close'}:${session.id}`,
+        );
         if (!closed) return;
         const entry = state.terminals.get(session.id);
         if (entry) {
@@ -304,6 +321,15 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         return;
       }
       if (isAiTerminalSession(session)) {
+        if (session.backend === 'managed-tmux' && session.status === 'running') {
+          const detached = await runBusy(event.currentTarget, () => guarded(
+            () => window.loadtoagent.terminalDetach(session.id),
+            t('terminal.tmux.detached_input'),
+            `terminal-detach:${session.id}`,
+          ));
+          if (!detached) return;
+          await refreshSessions();
+        }
         state.captureGeneration += 1;
         state.selectedId = null;
         state.boundAgent = null;

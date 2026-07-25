@@ -399,7 +399,67 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(spawns[0].file, 'tmux');
     assert.deepStrictEqual(spawns[0].args.slice(0, 5), ['-L', 'loadtoagent', 'new-session', '-A', '-s']);
     assert.equal(spawns[0].args.includes(session.managedTmuxSession), true);
-    assert.equal(spawns[0].args.at(-1), 'codex');
+    assert.deepStrictEqual(spawns[0].args.slice(-5), ['codex', ';', 'set-option', '-g', 'window-size', 'largest'].slice(-5));
+    manager.close(session.id);
+  });
+
+  test('관리형 attach 화면이 자연 종료되어도 살아 있는 tmux 작업은 detached로 보존한다', () => {
+    let tmuxExists = true;
+    class FakePty {
+      constructor() { this.pid = 8_051; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-natural-detach.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => tmuxExists,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    processHandle.exitCallback({ exitCode: 0, signal: 0 });
+
+    assert.equal(manager.get(session.id).status, 'detached');
+    assert.equal(manager.get(session.id).pid, null);
+    tmuxExists = false;
+    manager.close(session.id);
+  });
+
+  test('관리형 attach 화면 종료 시 tmux 작업도 끝났다면 stopped 기록만 보존한다', () => {
+    class FakePty {
+      constructor() { this.pid = 8_052; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-natural-stop.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => false,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+
+    processHandle.exitCallback({ exitCode: 0, signal: 0 });
+
+    assert.equal(manager.get(session.id).status, 'stopped');
+    assert.equal(manager.get(session.id).pid, null);
     manager.close(session.id);
   });
 
@@ -560,6 +620,90 @@ function registerTerminalLifecycleTests(context) {
     assert.deepStrictEqual(stopped, [session.managedTmuxSession]);
     assert.equal(manager.get(session.id), null);
     assert.equal(fs.readFileSync(storeFile, 'utf8').includes(session.id), false);
+  });
+
+  test('분리된 관리형 AI 터미널은 기존 tmux 세션에만 재접속한다', () => {
+    const processes = [];
+    let exists = true;
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-reconnect.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => exists,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(8_500 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+    manager.detach(session.id);
+
+    const reconnected = manager.reconnect(session.id);
+
+    assert.equal(reconnected.id, session.id);
+    assert.equal(reconnected.status, 'running');
+    assert.equal(reconnected.managedTmuxSession, session.managedTmuxSession);
+    assert.equal(processes.length, 2);
+    manager.detach(session.id);
+    exists = false;
+    assert.throws(() => manager.reconnect(session.id), /tmux 세션이 종료/);
+    assert.equal(manager.get(session.id).status, 'stopped');
+    assert.equal(processes.length, 2);
+    manager.close(session.id);
+  });
+
+  test('터미널 호스트 프로토콜이 detach·reconnect·stop 생명주기를 전달한다', async () => {
+    class FakeManager extends EventEmitter {
+      constructor() { super(); this.calls = []; }
+      list() { return []; }
+      detach(id) { this.calls.push(['detach', id]); return { id, status: 'detached' }; }
+      reconnect(id) { this.calls.push(['reconnect', id]); return { id, status: 'running' }; }
+      stop(id) { this.calls.push(['stop', id]); return { id, status: 'stopped' }; }
+    }
+    const manager = new FakeManager();
+    const endpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-managed-lifecycle-${process.pid}-${Date.now()}`
+      : path.join(os.tmpdir(), `lta-managed-lifecycle-${process.pid}-${Date.now()}.sock`);
+    const discovery = path.join(temp, 'managed-tmux-lifecycle-host.json');
+    const server = new TerminalHostServer({
+      manager,
+      endpoint,
+      discoveryFile: discovery,
+      token: 'managed-lifecycle-token',
+    });
+    await server.start();
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      spawnHost: () => { throw new Error('기존 테스트 호스트를 사용해야 합니다.'); },
+    });
+    try {
+      await client.connect();
+      assert.equal((await client.detach('terminal:managed')).status, 'detached');
+      assert.equal((await client.reconnect('terminal:managed')).status, 'running');
+      assert.equal((await client.stop('terminal:managed')).status, 'stopped');
+      assert.deepStrictEqual(manager.calls, [
+        ['detach', 'terminal:managed'],
+        ['reconnect', 'terminal:managed'],
+        ['stop', 'terminal:managed'],
+      ]);
+    } finally {
+      client.dispose();
+      server.dispose();
+    }
   });
 
   test('macOS 패키지는 터미널 호스트를 숨김 Helper 실행 파일로 연다', () => {

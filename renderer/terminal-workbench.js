@@ -212,6 +212,8 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const remote = currentTmux();
     const bound = visibleBoundAgent();
     const aiTerminal = isAiTerminalSession(session);
+    const managedSession = Boolean(session && session.backend === 'managed-tmux');
+    const reconnectable = managedSession && session.status === 'detached';
     const hasTarget = Boolean(session || remote);
     const canInput = Boolean((remote && !remote.pane.dead) || (session && session.status === 'running'));
     const closeButton = $('#terminalCloseBtn');
@@ -225,8 +227,14 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const endSessionButton = $('#terminalEndSessionBtn');
     endSessionButton.classList.toggle('hidden', !aiTerminal);
     endSessionButton.disabled = !aiTerminal;
-    $('#terminalRestartBtn').classList.toggle('hidden', !session || session.status === 'running' || session.type === 'agent');
-    $('#terminalRestartBtn').disabled = !session || session.status === 'running';
+    endSessionButton.textContent = managedSession && session.status === 'stopped'
+      ? t('terminal.remove_session_record')
+      : t('terminal.end_ai_session');
+    const restartButton = $('#terminalRestartBtn');
+    const showRestart = Boolean(session && (reconnectable || (session.type !== 'agent' && session.status !== 'running')));
+    restartButton.classList.toggle('hidden', !showRestart);
+    restartButton.disabled = !showRestart;
+    restartButton.textContent = reconnectable ? t('terminal.reconnect') : t('ui.restart');
     $('#terminalCommandInput').disabled = !canInput;
     const commandForm = $('#terminalCommandForm');
     const commandButton = commandForm.querySelector('button[type="submit"]');
@@ -244,7 +252,11 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       $('#terminalTargetIcon').textContent = terminalTypeMark(session);
       $('#terminalTargetMeta').innerHTML = `<b>${esc(session.title)}</b><span>${bound ? `● ${t('terminal.bound_ai_session')} · ` : ''}${session.recoveredAfterHostRestart ? `${t('terminal.recovered_after_host_restart')} · ` : ''}${esc(session.type.toUpperCase())} · PID ${session.pid || '--'} · ${esc(session.cwd || session.distro || '')}</span>`;
       $('#terminalConsoleCaption').textContent = `${terminalTypeLabel(session)} · PID ${session.pid || '--'}`;
-      $('#terminalConsoleState').textContent = presentation.tone === 'attention' || presentation.tone === 'completed'
+      $('#terminalConsoleState').textContent = session.status === 'detached'
+        ? t('terminal.detached_work_continues')
+        : session.status === 'stopped'
+          ? t('terminal.stopped_record_kept')
+          : presentation.tone === 'attention' || presentation.tone === 'completed'
         ? presentation.label
         : canInput ? window.LoadToAgentI18n.t("ui.direct_input_available") : window.LoadToAgentI18n.t("ui.ended_session");
       $('#terminalConsoleState').dataset.status = presentation.tone;

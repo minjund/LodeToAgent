@@ -278,6 +278,11 @@ const snapshot = {
 
 const initialTerminals = [
   { id: 'terminal-main', type: 'powershell', title: 'Fixture PowerShell', status: 'running', pid: 41001, cwd: 'D:\\fixture' },
+  {
+    id: 'terminal-managed', type: 'agent', title: 'Fixture Managed Codex', status: 'running', pid: 41005,
+    cwd: 'D:\\fixture', provider: 'codex', background: true, backend: 'managed-tmux',
+    tmuxSocket: 'loadtoagent', managedTmuxSession: 'lta-codex-fixture',
+  },
   { id: 'terminal-ended', type: 'powershell', title: 'Fixture Ended', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
   { id: 'terminal-failed', type: 'powershell', title: 'Fixture Failed', status: 'failed', pid: null, cwd: 'D:\\fixture' },
   { id: 'terminal-race-a', type: 'powershell', title: 'Fixture Race A', status: 'running', pid: 41003, cwd: 'D:\\fixture' },
@@ -403,7 +408,20 @@ const api = {
     return { ok: true, replay: `fixture replay for ${id}\r\n` };
   },
   terminalCreate: async options => {
-    const created = { id: `terminal-created-${++terminalSequence}`, type: options.type, title: options.title || 'Fixture terminal', status: 'running', pid: 42000 + terminalSequence, cwd: options.cwd || 'D:\\fixture', provider: options.provider || '', bridgeId: options.bridgeId || '', background: options.type === 'agent' };
+    const created = {
+      id: `terminal-created-${++terminalSequence}`,
+      type: options.type,
+      title: options.title || 'Fixture terminal',
+      status: 'running',
+      pid: 42000 + terminalSequence,
+      cwd: options.cwd || 'D:\\fixture',
+      provider: options.provider || '',
+      bridgeId: options.bridgeId || '',
+      background: options.type === 'agent',
+      backend: options.sessionBackend || 'direct',
+      tmuxSocket: options.tmuxSocket || '',
+      managedTmuxSession: options.managedTmuxSession || '',
+    };
     await controlled('terminalCreate', [options], created);
     terminals.push(created);
     return clone(created);
@@ -417,6 +435,24 @@ const api = {
     const terminal = terminals.find(item => item.id === id);
     if (terminal) terminal.status = 'running';
     return { ok: true };
+  },
+  terminalReconnect: async id => {
+    await controlled('terminalReconnect', [id]);
+    const terminal = terminals.find(item => item.id === id);
+    if (terminal) terminal.status = 'running';
+    return clone(terminal || { id, status: 'running' });
+  },
+  terminalDetach: async id => {
+    await controlled('terminalDetach', [id]);
+    const terminal = terminals.find(item => item.id === id);
+    if (terminal) terminal.status = 'detached';
+    return clone(terminal || { id, status: 'detached' });
+  },
+  terminalStop: async id => {
+    await controlled('terminalStop', [id]);
+    const terminal = terminals.find(item => item.id === id);
+    if (terminal) terminal.status = 'stopped';
+    return clone(terminal || { id, status: 'stopped' });
   },
   terminalClose: async id => {
     await controlled('terminalClose', [id]);

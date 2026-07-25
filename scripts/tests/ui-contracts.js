@@ -711,6 +711,9 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'wslDistros',
   'terminalWrite',
   'terminalResize',
+  'terminalDetach',
+  'terminalReconnect',
+  'terminalStop',
   'tmuxSendText',
   'tmuxCapture',
   'tmuxSplitPane',
@@ -744,6 +747,12 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'window.LoadToAgentTerminal',
   "t('terminal.detach_tmux_input')",
   "t('terminal.recovered_after_host_restart')",
+  "t('terminal.status.detached')",
+  "t('terminal.status.stopped')",
+  "session.backend === 'managed-tmux'",
+  'window.loadtoagent.terminalDetach(session.id)',
+  'window.loadtoagent.terminalReconnect(session.id)',
+  'window.loadtoagent.terminalStop(session.id)',
   'entry.pendingResize',
   'resizeObserver.observe',
 ];
@@ -827,6 +836,9 @@ const PRELOAD_IPC_CONTRACTS = [
   'onTerminalConnection',
   "terminalWrite: (id, data) => ipcRenderer.invoke('terminals:write'",
   "terminalResize: (id, cols, rows) => ipcRenderer.invoke('terminals:resize'",
+  "terminalDetach: id => ipcRenderer.invoke('terminals:detach'",
+  "terminalReconnect: id => ipcRenderer.invoke('terminals:reconnect'",
+  "terminalStop: id => ipcRenderer.invoke('terminals:stop'",
   'pauseAgent',
   'resumeAgentRun',
   'retryAgent',
@@ -1096,6 +1108,13 @@ function registerUiContractTests(context) {
     }
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:write'"), '터미널 입력 IPC 응답 계약이 없습니다.');
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:resize'"), '터미널 크기 변경 IPC 응답 계약이 없습니다.');
+    for (const operation of ['detach', 'reconnect', 'stop']) {
+      assert.ok(
+        ipcSource.includes(`ipcMain.handle(\`terminals:\${operation}\``)
+          || ipcSource.includes(`'${operation}'`),
+        `terminals:${operation} IPC 응답 계약이 없습니다.`,
+      );
+    }
     const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
     assertIncludesAll(
       preload,

@@ -45,6 +45,7 @@
     "test": "node scripts/regression-test.js",
     "test:accuracy": "node scripts/accuracy-evaluation.js",
     "test:terminal": "electron scripts/terminal-integration-test.js",
+    "test:terminal:managed": "electron scripts/managed-tmux-integration-test.js",
     "test:terminal:mac-stress": "node scripts/mac-terminal-stress-check.js",
     "test:terminal-restart": "node scripts/terminal-restart-persistence-check.js",
     "test:bridge": "electron scripts/bridge-integration-test.js",

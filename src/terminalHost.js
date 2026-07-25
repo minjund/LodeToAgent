@@ -10,12 +10,15 @@ const { spawn } = require('child_process');
 const { endpointFor, safeWriteJson } = require('./bridgeServer');
 const { runBestEffort } = require('./diagnostics');
 
-const TERMINAL_HOST_PROTOCOL = 3;
+const TERMINAL_HOST_PROTOCOL = 4;
 const TERMINAL_HOST_RUNTIME = `node-pty-${require('node-pty/package.json').version}`;
 const MAX_FRAME_CHARS = 4 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 15_000;
-const HOST_OPERATIONS = new Set(['list', 'get', 'create', 'write', 'command', 'resize', 'signal', 'restart', 'close']);
+const HOST_OPERATIONS = new Set([
+  'list', 'get', 'create', 'write', 'command', 'resize', 'signal',
+  'restart', 'reconnect', 'detach', 'stop', 'close',
+]);
 
 function sendFrame(socket, payload) {
   if (!socket || socket.destroyed) return;
@@ -524,6 +527,9 @@ class TerminalHostClient extends EventEmitter {
   resize(id, cols, rows) { return this.request('resize', id, cols, rows); }
   signal(id, signal) { return this.request('signal', id, signal); }
   restart(id) { return this.request('restart', id); }
+  reconnect(id) { return this.request('reconnect', id); }
+  detach(id) { return this.request('detach', id); }
+  stop(id) { return this.request('stop', id); }
   close(id) { return this.request('close', id); }
 
   dispose({ shutdownIfIdle = false } = {}) {

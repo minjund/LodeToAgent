@@ -199,6 +199,8 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
         provider.command,
         ...(provider.args || []),
         ...options.args,
+        ';',
+        'set-option', '-g', 'window-size', 'largest',
       ];
       if (platform !== 'win32') {
         return {
@@ -597,7 +599,11 @@ class TerminalManager extends EventEmitter {
         if (session.generation !== generation) return;
         session.process = null;
         session.pid = null;
-        session.status = 'exited';
+        if (session.options.sessionBackend === 'managed-tmux') {
+          session.status = this.managedTmuxRuntime.exists(session.options) ? 'detached' : 'stopped';
+        } else {
+          session.status = 'exited';
+        }
         session.exitCode = Number.isFinite(event.exitCode) ? event.exitCode : null;
         session.signal = Number.isFinite(event.signal) ? event.signal : null;
         session.updatedAt = new Date().toISOString();
@@ -710,6 +716,28 @@ class TerminalManager extends EventEmitter {
     this.releaseProcess(session);
     session.pid = null;
     session.replay = '';
+    this.spawn(session);
+    return publicSession(session, true);
+  }
+
+  reconnect(id) {
+    const session = this.required(id);
+    if (session.options.sessionBackend !== 'managed-tmux') {
+      throw new Error('직접 실행 터미널은 기존 백그라운드 세션에 재접속할 수 없습니다.');
+    }
+    if (session.process && session.status === 'running') return publicSession(session, true);
+    if (!this.managedTmuxRuntime.exists(session.options)) {
+      session.pid = null;
+      session.status = 'stopped';
+      session.recoveredAfterHostRestart = false;
+      session.recoverySkippedReason = 'managed-tmux-missing';
+      session.updatedAt = new Date().toISOString();
+      this.emitState('updated', session);
+      this.persistNow();
+      throw new Error('기존 tmux 세션이 종료되어 다시 연결할 수 없습니다.');
+    }
+    session.recoveredAfterHostRestart = false;
+    session.recoverySkippedReason = '';
     this.spawn(session);
     return publicSession(session, true);
   }
