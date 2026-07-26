@@ -2258,3 +2258,402 @@ body details.control-room-project-group > summary.control-project-header {
     animation: none!important;
   }
 }
+
+/*
+ * Conversation workspace
+ * ----------------------
+ * Live-flow entries open beside the graph and keep terminal controls secondary
+ * until the user explicitly asks for direct terminal input.
+ */
+
+:root {
+  --conversation-panel-width: clamp(600px,40vw,680px);
+}
+
+.drawer-flow-button {
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid #304050;
+  border-radius: 9px;
+  background: rgba(17,25,36,.92);
+  color: #b9c7d2;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease,background-color var(--motion-fast) ease,color var(--motion-fast) ease,transform var(--motion-fast) ease;
+}
+
+.drawer-flow-button:hover {
+  border-color: color-mix(in srgb,var(--drawer-provider,#79d9f8) 50%,#304050);
+  background: color-mix(in srgb,var(--drawer-provider,#79d9f8) 8%,#111924);
+  color: #f3f7fa;
+}
+
+.drawer-flow-button:active {
+  transform: translateY(1px);
+}
+
+.drawer-flow-button > span {
+  color: var(--drawer-provider,#79d9f8);
+  font-style: normal;
+}
+
+.drawer-flow-button b {
+  font-weight: 720;
+}
+
+.drawer-resize-handle {
+  position: absolute;
+  z-index: 4;
+  inset: 0 auto 0 -7px;
+  width: 14px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.drawer-resize-handle::before {
+  position: absolute;
+  top: 50%;
+  left: 5px;
+  width: 3px;
+  height: 58px;
+  border-radius: 99px;
+  background: #31485b;
+  box-shadow: 0 0 0 1px rgba(8,14,21,.8);
+  content: "";
+  opacity: .62;
+  transform: translateY(-50%);
+  transition: height var(--motion-fast) ease,background-color var(--motion-fast) ease,opacity var(--motion-fast) ease;
+}
+
+.drawer-resize-handle:hover::before,
+.drawer-resize-handle:focus-visible::before,
+body.conversation-panel-resizing .drawer-resize-handle::before {
+  height: 88px;
+  background: var(--drawer-provider,#79d9f8);
+  opacity: 1;
+}
+
+body.conversation-panel-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.conversation-composer-shell {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-command-actions .conversation-terminal-toggle {
+  min-width: 0;
+  border-color: #2c3c49;
+  background: transparent;
+  color: #82939f;
+}
+
+.agent-command-actions .conversation-terminal-toggle > span {
+  margin-right: 6px;
+  color: #65b9cc;
+  font-family: "Cascadia Code",Consolas,monospace;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.conversation-terminal-expanded > span {
+  min-width: 0;
+}
+
+.conversation-terminal-expanded > span b,
+.conversation-terminal-expanded > span small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-terminal-expanded > span b {
+  color: #c8d2db;
+  font-size: 12px;
+}
+
+.conversation-terminal-expanded > span small {
+  margin-top: 2px;
+  color: #7f8f9d!important;
+}
+
+.conversation-terminal-expanded > button,
+.conversation-terminal-expanded > [data-agent-terminal-open],
+.conversation-terminal-expanded > [data-resume-agent] {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid #34495a;
+  border-radius: 8px;
+  background: #121d28;
+  color: #adbecb;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+}
+
+.conversation-terminal-expanded > button:hover:not(:disabled) {
+  border-color: #4d7188;
+  color: #eef6fa;
+}
+
+.conversation-terminal-expanded button:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+
+.conversation-terminal-expanded {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0,1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border: 1px solid rgba(91,169,255,.22);
+  border-radius: 10px;
+  background: rgba(91,169,255,.045);
+}
+
+.conversation-terminal-expanded > button:first-child {
+  border-color: transparent;
+  background: transparent;
+}
+
+.conversation-terminal-expanded > button:first-child > span {
+  margin-right: 6px;
+  color: #79d9f8;
+}
+
+@media (min-width:1280px) {
+  body.conversation-context-open #appShell {
+    width: calc(100vw - var(--conversation-panel-width));
+    max-width: calc(100vw - var(--conversation-panel-width));
+    transition: width var(--motion-medium) var(--motion-ease),max-width var(--motion-medium) var(--motion-ease);
+  }
+
+  body.conversation-context-open {
+    --sidebar: clamp(220px,16vw,272px);
+  }
+
+  body.conversation-context-open .main-stage {
+    padding-inline: clamp(18px,1.6vw,28px);
+  }
+
+  body.conversation-context-open[data-current-view="all"] .topbar {
+    display: block;
+  }
+
+  body.conversation-context-open[data-current-view="all"] .topbar .eyebrow,
+  body.conversation-context-open[data-current-view="all"] .topbar .subtitle {
+    display: none;
+  }
+
+  body.conversation-context-open[data-current-view="all"] .topbar h1 {
+    max-width: 640px;
+    font-size: clamp(25px,2.2vw,32px);
+    line-height: 1.18;
+  }
+
+  body.conversation-context-open[data-current-view="all"] .top-actions {
+    width: 100%;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 0;
+  }
+
+  body.conversation-context-open[data-current-view="all"] #guideBtn {
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+  }
+
+  body.conversation-context-open[data-current-view="all"] #guideBtn > span:nth-child(2),
+  body.conversation-context-open[data-current-view="all"] .new-run-cta-copy {
+    display: none;
+  }
+
+  body.conversation-context-open[data-current-view="all"] .sync-state {
+    max-width: 168px;
+  }
+
+  body.conversation-context-open[data-current-view="all"] .new-run-cta {
+    width: 48px;
+    min-width: 48px;
+    padding-inline: 0;
+  }
+
+  body.conversation-context-open .detail-drawer[data-presentation="context"] {
+    width: var(--conversation-panel-width);
+    border-left-color: #304253;
+    box-shadow: -12px 0 38px rgba(0,0,0,.28);
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-head {
+    min-height: 58px;
+    display: grid;
+    grid-template-columns: auto minmax(0,1fr);
+    padding: 11px 18px 8px;
+    gap: 12px;
+  }
+
+  body.conversation-context-open .detail-drawer .provider-mark,
+  body.conversation-context-open .detail-drawer .close-button {
+    display: none;
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-title h2 {
+    margin-top: 0;
+    font-size: 16px;
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-title > span {
+    display: none;
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-meta {
+    padding: 0 18px 10px;
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-tabs {
+    padding-inline: 18px;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .drawer-tabs,
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-work-source {
+    display: none;
+  }
+
+  body.conversation-context-open .detail-drawer .drawer-content {
+    padding: 18px 20px 24px;
+    background: #0d141d;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .drawer-content {
+    padding-top: 14px;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-assignment-card {
+    grid-template-columns: minmax(0,1fr);
+    gap: 0;
+    margin-bottom: 14px;
+    padding: 0 0 14px;
+    border: 0;
+    border-bottom: 1px solid #22313e;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-assignment-card > span,
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-assignment-card small {
+    display: none;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-assignment-card b {
+    color: #77c8d6;
+    font-size: 11px;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-assignment-card p {
+    margin-top: 5px;
+    color: #b8c6d1;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  body.conversation-context-open .detail-drawer[data-mode="subagent"] .subagent-work-source + .chat-history-head {
+    top: -14px;
+    margin: -14px 0 14px;
+    padding-top: 10px;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-list {
+    gap: 22px;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-turn {
+    gap: 16px;
+    padding-bottom: 22px;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-content.markdown {
+    padding: 2px 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #d1dae2;
+    font-size: 14px;
+    line-height: 1.72;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-row.user .chat-content.markdown {
+    padding: 10px 12px;
+    border-left: 2px solid color-mix(in srgb,var(--drawer-provider,#79d9f8) 65%,#526271);
+    border-radius: 0 8px 8px 0;
+    background: rgba(255,255,255,.025);
+  }
+
+  body.conversation-context-open .detail-drawer .chat-row {
+    grid-template-columns: 31px minmax(0,1fr);
+    gap: 12px;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-avatar {
+    width: 29px;
+    height: 29px;
+  }
+
+  body.conversation-context-open .detail-drawer .chat-history-head {
+    top: -18px;
+    background: linear-gradient(180deg,#0d141d 78%,rgba(13,20,29,.94));
+  }
+
+  body.conversation-context-open .drawer-composer {
+    padding: 8px 14px 12px;
+    border-top-color: #2b3a48;
+    background: #0a1119;
+    box-shadow: 0 -10px 28px rgba(0,0,0,.2);
+  }
+
+  body.conversation-context-open .conversation-composer-shell {
+    gap: 6px;
+  }
+
+  body.conversation-context-open .drawer-composer .agent-command-panel {
+    gap: 7px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body.conversation-context-open .drawer-composer .conversation-composer > header {
+    display: none;
+  }
+
+  body.conversation-context-open .drawer-composer textarea {
+    min-height: 52px;
+    font-size: 13px;
+  }
+
+  body.conversation-context-open .conversation-composer-shell.mode-terminal .agent-command-panel {
+    padding-top: 2px;
+  }
+
+  body.conversation-panel-resizing #appShell,
+  body.conversation-panel-resizing .detail-drawer {
+    transition: none!important;
+  }
+}

@@ -218,12 +218,6 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
 
   function bindManagementEvents() {
     $("#operationsOverview").addEventListener("click", async (event) => {
-      const route = event.target.closest("[data-agent-command-route]");
-      if (route) {
-        state.agentCommandRoutes.set(route.dataset.agentCommandSession, route.dataset.agentCommandRoute);
-        renderSessions("route");
-        return;
-      }
       const intervention = event.target.closest("[data-supervision-intervention-open]");
       if (intervention) {
         const details = $("#operationsOverview")?.querySelector(`.supervision-intervention[data-disclosure-key="supervision:command:${CSS.escape(intervention.dataset.supervisionInterventionOpen)}"]`);
@@ -290,12 +284,6 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       dispatchAgentCommand(form.dataset.agentCommandForm, form);
     });
     $("#attentionInbox").addEventListener("click", async (event) => {
-      const route = event.target.closest("[data-agent-command-route]");
-      if (route) {
-        state.agentCommandRoutes.set(route.dataset.agentCommandSession, route.dataset.agentCommandRoute);
-        renderSessions("route");
-        return;
-      }
       const filter = event.target.closest("[data-management-inbox-filter]");
       if (filter) {
         state.managementFilter = filter.dataset.managementInboxFilter;
@@ -446,14 +434,6 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
         }
         return;
       }
-      const route = event.target.closest("[data-agent-command-route]");
-      if (route) {
-        event.stopPropagation();
-        state.agentCommandRoutes.set(route.dataset.agentCommandSession, route.dataset.agentCommandRoute);
-        renderSessions("route");
-        requestAnimationFrame(() => $("#liveSessionGrid")?.querySelector(`[data-agent-command-session="${CSS.escape(route.dataset.agentCommandSession)}"][data-agent-command-route="${CSS.escape(route.dataset.agentCommandRoute)}"]`)?.focus({ preventScroll: true }));
-        return;
-      }
       const copy = event.target.closest("[data-copy-text]");
       if (copy) {
         event.stopPropagation();
@@ -520,18 +500,18 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       const open = event.target.closest("[data-open-session]");
       if (open) {
         event.stopPropagation();
-        openDrawer(open.dataset.openSession);
+        openDrawer(open.dataset.openSession, { context: true });
         return;
       }
       const subagentChat = event.target.closest("[data-open-subagent-chat]");
       if (subagentChat) {
         event.stopPropagation();
-        openSubagentConversation(subagentChat.dataset.openSubagentChat);
+        openSubagentConversation(subagentChat.dataset.openSubagentChat, { context: true });
         return;
       }
       const node = event.target.closest("[data-graph-focus]");
       if (!node) return;
-      if (state.graphFocusId === node.dataset.graphFocus) openDrawer(node.dataset.graphFocus);
+      if (state.graphFocusId === node.dataset.graphFocus) openDrawer(node.dataset.graphFocus, { context: true });
       else {
         state.graphFocusId = node.dataset.graphFocus;
         renderSessions("focus");

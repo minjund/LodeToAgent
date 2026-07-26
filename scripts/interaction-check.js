@@ -84,10 +84,11 @@ const ACTION_MANIFEST = [
   { selector: '#loadMoreBtn', action: 'filter:load-more' },
   { selector: '[data-open-run]', action: 'run:open-empty' },
   { selector: '#closeDrawerBtn', action: 'drawer:close' },
+  { selector: '#drawerBackToFlowBtn', action: 'drawer:back-to-flow' },
   { selector: '[data-copy-text]', action: 'drawer:copy' },
   ...['summary', 'chat', 'lifecycle', 'tokens'].map(tab => ({ selector: `[data-tab="${tab}"]`, action: `drawer:tab-${tab}` })),
   { selector: '[data-management-filter]', action: 'management:filter' },
-  { selector: '[data-agent-command-route]', action: 'control-room:command-route' },
+  { selector: '[data-agent-command-input-mode]', action: 'drawer:input-mode' },
   { selector: '[data-management-inbox-filter]', action: 'management:inbox-filter' },
   { selector: '[data-attention-draft]', action: 'management:reply-template' },
   { selector: '[data-attention-quick]', action: 'management:quick-response' },
@@ -640,11 +641,10 @@ async function exerciseManagementControls(win, round) {
   await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')
     && document.querySelector('#detailDrawer')?.dataset.mode === 'subagent'
     && document.querySelector('.subagent-assignment-card')?.innerText.includes('메인 에이전트가 시킨 일')
-    && document.querySelectorAll('#detailDrawer [data-agent-command-route]').length === 2
-    && document.querySelector('#detailDrawer [data-agent-command-route="direct"]')?.disabled
-    && document.querySelector('#detailDrawer [data-agent-command-route="parent"]')?.getAttribute('aria-pressed') === 'true'
+    && document.querySelectorAll('#detailDrawer [data-agent-command-route]').length === 0
+    && document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"]')?.dataset.agentCommandRouteSelected === 'parent'
     && !document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled
-    && document.querySelector('#drawerComposer')?.innerText.includes('터미널 화면으로 이동하지 않습니다')`, '부모 관리 서브에이전트의 대화창 내 전달 경로가 준비되지 않았습니다.');
+    && Boolean(document.querySelector('#drawerComposer .conversation-terminal-toggle[aria-expanded="false"]'))`, '부모 관리 서브에이전트의 자동 전달 경로와 접힌 터미널이 준비되지 않았습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-child"]');
@@ -658,7 +658,7 @@ async function exerciseManagementControls(win, round) {
     && window.LoadToAgentApp.state.drawerMode === 'subagent'
     && document.querySelector('#detailDrawer')?.classList.contains('open')
     && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0]?.bridgeId === 'fixture-child')`, '서브에이전트 지시가 세션 이동 없이 메인을 통해 전달되지 않았습니다.');
-  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await click(win, '#drawerBackToFlowBtn', 'drawer:back-to-flow');
   await waitFor(win, `!document.querySelector('#detailDrawer')?.classList.contains('open')`, '서브에이전트 대화를 닫지 못했습니다.');
 
   await click(win, '[data-open-execution-id="fixture-shell-running"]', 'control-room:open-execution');
@@ -734,7 +734,7 @@ async function exerciseManagementControls(win, round) {
   await click(win, '#cancelRunBtn', 'run:cancel');
 
   await click(win, '[data-view="all"]', 'nav:all');
-  await click(win, '[data-open-session="fixture-root"]', 'drawer:open-graph');
+  await click(win, '#liveSessionGrid [data-open-session="fixture-root"]', 'drawer:open-graph');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '실행 상세 대화를 열지 못했습니다.');
   await click(win, '.drawer-tab[data-tab="summary"]', 'drawer:tab-summary');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-managed-run-action="pause"]'))`, '실행 상세의 일시정지 제어가 표시되지 않았습니다.');
@@ -1718,8 +1718,13 @@ async function exerciseGraph(win, round) {
 
   await focusRoot(win);
   await clearCalls(win);
-  await click(win, '[data-open-session="fixture-root"]', 'drawer:open-graph');
-  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && document.querySelector('[data-stop-run]')`, '실행 중 session drawer가 열리지 않았습니다.');
+  await click(win, '#liveSessionGrid [data-open-session="fixture-root"]', 'drawer:open-graph');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
+    && document.querySelector('#detailDrawer').dataset.presentation === 'context'
+    && document.body.classList.contains('conversation-context-open')
+    && !document.querySelector('#appShell').inert
+    && document.querySelector('#drawerBackdrop').classList.contains('hidden')
+    && document.querySelector('[data-stop-run]')`, '에이전트 흐름 옆에 실행 중 session 대화 패널이 열리지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { stopAgent: 180 } })`);
   await win.webContents.executeJavaScript(`(() => {
     document.querySelector('[data-stop-run]').click();
@@ -1730,8 +1735,10 @@ async function exerciseGraph(win, round) {
   await sleep(260);
   assert(await callCount(win, 'stopAgent') === 1, '중지 클릭 한 번에 stopAgent가 한 번 호출되어야 합니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
-  await click(win, '#closeDrawerBtn', 'drawer:close');
-  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '실행 상세 drawer가 닫히지 않았습니다.');
+  await click(win, '#drawerBackToFlowBtn', 'drawer:back-to-flow');
+  await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')
+    && !document.body.classList.contains('conversation-context-open')
+    && document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '에이전트 흐름으로 돌아가며 대화 패널을 닫지 못했습니다.');
   round.observed.graphResetClicks = 2;
 }
 
@@ -1797,16 +1804,34 @@ async function exerciseAgentControls(win, round) {
   await resetGraphToOverview(win);
   await click(win, '[data-open-subagent-chat="fixture-child"]', 'control-room:open-subagent');
   await waitFor(win, `window.LoadToAgentApp.state.drawerMode === 'subagent'
-    && document.querySelectorAll('[data-agent-command-route]').length === 2
-    && Boolean(document.querySelector('[data-agent-command-route="direct"]'))
-    && document.querySelector('[data-agent-command-route="direct"]')?.disabled
-    && document.querySelector('[data-agent-command-route="parent"]')?.getAttribute('aria-pressed') === 'true'
+    && document.querySelectorAll('[data-agent-command-route]').length === 0
+    && document.querySelector('[data-agent-command-form="fixture-child"]')?.dataset.agentCommandRouteSelected === 'parent'
     && !document.querySelector('[data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled
     && window.LoadToAgentTerminal.agentTargets(window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-child')).length === 0
-    && Boolean(document.querySelector('[data-agent-command-form="fixture-child"]'))`, '부모 관리 서브에이전트의 인라인 메인 경유 경로가 표시되지 않았습니다.');
-  await click(win, '#detailDrawer [data-agent-command-route="parent"]', 'control-room:command-route');
-  await waitFor(win, `document.querySelector('#detailDrawer [data-agent-command-route="parent"]')?.getAttribute('aria-pressed') === 'true'`, '메인 에이전트 경유 전달 경로 선택을 유지하지 못했습니다.');
-  await click(win, '#closeDrawerBtn', 'drawer:close');
+    && Boolean(document.querySelector('.conversation-terminal-toggle[aria-expanded="false"]'))`, '부모 관리 서브에이전트의 자동 메인 경유 입력창이 표시되지 않았습니다.');
+  await click(win, '#drawerComposer [data-agent-command-input-mode="terminal"]', 'drawer:input-mode');
+  await waitFor(win, `document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"]')?.dataset.agentCommandInputModeSelected === 'terminal'
+    && Boolean(document.querySelector('#drawerComposer .conversation-terminal-expanded'))`,
+  '대화 입력을 터미널 명령 모드로 전환하지 못했습니다.');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-child"]');
+    input.value = 'TERMINAL_MODE_COMMAND';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.closest('form').requestSubmit();
+  })()`);
+  mark('agent:command-submit');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#detailDrawer').classList.contains('open')
+    && !Array.from(document.querySelectorAll('#drawerContent .chat-row.user.is-optimistic'), row => row.innerText).some(text => text.includes('TERMINAL_MODE_COMMAND'))
+    && !(window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-child') || []).some(item => item.text === 'TERMINAL_MODE_COMMAND')`,
+  '터미널 명령 모드가 대화 메시지를 위조하지 않고 연결된 세션에 직접 전송하지 못했습니다.');
+  await click(win, '#drawerComposer [data-agent-command-input-mode="conversation"]', 'drawer:input-mode');
+  await waitFor(win, `document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"]')?.dataset.agentCommandInputModeSelected === 'conversation'
+    && Boolean(document.querySelector('#drawerComposer .conversation-terminal-toggle[aria-expanded="false"]'))`,
+  '터미널 명령 모드에서 AI 대화 입력으로 돌아오지 못했습니다.');
+  await click(win, '#drawerBackToFlowBtn', 'drawer:back-to-flow');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '서브에이전트 상세 drawer가 닫히지 않았습니다.');
 
   await resetGraphToOverview(win);
@@ -1920,8 +1945,9 @@ async function exerciseAgentControls(win, round) {
     && !document.querySelector('#drawerContent').innerText.includes('내용 없이 통신 상태')
     && document.querySelector('.drawer-tab:not(.hidden)').textContent === '작업 내용'
     && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1
-    && document.querySelector('[data-agent-command-route="direct"]')?.disabled
-    && document.querySelector('[data-agent-command-route="parent"]')?.getAttribute('aria-pressed') === 'true'
+    && document.querySelectorAll('[data-agent-command-route]').length === 0
+    && document.querySelector('[data-agent-command-form="fixture-resting"]')?.dataset.agentCommandRouteSelected === 'parent'
+    && Boolean(document.querySelector('.conversation-terminal-toggle[aria-expanded="false"]'))
     && !document.querySelector('[data-agent-command-form="fixture-resting"] button[type="submit"]')?.disabled`, '서브카드 클릭이 실제 서브에이전트 작업 기록과 인라인 전달창을 열지 않았습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalCommand: 180 } })`);

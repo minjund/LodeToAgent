@@ -6,10 +6,10 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
-    closeDrawer, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
+    closeDrawer, backToAgentFlow, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     copyText = async () => false,
-    dispatchAgentCommand, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
+    dispatchAgentCommand, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
   } = context;
 
   function bindRunComposerEvents() {
@@ -133,8 +133,49 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
 
   function bindDrawerAndGlobalEvents() {
     $("#closeDrawerBtn").addEventListener("click", closeDrawer);
+    $("#drawerBackToFlowBtn").addEventListener("click", backToAgentFlow);
     if (safeBackdrop) safeBackdrop($("#drawerBackdrop"), closeDrawer, $("#detailDrawer"));
     else $("#drawerBackdrop").addEventListener("click", closeDrawer);
+    const resizeHandle = $("#drawerResizeHandle");
+    const setConversationPanelWidth = (nextWidth) => {
+      const maximum = Math.max(560, Math.min(860, window.innerWidth - 700));
+      const width = Math.max(560, Math.min(maximum, Math.round(nextWidth)));
+      document.documentElement.style.setProperty("--conversation-panel-width", `${width}px`);
+      resizeHandle.setAttribute("aria-valuemax", String(maximum));
+      resizeHandle.setAttribute("aria-valuenow", String(width));
+      scheduleAgentWorkflowConnections();
+    };
+    resizeHandle.addEventListener("pointerdown", (event) => {
+      if (state.drawerPresentation !== "context" || event.button !== 0) return;
+      event.preventDefault();
+      resizeHandle.setPointerCapture?.(event.pointerId);
+      document.body.classList.add("conversation-panel-resizing");
+      setConversationPanelWidth(window.innerWidth - event.clientX);
+    });
+    resizeHandle.addEventListener("pointermove", (event) => {
+      if (!document.body.classList.contains("conversation-panel-resizing")) return;
+      setConversationPanelWidth(window.innerWidth - event.clientX);
+    });
+    const finishPanelResize = (event) => {
+      if (!document.body.classList.contains("conversation-panel-resizing")) return;
+      document.body.classList.remove("conversation-panel-resizing");
+      try { resizeHandle.releasePointerCapture?.(event.pointerId); } catch {}
+      scheduleAgentWorkflowConnections();
+    };
+    resizeHandle.addEventListener("pointerup", finishPanelResize);
+    resizeHandle.addEventListener("pointercancel", finishPanelResize);
+    resizeHandle.addEventListener("keydown", (event) => {
+      if (state.drawerPresentation !== "context" || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const current = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--conversation-panel-width"))
+        || $("#detailDrawer").getBoundingClientRect().width;
+      const next = event.key === "Home"
+        ? 560
+        : event.key === "End"
+          ? 860
+          : current + (event.key === "ArrowLeft" ? 32 : -32);
+      setConversationPanelWidth(next);
+    });
     $(".drawer-tabs").addEventListener("click", (event) => {
       const tab = event.target.closest("[data-tab]");
       if (tab) {
@@ -163,19 +204,33 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#detailDrawer").addEventListener("click", async (event) => {
       const subagent = event.target.closest("[data-open-subagent-chat]");
       if (subagent) {
-        openSubagentConversation(subagent.dataset.openSubagentChat);
+        openSubagentConversation(subagent.dataset.openSubagentChat, { presentation: state.drawerPresentation });
         return;
       }
-      const route = event.target.closest("[data-agent-command-route]");
-      if (route) {
-        state.agentCommandRoutes.set(route.dataset.agentCommandSession, route.dataset.agentCommandRoute);
+      const inputMode = event.target.closest("[data-agent-command-input-mode]");
+      if (inputMode) {
+        const sessionId = inputMode.dataset.agentCommandSession;
+        const nextMode = inputMode.dataset.agentCommandInputMode;
+        state.agentCommandInputModes.set(sessionId, nextMode);
         renderDrawer();
-        requestAnimationFrame(() => $("#detailDrawer")?.querySelector(`[data-agent-command-session="${CSS.escape(route.dataset.agentCommandSession)}"][data-agent-command-route="${CSS.escape(route.dataset.agentCommandRoute)}"]`)?.focus({ preventScroll: true }));
+        requestAnimationFrame(() => {
+          const target = nextMode === "terminal"
+            ? $("#detailDrawer")?.querySelector(`[data-agent-command-draft="${CSS.escape(sessionId)}"]`)
+            : $("#detailDrawer")?.querySelector(
+              `[data-agent-command-session="${CSS.escape(sessionId)}"][data-agent-command-input-mode="terminal"]`,
+            );
+          target?.focus({ preventScroll: true });
+        });
         return;
       }
       const copy = event.target.closest("[data-copy-text]");
       if (copy) {
         await copyText(copy.dataset.copyText);
+        return;
+      }
+      const terminal = event.target.closest("[data-agent-terminal-open]");
+      if (terminal) {
+        await openAgentTerminal(terminal.dataset.agentTerminalOpen);
         return;
       }
       const resume = event.target.closest("[data-resume-agent]");
@@ -278,7 +333,10 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       } else if (!$("#runModal").classList.contains("hidden")) closeRunModal();
       else closeDrawer();
     });
-    window.addEventListener("resize", scheduleAgentWorkflowConnections);
+    window.addEventListener("resize", () => {
+      scheduleAgentWorkflowConnections();
+      if (window.innerWidth < 1280 && state.drawerPresentation === "context") closeDrawer(false);
+    });
   }
 
   function bindDialogAndGlobalEvents() {

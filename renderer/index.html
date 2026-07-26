@@ -389,7 +389,9 @@
 
   <div id="drawerBackdrop" class="drawer-backdrop hidden"></div>
   <aside id="detailDrawer" class="detail-drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" aria-hidden="true" tabindex="-1" inert>
+    <div id="drawerResizeHandle" class="drawer-resize-handle hidden" role="separator" aria-orientation="vertical" aria-label="대화 패널 너비 조절" data-i18n-aria-label="drawer.resize_panel" aria-valuemin="560" aria-valuemax="860" aria-valuenow="640" tabindex="0"></div>
     <div class="drawer-head">
+      <button id="drawerBackToFlowBtn" class="drawer-flow-button hidden" type="button" aria-label="에이전트 흐름으로 돌아가기" data-i18n-aria-label="drawer.back_to_flow"><span aria-hidden="true">←</span><b data-i18n="drawer.agent_flow">에이전트 흐름</b></button>
       <div id="drawerProviderMark" class="provider-mark">AI</div>
       <div class="drawer-title"><span id="drawerProvider" data-i18n="ui.ai_task">AI 작업</span><h2 id="drawerTitle" data-i18n="drawer.title">작업 자세히 보기</h2></div>
       <button id="closeDrawerBtn" class="close-button" type="button" aria-label="닫기" data-i18n-aria-label="common.close">×</button>
