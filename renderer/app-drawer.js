@@ -22,7 +22,59 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     failed: "control.delivery_failed",
   })[phase] || "control.delivery_confirming";
 
-  function openDrawer(id) {
+  function scheduleFlowConnections() {
+    requestAnimationFrame(() => {
+      window.LoadToAgentApp?.scheduleAgentWorkflowConnections?.();
+      window.LoadToAgentApp?.drawAgentWorkflowConnections?.();
+    });
+  }
+
+  function resolvedPresentation(options = {}) {
+    const requested = options.presentation || (options.context ? "context" : "modal");
+    if (requested !== "context") return "modal";
+    return state.view === "all" && window.matchMedia("(min-width: 1280px)").matches
+      ? "context"
+      : "modal";
+  }
+
+  function setDrawerPresentation(presentation) {
+    const drawer = $("#detailDrawer");
+    const contextual = presentation === "context";
+    state.drawerPresentation = presentation;
+    drawer.dataset.presentation = presentation;
+    drawer.setAttribute("role", contextual ? "complementary" : "dialog");
+    if (contextual) drawer.removeAttribute("aria-modal");
+    else drawer.setAttribute("aria-modal", "true");
+    $("#drawerBackToFlowBtn").classList.toggle("hidden", !contextual);
+    $("#drawerResizeHandle").classList.toggle("hidden", !contextual);
+    document.body.classList.toggle("conversation-context-open", contextual);
+    const currentWidth = Math.round(drawer.getBoundingClientRect().width || 640);
+    $("#drawerResizeHandle").setAttribute("aria-valuenow", String(currentWidth));
+    if (contextual) {
+      $("#drawerBackdrop").classList.add("hidden");
+      $("#drawerBackdrop").classList.remove("closing");
+    } else {
+      $("#drawerBackdrop").classList.remove("hidden");
+      $("#drawerBackdrop").classList.remove("closing");
+    }
+    scheduleFlowConnections();
+  }
+
+  function openDrawerSurface(presentation) {
+    clearTimeout(motionState.drawerTimer);
+    setDrawerPresentation(presentation);
+    $("#detailDrawer").classList.add("open");
+    if (presentation === "modal") {
+      setDialogOpenState($("#detailDrawer"), true);
+    } else {
+      $("#detailDrawer").removeAttribute("inert");
+      $("#detailDrawer").setAttribute("aria-hidden", "false");
+      $("#appShell")?.removeAttribute("inert");
+      document.body.classList.remove("dialog-open");
+    }
+  }
+
+  function openDrawer(id, options = {}) {
     rememberDialogTrigger();
     markGuideStep("detail");
     state.selectedId = id;
@@ -30,19 +82,18 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.drawerExecutionId = null;
     state.drawerTab = "chat";
     state.drawerForceLatest = true;
-    clearTimeout(motionState.drawerTimer);
-    $("#drawerBackdrop").classList.remove("hidden");
-    $("#drawerBackdrop").classList.remove("closing");
-    $("#detailDrawer").classList.add("open");
-    setDialogOpenState($("#detailDrawer"), true);
+    openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id, true);
-    setTimeout(() => $("#closeDrawerBtn").focus({ preventScroll: true }), 0);
+    setTimeout(
+      () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
+      0,
+    );
   }
 
-  function openSubagentConversation(id) {
+  function openSubagentConversation(id, options = {}) {
     const child = snapshotSession(id) || state.details.get(id);
-    if (!child || !child.parentId) return openDrawer(id);
+    if (!child || !child.parentId) return openDrawer(id, options);
     rememberDialogTrigger();
     markGuideStep("detail");
     state.selectedId = id;
@@ -51,15 +102,14 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.drawerTab = "chat";
     state.agentCommandRoutes.delete(id);
     state.drawerForceLatest = true;
-    clearTimeout(motionState.drawerTimer);
-    $("#drawerBackdrop").classList.remove("hidden");
-    $("#drawerBackdrop").classList.remove("closing");
-    $("#detailDrawer").classList.add("open");
-    setDialogOpenState($("#detailDrawer"), true);
+    openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id);
     loadSubagentParentDetail(child);
-    setTimeout(() => $("#closeDrawerBtn").focus({ preventScroll: true }), 0);
+    setTimeout(
+      () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
+      0,
+    );
   }
 
   function openExecutionActivity(ownerId, executionId) {
@@ -72,11 +122,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.drawerExecutionId = executionId;
     state.drawerTab = "chat";
     state.drawerForceLatest = false;
-    clearTimeout(motionState.drawerTimer);
-    $("#drawerBackdrop").classList.remove("hidden");
-    $("#drawerBackdrop").classList.remove("closing");
-    $("#detailDrawer").classList.add("open");
-    setDialogOpenState($("#detailDrawer"), true);
+    openDrawerSurface("modal");
     renderDrawer();
     loadSessionDetail(ownerId);
     if (owner.parentId) loadSubagentParentDetail(owner);
@@ -85,21 +131,37 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
   function closeDrawer(restoreFocus = true) {
     if (!$("#detailDrawer").classList.contains("open")) return;
+    const presentation = state.drawerPresentation;
     const drawerGeneration = motionState.dialogGeneration;
     $("#detailDrawer").classList.remove("open");
-    setDialogOpenState($("#detailDrawer"), false);
-    $("#drawerBackdrop").classList.add("closing");
+    if (presentation === "modal") {
+      setDialogOpenState($("#detailDrawer"), false);
+      $("#drawerBackdrop").classList.add("closing");
+    } else {
+      $("#detailDrawer").setAttribute("inert", "");
+      $("#detailDrawer").setAttribute("aria-hidden", "true");
+      $("#drawerBackdrop").classList.add("hidden");
+      $("#drawerBackdrop").classList.remove("closing");
+      document.body.classList.remove("conversation-context-open");
+      scheduleFlowConnections();
+    }
     clearTimeout(motionState.drawerTimer);
     motionState.drawerTimer = setTimeout(
       () => {
         $("#drawerBackdrop").classList.add("hidden");
         $("#drawerBackdrop").classList.remove("closing");
+        setDrawerPresentation("modal");
+        $("#drawerBackdrop").classList.add("hidden");
         if (drawerGeneration !== motionState.dialogGeneration) return;
         if (restoreFocus) restoreDialogTrigger(drawerGeneration);
         else motionState.activeDialogTrigger = null;
       },
       motionPreference.matches ? 0 : 260,
     );
+  }
+
+  function backToAgentFlow() {
+    closeDrawer();
   }
 
   function renderDrawer() {
@@ -124,7 +186,9 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     $("#detailDrawer").style.setProperty("--drawer-provider", provider.accent);
     $("#drawerProviderMark").style.setProperty("--provider", provider.accent);
     $("#drawerProviderMark").textContent = executionMode && activity?.kind === "shell" ? ">_" : provider.mark;
-    $("#drawerProvider").textContent = executionMode
+    $("#drawerProvider").textContent = state.drawerPresentation !== "modal" && !executionMode
+      ? `${t("drawer.agent_flow")} · ${presentationLabel}`
+      : executionMode
       ? `${activity?.runtime || activity?.tool || t("drawer.execution_unit")} · ${activity ? context.executionActivityStatus(activity) : t("drawer.unknown")}`
       : subagentMode
       ? `${t("control.subagent")} · ${presentationLabel}`
@@ -185,8 +249,14 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       tab.tabIndex = active ? 0 : -1;
     });
     const activeTab = $(`.drawer-tab[data-tab="${state.drawerTab}"]`);
-    if (activeTab) $("#drawerContent").setAttribute("aria-labelledby", activeTab.id);
     const content = $("#drawerContent");
+    if (subagentMode && state.drawerPresentation === "context") {
+      content.removeAttribute("aria-labelledby");
+      content.setAttribute("aria-label", t("control.subagent_conversation"));
+    } else {
+      content.removeAttribute("aria-label");
+      if (activeTab) content.setAttribute("aria-labelledby", activeTab.id);
+    }
     rememberDisclosureStates(content);
     const previousTop = content.scrollTop;
     const wasAtBottom = window.LoadToAgentRendererUtils.isScrolledToEnd(content);
@@ -223,7 +293,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const composer = $("#drawerComposer");
     const showComposer = !executionMode && !detailLoading && !detailError && state.drawerTab === "chat" && typeof agentCommandComposer === "function";
     composer.classList.toggle("hidden", !showComposer);
-    const nextComposerHtml = showComposer ? agentCommandComposer(session, { conversation: true }) : "";
+    const nextComposerHtml = showComposer ? agentCommandComposer(session, {
+      conversation: true,
+      delivery,
+      deliveryLabel: delivery ? t(deliveryLabelKey(delivery.phase)) : "",
+    }) : "";
     const focusedDraft = document.activeElement?.matches?.("[data-agent-command-draft]")
       && composer.contains(document.activeElement)
       && document.activeElement.dataset.agentCommandDraft === session.id;
@@ -272,5 +346,12 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
   }
 
-  return { openDrawer, openSubagentConversation, openExecutionActivity, closeDrawer, renderDrawer };
+  return {
+    openDrawer,
+    openSubagentConversation,
+    openExecutionActivity,
+    closeDrawer,
+    backToAgentFlow,
+    renderDrawer,
+  };
 };

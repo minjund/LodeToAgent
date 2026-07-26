@@ -20,13 +20,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - if: runner.os == 'macOS'
+        run: brew install tmux
       - run: npm test
       - if: runner.os == 'macOS'
         run: npm run test:terminal:mac-stress
       - run: npm run test:terminal
       - run: npm run test:bridge
-      - if: runner.os == 'macOS'
-        run: brew install tmux
       - if: runner.os == 'macOS'
         run: npm run test:tmux -- macOS
       - run: npm run pack

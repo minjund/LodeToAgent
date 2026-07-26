@@ -330,16 +330,23 @@ app.whenReady().then(async () => {
     const drawerMetrics = await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
       const assignment = drawer.querySelector('.subagent-assignment-card')?.innerText || '';
-      const routes = [...drawer.querySelectorAll('[data-agent-command-route]')];
       const child = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-child');
+      const form = drawer.querySelector('[data-agent-command-form="fixture-child"]');
       return {
         mode: drawer.dataset.mode,
+        presentation: drawer.dataset.presentation,
+        contextPanelOpen: document.body.classList.contains('conversation-context-open')
+          && !document.querySelector('#appShell')?.inert
+          && document.querySelector('#drawerBackdrop')?.classList.contains('hidden'),
         assignmentVisible: assignment.includes('메인 에이전트가 시킨 일')
           && Boolean(drawer.querySelector('.subagent-assignment-card p')?.textContent.trim()),
         conversationMessages: drawer.querySelectorAll('.chat-row').length,
-        routes: routes.map(route => ({ route: route.dataset.agentCommandRoute, disabled: route.disabled })),
-        directSelected: drawer.querySelector('[data-agent-command-route="direct"]')?.getAttribute('aria-pressed') === 'true',
+        routeControlsHidden: drawer.querySelectorAll('[data-agent-command-route]').length === 0,
+        automaticRoute: form?.dataset.agentCommandRouteSelected || '',
         composerVisible: !document.querySelector('#drawerComposer')?.classList.contains('hidden'),
+        defaultInputMode: form?.dataset.agentCommandInputModeSelected || '',
+        terminalCollapsed: Boolean(drawer.querySelector('.conversation-terminal-toggle[aria-expanded="false"]')),
+        focusControlRemoved: !document.querySelector('#drawerFocusModeBtn'),
         targetAvailable: !drawer.querySelector('[data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled,
         runtimePresence: child?.runtimePresence || [],
         directTargets: window.LoadToAgentTerminal?.agentTargets(child) || [],
@@ -349,9 +356,11 @@ app.whenReady().then(async () => {
         noDrawerOverflow: drawer.scrollWidth <= drawer.clientWidth + 2,
       };
     })()`);
-    if (drawerMetrics.mode !== 'subagent' || !drawerMetrics.assignmentVisible || drawerMetrics.conversationMessages < 1
-      || drawerMetrics.routes.length !== 2 || drawerMetrics.routes.some(route => route.disabled)
-      || !drawerMetrics.directSelected || !drawerMetrics.composerVisible || !drawerMetrics.targetAvailable
+    if (drawerMetrics.mode !== 'subagent' || drawerMetrics.presentation !== 'context' || !drawerMetrics.contextPanelOpen
+      || !drawerMetrics.assignmentVisible || drawerMetrics.conversationMessages < 1
+      || !drawerMetrics.routeControlsHidden || drawerMetrics.automaticRoute !== 'direct'
+      || !drawerMetrics.composerVisible || drawerMetrics.defaultInputMode !== 'conversation'
+      || !drawerMetrics.terminalCollapsed || !drawerMetrics.focusControlRemoved || !drawerMetrics.targetAvailable
       || drawerMetrics.scope !== 'subagent-only' || !drawerMetrics.childWorkVisible || !drawerMetrics.parentConversationHidden || !drawerMetrics.noDrawerOverflow) {
       throw new Error(`서브에이전트 대화 참여 검증 실패: ${JSON.stringify(drawerMetrics)}`);
     }
@@ -375,39 +384,18 @@ app.whenReady().then(async () => {
       return {
         childCalls: calls.filter(call => call.args[0] === 'terminal-race-a').length,
         parentCalls: calls.filter(call => call.args[0] === 'terminal-main').length,
-        selectedRoute: document.querySelector('#detailDrawer [data-agent-command-route][aria-pressed="true"]')?.dataset.agentCommandRoute || '',
+        selectedRoute: document.querySelector('#detailDrawer [data-agent-command-form]')?.dataset.agentCommandRouteSelected || '',
       };
     })()`);
     if (directRouteMetrics.childCalls !== 1 || directRouteMetrics.parentCalls !== 0 || directRouteMetrics.selectedRoute !== 'direct') {
       throw new Error(`서브에이전트 직접 전달 경로 검증 실패: ${JSON.stringify(directRouteMetrics)}`);
     }
 
-    await win.webContents.executeJavaScript(`(() => {
-      window.interactionTest.clearCalls();
-      const route = document.querySelector('#detailDrawer [data-agent-command-route="parent"]');
-      route.click();
-      const input = document.querySelector('#drawerComposer [data-agent-command-draft]');
-      input.value = '현재 검토에서 가장 큰 가독성 문제를 먼저 보고해줘.';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.closest('form').requestSubmit();
-    })()`);
-    await waitFor(
-      win,
-      `window.interactionTest.getCalls().some(call => call.name === 'terminalCommand'
-        && call.args[0] === 'terminal-main'
-        && call.args[1].includes('현재 검토에서 가장 큰 가독성 문제'))`,
-      '메인 에이전트 경유 지시가 실제 메인 세션 입력 대상으로 전달되지 않았습니다.',
-    );
-    const routeCall = await win.webContents.executeJavaScript(`window.interactionTest.getCalls().find(call => call.name === 'terminalCommand' && call.args[0] === 'terminal-main')`);
-    if (!String(routeCall?.args?.[1] || '').includes('서브에이전트')) {
-      throw new Error(`메인 경유 지시에 대상 서브에이전트 맥락이 없습니다: ${JSON.stringify(routeCall)}`);
-    }
-
     await wait(180);
     const drawerOutput = await capture(win, outputDir, 'loadtoagent-control-room-subagent.png');
 
     await win.webContents.executeJavaScript(`(() => {
-      document.querySelector('#closeDrawerBtn')?.click();
+      document.querySelector('#drawerBackToFlowBtn')?.click();
       document.querySelector('[data-open-execution-id="fixture-shell-running"]')?.click();
     })()`);
     await waitFor(

@@ -399,6 +399,10 @@ function registerTerminalLifecycleTests(context) {
           return new FakePty();
         },
       },
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => ({ ok: true }),
+      },
     });
 
     const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
@@ -738,7 +742,10 @@ function registerTerminalLifecycleTests(context) {
       clear() { this.cleared = true; }
       kill() { this.killed = true; }
     }
-    const managerOptions = { storeFile, killTree: handle => handle.kill(), ptyModule: { spawn: (...args) => {
+    const managerOptions = { platform: 'darwin', storeFile, killTree: handle => handle.kill(), managedTmuxRuntime: {
+      exists: () => true,
+      stop: () => ({ ok: true }),
+    }, ptyModule: { spawn: (...args) => {
       const processHandle = new FakePty(9000 + processes.length);
       processes.push(processHandle);
       spawnOptions.push(args[2]);

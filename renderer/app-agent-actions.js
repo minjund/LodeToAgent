@@ -164,15 +164,19 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         };
     const { route, targetSession, targets, available: routeAvailable } = routeContext;
     const mode = routingEnabled && !routeAvailable ? "ended" : agentControlMode(targetSession, targets);
+    const inputMode = options.conversation
+      ? state.agentCommandInputModes.get(session.id) || "conversation"
+      : "terminal";
     const relayed = routingEnabled && route === "parent" && routeAvailable;
     const targetKey = agentCommandTargetKey(session, route);
     const savedTarget = state.agentCommandTargets.get(targetKey) || "";
     const relayTarget = relayed ? targets.find((target) => target.kind === "terminal") || targets[0] || null : null;
+    const automaticTarget = relayTarget || targets.find((item) => item.kind === "terminal") || targets[0] || null;
     const targetId = targets.some((target) => target.id === savedTarget)
       ? savedTarget
       : targets.length === 1
         ? targets[0].id
-        : relayTarget?.id || "";
+        : options.conversation ? automaticTarget?.id || "" : "";
     if (targetId) state.agentCommandTargets.set(targetKey, targetId);
     const target = targets.find((item) => item.id === targetId) || null;
     const draft = state.agentCommandDrafts.get(session.id) || "";
@@ -192,7 +196,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
               : mode === "connect"
                 ? t("agent.connect_status")
                 : window.LoadToAgentI18n.t("ui.ended_session");
-    const help = relayed
+    const controlHelp = relayed
       ? t("agent.route_parent_inline_help")
       : mode === "direct"
         ? t("agent.direct_help")
@@ -205,18 +209,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
               : mode === "connect"
                 ? t("agent.connect_help", { provider: targetSession.provider })
                 : agentResumeSupport(targetSession).reason || t("agent.resume_method_unknown");
-    const routePicker = routingEnabled
-      ? `<div class="agent-command-route" role="group" aria-label="${esc(t("agent.route_label"))}">
-        <span>${esc(t("agent.route_label"))}</span>
-        <div>${routeContext.options.map(option => `<button type="button" data-agent-command-session="${esc(session.id)}" data-agent-command-route="${esc(option.id)}"
-          aria-pressed="${option.id === route ? "true" : "false"}" ${option.available ? "" : "disabled"}>${esc(option.label)}</button>`).join("")}</div>
-        <small class="${routeAvailable ? "available" : "unavailable"}">${esc(t(routeAvailable
-          ? route === "direct" ? "agent.route_direct_available" : "agent.route_parent_available"
-          : route === "direct" ? "agent.route_direct_unavailable" : "agent.route_parent_unavailable"))}</small>
-      </div>`
-      : "";
+    const help = options.conversation
+      ? inputMode === "terminal"
+        ? t("agent.terminal_input_help", { target: target?.label || providerInfo(targetSession.provider).label })
+        : t("agent.ai_input_help", { provider: providerInfo(session.provider).label })
+      : controlHelp;
     const picker =
-      targets.length > 1 && !relayed
+      targets.length > 1 && !relayed && (!options.conversation || inputMode === "terminal")
         ? `<label class="agent-command-target">
       <span>${esc(t("agent.target_terminal"))}</span>
       <select data-agent-command-target="${esc(targetKey)}">
@@ -226,38 +225,78 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       </label>`
         : "";
     const actions = relayed
-      ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending ? "agent.sending" : "agent.send_via_parent"))}</button>`
+      ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending
+        ? "agent.sending"
+        : inputMode === "terminal" ? "agent.send_terminal" : "agent.send_via_parent"))}</button>`
       : mode === "direct"
-        ? `<button type="button" data-agent-terminal-open="${esc(session.id)}" ${canSend ? "" : "disabled"}>${esc(t("agent.open_terminal"))}</button>
-      <button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending ? "agent.sending" : "agent.send_now"))}</button>`
+        ? `${options.conversation ? "" : `<button type="button" data-agent-terminal-open="${esc(session.id)}" ${canSend ? "" : "disabled"}>${esc(t("agent.open_terminal"))}</button>`}
+      <button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending
+          ? "agent.sending"
+          : inputMode === "terminal" ? "agent.send_terminal" : options.conversation ? "agent.send_request" : "agent.send_now"))}</button>`
         : mode === "resume"
-          ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending ? "agent.restoring" : "agent.restore_and_send"))}</button>`
+          ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending
+            ? "agent.restoring"
+            : options.conversation && inputMode === "terminal" ? "agent.send_terminal" : "agent.restore_and_send"))}</button>`
           : mode === "handoff"
-            ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending ? "agent.handing_off" : "agent.handoff_and_send"))}</button>`
+            ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending
+              ? "agent.handing_off"
+              : options.conversation && inputMode === "terminal" ? "agent.send_terminal" : "agent.handoff_and_send"))}</button>`
             : mode === "origin-resume"
-              ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending ? "agent.connecting" : "agent.background_and_send"))}</button>`
+              ? `<button type="submit" ${canSend ? "" : "disabled"}>${esc(t(sending
+                ? "agent.connecting"
+                : options.conversation && inputMode === "terminal" ? "agent.send_terminal" : "agent.background_and_send"))}</button>`
               : mode === "connect"
               ? `<button type="button" data-agent-bridge-copy="${esc(targetSession.provider)}">${esc(t("agent.copy_bridge"))}</button>`
                 : "";
     const editable = relayed || ["direct", "resume", "handoff", "origin-resume"].includes(mode);
-    const placeholder = editable ? t(options.conversation ? "agent.conversation_placeholder" : "agent.command_example") : status;
+    const placeholder = editable
+      ? t(options.conversation
+        ? inputMode === "terminal" ? "agent.terminal_placeholder" : "agent.conversation_placeholder"
+        : "agent.command_example")
+      : status;
     const availabilityClass = mode === "direct" ? "connected" : ["resume", "handoff", "origin-resume"].includes(mode) ? "resume-ready" : "unavailable";
-    return `<form class="agent-command-panel ${availabilityClass} control-${mode} ${options.conversation ? "conversation-composer" : ""}"
-      data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}" data-agent-command-routing="${options.conversation ? "conversation" : "session"}">
+    const terminalAction = mode === "direct"
+      ? `<button type="button" data-agent-terminal-open="${esc(session.id)}" ${target ? "" : "disabled"}>${esc(t("agent.open_terminal"))}</button>`
+      : ["resume", "handoff", "origin-resume"].includes(mode)
+        ? `<button type="button" data-resume-agent="${esc(session.id)}">${esc(t("agent.reconnect_terminal"))}</button>`
+        : "";
+    const terminalDetail = mode === "direct"
+      ? t("agent.terminal_session_active", { target: target?.label || t("agent.choose_terminal") })
+      : mode === "ended" ? t("agent.terminal_unavailable") : controlHelp;
+    const terminalToggle = options.conversation && inputMode !== "terminal"
+      ? `<button class="conversation-terminal-toggle" type="button" data-agent-command-session="${esc(session.id)}"
+          data-agent-command-input-mode="terminal" aria-expanded="false" ${editable ? "" : "disabled"}>
+          <span aria-hidden="true">›_</span>${esc(t("agent.input_mode_terminal"))}
+        </button>`
+      : "";
+    const terminalExpanded = options.conversation && inputMode === "terminal"
+      ? `<div class="conversation-terminal-expanded ${mode === "direct" ? "connected" : ""}">
+          <button type="button" data-agent-command-session="${esc(session.id)}" data-agent-command-input-mode="conversation">
+            <span aria-hidden="true">←</span>${esc(t("agent.return_to_ai_input"))}
+          </button>
+          <span><b>${esc(t("agent.terminal_direct_input"))}</b><small>${esc(terminalDetail)}</small></span>
+          ${terminalAction}
+        </div>`
+      : "";
+    const form = `<form class="agent-command-panel ${availabilityClass} control-${mode} ${options.conversation ? "conversation-composer" : ""}"
+      data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}"
+      data-agent-command-input-mode-selected="${esc(inputMode)}" data-agent-command-routing="${options.conversation ? "conversation" : "session"}">
       <header>
         <span class="agent-command-icon" aria-hidden="true">›_</span>
         <span><b>${esc(t(options.conversation ? "agent.conversation_title" : "agent.command_title"))}</b><small>${esc(status)}</small></span>
         <i class="${mode === "direct" ? "connected" : ""}" aria-hidden="true"></i>
       </header>
-      ${routePicker}
       ${picker}
       <label class="agent-command-input">
         <span class="sr-only">${esc(t("agent.command_sr"))}</span>
         <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="${options.conversation ? "2" : "3"}"
           placeholder="${esc(placeholder)}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
       </label>
-      <div class="agent-command-actions"><small aria-live="polite">${esc(help)}</small>${actions}</div>
+      <div class="agent-command-actions"><small aria-live="polite">${esc(help)}</small>${terminalToggle}${actions}</div>
     </form>`;
+    return options.conversation
+      ? `<div class="conversation-composer-shell mode-${esc(inputMode)}">${terminalExpanded}${form}</div>`
+      : form;
   }
 
   function selectedSession() {
@@ -304,8 +343,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId);
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
-    const conversationSubmission = form?.dataset.agentCommandRouting === "conversation";
-    const routingEnabled = conversationSubmission && Boolean(session.parentId);
+    const drawerSubmission = form?.dataset.agentCommandRouting === "conversation";
+    const inputMode = drawerSubmission ? form?.dataset.agentCommandInputModeSelected || "conversation" : "terminal";
+    const conversationSubmission = drawerSubmission && inputMode === "conversation";
+    const routingEnabled = drawerSubmission && Boolean(session.parentId);
     const requestedRoute = routingEnabled ? form?.dataset.agentCommandRouteSelected || selectedAgentCommandRoute(session) : "direct";
     const routeContext = routingEnabled
       ? routedAgentCommandContext(session, requestedRoute)
@@ -315,7 +356,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (routingEnabled && !["direct", "resume", "handoff", "origin-resume"].includes(mode)) return context.toast(t("agent.route_unavailable"));
     const input = form.querySelector("[data-agent-command-draft]");
     const command = String((input && input.value) || "").trim();
-    const routedCommand = routingEnabled && routeContext.route === "parent"
+    const routedCommand = conversationSubmission && routingEnabled && routeContext.route === "parent"
       ? t("agent.route_via_parent_prompt", {
           task: session.delegation?.taskName || session.taskName || session.agentName || session.title,
           message: command,
@@ -324,15 +365,17 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (mode === "resume" || mode === "handoff" || mode === "origin-resume") {
       if (input) state.agentCommandDrafts.set(sessionId, input.value);
       if (!command) return context.toast(t("agent.enter_command"));
-      if (conversationSubmission) {
+      if (drawerSubmission) {
         state.agentCommandSending.add(sessionId);
-        const pendingMessage = beginConversationMessage(session, command);
+        const pendingMessage = conversationSubmission ? beginConversationMessage(session, command) : null;
         try {
           await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false });
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
-          context.toast(t(routingEnabled && routeContext.route === "parent" ? "agent.command_routed_via_parent" : "agent.command_sent_background"));
+          context.toast(t(routingEnabled && routeContext.route === "parent"
+            ? "agent.command_routed_via_parent"
+            : inputMode === "terminal" ? "agent.terminal_command_sent_background" : "agent.command_sent_background"));
         } catch (error) {
           updateConversationMessage(sessionId, pendingMessage, "failed", errorText(error, "agent.send_failed"));
           context.toast(errorText(error, "agent.send_failed"));
@@ -364,16 +407,18 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       state.agentCommandDrafts.delete(sessionId);
       if (input) input.value = "";
       updateConversationMessage(sessionId, pendingMessage, "awaiting");
-      context.toast(t(routingEnabled && routeContext.route === "parent" ? "agent.command_routed_via_parent" : "agent.command_sent", { target: target.label }));
+      context.toast(t(routingEnabled && routeContext.route === "parent"
+        ? "agent.command_routed_via_parent"
+        : inputMode === "terminal" ? "agent.terminal_command_sent" : "agent.command_sent", { target: target.label }));
     } catch (error) {
       const latest = snapshotSession(targetSession.id) || targetSession;
       const support = agentResumeSupport(latest);
       const shouldRecover = support.supported
-        && (conversationSubmission || !agentCommandTargets(latest).length);
+        && (drawerSubmission || !agentCommandTargets(latest).length);
       if (shouldRecover) {
         try {
           state.agentCommandDrafts.set(sessionId, command);
-          await window.LoadToAgentTerminal.resumeForAgent(latest, routedCommand, true, { focus: conversationSubmission ? false : true });
+          await window.LoadToAgentTerminal.resumeForAgent(latest, routedCommand, true, { focus: drawerSubmission ? false : true });
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -389,10 +434,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       }
     } finally {
       state.agentCommandSending.delete(sessionId);
-      if (conversationSubmission) context.renderDrawer?.();
+      if (drawerSubmission) context.renderDrawer?.();
       if (submit && submit.isConnected) {
         submit.disabled = false;
-        submit.textContent = t(routingEnabled && routeContext.route === "parent" ? "agent.send_via_parent" : "agent.send_now");
+        submit.textContent = t(routingEnabled && routeContext.route === "parent"
+          ? "agent.send_via_parent"
+          : inputMode === "terminal" ? "agent.send_terminal" : drawerSubmission ? "agent.send_request" : "agent.send_now");
       }
     }
   }
@@ -404,6 +451,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const target = chosenAgentCommandTarget(session, routeContext.route);
     if (!target)
       return context.toast(t(routeContext.targets.length ? "agent.select_open_target" : "agent.no_writable_terminal"));
+    if ($("#detailDrawer").classList.contains("open")) context.closeDrawer?.(false);
     selectView(target.kind === "tmux" ? "tmux" : "terminal");
     try {
       await window.LoadToAgentTerminal.openForAgent(routeContext.targetSession, target.id, state.agentCommandDrafts.get(sessionId) || "");

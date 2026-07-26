@@ -30,6 +30,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     selectedId: null,
     drawerTab: "chat",
     drawerMode: "session",
+    drawerPresentation: "modal",
     drawerExecutionId: null,
     runProvider: "claude",
     details: new Map(),
@@ -48,6 +49,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     agentCommandDrafts: new Map(),
     agentCommandTargets: new Map(),
     agentCommandRoutes: new Map(),
+    agentCommandInputModes: new Map(),
     agentCommandSending: new Set(),
     pendingConversationMessages: new Map(),
     stopRequests: new Set(),
@@ -258,6 +260,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     else $("#mobileMoreBtn")?.removeAttribute("aria-current");
   }
   function selectView(view, options = {}) {
+    if (
+      view !== state.view
+      && $("#detailDrawer")?.classList.contains("open")
+      && $("#detailDrawer")?.dataset.presentation !== "modal"
+    ) context.closeDrawer?.(false);
     state.view = view;
     state.managementFilter = view === "waiting" ? (options.managementFilter || "all") : "all";
     state.visibleLimit = 30;
@@ -285,7 +292,10 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (!$("#shortcutHelpModal")?.classList.contains("hidden")) return $("#shortcutHelpModal");
     if (!$("#runModal").classList.contains("hidden")) return $("#runModal");
     if (!$("#tmuxCreateModal").classList.contains("hidden")) return $("#tmuxCreateModal");
-    if ($("#detailDrawer").classList.contains("open")) return $("#detailDrawer");
+    if (
+      $("#detailDrawer").classList.contains("open")
+      && $("#detailDrawer").dataset.presentation === "modal"
+    ) return $("#detailDrawer");
     return null;
   }
   function dialogFocusable(dialog) {
