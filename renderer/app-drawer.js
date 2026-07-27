@@ -166,30 +166,6 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     closeDrawer();
   }
 
-  function sessionModelSuggestions(session) {
-    const current = String(session.model || "").trim();
-    const known = session.provider === "claude"
-      ? ["sonnet", "opus", "fable"]
-      : session.provider === "codex"
-        ? ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"]
-        : [];
-    return [...new Set([current, ...known].filter(Boolean))];
-  }
-
-  function sessionControlsHtml(session) {
-    const listId = `session-models-${String(session.id || "").replace(/[^a-z0-9_-]/gi, "-")}`;
-    const options = sessionModelSuggestions(session).map(model => `<option value="${esc(model)}"></option>`).join("");
-    return `<div class="drawer-session-controls">
-      <form data-session-model-form="${esc(session.id)}">
-        <label><span>${esc(t("session.change_model"))}</span><input name="model" value="${esc(session.model || "")}" list="${esc(listId)}" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${esc(t("session.model_placeholder"))}" /></label>
-        <datalist id="${esc(listId)}">${options}</datalist>
-        <button type="submit">${esc(t("session.apply_model"))}</button>
-      </form>
-      <button type="button" class="session-reset-button" data-session-reset="${esc(session.id)}">${esc(t("session.reset"))}</button>
-      <small>${esc(t("session.model_policy_continue"))}</small>
-    </div>`;
-  }
-
   function renderDrawer() {
     const session = selectedSession();
     if (!session) return closeDrawer();
@@ -231,6 +207,8 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
           ${stopping ? 'disabled aria-busy="true"' : ""}>
           ${esc(t(stopping ? "drawer.stop_requested" : "drawer.stop_run"))}</button>`
         : "";
+    const reset = `<button type="button" class="meta-chip session-reset-button" data-session-reset="${esc(session.id)}"
+      aria-label="${esc(t("session.reset"))}" title="${esc(t("session.reset_help"))}">↻ <b>${esc(t("session.reset"))}</b></button>`;
     const runtime = session.runtimePresence || [];
     const resume =
       !isLiveSession(session) && agentResumeSupport(session).supported
@@ -264,12 +242,25 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
             ? `<span class="meta-chip runtime-meta">● <b>${esc(t("session.running_programs", { count: runtime.length }))}</b>
         </span>`
             : ""
-        }${resume}${stop}`;
-    if (!executionMode && !subagentMode) $("#drawerMeta").insertAdjacentHTML("beforeend", sessionControlsHtml(session));
+        }${resume}${stop}${reset}`;
     $$(".drawer-tab").forEach((tab) => {
       const hidden = (subagentMode || executionMode) && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);
-      if (tab.dataset.tab === "chat") tab.textContent = executionMode ? t("drawer.execution_process") : subagentMode ? t("drawer.work_content") : t("ui.conversation");
+      const shortLabel = t({
+        summary: "drawer.tab_summary_short",
+        chat: "drawer.tab_chat_short",
+        lifecycle: "drawer.tab_progress_short",
+        tokens: "drawer.tab_usage_short",
+      }[tab.dataset.tab]);
+      const fullLabel = tab.dataset.tab === "chat"
+        ? executionMode ? t("drawer.execution_process") : subagentMode ? t("drawer.work_content") : t("ui.conversation")
+        : t({
+            summary: "management.summary",
+            lifecycle: "ui.progress",
+            tokens: "ui.usage",
+          }[tab.dataset.tab]);
+      tab.textContent = executionMode || subagentMode ? fullLabel : shortLabel;
+      tab.setAttribute("aria-label", fullLabel);
       const active = tab.dataset.tab === state.drawerTab;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", active ? "true" : "false");

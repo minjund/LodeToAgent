@@ -538,14 +538,27 @@ async function checkTerminalHistory(win) {
     session.messages = Array.from({ length: 25 }, (_, index) => ({
       id: 'scroll-history-next-' + index,
       role: index % 2 ? 'assistant' : 'user',
-      text: 'next scroll history message ' + index + ' '.repeat(80),
+      text: 'next scroll history message ' + index + ' ' + 'long readable history content '.repeat(14),
       timestamp: new Date(Date.now() + index).toISOString(),
     }));
     session.updatedAt = new Date(Date.now() + 2000).toISOString();
     window.LoadToAgentTerminal.updateSnapshot(next, app.state.workspaces);
   })()`);
   await wait(120);
-  const after = await win.webContents.executeJavaScript(`(() => { const list = document.querySelector('#terminalHistoryList'); return { top: list.scrollTop, maximum: list.scrollHeight - list.clientHeight }; })()`);
+  const after = await win.webContents.executeJavaScript(`(() => {
+    const list = document.querySelector('#terminalHistoryList');
+    const first = list.querySelector('.terminal-history-copy p');
+    return {
+      top: list.scrollTop,
+      maximum: list.scrollHeight - list.clientHeight,
+      count: list.querySelectorAll('.terminal-history-message').length,
+      firstTextLength: first?.textContent.length || 0,
+      firstHeight: first?.getBoundingClientRect().height || 0,
+      firstWidth: first?.getBoundingClientRect().width || 0,
+      whiteSpace: first ? getComputedStyle(first).whiteSpace : '',
+      overflowWrap: first ? getComputedStyle(first).overflowWrap : '',
+    };
+  })()`);
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
   if (before.maximum <= 50 || Math.abs(after.top - refreshBefore.top) > 2) {
     throw new Error(`터미널 대화 갱신이 사용자 휠 위치를 버렸습니다: ${JSON.stringify({ refreshBefore, after })}`);

@@ -126,7 +126,7 @@ body[data-current-view="all"] #sessionSection { order: 8; }
 }
 
 .top-actions {
-  gap: var(--space-4);
+  gap: 10px;
 }
 
 .sync-state.connection-error > span {
@@ -1041,6 +1041,17 @@ body .primary-button:disabled {
 
   .mobile-bottom-nav {
     gap: 10px !important;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 1200px) {
+  body[data-current-view="terminal"] .main-stage {
+    padding-top: 14px;
+    padding-bottom: 18px;
+  }
+
+  body[data-current-view="terminal"] .terminal-section {
+    margin-top: 8px;
   }
 }
 

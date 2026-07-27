@@ -162,7 +162,6 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
     const prompt = String(draft || '').trim();
     const nativeCommand = sendDraft && /^(?:\/|!)(?:\S|$)/.test(prompt);
-    const requestedModel = String(options.model || '').trim();
     const title = t('terminal.agent.resume_title', {
       provider: providerLabel(agentSession.provider),
       session: agentSession.taskName || agentSession.agentName || t('terminal.type.session'),
@@ -179,10 +178,6 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       && session.bridgeId === agentSession.id
       && session.status === 'running') || null;
     if (reusable) {
-      if (requestedModel) {
-        const modelResult = await window.loadtoagent.terminalCommand(reusable.id, `/model ${requestedModel}`);
-        if (!modelResult || modelResult.ok === false) throw new Error(modelResult?.error || t('session.model_change_failed'));
-      }
       if (sendDraft && prompt) {
         const result = await window.loadtoagent.terminalCommand(reusable.id, prompt);
         if (!result || result.ok === false) throw new Error(result?.error || t('terminal.agent.send_failed'));
@@ -212,9 +207,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
       return { ...target, promptSent: Boolean(sendDraft && prompt), reused: true };
     }
-    const launchArgs = requestedModel
-      ? resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '', { model: requestedModel })
-      : resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '');
+    const launchArgs = resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '');
     const created = await window.loadtoagent.terminalCreate({
       type: 'agent',
       provider: support.provider,
@@ -262,14 +255,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return { ...target, promptSent: Boolean(sendDraft && prompt) };
   }
 
-  function freshSessionArgs(provider, model = '') {
-    const value = String(model || '').trim();
-    if (!value) return [];
-    if (provider === 'codex') return ['--model', value];
-    return ['--model', value];
-  }
-
-  async function resetForAgent(agentSession, model = '', options = {}) {
+  async function resetForAgent(agentSession, options = {}) {
     await init();
     const provider = String(agentSession?.provider || '').toLowerCase();
     if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
@@ -277,10 +263,6 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     }
     const cwd = String(agentSession.cwd || preferredWorkspace() || '').trim();
     if (!cwd) throw new Error(t('terminal.agent.cwd_missing'));
-    const value = String(model || '').trim();
-    if (value.length > 120 || (value && !/^[a-z0-9._:/-]+$/i.test(value))) {
-      throw new Error(t('session.model_invalid'));
-    }
     const environment = agentSession.environment || {};
     const tmuxPresence = (agentSession.runtimePresence || []).find(item => item.kind === 'tmux') || {};
     const tmuxPresenceId = String(tmuxPresence.id || '');
@@ -297,7 +279,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const created = await window.loadtoagent.terminalCreate({
       type: 'agent',
       provider,
-      args: freshSessionArgs(provider, value),
+      args: [],
       cwd,
       distro,
       title: t('session.fresh_session_title', { provider: providerLabel(provider) }),
@@ -314,44 +296,17 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       detail: `${String(created.type || 'agent').toUpperCase()} · PID ${created.pid || '--'}`,
       terminalId: created.id,
     };
-    if (options.focus === false) return { ...target, mode: 'new-session', model: value };
+    if (options.focus === false) return { ...target, mode: 'new-session' };
     state.mode = 'general';
     moveWorkbench('general');
     await selectSession(created.id);
     renderTarget();
     $('#terminalCommandInput')?.focus({ preventScroll: true });
-    return { ...target, mode: 'new-session', model: value };
-  }
-
-  async function changeModelForAgent(agentSession, model) {
-    await init();
-    const provider = String(agentSession?.provider || '').toLowerCase();
-    if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
-      throw new Error(t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }));
-    }
-    const value = String(model || '').trim();
-    if (!value) throw new Error(t('session.model_required'));
-    if (value.length > 120 || !/^[a-z0-9._:/-]+$/i.test(value)) throw new Error(t('session.model_invalid'));
-    await refreshSessions();
-    const targets = agentTargets(agentSession);
-    const presenceTerminalId = String((agentSession.runtimePresence || [])
-      .find(item => item.kind === 'terminal' && item.terminalId)?.terminalId || '');
-    const bridgeTerminalId = String(state.sessions
-      .find(item => item.status === 'running' && item.bridgeId === agentSession.id)?.id || '');
-    const preferredTerminalId = presenceTerminalId || bridgeTerminalId;
-    const live = targets.find(target => target.kind === 'terminal' && target.terminalId === preferredTerminalId)
-      || targets[0]
-      || null;
-    if (live) {
-      const dispatched = await dispatchAgentCommand(agentSession, `/model ${value}`, live.id);
-      return { ...(dispatched.target || live), mode: 'continued', model: value };
-    }
-    const resumed = await resumeForAgent(agentSession, '', false, { model: value });
-    return { ...resumed, mode: 'resumed', model: value };
+    return { ...target, mode: 'new-session' };
   }
 
   return {
     tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent,
-    openForAgent, resumeForAgent, resetForAgent, changeModelForAgent,
+    openForAgent, resumeForAgent, resetForAgent,
   };
 };

@@ -7,12 +7,13 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   const CONTEXT_WORKSPACE_MIN_WIDTH = 960;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
-    $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
+    $, $$, state, motionState, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, backToAgentFlow, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
+    rememberDialogTrigger = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {},
     copyText = async () => false,
     dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
-    resetAgentSession = async () => {}, changeAgentModel = async () => {},
+    resetAgentSession = async () => {},
   } = context;
 
   function bindRunComposerEvents() {
@@ -135,6 +136,47 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   }
 
   function bindDrawerAndGlobalEvents() {
+    let pendingSessionResetId = "";
+    let resetDialogGeneration = 0;
+    const closeSessionResetDialog = (restoreFocus = true) => {
+      const modal = $("#sessionResetModal");
+      if (!modal || modal.classList.contains("hidden")) return;
+      modal.classList.add("hidden");
+      setDialogOpenState(modal, false);
+      pendingSessionResetId = "";
+      const drawer = $("#detailDrawer");
+      if (drawer?.classList.contains("open")) drawer.removeAttribute("inert");
+      if (restoreFocus) restoreDialogTrigger(resetDialogGeneration);
+    };
+    const openSessionResetDialog = sessionId => {
+      const modal = $("#sessionResetModal");
+      if (!modal) return;
+      pendingSessionResetId = sessionId;
+      rememberDialogTrigger();
+      resetDialogGeneration = motionState?.dialogGeneration || 0;
+      modal.classList.remove("hidden");
+      $("#detailDrawer")?.setAttribute("inert", "");
+      setDialogOpenState(modal, true);
+      requestAnimationFrame(() => $("#cancelSessionResetBtn")?.focus({ preventScroll: true }));
+    };
+    $("#cancelSessionResetBtn")?.addEventListener("click", () => closeSessionResetDialog());
+    $("#sessionResetModal")?.addEventListener("click", event => {
+      if (event.target === $("#sessionResetModal")) closeSessionResetDialog();
+    });
+    $("#confirmSessionResetBtn")?.addEventListener("click", async () => {
+      if (!pendingSessionResetId) return;
+      const sessionId = pendingSessionResetId;
+      const confirmButton = $("#confirmSessionResetBtn");
+      confirmButton.disabled = true;
+      confirmButton.setAttribute("aria-busy", "true");
+      try {
+        await resetAgentSession(sessionId);
+        closeSessionResetDialog(false);
+      } finally {
+        confirmButton.disabled = false;
+        confirmButton.removeAttribute("aria-busy");
+      }
+    });
     $("#closeDrawerBtn").addEventListener("click", closeDrawer);
     $("#drawerBackToFlowBtn").addEventListener("click", backToAgentFlow);
     if (safeBackdrop) safeBackdrop($("#drawerBackdrop"), closeDrawer, $("#detailDrawer"));
@@ -233,7 +275,8 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       }
       const reset = event.target.closest("[data-session-reset]");
       if (reset) {
-        await resetAgentSession(reset.dataset.sessionReset);
+        reset.focus({ preventScroll: true });
+        openSessionResetDialog(reset.dataset.sessionReset);
         return;
       }
       const promptToggle = event.target.closest("[data-prompt-toggle]");
@@ -241,10 +284,15 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         const promptKey = promptToggle.dataset.promptToggle;
         const expanded = promptToggle.getAttribute("aria-expanded") === "true";
         if (expanded) state.expandedConversationPrompts.delete(promptKey);
-        else state.expandedConversationPrompts.add(promptKey);
+        else {
+          state.expandedConversationPrompts.clear();
+          state.expandedConversationPrompts.add(promptKey);
+        }
         renderDrawer();
         requestAnimationFrame(() => {
-          $("#detailDrawer")?.querySelector(`[data-prompt-toggle="${CSS.escape(promptKey)}"]`)?.focus({ preventScroll: true });
+          const prompt = $("#detailDrawer")?.querySelector(`[data-user-prompt="${CSS.escape(promptKey)}"]`);
+          if (!expanded) prompt?.scrollIntoView({ block: "start", behavior: "auto" });
+          prompt?.querySelector(`[data-prompt-toggle="${CSS.escape(promptKey)}"]`)?.focus({ preventScroll: true });
         });
         return;
       }
@@ -310,7 +358,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     });
     $("#detailDrawer").addEventListener("input", (event) => {
       const input = event.target.closest("[data-agent-command-draft]");
-      if (input) state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
+      if (input) {
+        state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
+        const counter = input.closest("form")?.querySelector("[data-agent-command-count]");
+        if (counter) counter.textContent = t("agent.input_count", { count: input.value.length.toLocaleString() });
+      }
     });
     $("#detailDrawer").addEventListener("change", (event) => {
       const picker = event.target.closest("[data-agent-command-target]");
@@ -326,13 +378,6 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       input.closest("form")?.requestSubmit();
     });
     $("#detailDrawer").addEventListener("submit", async (event) => {
-      const modelForm = event.target.closest("[data-session-model-form]");
-      if (modelForm) {
-        event.preventDefault();
-        const model = String(new FormData(modelForm).get("model") || "").trim();
-        await changeAgentModel(modelForm.dataset.sessionModelForm, model);
-        return;
-      }
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();
@@ -362,6 +407,8 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       if (event.key !== "Escape") return;
       if (!$("#mobileToolsMenu").classList.contains("hidden")) {
         $("#mobileToolsCloseBtn")?.click();
+      } else if (!$("#sessionResetModal")?.classList.contains("hidden")) {
+        closeSessionResetDialog();
       } else if (!$("#runModal").classList.contains("hidden")) closeRunModal();
       else closeDrawer();
     });

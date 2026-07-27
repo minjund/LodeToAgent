@@ -123,7 +123,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (status === "awaiting") {
       entry.dispatchedAt = entry.dispatchedAt || new Date().toISOString();
       entry.phase = "confirming";
-      const delay = Number(window.LoadToAgentConversationDelivery?.CONFIRMATION_DELAY_MS || 12_000);
+      const delay = Number(window.LoadToAgentConversationDelivery?.CONFIRMATION_DELAY_MS || 60_000);
       clearTimeout(entry.confirmationTimer);
       entry.confirmationTimer = setTimeout(() => {
         entry.confirmationTimer = 0;
@@ -303,6 +303,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           ${terminalAction}
         </div>`
       : "";
+    const countId = `agent-command-count-${String(session.id || "").replace(/[^a-z0-9_-]/gi, "-")}`;
+    const draftLength = draft.length;
     const form = `<form class="agent-command-panel ${availabilityClass} control-${mode} ${options.conversation ? "conversation-composer" : ""}"
       data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}"
       data-agent-command-input-mode-selected="${esc(inputMode)}" data-agent-command-routing="${options.conversation ? "conversation" : "session"}">
@@ -315,7 +317,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       <label class="agent-command-input">
         <span class="sr-only">${esc(t("agent.command_sr"))}</span>
         <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="${options.conversation ? "2" : "3"}"
-          placeholder="${esc(placeholder)}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
+          aria-describedby="${esc(countId)}" placeholder="${esc(placeholder)}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
+        <span class="agent-command-input-count" id="${esc(countId)}" data-agent-command-count aria-live="off">${esc(t("agent.input_count", { count: draftLength.toLocaleString() }))}</span>
       </label>
       <div class="agent-command-actions"><small aria-live="polite">${esc(options.conversation ? t("agent.command_and_prompt_help", { help }) : help)}</small>${terminalToggle}${interruptAction}${actions}</div>
     </form>`;
@@ -405,13 +408,6 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
           if (nativeCommand) {
-            if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
-            selectView("terminal");
-            try {
-              await window.LoadToAgentTerminal.openForAgent(targetSession, resumedTarget.id);
-            } catch (error) {
-              window.LoadToAgentRendererUtils.reportRecoverableError("native-command-terminal-focus", error);
-            }
             context.toast(t("agent.native_command_sent"));
             return;
           }
@@ -451,13 +447,6 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if (input) input.value = "";
       updateConversationMessage(sessionId, pendingMessage, "awaiting");
       if (nativeCommand) {
-        if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
-        selectView("terminal");
-        try {
-          await window.LoadToAgentTerminal.openForAgent(targetSession, dispatched?.target?.id || target.id);
-        } catch (error) {
-          window.LoadToAgentRendererUtils.reportRecoverableError("native-command-terminal-focus", error);
-        }
         context.toast(t("agent.native_command_sent"));
         return;
       }
@@ -504,7 +493,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     }
   }
 
-  async function resetAgentSession(sessionId, model = "") {
+  async function resetAgentSession(sessionId) {
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
     if (!session || !window.LoadToAgentTerminal?.resetForAgent) return context.toast(t("agent.session_not_found"));
@@ -512,36 +501,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     try {
       if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
       selectView("terminal");
-      await window.LoadToAgentTerminal.resetForAgent(session, model);
+      await window.LoadToAgentTerminal.resetForAgent(session);
       document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
       context.toast(t("session.reset_complete"));
     } catch (error) {
       context.toast(errorText(error, "session.reset_failed"));
-    } finally {
-      state.agentCommandSending.delete(sessionId);
-    }
-  }
-
-  async function changeAgentModel(sessionId, model) {
-    if (state.agentCommandSending.has(sessionId)) return;
-    const session = snapshotSession(sessionId) || state.details.get(sessionId);
-    if (!session || !window.LoadToAgentTerminal?.changeModelForAgent) return context.toast(t("agent.session_not_found"));
-    state.agentCommandSending.add(sessionId);
-    try {
-      const result = await window.LoadToAgentTerminal.changeModelForAgent(session, model);
-      if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
-      selectView("terminal");
-      if (result?.id) {
-        try {
-          await window.LoadToAgentTerminal.openForAgent(session, result.id);
-        } catch (error) {
-          window.LoadToAgentRendererUtils.reportRecoverableError("model-change-terminal-focus", error);
-        }
-      }
-      document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
-      context.toast(t(result?.mode === "resumed" ? "session.model_changed_resumed" : "session.model_changed_now", { model }));
-    } catch (error) {
-      context.toast(errorText(error, "session.model_change_failed"));
     } finally {
       state.agentCommandSending.delete(sessionId);
     }
@@ -687,7 +651,6 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     chosenAgentCommandTarget,
     resumeAgentTerminal,
     resetAgentSession,
-    changeAgentModel,
     dispatchAgentCommand,
     interruptConversation,
     openAgentTerminal,

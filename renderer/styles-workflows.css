@@ -877,7 +877,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 7px;
+  gap: 10px;
 }
 
 .agent-command-actions>small {
@@ -889,7 +889,8 @@
 }
 
 .agent-command-actions button {
-  height: 34px;
+  min-height: 44px;
+  height: 44px;
   padding: 0 10px;
   border: 1px solid #31514a;
   border-radius: 8px;

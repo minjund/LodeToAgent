@@ -149,8 +149,10 @@ app.whenReady().then(async () => {
       const listToolbarBox = listToolbar?.getBoundingClientRect();
       const firstProjectBox = firstProject?.getBoundingClientRect();
       return {
-        attentionVisible: !document.querySelector('#operationsOverview')?.classList.contains('hidden'),
-        attentionCount: Number(document.querySelector('[data-home-attention]')?.dataset.homeAttention || 0),
+        usageOverviewVisible: Boolean(document.querySelector('#operationsOverview .provider-usage-overview'))
+          && !document.querySelector('#operationsOverview')?.classList.contains('hidden'),
+        usageProviderCards: document.querySelectorAll('#operationsOverview [data-provider-usage]').length,
+        usageGauges: document.querySelectorAll('#operationsOverview [role="progressbar"]').length,
         controlRooms: document.querySelectorAll('[data-control-session]').length,
         rootVisible: Boolean(root),
         compositeSessionLabel: root?.querySelector('.control-session-live')?.textContent.trim() || '',
@@ -216,7 +218,8 @@ app.whenReady().then(async () => {
         },
       };
     })()`);
-    if (!overviewMetrics.attentionVisible || overviewMetrics.attentionCount < 1 || overviewMetrics.controlRooms < 1
+    if (!overviewMetrics.usageOverviewVisible || overviewMetrics.usageProviderCards < 1 || overviewMetrics.usageGauges < 1
+      || overviewMetrics.controlRooms < 1
       || !overviewMetrics.rootVisible || !overviewMetrics.mainNode || overviewMetrics.helperNodes < 1
       || overviewMetrics.compositeSessionLabel !== '응답 대기 · 백그라운드 실행 중'
       || overviewMetrics.executionNodes < 1 || overviewMetrics.completedNodes < 1
@@ -318,6 +321,8 @@ app.whenReady().then(async () => {
       throw new Error(`프로젝트 그룹·전체 열기·닫기 검증 실패: ${JSON.stringify(projectControlMetrics)}`);
     }
 
+    win.setContentSize(1700, 979);
+    await wait(180);
     await win.webContents.executeJavaScript(`document.querySelector('[data-open-subagent-chat="fixture-child"]')?.click()`);
     await waitFor(
       win,
@@ -513,14 +518,17 @@ app.whenReady().then(async () => {
           || projectList.classList.contains('is-overflowing'),
         noOverviewOverflow: overview.scrollWidth <= overview.clientWidth + 2,
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
-        attentionVisible: Boolean(document.querySelector('[data-home-attention]')),
+        usageOverviewVisible: Boolean(document.querySelector('#operationsOverview .provider-usage-overview')),
+        usageProviderCards: document.querySelectorAll('#operationsOverview [data-provider-usage]').length,
+        usageGauges: document.querySelectorAll('#operationsOverview [role="progressbar"]').length,
       };
     })()`);
     if (!mobileMetrics.overviewVisible || mobileMetrics.projectToolbarGap < 10 || mobileMetrics.listToolbarGap < 10
       || mobileMetrics.projectChipHeights.some(height => height < 43.5)
       || mobileMetrics.listControlHeights.some(height => height < 43.5)
       || !mobileMetrics.projectOverflowAffordance
-      || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow || !mobileMetrics.attentionVisible) {
+      || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow
+      || !mobileMetrics.usageOverviewVisible || mobileMetrics.usageProviderCards < 1 || mobileMetrics.usageGauges < 1) {
       throw new Error(`모바일 세션 관제 검증 실패: ${JSON.stringify(mobileMetrics)}`);
     }
     const mobileOutput = await capture(win, outputDir, 'loadtoagent-control-room-mobile.png');

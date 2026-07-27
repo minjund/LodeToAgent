@@ -181,10 +181,8 @@
     return { supported: true, provider, sessionId, args };
   }
 
-  function resumeLaunchArgs(support, prompt = '', options = {}) {
+  function resumeLaunchArgs(support, prompt = '') {
     const args = [...support.args];
-    const model = String(options.model || '').trim();
-    if (model) args.push('--model', model);
     const text = String(prompt || '').trim();
     if (text) args.push(text);
     return args;
@@ -533,8 +531,19 @@
       try {
         const detail = await request;
         if (detail && state.boundAgent && state.boundAgent.id === id) {
-          state.boundAgent = detail;
-          renderHistoryPanel();
+          const currentUpdatedAt = Date.parse(state.boundAgent.updatedAt || 0);
+          const detailUpdatedAt = Date.parse(detail.updatedAt || 0);
+          const currentHasMessages = Array.isArray(state.boundAgent.messages) && state.boundAgent.messages.length > 0;
+          const detailIsCurrent = !currentHasMessages
+            || !Number.isFinite(currentUpdatedAt)
+            || (Number.isFinite(detailUpdatedAt) && detailUpdatedAt >= currentUpdatedAt);
+          // A slower detail request may finish after a newer snapshot has
+          // already reached the terminal. Never replace the newer conversation
+          // with that stale response or the reader's scroll range will shrink.
+          if (detailIsCurrent) {
+            state.boundAgent = detail;
+            renderHistoryPanel();
+          }
         }
       } catch (error) {
         reportRecoverableError("terminal-history-refresh", error);
@@ -648,7 +657,7 @@
   });
 
   const {
-    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, resetForAgent, changeModelForAgent,
+    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, resetForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
@@ -823,7 +832,6 @@
     openForAgent,
     resumeForAgent,
     resetForAgent,
-    changeModelForAgent,
     scrollTmuxToLine,
     scrollTmuxByLines,
     scrollTerminalToLine,

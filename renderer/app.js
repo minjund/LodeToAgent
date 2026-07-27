@@ -295,6 +295,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (!$("#mobileToolsMenu")?.classList.contains("hidden")) return $("#mobileToolsMenu");
     if (!$("#quickPaletteModal")?.classList.contains("hidden")) return $("#quickPaletteModal");
     if (!$("#shortcutHelpModal")?.classList.contains("hidden")) return $("#shortcutHelpModal");
+    if (!$("#sessionResetModal")?.classList.contains("hidden")) return $("#sessionResetModal");
     if (!$("#runModal").classList.contains("hidden")) return $("#runModal");
     if (!$("#tmuxCreateModal").classList.contains("hidden")) return $("#tmuxCreateModal");
     if (
@@ -351,7 +352,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     }
     dialog.setAttribute("inert", "");
     dialog.setAttribute("aria-hidden", "true");
-    const anotherDialog = [$("#mobileToolsMenu"), $("#runModal"), $("#tmuxCreateModal"), $("#detailDrawer"), $("#quickPaletteModal"), $("#shortcutHelpModal")]
+    const anotherDialog = [$("#mobileToolsMenu"), $("#runModal"), $("#tmuxCreateModal"), $("#detailDrawer"), $("#quickPaletteModal"), $("#shortcutHelpModal"), $("#sessionResetModal")]
       .some((item) => item && item !== dialog && !item.classList.contains("hidden") && (item.classList.contains("open") || item.matches(".modal-backdrop") || item.id === "mobileToolsMenu"));
     if (!anotherDialog) {
       shell?.removeAttribute("inert");

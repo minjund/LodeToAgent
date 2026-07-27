@@ -53,7 +53,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     if (!message) return "";
     const assistant = message.role === "assistant";
     const label = assistant ? options.assistantLabel : options.userLabel;
-    const avatar = assistant ? providerInfo(session.provider).mark : "ME";
+    const avatar = assistant ? providerInfo(session.provider).mark : t("drawer.me_mark");
     const fullTime = new Date(message.timestamp).toLocaleString(uiLocale());
     const workingIndicator = options.live
       ? `<span class="chat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span>`
@@ -93,20 +93,25 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
   function userPromptHtml(message, session) {
     const text = String(message?.text || "").trim();
     if (!text) return messageContentHtml(message, session.id);
-    const characters = Array.from(text);
+    const characters = typeof Intl?.Segmenter === "function"
+      ? Array.from(new Intl.Segmenter(uiLocale(), { granularity: "grapheme" }).segment(text), item => item.segment)
+      : Array.from(text);
     const truncated = characters.length > 200;
     const messageKey = String(message.id || message.timestamp || `${characters.length}:${text.slice(0, 32)}`);
     const promptKey = `prompt:${session.id}:${messageKey}`;
+    const contentId = `user-prompt-${String(promptKey).replace(/[^a-z0-9_-]/gi, "-")}`;
     const expanded = truncated && state.expandedConversationPrompts.has(promptKey);
     const visibleText = expanded ? text : truncated ? `${characters.slice(0, 200).join("").trimEnd()}…` : text;
-    const visibleMessage = visibleText === text ? message : { ...message, text: visibleText };
+    const actions = position => `<div class="chat-prompt-actions ${position}">
+      <span>${esc(t("drawer.prompt_length", { count: characters.length.toLocaleString(uiLocale()) }))}</span>
+      ${truncated ? `<button type="button" data-prompt-toggle="${esc(promptKey)}" aria-controls="${esc(contentId)}" aria-expanded="${expanded ? "true" : "false"}">${esc(t(expanded ? "drawer.prompt_close" : "drawer.prompt_show_full"))}</button>` : ""}
+      <button type="button" data-copy-text="${esc(text)}" data-user-prompt-copy="${esc(promptKey)}">${esc(t("drawer.prompt_copy"))}</button>
+    </div>`;
     return `<div class="chat-user-prompt" data-user-prompt="${esc(promptKey)}"
       data-prompt-truncated="${truncated ? "true" : "false"}" data-prompt-expanded="${expanded ? "true" : "false"}">
-      ${messageContentHtml(visibleMessage, session.id)}
-      <div class="chat-prompt-actions">
-        ${truncated ? `<button type="button" data-prompt-toggle="${esc(promptKey)}" aria-expanded="${expanded ? "true" : "false"}">${esc(t(expanded ? "drawer.prompt_close" : "drawer.prompt_show_full"))}</button>` : ""}
-        <button type="button" data-copy-text="${esc(text)}" data-user-prompt-copy="${esc(promptKey)}">${esc(t("drawer.prompt_copy"))}</button>
-      </div>
+      ${expanded ? actions("is-top") : ""}
+      <div class="chat-content plain user-prompt-text" id="${esc(contentId)}">${esc(visibleText)}</div>
+      ${actions(expanded ? "is-bottom" : "is-collapsed")}
     </div>`;
   }
 

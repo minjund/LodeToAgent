@@ -5,10 +5,24 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.4.0 - 2026-07-27
+
+- Keep each Claude or Codex conversation on its existing external session
+  until the user explicitly confirms **Reset session**.
+- Send native and registered CLI commands such as `/model`, `/command`, and
+  `!command` without turning them into conversation prompts or closing the
+  current conversation.
 - Collapse user prompts longer than 200 characters with persistent full/close
-  controls and add a copy action to every user prompt.
+  controls, grapheme-safe previews, and a copy action for the full request.
 - Add an in-conversation stop control that sends Ctrl+C to the exact terminal
   or tmux pane handling the current AI response while keeping the session open.
+- Replace the home attention block with provider-reported usage windows and
+  show live context size in the conversation panel.
+- Add an accessible reset confirmation dialog, compact mobile conversation
+  chrome, a full-screen long-request reader, and explicit 44px interaction
+  targets throughout the updated UI.
+- Prevent stale session-detail responses from overwriting newer terminal
+  conversation snapshots.
 
 ## 1.3.18 - 2026-07-27
 

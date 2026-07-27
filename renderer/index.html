@@ -375,14 +375,32 @@
     </div>
     <div id="drawerMeta" class="drawer-meta"></div>
     <div class="drawer-tabs" role="tablist" aria-orientation="horizontal">
-      <button id="drawerTabSummary" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="summary" data-i18n="management.summary">관리 요약</button>
-      <button id="drawerTabChat" class="drawer-tab active" type="button" role="tab" aria-selected="true" aria-controls="drawerContent" tabindex="0" data-tab="chat" data-i18n="ui.conversation">대화 내용</button>
-      <button id="drawerTabLifecycle" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle" data-i18n="ui.progress">진행 과정</button>
-      <button id="drawerTabTokens" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens" data-i18n="ui.usage">사용량</button>
+      <button id="drawerTabSummary" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="summary" aria-label="관리 요약">요약</button>
+      <button id="drawerTabChat" class="drawer-tab active" type="button" role="tab" aria-selected="true" aria-controls="drawerContent" tabindex="0" data-tab="chat" aria-label="대화 내용">대화</button>
+      <button id="drawerTabLifecycle" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle" aria-label="진행 과정">과정</button>
+      <button id="drawerTabTokens" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens" aria-label="사용량">사용량</button>
     </div>
     <div id="drawerContent" class="drawer-content" role="tabpanel" aria-labelledby="drawerTabChat" tabindex="0"></div>
     <div id="drawerComposer" class="drawer-composer hidden" aria-label="대화 참여"></div>
   </aside>
+
+  <div id="sessionResetModal" class="modal-backdrop session-reset-modal hidden" role="dialog" aria-modal="true"
+    aria-labelledby="sessionResetTitle" aria-describedby="sessionResetDescription" aria-hidden="true" inert>
+    <section class="session-reset-dialog">
+      <header>
+        <span class="session-reset-dialog-icon" aria-hidden="true">↻</span>
+        <div>
+          <p data-i18n="session.reset_eyebrow">현재 대화는 그대로 유지됩니다</p>
+          <h2 id="sessionResetTitle" data-i18n="session.reset">세션 초기화</h2>
+        </div>
+      </header>
+      <p id="sessionResetDescription" data-i18n="session.reset_confirm">기존 대화 기록은 유지하고 새 AI 세션을 시작할까요? 현재 컨텍스트는 새로 시작됩니다.</p>
+      <div class="session-reset-dialog-actions">
+        <button id="cancelSessionResetBtn" type="button" class="ghost-button" data-i18n="common.cancel">취소</button>
+        <button id="confirmSessionResetBtn" type="button" class="primary-button" data-i18n="session.reset_action">초기화하고 새 세션 시작</button>
+      </div>
+    </section>
+  </div>
 
   <div id="runModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="runModalTitle" aria-describedby="runModalDescription" aria-hidden="true" inert>
     <form id="runForm" class="run-modal run-composer">

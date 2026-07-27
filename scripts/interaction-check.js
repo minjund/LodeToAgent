@@ -90,9 +90,9 @@ const ACTION_MANIFEST = [
   { selector: '[data-user-prompt-copy]', action: 'drawer:prompt-copy' },
   ...['summary', 'chat', 'lifecycle', 'tokens'].map(tab => ({ selector: `[data-tab="${tab}"]`, action: `drawer:tab-${tab}` })),
   { selector: '[data-provider-usage-refresh]', action: 'usage:refresh', required: false },
-  { selector: '[data-session-model-form]', action: 'session:model-change', required: false },
-  { selector: '[data-session-model-form] button[type="submit"]', action: 'session:model-change', required: false },
   { selector: '[data-session-reset]', action: 'session:reset', required: false },
+  { selector: '#cancelSessionResetBtn', action: 'session:reset-cancel', required: false },
+  { selector: '#confirmSessionResetBtn', action: 'session:reset-confirm', required: false },
   { selector: '[data-agent-command-input-mode]', action: 'drawer:input-mode' },
   { selector: '[data-management-inbox-filter]', action: 'management:inbox-filter' },
   { selector: '[data-attention-draft]', action: 'management:reply-template' },
@@ -1542,11 +1542,11 @@ async function exerciseDrawer(win, round) {
   assert(collapsedPrompt.truncated === 'true' && collapsedPrompt.expanded === 'false'
     && Array.from(collapsedPrompt.preview).length <= 201 && collapsedPrompt.preview.endsWith('…')
     && Array.from(collapsedPrompt.fullText).length > 200
-    && collapsedPrompt.toggleLabel === '전체 보기' && collapsedPrompt.copyLabel === '프롬프트 복사',
+    && collapsedPrompt.toggleLabel === '전체 내용 보기' && collapsedPrompt.copyLabel === '요청 복사',
   `200자 초과 프롬프트의 접기·복사 UI가 올바르지 않습니다: ${JSON.stringify(collapsedPrompt)}`);
   await click(win, '[data-message-id="ended-user"] [data-prompt-toggle]', 'drawer:prompt-toggle');
   await waitFor(win, `document.querySelector('[data-message-id="ended-user"] [data-user-prompt]')?.dataset.promptExpanded === 'true'
-    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '닫기'
+    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '내용 접기'
     && document.querySelector('[data-message-id="ended-user"] .chat-content')?.innerText.includes('실제 전체 문장이 복사되는지도 검증해줘')`,
   '긴 사용자 프롬프트 전체 보기 또는 닫기 전환이 동작하지 않았습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.renderDrawer()`);
@@ -1559,7 +1559,7 @@ async function exerciseDrawer(win, round) {
   '프롬프트 복사 버튼이 축약문이 아닌 전체 원문을 복사하지 못했습니다.');
   await click(win, '[data-message-id="ended-user"] [data-prompt-toggle]', 'drawer:prompt-toggle');
   await waitFor(win, `document.querySelector('[data-message-id="ended-user"] [data-user-prompt]')?.dataset.promptExpanded === 'false'
-    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '전체 보기'`,
+    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '전체 내용 보기'`,
   '긴 사용자 프롬프트 닫기 버튼이 내용을 다시 접지 못했습니다.');
   await waitFor(win, `document.querySelector('.chat-roadmap') && !document.querySelector('.chat-roadmap').open`, '긴 로드맵이 기본 접힘 상태로 표시되지 않았습니다.');
   const roadmap = await win.webContents.executeJavaScript(`(() => {
@@ -1704,22 +1704,23 @@ async function exerciseDrawer(win, round) {
   `상세 요청 병합과 백그라운드 갱신 상태가 올바르지 않습니다: ${JSON.stringify(drawerRace)}`);
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('[data-session-model-form="fixture-root"]');
-    form.querySelector('input[name="model"]').value = 'sonnet';
+    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]');
+    const input = form.querySelector('[data-agent-command-draft]');
+    input.value = '/model sonnet';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     form.requestSubmit();
   })()`);
-  mark('session:model-change');
+  mark('session:model-command');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
     && item.args[0] === 'terminal-main' && item.args[1] === '/model sonnet')
     && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
-    && window.LoadToAgentApp.state.view === 'terminal'`,
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#detailDrawer').classList.contains('open')
+    && document.querySelector('[data-agent-command-draft="fixture-root"]')?.value === ''`,
   '연결된 Claude 세션의 모델 변경이 즉시 전달되지 않았습니다.');
-  await click(win, '[data-view="all"]', 'nav:all');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
-  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, 'CLI 명령 검증을 위해 현재 세션을 다시 열지 못했습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('[data-agent-command-form="fixture-root"]');
+    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]');
     const input = form.querySelector('[data-agent-command-draft]');
     input.value = '/status';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1728,18 +1729,16 @@ async function exerciseDrawer(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
     && item.args[0] === 'terminal-main' && item.args[1] === '/status')
     && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-root')
-    && window.LoadToAgentApp.state.view === 'terminal'`,
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#detailDrawer').classList.contains('open')`,
   'CLI 내장·등록 명령이 대화 프롬프트로 변환되지 않고 현재 세션에 전달되지 않았습니다.');
-  await click(win, '[data-view="all"]', 'nav:all');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
-  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '배경 닫기 검증을 위해 현재 세션을 다시 열지 못했습니다.');
   await click(win, '#drawerBackdrop', 'drawer:backdrop');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, 'drawer backdrop 닫기 실패');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-failed')`);
-  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-model-form="fixture-failed"]'))`, '종료된 Codex 세션 모델 변경 UI를 열지 못했습니다.');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('#drawerComposer [data-agent-command-form="fixture-failed"]'))`, '종료된 Codex 세션 명령 입력창을 열지 못했습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('[data-agent-command-form="fixture-failed"]');
+    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-failed"]');
     const input = form.querySelector('[data-agent-command-draft]');
     input.value = '/status';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1749,33 +1748,65 @@ async function exerciseDrawer(win, round) {
     && item.args[0]?.provider === 'codex'
     && item.args[0]?.bridgeId === 'fixture-failed'
     && item.args[0]?.args?.join(' ') === 'resume fixture-failed-external')
-    && window.interactionTest.getCalls().some(item => item.name === 'terminalCommand' && item.args[1] === '/status')
-    && window.LoadToAgentApp.state.view === 'terminal'`,
+    && window.interactionTest.getCalls().some(item => item.name === 'terminalCommand' && item.args[1] === '/status')`,
   '종료된 세션의 CLI 명령이 새 프롬프트가 아니라 기존 세션 resume 후 원문으로 전달되지 않았습니다.');
-  await click(win, '[data-view="all"]', 'nav:all');
+  const endedCommandUi = await win.webContents.executeJavaScript(`({
+    view: window.LoadToAgentApp.state.view,
+    drawerOpen: document.querySelector('#detailDrawer').classList.contains('open'),
+    selectedId: window.LoadToAgentApp.state.selectedId,
+  })`);
+  assert(endedCommandUi.view === 'all' && endedCommandUi.drawerOpen && endedCommandUi.selectedId === 'fixture-failed',
+    `종료 세션 CLI 명령 뒤 대화창이 유지되지 않았습니다: ${JSON.stringify(endedCommandUi)}`);
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-projectless')`);
-  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-model-form="fixture-projectless"]'))`, '종료된 Codex 세션 모델 변경 UI를 열지 못했습니다.');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('#drawerComposer [data-agent-command-form="fixture-projectless"]'))`, '종료된 Codex 세션 명령 입력창을 열지 못했습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('[data-session-model-form="fixture-projectless"]');
-    form.querySelector('input[name="model"]').value = 'gpt-5.6-terra';
+    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-projectless"]');
+    const input = form.querySelector('[data-agent-command-draft]');
+    input.value = '/model gpt-5.6-terra';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
     form.requestSubmit();
   })()`);
-  mark('session:model-change');
+  mark('session:model-command');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
     && item.args[0]?.provider === 'codex'
     && item.args[0]?.bridgeId === 'fixture-projectless'
-    && item.args[0]?.args?.join(' ') === 'resume fixture-projectless-external --model gpt-5.6-terra')
-    && window.LoadToAgentApp.state.view === 'terminal'`,
-  '종료된 Codex 모델 변경이 새 대화가 아니라 기존 세션 resume으로 이어지지 않았습니다.');
-  await click(win, '[data-view="all"]', 'nav:all');
+    && item.args[0]?.args?.join(' ') === 'resume fixture-projectless-external')
+    && window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
+      && item.args[1] === '/model gpt-5.6-terra')`,
+  '종료된 Codex 모델 명령이 기존 세션 resume 후 원문으로 이어지지 않았습니다.');
+  const endedModelUi = await win.webContents.executeJavaScript(`({
+    view: window.LoadToAgentApp.state.view,
+    drawerOpen: document.querySelector('#detailDrawer').classList.contains('open'),
+    selectedId: window.LoadToAgentApp.state.selectedId,
+  })`);
+  assert(endedModelUi.view === 'all' && endedModelUi.drawerOpen && endedModelUi.selectedId === 'fixture-projectless',
+    `종료 세션 모델 명령 뒤 대화창이 유지되지 않았습니다: ${JSON.stringify(endedModelUi)}`);
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-reset="fixture-root"]'))`, '세션 초기화 버튼을 다시 열지 못했습니다.');
   await clearCalls(win);
   await click(win, '[data-session-reset="fixture-root"]', 'session:reset');
+  await waitFor(win, `!document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.activeElement === document.querySelector('#cancelSessionResetBtn')
+    && document.querySelector('#detailDrawer').inert`,
+  '세션 초기화 확인창이 포커스 격리와 함께 열리지 않았습니다.');
+  await click(win, '#cancelSessionResetBtn', 'session:reset-cancel');
+  await waitFor(win, `document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.activeElement?.matches('[data-session-reset="fixture-root"]')`,
+  '세션 초기화 취소 뒤 원래 버튼으로 포커스가 복귀하지 않았습니다.');
+  assert(await win.webContents.executeJavaScript(`!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+    && window.LoadToAgentApp.state.view === 'all'
+    && document.querySelector('#detailDrawer').classList.contains('open')`),
+  '세션 초기화 취소 시 기존 대화창과 세션이 유지되지 않았습니다.');
+  await click(win, '[data-session-reset="fixture-root"]', 'session:reset');
+  await waitFor(win, `!document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.querySelector('#sessionResetDescription').textContent.trim().length > 10`,
+  '세션 초기화 확인 설명이 표시되지 않았습니다.');
+  await click(win, '#confirmSessionResetBtn', 'session:reset-confirm');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
     && item.args[0]?.type === 'agent' && item.args[0]?.provider === 'claude' && Array.isArray(item.args[0]?.args))
-    && window.LoadToAgentApp.state.view === 'terminal'`,
+    && window.LoadToAgentApp.state.view === 'terminal'
+    && document.querySelector('#sessionResetModal').classList.contains('hidden')`,
   '기존 기록을 보존하는 새 세션 초기화가 실행되지 않았습니다.');
   round.observed.drawerTabs = 3;
   round.observed.drawerRetry = true;

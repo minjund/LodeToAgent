@@ -351,8 +351,8 @@ app.whenReady().then(() => {
         const entry = {
           id: 'local:visual-delivery',
           text: '그래? 된 거야?',
-          timestamp: new Date(now - 14000).toISOString(),
-          dispatchedAt: new Date(now - 14000).toISOString(),
+          timestamp: new Date(now).toISOString(),
+          dispatchedAt: new Date(now - 64000).toISOString(),
           status: 'awaiting',
           phase: 'confirming',
           presented: false,
@@ -385,7 +385,7 @@ app.whenReady().then(() => {
       fs.writeFileSync(deliveryOutput, deliveryImage.toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
       if (deliveryMetrics.phase !== 'delayed' || deliveryMetrics.steps !== 3 || deliveryMetrics.completedSteps !== 1
-        || deliveryMetrics.warningSteps !== 1 || !deliveryMetrics.evidence.includes('12초 이상')
+        || deliveryMetrics.warningSteps !== 1 || !deliveryMetrics.evidence.includes('60초 이상')
         || !deliveryMetrics.providerStatus.includes('전달 확인 지연') || !deliveryMetrics.noHorizontalOverflow) {
         throw new Error(`메시지 전달 상태 화면이 실제 확인 근거를 구분하지 못했습니다: ${JSON.stringify(deliveryMetrics)}`);
       }
@@ -1082,7 +1082,7 @@ app.whenReady().then(() => {
       })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('.subagent-assignment-card')`);
       const subagentConversationOutput = path.join(outputDir, 'loadtoagent-subagent-conversation.png');
       fs.writeFileSync(subagentConversationOutput, subagentConversationImage.toPNG());
-      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, inlineRelay: !document.querySelector('[data-agent-command-route]') && document.querySelector('[data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent' && !document.querySelector('[data-agent-command-form] button[type="submit"]')?.disabled && Boolean(document.querySelector('.conversation-terminal-toggle[aria-expanded="false"]')), actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')), placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
+      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route]') && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent' && !document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled && Boolean(document.querySelector('#drawerComposer .conversation-terminal-toggle[aria-expanded="false"]')), actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')), placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
       if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 2 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.inlineRelay || !subagentConversationMetrics.actualWorkVisible || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 작업 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
 
