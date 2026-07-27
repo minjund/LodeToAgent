@@ -1,0 +1,6957 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "loadtoagent",
+    "languages": [
+      "css",
+      "html",
+      "javascript",
+      "json",
+      "markdown",
+      "unknown",
+      "yaml"
+    ],
+    "frameworks": [
+      "Electron",
+      "GitHub Actions"
+    ],
+    "description": "Claude, Codex, Gemini, Grok의 로컬 세션을 모니터링하고 관리하는 Electron 데스크톱 대시보드입니다. 세션 관계와 token 사용량을 확인하고 연결된 terminal로 작업을 전달할 수 있습니다.",
+    "analyzedAt": "2026-07-16T01:20:15.999Z",
+    "gitCommitHash": "52df51e42c31ade4e1ccf74c73d57c28247471e2"
+  },
+  "nodes": [
+    {
+      "id": "file:bin/loadtoagent.js",
+      "type": "file",
+      "name": "loadtoagent.js",
+      "filePath": "bin/loadtoagent.js",
+      "summary": "npm의 `loadtoagent` 명령을 제공하는 CLI 진입점이다. 데스크톱 앱 실행과 로컬 인증 브리지를 통한 AI CLI 세션 연결을 처리한다.",
+      "tags": [
+        "명령행-진입점",
+        "로컬-브리지",
+        "터미널-클라이언트",
+        "프로세스-실행"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "CommonJS 모듈이며 newline-delimited JSON frame으로 로컬 socket과 터미널 입출력을 중계한다."
+    },
+    {
+      "id": "function:bin/loadtoagent.js:usage",
+      "type": "function",
+      "name": "usage",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        13,
+        30
+      ],
+      "summary": "앱 열기, 브리지 실행, 버전 확인을 설명하는 한국어 CLI 도움말을 조립한다.",
+      "tags": [
+        "cli-도움말",
+        "사용법-안내",
+        "문자열-포맷"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:parseCliArguments",
+      "type": "function",
+      "name": "parseCliArguments",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        32,
+        40
+      ],
+      "summary": "최상위 CLI 인자를 open, help, version, run 동작으로 분류하고 잘못된 명령을 거부한다.",
+      "tags": [
+        "인자-파싱",
+        "명령-라우팅",
+        "입력-검증"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:parseArguments",
+      "type": "function",
+      "name": "parseArguments",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        42,
+        50
+      ],
+      "summary": "run 하위 명령의 provider와 passthrough 인자를 검증해 브리지 실행 요청으로 정규화한다.",
+      "tags": [
+        "인자-파싱",
+        "provider-검증",
+        "cli-실행"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:terminalSize",
+      "type": "function",
+      "name": "terminalSize",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        52,
+        57
+      ],
+      "summary": "현재 표준 출력의 크기를 안전한 최소값으로 보정해 터미널 열과 행을 반환한다.",
+      "tags": [
+        "터미널-크기",
+        "입력-정규화",
+        "pty-메타데이터"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:desktopLaunchSpec",
+      "type": "function",
+      "name": "desktopLaunchSpec",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        59,
+        69
+      ],
+      "summary": "패키징된 launcher와 개발용 Electron 실행을 구분해 executable, args, environment 명세를 만든다.",
+      "tags": [
+        "electron-실행",
+        "환경-정규화",
+        "프로세스-명세"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:launchDesktop",
+      "type": "function",
+      "name": "launchDesktop",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        71,
+        82
+      ],
+      "summary": "데스크톱 실행 명세로 분리된 Electron 프로세스를 시작하고 CLI 종료와 독립적으로 유지한다.",
+      "tags": [
+        "electron-실행",
+        "분리-프로세스",
+        "desktop-launcher"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:readDiscovery",
+      "type": "function",
+      "name": "readDiscovery",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        84,
+        90
+      ],
+      "summary": "사용자 홈의 bridge discovery JSON을 읽고 protocol, endpoint, token 필드를 검증한다.",
+      "tags": [
+        "브리지-탐색",
+        "인증-정보",
+        "구성-검증"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:bin/loadtoagent.js:run",
+      "type": "function",
+      "name": "run",
+      "filePath": "bin/loadtoagent.js",
+      "lineRange": [
+        96,
+        156
+      ],
+      "summary": "인증된 로컬 socket에 AI 실행 요청을 보내고 PTY 출력, 키 입력, resize, signal을 양방향 중계한다.",
+      "tags": [
+        "브리지-클라이언트",
+        "터미널-중계",
+        "ndjson-프로토콜",
+        "event-handler"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:scripts/regression-test.js",
+      "type": "file",
+      "name": "regression-test.js",
+      "filePath": "scripts/regression-test.js",
+      "summary": "provider session 정규화, subagent 관계, token usage, tmux·PTY·브리지·업데이트 보안 및 제품 UI 계약을 폭넓게 검증하는 통합 회귀 테스트 모음이다.",
+      "tags": [
+        "회귀-테스트",
+        "통합-검증",
+        "provider-정규화",
+        "제품-계약",
+        "보안-검증"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/regression-test.js:runTests",
+      "type": "function",
+      "name": "runTests",
+      "filePath": "scripts/regression-test.js",
+      "lineRange": [
+        829,
+        842
+      ],
+      "summary": "등록된 동기·비동기 회귀 사례를 순서대로 실행하고 성공 수 또는 오류 stack을 출력한다.",
+      "tags": [
+        "테스트-러너",
+        "비동기-검증",
+        "결과-리포팅"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/tmux-integration-test.js",
+      "type": "file",
+      "name": "tmux-integration-test.js",
+      "filePath": "scripts/tmux-integration-test.js",
+      "summary": "실제 tmux 세션을 생성해 입력, capture, pane 분할, window·layout·이름 변경과 monitor 탐지를 끝까지 검증하는 통합 테스트다.",
+      "tags": [
+        "tmux-통합-테스트",
+        "실환경-검증",
+        "세션-수명주기",
+        "터미널-제어"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/tmux-integration-test.js:main",
+      "type": "function",
+      "name": "main",
+      "filePath": "scripts/tmux-integration-test.js",
+      "lineRange": [
+        13,
+        39
+      ],
+      "summary": "임시 tmux 세션의 전체 제어 흐름을 실행하고 monitor snapshot에 반영됐는지 확인한 뒤 세션을 정리한다.",
+      "tags": [
+        "e2e-시나리오",
+        "tmux-검증",
+        "자원-정리"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/tmuxController.js",
+      "type": "file",
+      "name": "tmuxController.js",
+      "filePath": "src/tmuxController.js",
+      "summary": "macOS/Linux의 native tmux와 Windows WSL tmux에 동일한 안전한 제어 API를 제공한다. 대상·이름·키·layout을 allowlist로 검증하고 명령 인자를 shell 문자열 결합 없이 전달한다.",
+      "tags": [
+        "tmux-제어",
+        "wsl-호환",
+        "입력-검증",
+        "프로세스-관리"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "사용자 텍스트는 `load-buffer`와 `paste-buffer`로 전달해 shell quoting 경계를 피한다."
+    },
+    {
+      "id": "function:src/tmuxController.js:safeName",
+      "type": "function",
+      "name": "safeName",
+      "filePath": "src/tmuxController.js",
+      "lineRange": [
+        15,
+        19
+      ],
+      "summary": "tmux session·window 이름을 길이와 Unicode 문자 allowlist로 검증한다.",
+      "tags": [
+        "입력-검증",
+        "이름-정규화",
+        "보안-경계"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxController.js:safeTarget",
+      "type": "function",
+      "name": "safeTarget",
+      "filePath": "src/tmuxController.js",
+      "lineRange": [
+        21,
+        25
+      ],
+      "summary": "tmux target selector를 허용된 문자와 최대 길이로 제한해 위험한 인자 주입을 막는다.",
+      "tags": [
+        "입력-검증",
+        "target-selector",
+        "명령-보안"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxController.js:runProcess",
+      "type": "function",
+      "name": "runProcess",
+      "filePath": "src/tmuxController.js",
+      "lineRange": [
+        27,
+        63
+      ],
+      "summary": "tmux 하위 프로세스를 timeout과 출력 크기 제한 아래 실행하고 stdout·stderr 또는 명확한 오류를 반환한다.",
+      "tags": [
+        "프로세스-실행",
+        "timeout-제어",
+        "출력-제한",
+        "오류-처리"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/tmuxController.js:TmuxController",
+      "type": "class",
+      "name": "TmuxController",
+      "filePath": "src/tmuxController.js",
+      "lineRange": [
+        65,
+        159
+      ],
+      "summary": "tmux의 입력, capture, session·window·pane 생성과 이름 변경, layout 선택, 종료를 플랫폼 독립 API로 캡슐화한다.",
+      "tags": [
+        "tmux-서비스",
+        "터미널-제어",
+        "wsl-어댑터",
+        "수명주기-관리"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/tmuxMonitor.js",
+      "type": "file",
+      "name": "tmuxMonitor.js",
+      "filePath": "src/tmuxMonitor.js",
+      "summary": "로컬 또는 WSL의 tmux pane·process·AI session history를 수집해 계층적 topology로 만들고 관측된 AI 프로세스를 LoadToAgent session과 점수 기반으로 연결한다.",
+      "tags": [
+        "tmux-모니터링",
+        "process-탐지",
+        "session-연결",
+        "wsl-토폴로지",
+        "provider-식별"
+      ],
+      "complexity": "complex",
+      "languageNotes": "구분자 기반 probe 출력을 파싱한 뒤 session→window→pane 구조를 만들고, cwd·환경·시간 근접도를 가중한 heuristic matching을 적용한다."
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:normalizeWslList",
+      "type": "function",
+      "name": "normalizeWslList",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        18,
+        23
+      ],
+      "summary": "WSL 목록 출력을 문자열 encoding 차이에 안전하게 해석하고 Docker 전용 배포판과 중복을 제거한다.",
+      "tags": [
+        "wsl-탐색",
+        "출력-정규화",
+        "중복-제거"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:uncHomeFor",
+      "type": "function",
+      "name": "uncHomeFor",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        25,
+        29
+      ],
+      "summary": "WSL 배포판과 Linux home 경로를 Windows에서 접근 가능한 UNC 경로로 변환한다.",
+      "tags": [
+        "wsl-경로",
+        "unc-변환",
+        "플랫폼-호환"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:linuxPathToUnc",
+      "type": "function",
+      "name": "linuxPathToUnc",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        31,
+        35
+      ],
+      "summary": "임의의 Linux 절대 경로를 해당 WSL 배포판의 `wsl.localhost` UNC 경로로 바꾼다.",
+      "tags": [
+        "wsl-경로",
+        "unc-변환",
+        "파일-접근"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:providerFromProcess",
+      "type": "function",
+      "name": "providerFromProcess",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        37,
+        45
+      ],
+      "summary": "process command와 args 패턴에서 Claude, Codex, Gemini, Grok CLI provider를 판별한다.",
+      "tags": [
+        "provider-탐지",
+        "process-분류",
+        "cli-식별"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:parseElapsedSeconds",
+      "type": "function",
+      "name": "parseElapsedSeconds",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        47,
+        52
+      ],
+      "summary": "ps의 일·시·분·초 elapsed 표기를 총 초 단위로 변환한다.",
+      "tags": [
+        "시간-파싱",
+        "process-메타데이터",
+        "정규화"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:parseProcessLine",
+      "type": "function",
+      "name": "parseProcessLine",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        54,
+        64
+      ],
+      "summary": "ps 한 줄에서 PID, parent PID, elapsed time, command, args를 구조화한다.",
+      "tags": [
+        "process-파싱",
+        "pid-계보",
+        "데이터-정규화"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:parseTmuxProbe",
+      "type": "function",
+      "name": "parseTmuxProbe",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        66,
+        114
+      ],
+      "summary": "tmux pane, process 목록, provider별 history file로 구성된 probe stream을 typed snapshot으로 파싱한다.",
+      "tags": [
+        "tmux-파싱",
+        "process-인벤토리",
+        "history-탐색",
+        "데이터-변환"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:descendantProcesses",
+      "type": "function",
+      "name": "descendantProcesses",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        116,
+        135
+      ],
+      "summary": "parent PID index를 만든 뒤 breadth-first traversal로 pane process의 모든 자손을 수집한다.",
+      "tags": [
+        "process-tree",
+        "bfs-탐색",
+        "pid-계보"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:selectAgentProcess",
+      "type": "function",
+      "name": "selectAgentProcess",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        137,
+        149
+      ],
+      "summary": "pane의 direct·descendant process 중 AI provider로 식별되는 가장 구체적인 CLI process를 선택한다.",
+      "tags": [
+        "agent-탐지",
+        "process-tree",
+        "후보-선택"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:buildDistroTopology",
+      "type": "function",
+      "name": "buildDistroTopology",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        151,
+        222
+      ],
+      "summary": "flat pane probe를 distro→session→window→pane 계층으로 묶고 각 pane에 탐지된 AI process 정보를 붙인다.",
+      "tags": [
+        "토폴로지-구축",
+        "tmux-모델",
+        "agent-탐지",
+        "데이터-그룹화"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:normalizeCwd",
+      "type": "function",
+      "name": "normalizeCwd",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        224,
+        229
+      ],
+      "summary": "Windows drive 경로와 slash 차이를 WSL 스타일의 소문자 비교 경로로 정규화한다.",
+      "tags": [
+        "경로-정규화",
+        "wsl-호환",
+        "cwd-비교"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:linkScore",
+      "type": "function",
+      "name": "linkScore",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        238,
+        256
+      ],
+      "summary": "provider, cwd, 실행 환경, session 상태, 시작·갱신 시각을 가중해 pane process와 agent session의 연결 점수를 계산한다.",
+      "tags": [
+        "heuristic-matching",
+        "session-연결",
+        "점수-계산",
+        "환경-비교"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/tmuxMonitor.js:linkAgentSessions",
+      "type": "function",
+      "name": "linkAgentSessions",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        258,
+        316
+      ],
+      "summary": "tmux snapshot의 AI pane마다 최고 점수의 미사용 agent session을 연결하고 fallback 표시 정보와 전체 집계를 생성한다.",
+      "tags": [
+        "session-연결",
+        "tmux-집계",
+        "agent-매칭",
+        "snapshot-보강"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "class:src/tmuxMonitor.js:TmuxMonitor",
+      "type": "class",
+      "name": "TmuxMonitor",
+      "filePath": "src/tmuxMonitor.js",
+      "lineRange": [
+        318,
+        417
+      ],
+      "summary": "플랫폼별 tmux 환경을 주기적으로 발견·probe하고 최근 정상 snapshot을 cache하며 WSL history 경로를 노출한다.",
+      "tags": [
+        "tmux-모니터",
+        "ttl-cache",
+        "wsl-탐색",
+        "snapshot-관리"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/updateManager.js",
+      "type": "file",
+      "name": "updateManager.js",
+      "filePath": "src/updateManager.js",
+      "summary": "GitHub의 최신 stable release를 확인하고 OS·architecture에 맞는 설치 파일을 선택해 안전하게 다운로드·검증·실행하는 업데이트 subsystem이다.",
+      "tags": [
+        "업데이트-서비스",
+        "github-release",
+        "sha256-검증",
+        "다운로드-관리",
+        "semver"
+      ],
+      "complexity": "complex",
+      "languageNotes": "EventEmitter 기반 상태 machine과 streaming SHA-256 검증을 결합해 UI에 download progress를 전달한다."
+    },
+    {
+      "id": "function:src/updateManager.js:normalizeVersion",
+      "type": "function",
+      "name": "normalizeVersion",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        11,
+        23
+      ],
+      "summary": "Git ref와 v prefix를 제거하고 SemVer core·prerelease 요소를 비교 가능한 구조로 파싱한다.",
+      "tags": [
+        "semver-파싱",
+        "버전-정규화",
+        "입력-검증"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/updateManager.js:compareVersions",
+      "type": "function",
+      "name": "compareVersions",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        25,
+        49
+      ],
+      "summary": "SemVer core와 prerelease 식별자를 규칙에 따라 비교해 두 버전의 순서를 반환한다.",
+      "tags": [
+        "semver-비교",
+        "버전-정렬",
+        "릴리스-판정"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/updateManager.js:trustedDownloadUrl",
+      "type": "function",
+      "name": "trustedDownloadUrl",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        51,
+        58
+      ],
+      "summary": "다운로드 URL이 공식 GitHub release download 경로의 HTTPS 주소인지 검사한다.",
+      "tags": [
+        "url-검증",
+        "공급망-보안",
+        "github-release"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/updateManager.js:assetScore",
+      "type": "function",
+      "name": "assetScore",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        60,
+        83
+      ],
+      "summary": "release asset의 신뢰 URL, 상태, 확장자, 설치 유형, platform·architecture 적합성을 점수화한다.",
+      "tags": [
+        "asset-선택",
+        "플랫폼-매칭",
+        "신뢰-검증",
+        "점수-계산"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/updateManager.js:selectReleaseAsset",
+      "type": "function",
+      "name": "selectReleaseAsset",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        85,
+        90
+      ],
+      "summary": "후보 release asset을 점수순으로 정렬해 현재 환경에 가장 적합한 설치 파일을 선택한다.",
+      "tags": [
+        "asset-선택",
+        "릴리스-필터",
+        "플랫폼-배포"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/updateManager.js:UpdateManager",
+      "type": "class",
+      "name": "UpdateManager",
+      "filePath": "src/updateManager.js",
+      "lineRange": [
+        106,
+        293
+      ],
+      "summary": "업데이트 확인, 중복 요청 억제, progress 상태 전파, 임시 파일 download, 크기·digest 검증과 installer 열기를 관리한다.",
+      "tags": [
+        "업데이트-관리자",
+        "상태-machine",
+        "streaming-download",
+        "무결성-검증",
+        "event-emitter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:main.js",
+      "type": "file",
+      "name": "main.js",
+      "filePath": "main.js",
+      "summary": "LoadToAgent Electron main process 진입점이다. window·tray 수명주기, worker 기반 session monitor, AI runner, PTY·tmux·bridge·업데이트 subsystem을 초기화하고 신뢰된 renderer에 IPC API를 제공한다.",
+      "tags": [
+        "electron-진입점",
+        "ipc-라우팅",
+        "runtime-조립",
+        "desktop-수명주기",
+        "보안-경계"
+      ],
+      "complexity": "complex",
+      "languageNotes": "contextIsolation을 유지한 renderer와 main process 사이를 IPC handler로 연결하고, mutable subsystem 상태를 app lifecycle에 맞춰 관리한다."
+    },
+    {
+      "id": "function:main.js:installBridgeLauncher",
+      "type": "function",
+      "name": "installBridgeLauncher",
+      "filePath": "main.js",
+      "lineRange": [
+        104,
+        121
+      ],
+      "summary": "패키징 여부와 운영체제에 맞춰 사용자 홈에 `loadtoagent` bridge launcher script를 설치한다.",
+      "tags": [
+        "브리지-launcher",
+        "플랫폼-호환",
+        "cli-설치",
+        "파일-생성"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:main.js:saveWorkspaces",
+      "type": "function",
+      "name": "saveWorkspaces",
+      "filePath": "main.js",
+      "lineRange": [
+        129,
+        141
+      ],
+      "summary": "선택된 workspace 경로를 정규화·중복 제거하고 존재하는 directory만 사용자 설정에 저장한다.",
+      "tags": [
+        "workspace-관리",
+        "경로-검증",
+        "구성-저장"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:main.js:listWslDistros",
+      "type": "function",
+      "name": "listWslDistros",
+      "filePath": "main.js",
+      "lineRange": [
+        143,
+        155
+      ],
+      "summary": "현재 플랫폼에 맞는 local environment 목록을 반환하고 Windows에서는 `wsl.exe`로 배포판을 탐색한다.",
+      "tags": [
+        "wsl-탐색",
+        "플랫폼-감지",
+        "환경-목록"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:main.js:hydratePlatformPath",
+      "type": "function",
+      "name": "hydratePlatformPath",
+      "filePath": "main.js",
+      "lineRange": [
+        157,
+        166
+      ],
+      "summary": "macOS GUI 실행에서 빠질 수 있는 login shell PATH와 일반 binary 경로를 process 환경에 보충한다.",
+      "tags": [
+        "macos-환경",
+        "path-보강",
+        "cli-탐색"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:main.js:createWindow",
+      "type": "function",
+      "name": "createWindow",
+      "filePath": "main.js",
+      "lineRange": [
+        168,
+        197
+      ],
+      "summary": "격리된 webPreferences와 navigation 제한으로 main BrowserWindow를 만들고 background AI session이 있으면 닫기 대신 tray로 숨긴다.",
+      "tags": [
+        "browser-window",
+        "renderer-격리",
+        "navigation-보안",
+        "window-수명주기"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:main.js:updateBackgroundTrayMenu",
+      "type": "function",
+      "name": "updateBackgroundTrayMenu",
+      "filePath": "main.js",
+      "lineRange": [
+        211,
+        221
+      ],
+      "summary": "실행 중인 background agent session 수와 locale을 반영해 tray tooltip·menu를 다시 구성한다.",
+      "tags": [
+        "system-tray",
+        "background-session",
+        "다국어-ui"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:main.js:ensureBackgroundTray",
+      "type": "function",
+      "name": "ensureBackgroundTray",
+      "filePath": "main.js",
+      "lineRange": [
+        223,
+        234
+      ],
+      "summary": "필요할 때만 application icon 기반 tray를 만들고 click 동작과 session menu를 연결한다.",
+      "tags": [
+        "system-tray",
+        "지연-초기화",
+        "background-session"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:main.js:setupRuntime",
+      "type": "function",
+      "name": "setupRuntime",
+      "filePath": "main.js",
+      "lineRange": [
+        271,
+        321
+      ],
+      "summary": "AgentRunner, TerminalManager, UpdateManager, BridgeServer, monitor Worker를 생성하고 상태 event를 renderer·monitor로 연결하는 runtime composition root다.",
+      "tags": [
+        "runtime-조립",
+        "service-초기화",
+        "event-연결",
+        "worker-thread",
+        "composition-root"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:main.js:bridgePresence",
+      "type": "function",
+      "name": "bridgePresence",
+      "filePath": "main.js",
+      "lineRange": [
+        323,
+        340
+      ],
+      "summary": "현재 실행 중인 bridge-owned agent terminal을 monitor가 소비할 runtime presence 레코드로 투영한다.",
+      "tags": [
+        "브리지-상태",
+        "agent-presence",
+        "session-투영",
+        "monitor-입력"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:scripts/readme-demo.js",
+      "type": "file",
+      "name": "readme-demo.js",
+      "filePath": "scripts/readme-demo.js",
+      "summary": "결정적인 demo session fixture와 가상 cursor 동작을 renderer에 주입해 README용 dashboard PNG와 animated GIF를 생성한다.",
+      "tags": [
+        "문서-asset",
+        "electron-자동화",
+        "demo-fixture",
+        "스크린샷-생성",
+        "ffmpeg"
+      ],
+      "complexity": "complex",
+      "languageNotes": "renderer state를 `executeJavaScript`로 고정한 뒤 frame sequence를 ffmpeg palette pipeline으로 GIF로 변환한다."
+    },
+    {
+      "id": "function:scripts/readme-demo.js:installFixture",
+      "type": "function",
+      "name": "installFixture",
+      "filePath": "scripts/readme-demo.js",
+      "lineRange": [
+        41,
+        175
+      ],
+      "summary": "다중 provider·subagent·usage 예제와 cursor helper를 renderer 전역 상태에 설치해 반복 가능한 demo 화면을 만든다.",
+      "tags": [
+        "demo-fixture",
+        "renderer-주입",
+        "session-샘플",
+        "결정적-ui"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/readme-demo.js:setFocus",
+      "type": "function",
+      "name": "setFocus",
+      "filePath": "scripts/readme-demo.js",
+      "lineRange": [
+        177,
+        186
+      ],
+      "summary": "지정한 session으로 workflow focus를 옮기고 가상 cursor click과 animation 완료를 동기화한다.",
+      "tags": [
+        "ui-자동화",
+        "focus-전환",
+        "animation-동기화"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/readme-demo.js:showDrawer",
+      "type": "function",
+      "name": "showDrawer",
+      "filePath": "scripts/readme-demo.js",
+      "lineRange": [
+        188,
+        204
+      ],
+      "summary": "선택한 session의 chat detail drawer를 직접 열고 안정된 capture 상태가 되도록 renderer state를 설정한다.",
+      "tags": [
+        "drawer-자동화",
+        "session-detail",
+        "renderer-상태"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/readme-demo.js:buildDemo",
+      "type": "function",
+      "name": "buildDemo",
+      "filePath": "scripts/readme-demo.js",
+      "lineRange": [
+        206,
+        248
+      ],
+      "summary": "fixture 설치부터 focus·drawer·token tab frame capture, 대표 PNG 복사, ffmpeg GIF encoding까지 demo asset pipeline을 실행한다.",
+      "tags": [
+        "asset-pipeline",
+        "화면-캡처",
+        "gif-인코딩",
+        "electron-자동화"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:scripts/responsive-check.js",
+      "type": "file",
+      "name": "responsive-check.js",
+      "filePath": "scripts/responsive-check.js",
+      "summary": "360px부터 desktop까지 여러 viewport에서 navigation, modal·drawer, workflow card·connection 배치와 overflow 계약을 실제 Electron renderer에서 검사한다.",
+      "tags": [
+        "반응형-테스트",
+        "ui-통합-검증",
+        "layout-계측",
+        "viewport-matrix",
+        "overflow-검증"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/responsive-check.js:openView",
+      "type": "function",
+      "name": "openView",
+      "filePath": "scripts/responsive-check.js",
+      "lineRange": [
+        46,
+        63
+      ],
+      "summary": "renderer navigation 버튼을 클릭하고 목표 view가 active가 될 때까지 polling한다.",
+      "tags": [
+        "ui-자동화",
+        "view-전환",
+        "polling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/responsive-check.js:layoutMetrics",
+      "type": "function",
+      "name": "layoutMetrics",
+      "filePath": "scripts/responsive-check.js",
+      "lineRange": [
+        65,
+        93
+      ],
+      "summary": "document·stage·section overflow, sidebar 위치와 navigation item viewport 포함 여부를 renderer에서 측정한다.",
+      "tags": [
+        "layout-계측",
+        "overflow-탐지",
+        "viewport-검증"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/responsive-check.js:overlayMetrics",
+      "type": "function",
+      "name": "overlayMetrics",
+      "filePath": "scripts/responsive-check.js",
+      "lineRange": [
+        101,
+        174
+      ],
+      "summary": "run modal과 detail drawer를 열어 viewport 포함, 내부 overflow, provider card·action 위치와 mobile 입력 순서를 정밀 계측한다.",
+      "tags": [
+        "overlay-검증",
+        "modal-계측",
+        "drawer-계측",
+        "반응형-ui"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/responsive-check.js:setupWorkflowFixture",
+      "type": "function",
+      "name": "setupWorkflowFixture",
+      "filePath": "scripts/responsive-check.js",
+      "lineRange": [
+        176,
+        228
+      ],
+      "summary": "긴 제목·역할·assignment를 가진 parent와 child session fixture를 주입해 좁은 workflow card의 truncation과 연결선을 시험한다.",
+      "tags": [
+        "workflow-fixture",
+        "긴-텍스트-검증",
+        "subagent-ui",
+        "renderer-주입"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/responsive-check.js:workflowMetrics",
+      "type": "function",
+      "name": "workflowMetrics",
+      "filePath": "scripts/responsive-check.js",
+      "lineRange": [
+        230,
+        302
+      ],
+      "summary": "workflow column 순서, SVG path 교차, card clipping·ellipsis와 compact/hybrid 배치 조건을 DOM geometry로 평가한다.",
+      "tags": [
+        "workflow-계측",
+        "svg-연결선",
+        "ellipsis-검증",
+        "layout-회귀"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:scripts/visual-check.js",
+      "type": "file",
+      "name": "visual-check.js",
+      "filePath": "scripts/visual-check.js",
+      "summary": "실제 Electron 화면에서 tmux·terminal·session detail·subagent communication·workflow compact 상태를 구성하고 검증된 screenshot artifact를 수집하는 시각 회귀 harness다.",
+      "tags": [
+        "시각-회귀",
+        "electron-자동화",
+        "screenshot-검증",
+        "terminal-ui",
+        "workflow-ui"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:scripts/visual-check.js:captureStableState",
+      "type": "function",
+      "name": "captureStableState",
+      "filePath": "scripts/visual-check.js",
+      "lineRange": [
+        29,
+        40
+      ],
+      "summary": "setup과 verification expression을 반복 실행하고 animation을 끝낸 뒤 상태가 유지될 때만 screenshot을 반환한다.",
+      "tags": [
+        "안정화-캡처",
+        "시각-검증",
+        "animation-동기화",
+        "retry-loop"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "file:src/agentRunner.js",
+      "type": "file",
+      "name": "agentRunner.js",
+      "filePath": "src/agentRunner.js",
+      "summary": "Claude, Codex, Gemini, Grok CLI를 공식 structured output mode로 실행하고 provider별 event stream을 공통 session·message·lifecycle·usage 모델로 정규화해 디스크에 지속한다.",
+      "tags": [
+        "agent-실행",
+        "provider-어댑터",
+        "event-정규화",
+        "session-저장",
+        "token-usage"
+      ],
+      "complexity": "complex",
+      "languageNotes": "각 CLI의 서로 다른 streaming JSON event contract를 adapter 함수로 분리하고, 공통 state를 atomic JSON snapshot으로 유지한다."
+    },
+    {
+      "id": "function:src/agentRunner.js:findExecutable",
+      "type": "function",
+      "name": "findExecutable",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        18,
+        34
+      ],
+      "summary": "PATH와 platform별 실행 확장자를 검색해 provider CLI의 실제 executable 경로를 찾는다.",
+      "tags": [
+        "실행파일-탐색",
+        "path-검색",
+        "플랫폼-호환"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:probeProviders",
+      "type": "function",
+      "name": "probeProviders",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        36,
+        40
+      ],
+      "summary": "등록된 모든 AI provider의 CLI 설치 여부와 executable 경로를 조사한다.",
+      "tags": [
+        "provider-탐색",
+        "cli-가용성",
+        "환경-검사"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentRunner.js:eventText",
+      "type": "function",
+      "name": "eventText",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        50,
+        60
+      ],
+      "summary": "provider event의 중첩 문자열·배열·객체 payload에서 사람이 읽을 text를 일관되게 추출한다.",
+      "tags": [
+        "event-정규화",
+        "텍스트-추출",
+        "serialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentRunner.js:makeSession",
+      "type": "function",
+      "name": "makeSession",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        67,
+        93
+      ],
+      "summary": "새 AI run의 공통 session state를 provider, prompt, cwd, model, context window와 초기 message·lifecycle로 구성한다.",
+      "tags": [
+        "session-factory",
+        "상태-초기화",
+        "context-window",
+        "data-model"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:addMessage",
+      "type": "function",
+      "name": "addMessage",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        95,
+        116
+      ],
+      "summary": "streaming append와 ID 기반 갱신을 지원하며 session message를 크기·개수 제한 안에서 유지한다.",
+      "tags": [
+        "message-정규화",
+        "streaming-병합",
+        "상태-제한"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:addLifecycle",
+      "type": "function",
+      "name": "addLifecycle",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        118,
+        136
+      ],
+      "summary": "tool·turn·session lifecycle record를 ID로 upsert하고 detail과 history 크기를 제한한다.",
+      "tags": [
+        "lifecycle-추적",
+        "event-upsert",
+        "history-제한"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:usageFrom",
+      "type": "function",
+      "name": "usageFrom",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        138,
+        147
+      ],
+      "summary": "provider마다 다른 token usage 필드명을 공통 input·cache·output·reasoning·total 구조로 매핑한다.",
+      "tags": [
+        "token-usage",
+        "provider-정규화",
+        "metrics-변환"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentRunner.js:updateContext",
+      "type": "function",
+      "name": "updateContext",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        149,
+        158
+      ],
+      "summary": "관측 token usage와 model context window를 결합해 session의 사용량·비율·근거를 갱신한다.",
+      "tags": [
+        "context-window",
+        "token-계측",
+        "session-상태"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentRunner.js:handleClaude",
+      "type": "function",
+      "name": "handleClaude",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        160,
+        196
+      ],
+      "summary": "Claude stream-json의 init, delta, assistant block, tool use, result event를 공통 session 상태로 반영한다.",
+      "tags": [
+        "claude-어댑터",
+        "streaming-event",
+        "tool-추적",
+        "session-정규화"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:handleCodex",
+      "type": "function",
+      "name": "handleCodex",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        198,
+        231
+      ],
+      "summary": "Codex thread·turn·item event를 message, reasoning, tool lifecycle, 완료·실패 상태와 usage로 변환한다.",
+      "tags": [
+        "codex-어댑터",
+        "turn-이벤트",
+        "tool-추적",
+        "session-정규화"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:handleGemini",
+      "type": "function",
+      "name": "handleGemini",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        233,
+        261
+      ],
+      "summary": "Gemini init·message·tool·result event를 role, lifecycle, usage와 session 종료 상태로 정규화한다.",
+      "tags": [
+        "gemini-어댑터",
+        "streaming-event",
+        "tool-추적",
+        "session-정규화"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:handleGrok",
+      "type": "function",
+      "name": "handleGrok",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        263,
+        292
+      ],
+      "summary": "Grok의 다양한 event naming을 패턴으로 수용해 message·tool·usage·완료 상태를 공통 모델로 변환한다.",
+      "tags": [
+        "grok-어댑터",
+        "event-패턴",
+        "tool-추적",
+        "session-정규화"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentRunner.js:commandSpec",
+      "type": "function",
+      "name": "commandSpec",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        294,
+        318
+      ],
+      "summary": "provider별 공식 structured output flag와 model·workspace write 권한을 반영한 안전한 CLI command spec을 만든다.",
+      "tags": [
+        "명령-팩토리",
+        "provider-어댑터",
+        "권한-모드",
+        "structured-output"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/agentRunner.js:AgentRunner",
+      "type": "class",
+      "name": "AgentRunner",
+      "filePath": "src/agentRunner.js",
+      "lineRange": [
+        320,
+        457
+      ],
+      "summary": "AI CLI child process를 시작·추적·중지하고 stdout/stderr JSON line을 provider adapter에 전달해 session snapshot과 raw event log를 지속한다.",
+      "tags": [
+        "agent-runner",
+        "child-process",
+        "event-stream",
+        "session-지속성",
+        "event-emitter"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:scripts/bridge-integration-test.js",
+      "type": "file",
+      "name": "bridge-integration-test.js",
+      "filePath": "scripts/bridge-integration-test.js",
+      "summary": "격리된 discovery file과 인증 socket을 열고 실제 CLI launcher에서 TerminalManager의 가짜 Codex PTY까지 왕복 출력되는지 검증하는 Electron 통합 테스트다.",
+      "tags": [
+        "브리지-통합-테스트",
+        "인증-socket",
+        "pty-왕복",
+        "electron-테스트"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/bridge-integration-test.js:runCli",
+      "type": "function",
+      "name": "runCli",
+      "filePath": "scripts/bridge-integration-test.js",
+      "lineRange": [
+        11,
+        26
+      ],
+      "summary": "Electron binary를 Node mode의 `loadtoagent run codex`로 실행하고 종료 코드와 stdout·stderr를 수집한다.",
+      "tags": [
+        "cli-실행",
+        "하위-프로세스",
+        "통합-검증"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/terminal-integration-test.js",
+      "type": "file",
+      "name": "terminal-integration-test.js",
+      "filePath": "scripts/terminal-integration-test.js",
+      "summary": "플랫폼에 맞는 실제 Electron PTY/ConPTY를 생성해 command 입력, marker 출력 수신과 session 종료를 검증하는 최소 통합 테스트다.",
+      "tags": [
+        "터미널-통합-테스트",
+        "pty-검증",
+        "conpty-검증",
+        "입출력-왕복"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:src/bridgeServer.js",
+      "type": "file",
+      "name": "bridgeServer.js",
+      "filePath": "src/bridgeServer.js",
+      "summary": "per-user token으로 보호된 named pipe 또는 Unix socket을 열어 외부 `loadtoagent run` CLI와 LoadToAgent-owned agent PTY 사이의 input·output·resize·signal을 중계한다.",
+      "tags": [
+        "로컬-브리지",
+        "인증-socket",
+        "terminal-중계",
+        "ndjson-프로토콜",
+        "보안-경계"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "newline-delimited JSON frame과 base64 payload를 사용하며 인증 전에는 `run` frame 하나만 허용한다."
+    },
+    {
+      "id": "function:src/bridgeServer.js:bridgeDirectory",
+      "type": "function",
+      "name": "bridgeDirectory",
+      "filePath": "src/bridgeServer.js",
+      "lineRange": [
+        13,
+        15
+      ],
+      "summary": "사용자 홈 아래의 LoadToAgent bridge metadata directory 경로를 반환한다.",
+      "tags": [
+        "경로-구성",
+        "브리지-메타데이터",
+        "사용자-홈"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/bridgeServer.js:discoveryFile",
+      "type": "function",
+      "name": "discoveryFile",
+      "filePath": "src/bridgeServer.js",
+      "lineRange": [
+        17,
+        19
+      ],
+      "summary": "CLI가 endpoint와 token을 찾는 bridge discovery JSON 경로를 계산한다.",
+      "tags": [
+        "브리지-탐색",
+        "경로-구성",
+        "연결-메타데이터"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/bridgeServer.js:endpointFor",
+      "type": "function",
+      "name": "endpointFor",
+      "filePath": "src/bridgeServer.js",
+      "lineRange": [
+        21,
+        25
+      ],
+      "summary": "사용자 홈과 random nonce를 hash해 Windows named pipe 또는 Unix domain socket endpoint를 생성한다.",
+      "tags": [
+        "socket-endpoint",
+        "named-pipe",
+        "unix-socket",
+        "충돌-방지"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/bridgeServer.js:safeWriteJson",
+      "type": "function",
+      "name": "safeWriteJson",
+      "filePath": "src/bridgeServer.js",
+      "lineRange": [
+        27,
+        34
+      ],
+      "summary": "제한된 permission의 임시 파일을 rename해 bridge discovery JSON을 원자적으로 저장한다.",
+      "tags": [
+        "원자적-쓰기",
+        "파일-permission",
+        "인증-정보",
+        "보안-저장"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/bridgeServer.js:BridgeServer",
+      "type": "class",
+      "name": "BridgeServer",
+      "filePath": "src/bridgeServer.js",
+      "lineRange": [
+        46,
+        199
+      ],
+      "summary": "local socket server와 client 인증 상태를 관리하며 bridge message를 TerminalManager 동작으로 변환하고 PTY data·state를 연결된 CLI에 전달한다.",
+      "tags": [
+        "bridge-server",
+        "client-인증",
+        "terminal-중계",
+        "socket-수명주기",
+        "event-라우팅"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/terminalManager.js",
+      "type": "file",
+      "name": "terminalManager.js",
+      "filePath": "src/terminalManager.js",
+      "summary": "PowerShell, cmd, shell, WSL, tmux, AI provider CLI를 node-pty로 실행하고 session replay·resize·signal·restart·종료를 통합 관리한다.",
+      "tags": [
+        "pty-관리",
+        "터미널-서비스",
+        "wsl-지원",
+        "agent-terminal",
+        "session-수명주기"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Windows에서는 executable 형식에 따라 PowerShell, cmd wrapper 또는 직접 실행을 선택하고 ConPTY process tree 종료를 별도 처리한다."
+    },
+    {
+      "id": "function:src/terminalManager.js:shellQuote",
+      "type": "function",
+      "name": "shellQuote",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        25,
+        27
+      ],
+      "summary": "POSIX shell 인자를 single-quote 경계에 안전하게 포함하도록 escape한다.",
+      "tags": [
+        "shell-quoting",
+        "명령-보안",
+        "문자열-escape"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/terminalManager.js:numericDimension",
+      "type": "function",
+      "name": "numericDimension",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        29,
+        32
+      ],
+      "summary": "터미널 cols·rows 값을 정수로 변환하고 허용 범위 안으로 clamp한다.",
+      "tags": [
+        "터미널-크기",
+        "입력-정규화",
+        "범위-제한"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/terminalManager.js:resolveWindowsCommand",
+      "type": "function",
+      "name": "resolveWindowsCommand",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        54,
+        70
+      ],
+      "summary": "Windows PATH와 실행 확장자를 탐색해 AI CLI command의 실제 exe·ps1·cmd·bat 파일을 해석한다.",
+      "tags": [
+        "windows-명령",
+        "path-탐색",
+        "실행파일-해석",
+        "provider-cli"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/terminalManager.js:killPtyTree",
+      "type": "function",
+      "name": "killPtyTree",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        72,
+        91
+      ],
+      "summary": "Unix에서는 PTY handle을 직접 종료하고 Windows에서는 `taskkill /T /F`로 process tree를 끝낸 뒤 실패 시 fallback kill을 수행한다.",
+      "tags": [
+        "process-tree",
+        "pty-종료",
+        "windows-호환",
+        "자원-정리"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/terminalManager.js:normalizeLaunchOptions",
+      "type": "function",
+      "name": "normalizeLaunchOptions",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        93,
+        124
+      ],
+      "summary": "terminal type, cwd, WSL distro, tmux target, provider, args, title, dimensions를 검증해 일관된 launch option으로 만든다.",
+      "tags": [
+        "실행-옵션",
+        "입력-검증",
+        "terminal-type",
+        "provider-검증",
+        "경로-검증"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/terminalManager.js:launchSpec",
+      "type": "function",
+      "name": "launchSpec",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        126,
+        171
+      ],
+      "summary": "정규화된 type과 platform에 따라 PowerShell·cmd·login shell·AI CLI·WSL·tmux attach의 executable과 args를 구성한다.",
+      "tags": [
+        "launch-spec",
+        "플랫폼-어댑터",
+        "agent-cli",
+        "wsl-tmux",
+        "명령-팩토리"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/terminalManager.js:publicSession",
+      "type": "function",
+      "name": "publicSession",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        173,
+        197
+      ],
+      "summary": "내부 PTY handle을 제외하고 renderer·bridge가 소비할 안전한 terminal session snapshot을 만든다.",
+      "tags": [
+        "session-직렬화",
+        "공개-모델",
+        "데이터-캡슐화",
+        "replay-제어"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/terminalManager.js:TerminalManager",
+      "type": "class",
+      "name": "TerminalManager",
+      "filePath": "src/terminalManager.js",
+      "lineRange": [
+        199,
+        397
+      ],
+      "summary": "동시 terminal session을 node-pty로 생성·추적하고 bounded replay, data·state event, 입력·command·resize·signal·restart·close API를 제공한다.",
+      "tags": [
+        "terminal-manager",
+        "node-pty",
+        "session-수명주기",
+        "event-emitter",
+        "replay-buffer"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "file:src/agentMonitor.js",
+      "type": "file",
+      "name": "agentMonitor.js",
+      "filePath": "src/agentMonitor.js",
+      "summary": "Claude, Codex 및 범용 provider의 로컬 세션 기록을 읽어 공통 세션 모델로 정규화하고, 협업 계층과 사용량 요약을 구성하는 핵심 모니터다.",
+      "tags": [
+        "세션-모니터",
+        "로그-파서",
+        "협업-계층",
+        "사용량-집계"
+      ],
+      "complexity": "complex",
+      "languageNotes": "CommonJS 모듈이며 JSONL 기록을 provider별 parser로 정규화한 뒤 EventEmitter 기반 snapshot으로 발행한다."
+    },
+    {
+      "id": "file:src/monitorWorker.js",
+      "type": "file",
+      "name": "monitorWorker.js",
+      "filePath": "src/monitorWorker.js",
+      "summary": "Worker thread에서 세션 기록, tmux pane, OS process 및 외부 bridge 상태를 결합해 renderer용 경량 snapshot을 발행한다.",
+      "tags": [
+        "worker-thread",
+        "snapshot",
+        "runtime-monitoring",
+        "event-handler"
+      ],
+      "complexity": "complex",
+      "languageNotes": "메인 프로세스와 parentPort 메시지로 통신하며 fingerprint가 바뀐 snapshot만 전달한다."
+    },
+    {
+      "id": "file:src/processMonitor.js",
+      "type": "file",
+      "name": "processMonitor.js",
+      "filePath": "src/processMonitor.js",
+      "summary": "Windows와 POSIX의 실행 중 AI CLI process를 탐지하고 기록 세션·tmux·bridge와 점수 기반으로 연결해 실제 실행 상태를 보강한다.",
+      "tags": [
+        "process-monitor",
+        "runtime-presence",
+        "session-linking",
+        "cross-platform"
+      ],
+      "complexity": "complex",
+      "languageNotes": "플랫폼별 process 목록을 공통 형태로 변환한 후 시간·환경·provider 기반 점수로 세션과 매칭한다."
+    },
+    {
+      "id": "file:src/providerRegistry.js",
+      "type": "file",
+      "name": "providerRegistry.js",
+      "filePath": "src/providerRegistry.js",
+      "summary": "지원 provider의 표시 정보와 모델별 context window 규칙을 중앙화하고 token usage의 기본값 및 정규화를 제공한다.",
+      "tags": [
+        "provider-registry",
+        "context-window",
+        "usage-normalization",
+        "configuration"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentMonitor.js:asText",
+      "type": "function",
+      "name": "asText",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        30,
+        41
+      ],
+      "summary": "다양한 값과 중첩 content를 사람이 읽을 수 있는 문자열로 안전하게 변환한다.",
+      "tags": [
+        "text-normalization",
+        "serialization",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:readJsonLines",
+      "type": "function",
+      "name": "readJsonLines",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        56,
+        91
+      ],
+      "summary": "큰 JSONL 파일의 최신 구간을 제한적으로 읽고 유효한 row만 파싱하며 잘림 여부를 기록한다.",
+      "tags": [
+        "jsonl",
+        "log-reader",
+        "bounded-io"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:walkRecent",
+      "type": "function",
+      "name": "walkRecent",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        93,
+        110
+      ],
+      "summary": "provider 기록 디렉터리를 깊이 제한으로 순회해 조건에 맞는 최신 파일을 수집한다.",
+      "tags": [
+        "filesystem",
+        "discovery",
+        "history-scan"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:addMessage",
+      "type": "function",
+      "name": "addMessage",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        112,
+        127
+      ],
+      "summary": "중복을 억제하면서 세션 메시지를 정규화하고 최대 보존 개수를 적용한다.",
+      "tags": [
+        "message-normalization",
+        "deduplication",
+        "session-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:jsonObject",
+      "type": "function",
+      "name": "jsonObject",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        129,
+        138
+      ],
+      "summary": "문자열 또는 객체 입력에서 JSON object를 방어적으로 복원한다.",
+      "tags": [
+        "json",
+        "validation",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:agentEnvelope",
+      "type": "function",
+      "name": "agentEnvelope",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        149,
+        161
+      ],
+      "summary": "협업 agent payload의 envelope 구조를 해석해 핵심 메타데이터를 꺼낸다.",
+      "tags": [
+        "collaboration",
+        "payload-parser",
+        "agent-metadata"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:retainedAgentsFromValue",
+      "type": "function",
+      "name": "retainedAgentsFromValue",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        172,
+        181
+      ],
+      "summary": "협업 상태 값에서 현재 유지 중인 subagent 목록을 표준 형태로 추출한다.",
+      "tags": [
+        "collaboration",
+        "subagent",
+        "state-normalization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:addLifecycle",
+      "type": "function",
+      "name": "addLifecycle",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        188,
+        199
+      ],
+      "summary": "세션 lifecycle event를 중복 없이 추가하고 보존 한도를 적용한다.",
+      "tags": [
+        "lifecycle",
+        "event-normalization",
+        "session-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:baseSession",
+      "type": "function",
+      "name": "baseSession",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        218,
+        265
+      ],
+      "summary": "provider parser들이 공유하는 완전한 기본 세션 객체와 초기 상태를 생성한다.",
+      "tags": [
+        "factory",
+        "session-model",
+        "default-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:claudeContent",
+      "type": "function",
+      "name": "claudeContent",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        286,
+        310
+      ],
+      "summary": "Claude message content의 text와 tool event를 세션 메시지 및 lifecycle 항목으로 변환한다.",
+      "tags": [
+        "claude",
+        "content-parser",
+        "tool-events"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:claudeVisibleUserText",
+      "type": "function",
+      "name": "claudeVisibleUserText",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        312,
+        321
+      ],
+      "summary": "Claude user content에서 내부 메타데이터를 제외한 실제 사용자 텍스트를 추린다.",
+      "tags": [
+        "claude",
+        "text-filter",
+        "privacy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:parseClaude",
+      "type": "function",
+      "name": "parseClaude",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        323,
+        405
+      ],
+      "summary": "Claude JSONL 기록을 client 종류, 메시지, usage, context 및 실행 상태가 포함된 공통 세션으로 변환한다.",
+      "tags": [
+        "claude",
+        "session-parser",
+        "usage-tracking",
+        "status-inference"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentMonitor.js:codexVisibleUserText",
+      "type": "function",
+      "name": "codexVisibleUserText",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        422,
+        438
+      ],
+      "summary": "Codex 입력에서 wrapper와 내부 지시문을 제거해 화면에 표시할 사용자 요청을 얻는다.",
+      "tags": [
+        "codex",
+        "text-filter",
+        "user-message"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:addCodexMessage",
+      "type": "function",
+      "name": "addCodexMessage",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        440,
+        462
+      ],
+      "summary": "Codex 관측 message를 source 우선순위로 병합하고 중복 없이 세션에 기록한다.",
+      "tags": [
+        "codex",
+        "message-merge",
+        "deduplication"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:parseCodex",
+      "type": "function",
+      "name": "parseCodex",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        464,
+        798
+      ],
+      "summary": "Codex 세션 기록에서 대화, token usage, tool lifecycle, subagent spawn 및 communication을 복원한다.",
+      "tags": [
+        "codex",
+        "session-parser",
+        "collaboration",
+        "tool-events",
+        "usage-tracking"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/agentMonitor.js:genericUsage",
+      "type": "function",
+      "name": "genericUsage",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        800,
+        810
+      ],
+      "summary": "범용 provider의 서로 다른 usage 필드를 공통 token usage 구조로 맞춘다.",
+      "tags": [
+        "usage-normalization",
+        "token-metrics",
+        "generic-provider"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:flattenGenericRows",
+      "type": "function",
+      "name": "flattenGenericRows",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        812,
+        829
+      ],
+      "summary": "중첩된 범용 기록을 순환 참조와 깊이 제한을 고려해 평탄화한다.",
+      "tags": [
+        "tree-flattening",
+        "generic-provider",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:parseGeneric",
+      "type": "function",
+      "name": "parseGeneric",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        831,
+        911
+      ],
+      "summary": "Gemini·Grok 등 범용 provider 기록을 메시지, usage, context 및 상태를 갖춘 세션으로 해석한다.",
+      "tags": [
+        "generic-provider",
+        "session-parser",
+        "normalization",
+        "status-inference"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentMonitor.js:contextInfo",
+      "type": "function",
+      "name": "contextInfo",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        913,
+        922
+      ],
+      "summary": "사용 token과 context window 정보로 사용률과 출처를 계산한다.",
+      "tags": [
+        "context-window",
+        "token-metrics",
+        "calculation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:parseManagedSession",
+      "type": "function",
+      "name": "parseManagedSession",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        932,
+        952
+      ],
+      "summary": "LoadToAgent가 관리하는 run 디렉터리의 session metadata를 공통 모델로 읽고 마무리한다.",
+      "tags": [
+        "managed-session",
+        "metadata-parser",
+        "normalization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:isProjectlessSession",
+      "type": "function",
+      "name": "isProjectlessSession",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        960,
+        966
+      ],
+      "summary": "세션의 작업 경로와 환경 정보를 기준으로 특정 project에 속하지 않는지 판정한다.",
+      "tags": [
+        "project-detection",
+        "session-filter",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/agentMonitor.js:attachHierarchy",
+      "type": "function",
+      "name": "attachHierarchy",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        968,
+        1139
+      ],
+      "summary": "관측된 spawn과 retained agent 기록을 실제 또는 합성 child session에 연결해 협업 트리를 완성한다.",
+      "tags": [
+        "collaboration",
+        "hierarchy",
+        "subagent-linking",
+        "state-reconciliation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/agentMonitor.js:buildSummary",
+      "type": "function",
+      "name": "buildSummary",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        1141,
+        1166
+      ],
+      "summary": "provider별 설치 여부, 세션 상태, subagent 수와 usage를 dashboard summary로 집계한다.",
+      "tags": [
+        "aggregation",
+        "dashboard-summary",
+        "provider-status"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "class:src/agentMonitor.js:AgentMonitor",
+      "type": "class",
+      "name": "AgentMonitor",
+      "filePath": "src/agentMonitor.js",
+      "lineRange": [
+        1168,
+        1318
+      ],
+      "summary": "여러 provider의 최근 기록을 주기적으로 탐색·파싱하고 중복 제거된 snapshot event를 발행하는 모니터 서비스다.",
+      "tags": [
+        "event-emitter",
+        "monitor-service",
+        "session-discovery",
+        "snapshot"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:src/monitorWorker.js:cardMessage",
+      "type": "function",
+      "name": "cardMessage",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        49,
+        59
+      ],
+      "summary": "전체 세션 메시지를 dashboard card에 필요한 축약 필드로 변환한다.",
+      "tags": [
+        "view-model",
+        "message-card",
+        "serialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/monitorWorker.js:cardLifecycle",
+      "type": "function",
+      "name": "cardLifecycle",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        61,
+        70
+      ],
+      "summary": "lifecycle event를 card 표시용 간결한 상태 객체로 축약한다.",
+      "tags": [
+        "view-model",
+        "lifecycle",
+        "serialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/monitorWorker.js:selectCardMessages",
+      "type": "function",
+      "name": "selectCardMessages",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        72,
+        84
+      ],
+      "summary": "최근 대화와 중요한 event를 우선해 card에 표시할 메시지 집합을 선택한다.",
+      "tags": [
+        "message-selection",
+        "dashboard-card",
+        "filtering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/monitorWorker.js:cardCollaboration",
+      "type": "function",
+      "name": "cardCollaboration",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        86,
+        127
+      ],
+      "summary": "협업 spawn, communication 및 retained agent 정보를 card용 구조로 줄인다.",
+      "tags": [
+        "collaboration",
+        "view-model",
+        "subagent"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/monitorWorker.js:cardSession",
+      "type": "function",
+      "name": "cardSession",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        129,
+        182
+      ],
+      "summary": "전체 session을 renderer가 빠르게 그릴 수 있는 dashboard card payload로 직렬화한다.",
+      "tags": [
+        "session-card",
+        "view-model",
+        "serialization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/monitorWorker.js:fingerprint",
+      "type": "function",
+      "name": "fingerprint",
+      "filePath": "src/monitorWorker.js",
+      "lineRange": [
+        184,
+        214
+      ],
+      "summary": "snapshot과 tmux 핵심 상태를 안정적인 문자열로 만들어 불필요한 재발행을 막는다.",
+      "tags": [
+        "change-detection",
+        "fingerprint",
+        "optimization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:parseCsvRows",
+      "type": "function",
+      "name": "parseCsvRows",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        9,
+        45
+      ],
+      "summary": "WMIC CSV 출력의 quoting과 줄바꿈을 처리해 process row 배열로 파싱한다.",
+      "tags": [
+        "csv-parser",
+        "windows",
+        "process-data"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:wmiDateToIso",
+      "type": "function",
+      "name": "wmiDateToIso",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        47,
+        56
+      ],
+      "summary": "WMI datetime 문자열을 timezone이 반영된 ISO timestamp로 변환한다.",
+      "tags": [
+        "wmi",
+        "date-normalization",
+        "windows"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:providerFromWindowsProcess",
+      "type": "function",
+      "name": "providerFromWindowsProcess",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        58,
+        79
+      ],
+      "summary": "Windows process 이름과 command line에서 Claude, Codex, Gemini, Grok provider를 판별한다.",
+      "tags": [
+        "provider-detection",
+        "windows",
+        "process-classification"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:providerFromPosixProcess",
+      "type": "function",
+      "name": "providerFromPosixProcess",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        81,
+        94
+      ],
+      "summary": "POSIX process command에서 지원 AI CLI provider를 판별한다.",
+      "tags": [
+        "provider-detection",
+        "posix",
+        "process-classification"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:elapsedSeconds",
+      "type": "function",
+      "name": "elapsedSeconds",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        96,
+        101
+      ],
+      "summary": "POSIX elapsed-time 표기를 초 단위 값으로 해석한다.",
+      "tags": [
+        "time-parser",
+        "posix",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:posixProcessRows",
+      "type": "function",
+      "name": "posixProcessRows",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        103,
+        116
+      ],
+      "summary": "ps 출력 row를 PID, parent, command 및 시작 시각을 가진 공통 process 형태로 변환한다.",
+      "tags": [
+        "process-parser",
+        "posix",
+        "normalization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:processRows",
+      "type": "function",
+      "name": "processRows",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        118,
+        126
+      ],
+      "summary": "WMIC row를 실행 파일, PID, parent PID, command line 및 시작 시각으로 정규화한다.",
+      "tags": [
+        "process-parser",
+        "windows",
+        "normalization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:selectAgentProcesses",
+      "type": "function",
+      "name": "selectAgentProcesses",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        128,
+        160
+      ],
+      "summary": "동일 provider의 자식 process를 제거해 실제 최상위 AI CLI process만 선택한다.",
+      "tags": [
+        "process-filter",
+        "provider-detection",
+        "deduplication"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:runtimeLinkScore",
+      "type": "function",
+      "name": "runtimeLinkScore",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        166,
+        184
+      ],
+      "summary": "provider, 환경, 최근 상태와 시작 시각 차이로 기록 세션과 process의 연결 점수를 계산한다.",
+      "tags": [
+        "session-linking",
+        "scoring",
+        "runtime-presence"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:markRuntime",
+      "type": "function",
+      "name": "markRuntime",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        186,
+        198
+      ],
+      "summary": "연결된 process, tmux 또는 bridge presence를 세션에 붙이고 실행 중 상태로 갱신한다.",
+      "tags": [
+        "runtime-presence",
+        "state-update",
+        "session-linking"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:syntheticRuntimeSession",
+      "type": "function",
+      "name": "syntheticRuntimeSession",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        200,
+        237
+      ],
+      "summary": "연결할 기록이 없는 실행 중 AI CLI를 dashboard에 노출할 합성 세션으로 만든다.",
+      "tags": [
+        "synthetic-session",
+        "runtime-process",
+        "fallback"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:bridgeLinkScore",
+      "type": "function",
+      "name": "bridgeLinkScore",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        239,
+        255
+      ],
+      "summary": "provider, 환경, cwd 및 시작 시각으로 외부 terminal bridge와 기록 세션의 연결 점수를 계산한다.",
+      "tags": [
+        "bridge",
+        "session-linking",
+        "scoring"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:syntheticBridgeSession",
+      "type": "function",
+      "name": "syntheticBridgeSession",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        257,
+        270
+      ],
+      "summary": "기록 세션과 연결되지 않은 외부 terminal bridge를 별도 합성 세션으로 표현한다.",
+      "tags": [
+        "bridge",
+        "synthetic-session",
+        "fallback"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/processMonitor.js:applyRuntimePresence",
+      "type": "function",
+      "name": "applyRuntimePresence",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        272,
+        343
+      ],
+      "summary": "bridge, tmux 및 OS process를 우선순위와 점수에 따라 세션에 매칭하고 미연결 항목은 합성 세션으로 추가한다.",
+      "tags": [
+        "runtime-presence",
+        "session-linking",
+        "state-reconciliation",
+        "sorting"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "class:src/processMonitor.js:ProcessMonitor",
+      "type": "class",
+      "name": "ProcessMonitor",
+      "filePath": "src/processMonitor.js",
+      "lineRange": [
+        345,
+        375
+      ],
+      "summary": "플랫폼별 process command를 주기적으로 실행하고 TTL cache가 적용된 AI process snapshot을 제공한다.",
+      "tags": [
+        "process-monitor",
+        "cross-platform",
+        "cache",
+        "service"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:src/providerRegistry.js:providerList",
+      "type": "function",
+      "name": "providerList",
+      "filePath": "src/providerRegistry.js",
+      "lineRange": [
+        46,
+        48
+      ],
+      "summary": "등록된 provider metadata를 안전한 배열 형태로 반환한다.",
+      "tags": [
+        "provider-registry",
+        "metadata",
+        "utility"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/providerRegistry.js:normalizeProvider",
+      "type": "function",
+      "name": "normalizeProvider",
+      "filePath": "src/providerRegistry.js",
+      "lineRange": [
+        50,
+        57
+      ],
+      "summary": "provider 별칭과 입력 값을 지원되는 canonical provider ID로 정규화한다.",
+      "tags": [
+        "provider-registry",
+        "normalization",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "function",
+      "name": "modelContextWindow",
+      "filePath": "src/providerRegistry.js",
+      "lineRange": [
+        59,
+        90
+      ],
+      "summary": "provider와 model 이름 또는 관측값을 바탕으로 context window 크기와 근거를 결정한다.",
+      "tags": [
+        "context-window",
+        "model-detection",
+        "provider-registry"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/providerRegistry.js:blankUsage",
+      "type": "function",
+      "name": "blankUsage",
+      "filePath": "src/providerRegistry.js",
+      "lineRange": [
+        92,
+        101
+      ],
+      "summary": "모든 token counter가 0인 공통 usage 객체를 생성한다.",
+      "tags": [
+        "factory",
+        "token-usage",
+        "default-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:src/providerRegistry.js:finalizeUsage",
+      "type": "function",
+      "name": "finalizeUsage",
+      "filePath": "src/providerRegistry.js",
+      "lineRange": [
+        103,
+        111
+      ],
+      "summary": "부분 usage 입력을 숫자로 보정하고 총 token 값을 계산한 완전한 구조로 마무리한다.",
+      "tags": [
+        "usage-normalization",
+        "token-metrics",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "pipeline:.github/workflows/desktop-ci.yml",
+      "type": "pipeline",
+      "name": "desktop-ci.yml",
+      "filePath": ".github/workflows/desktop-ci.yml",
+      "summary": "main/master push와 pull request에서 Windows·macOS 테스트, terminal/bridge/tmux 통합 검증, Electron package 및 macOS artifact 생성을 수행한다.",
+      "tags": [
+        "ci-cd",
+        "desktop-testing",
+        "electron-build",
+        "cross-platform"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "GitHub Actions matrix로 Windows와 macOS를 검증하고 Intel macOS runner에서 x64·arm64 artifact를 함께 생성한다."
+    },
+    {
+      "id": "pipeline:.github/workflows/release.yml",
+      "type": "pipeline",
+      "name": "release.yml",
+      "filePath": ".github/workflows/release.yml",
+      "summary": "v* tag를 기준으로 npm version을 검증·게시하고 Windows/macOS desktop artifact를 병렬 빌드한 뒤 GitHub Release에 첨부한다.",
+      "tags": [
+        "ci-cd",
+        "release",
+        "npm-publish",
+        "desktop-artifacts",
+        "deployment"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "npm provenance용 OIDC 권한과 중복 publish 회피, 다중 OS artifact 병합을 하나의 release pipeline으로 구성한다."
+    },
+    {
+      "id": "document:README.ko.md",
+      "type": "document",
+      "name": "README.ko.md",
+      "filePath": "README.ko.md",
+      "summary": "LoadToAgent의 설치, 첫 10분 사용법, session dashboard, 연결 terminal, local-first 보안, 개발 및 release 절차를 설명하는 한국어 안내서다.",
+      "tags": [
+        "documentation",
+        "korean",
+        "getting-started",
+        "local-first"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:README.md",
+      "type": "document",
+      "name": "README.md",
+      "filePath": "README.md",
+      "summary": "LoadToAgent의 설치부터 dashboard 사용, terminal 연결, local-first 보안, 개발 및 지원 session source까지 다루는 기본 영어 안내서다.",
+      "tags": [
+        "documentation",
+        "english",
+        "getting-started",
+        "project-overview"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "document:README.zh-CN.md",
+      "type": "document",
+      "name": "README.zh-CN.md",
+      "filePath": "README.zh-CN.md",
+      "summary": "LoadToAgent의 설치, dashboard 기능, terminal 연결, local-first 보안, 개발 및 release 정보를 제공하는 중국어 간체 안내서다.",
+      "tags": [
+        "documentation",
+        "simplified-chinese",
+        "getting-started",
+        "local-first"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "config:package.json",
+      "type": "config",
+      "name": "package.json",
+      "filePath": "package.json",
+      "summary": "Electron desktop app과 npm CLI package의 entry point, test/build/release script, runtime dependency 및 electron-builder 배포 target을 정의한다.",
+      "tags": [
+        "configuration",
+        "npm",
+        "electron",
+        "build-system",
+        "packaging"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "peerDependency로 Electron을 노출하면서 electron-builder 설정으로 Windows portable/NSIS와 macOS DMG/ZIP을 함께 패키징한다."
+    },
+    {
+      "id": "file:.understand-anything/.understandignore",
+      "type": "file",
+      "name": ".understandignore",
+      "filePath": ".understand-anything/.understandignore",
+      "summary": "Understand Anything 분석에서 생성물과 의존성 디렉터리를 제외하되, whole-program 감사에 필요한 테스트와 스크립트는 포함하도록 안내하는 ignore 파일입니다.",
+      "tags": [
+        "configuration",
+        "analysis-scope",
+        "ignore-patterns"
+      ],
+      "complexity": "simple",
+      "languageNotes": "gitignore 호환 glob 문법을 설명하는 주석으로만 구성됩니다."
+    },
+    {
+      "id": "config:.understand-anything/config.json",
+      "type": "config",
+      "name": "config.json",
+      "filePath": ".understand-anything/config.json",
+      "summary": "Understand Anything 산출물의 자연어를 한국어로 생성하도록 지정하는 최소 구성 파일입니다.",
+      "tags": [
+        "configuration",
+        "localization",
+        "knowledge-graph"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "document:docs/PROVIDER-CONTRACTS.md",
+      "type": "document",
+      "name": "PROVIDER-CONTRACTS.md",
+      "filePath": "docs/PROVIDER-CONTRACTS.md",
+      "summary": "Claude, Codex, Gemini, Grok의 이벤트·토큰·컨텍스트 정보를 공통 세션 단계로 정규화하는 계약과 WSL/tmux 및 Windows 프로세스 연결 우선순위를 설명합니다.",
+      "tags": [
+        "documentation",
+        "provider-contract",
+        "event-normalization",
+        "runtime-detection"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "제공사별 stream JSON과 로컬 transcript 형식을 하나의 상태 모델로 대응시킵니다."
+    },
+    {
+      "id": "file:preload.js",
+      "type": "file",
+      "name": "preload.js",
+      "filePath": "preload.js",
+      "summary": "Electron renderer가 앱 상태, AI 세션, workspace, terminal, tmux, 업데이트 기능을 안전하게 호출하도록 contextBridge 기반 IPC API를 노출합니다.",
+      "tags": [
+        "electron",
+        "ipc-bridge",
+        "preload",
+        "api-surface"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "contextIsolation 경계에서 invoke/send와 이벤트 구독 해제 함수를 단일 window.loadtoagent API로 캡슐화합니다."
+    },
+    {
+      "id": "file:renderer/app.js",
+      "type": "file",
+      "name": "app.js",
+      "filePath": "renderer/app.js",
+      "summary": "Electron dashboard의 전체 UI 상태와 렌더링을 관리하며 AI 세션 필터링, 협업 workflow graph, tmux 현황, drawer, 새 작업 실행 및 사용자 상호작용을 조율합니다.",
+      "tags": [
+        "renderer",
+        "dashboard",
+        "state-management",
+        "event-handler",
+        "workflow-visualization"
+      ],
+      "complexity": "complex",
+      "languageNotes": "프레임워크 없이 DOM template, 전역 state, delegated event listener를 결합한 대형 단일 renderer 모듈입니다."
+    },
+    {
+      "id": "function:renderer/app.js:captureMotionLayout",
+      "type": "function",
+      "name": "captureMotionLayout",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        61,
+        73
+      ],
+      "summary": "화면 전환 애니메이션 전에 주요 DOM 요소의 위치와 크기를 캡처해 FLIP 비교 기준을 만듭니다.",
+      "tags": [
+        "animation",
+        "layout-measurement",
+        "renderer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:playMotionLayout",
+      "type": "function",
+      "name": "playMotionLayout",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        84,
+        125
+      ],
+      "summary": "이전과 현재 layout 차이를 계산해 이동·크기 변화가 자연스럽게 이어지는 FLIP 애니메이션을 실행합니다.",
+      "tags": [
+        "animation",
+        "flip-layout",
+        "dom-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:loadGuideState",
+      "type": "function",
+      "name": "loadGuideState",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        197,
+        206
+      ],
+      "summary": "localStorage에서 초보자 가이드의 완료 단계와 표시 상태를 복원합니다.",
+      "tags": [
+        "state-persistence",
+        "onboarding",
+        "local-storage"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderGuide",
+      "type": "function",
+      "name": "renderGuide",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        214,
+        231
+      ],
+      "summary": "초보자 가이드의 진행 단계, 완료 표시, 접힘 상태를 현재 state에 맞춰 DOM에 반영합니다.",
+      "tags": [
+        "onboarding",
+        "ui-rendering",
+        "state-sync"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:syncViewChrome",
+      "type": "function",
+      "name": "syncViewChrome",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        240,
+        257
+      ],
+      "summary": "선택된 dashboard view에 따라 navigation, 제목, 설명, 모바일 도구 표시를 일관되게 동기화합니다.",
+      "tags": [
+        "navigation",
+        "ui-state",
+        "responsive-ui"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:selectView",
+      "type": "function",
+      "name": "selectView",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        259,
+        269
+      ],
+      "summary": "사용자가 요청한 view로 전환하고 필요 시 terminal 모듈을 활성화한 뒤 dashboard를 다시 렌더링합니다.",
+      "tags": [
+        "navigation",
+        "view-controller",
+        "event-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:trapDialogFocus",
+      "type": "function",
+      "name": "trapDialogFocus",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        283,
+        298
+      ],
+      "summary": "열린 dialog 안에서 Tab 순환을 제한해 키보드 focus가 modal 밖으로 빠져나가지 않게 합니다.",
+      "tags": [
+        "accessibility",
+        "focus-management",
+        "dialog"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:jsonValueHtml",
+      "type": "function",
+      "name": "jsonValueHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        326,
+        338
+      ],
+      "summary": "메모리 후보의 JSON 값을 유형별로 escape하고 읽기 쉬운 HTML 조각으로 직렬화합니다.",
+      "tags": [
+        "serialization",
+        "html-rendering",
+        "sanitization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:markdownHtml",
+      "type": "function",
+      "name": "markdownHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        348,
+        378
+      ],
+      "summary": "제한된 Markdown 문법을 안전한 heading, list, paragraph, code HTML로 변환합니다.",
+      "tags": [
+        "markdown",
+        "serialization",
+        "sanitization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:roadmapHtml",
+      "type": "function",
+      "name": "roadmapHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        380,
+        392
+      ],
+      "summary": "긴 roadmap 메시지를 핵심 미리보기와 펼칠 수 있는 상세 내용으로 구성합니다.",
+      "tags": [
+        "roadmap",
+        "progressive-disclosure",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:messageContentHtml",
+      "type": "function",
+      "name": "messageContentHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        394,
+        409
+      ],
+      "summary": "대화 메시지 역할과 내용에 맞춰 일반 Markdown, roadmap, 도구 결과 표현을 선택합니다.",
+      "tags": [
+        "conversation",
+        "message-rendering",
+        "dispatcher"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:timeAgo",
+      "type": "function",
+      "name": "timeAgo",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        423,
+        435
+      ],
+      "summary": "timestamp를 현재 locale에 맞는 상대 시간 레이블로 변환합니다.",
+      "tags": [
+        "utility",
+        "date-time",
+        "localization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:readableActivityDetail",
+      "type": "function",
+      "name": "readableActivityDetail",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        482,
+        497
+      ],
+      "summary": "원시 runtime 활동 설명을 사용자에게 이해하기 쉬운 한국어 상태 문구로 정규화합니다.",
+      "tags": [
+        "status-normalization",
+        "presentation",
+        "localization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:latestWorkCopy",
+      "type": "function",
+      "name": "latestWorkCopy",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        499,
+        512
+      ],
+      "summary": "세션의 최신 메시지와 상태를 조합해 카드에 표시할 현재 작업 요약을 선택합니다.",
+      "tags": [
+        "session-state",
+        "summary-selection",
+        "presentation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderGlobalStats",
+      "type": "function",
+      "name": "renderGlobalStats",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        563,
+        580
+      ],
+      "summary": "전체 세션 수, 실행 상태, 토큰 및 workspace 통계를 dashboard 상단 지표에 반영합니다.",
+      "tags": [
+        "metrics",
+        "dashboard",
+        "ui-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:updatePresentation",
+      "type": "function",
+      "name": "updatePresentation",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        595,
+        609
+      ],
+      "summary": "업데이트 검사·다운로드·설치 상태를 사용자용 배지와 설명 문구로 변환합니다.",
+      "tags": [
+        "auto-update",
+        "state-presentation",
+        "ui-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderUpdateSettings",
+      "type": "function",
+      "name": "renderUpdateSettings",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        611,
+        654
+      ],
+      "summary": "설치 버전, 최신 release, 진행률과 가능한 update action을 설정 화면에 렌더링합니다.",
+      "tags": [
+        "auto-update",
+        "settings",
+        "ui-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderProviderOverview",
+      "type": "function",
+      "name": "renderProviderOverview",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        656,
+        674
+      ],
+      "summary": "설치된 AI provider와 연결 상태를 요약해 dashboard provider 영역에 표시합니다.",
+      "tags": [
+        "provider-status",
+        "dashboard",
+        "ui-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:filteredSessions",
+      "type": "function",
+      "name": "filteredSessions",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        676,
+        695
+      ],
+      "summary": "선택 view, provider, workspace와 상태 조건을 적용해 표시할 세션 목록을 계산합니다.",
+      "tags": [
+        "filtering",
+        "session-state",
+        "query-logic"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:graphNode",
+      "type": "function",
+      "name": "graphNode",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        706,
+        737
+      ],
+      "summary": "AI 세션을 provider, 상태, 역할, 토큰 정보를 포함하는 workflow graph 카드 HTML로 변환합니다.",
+      "tags": [
+        "workflow-visualization",
+        "session-card",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:graphPath",
+      "type": "function",
+      "name": "graphPath",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        739,
+        749
+      ],
+      "summary": "현재 세션에서 부모를 따라 올라가 협업 graph의 breadcrumb 경로를 구성합니다.",
+      "tags": [
+        "graph-traversal",
+        "breadcrumb",
+        "session-hierarchy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:connectedGraphSessions",
+      "type": "function",
+      "name": "connectedGraphSessions",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        751,
+        786
+      ],
+      "summary": "parent/child 관계와 협업 통신을 따라 연결된 세션 집합을 찾아 workflow graph model을 만듭니다.",
+      "tags": [
+        "graph-traversal",
+        "collaboration",
+        "session-hierarchy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:agentExecutionMode",
+      "type": "function",
+      "name": "agentExecutionMode",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        800,
+        809
+      ],
+      "summary": "runtime presence를 검사해 agent가 standard terminal 또는 tmux 중 어디서 실행되는지 판별합니다.",
+      "tags": [
+        "runtime-detection",
+        "execution-mode",
+        "session-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:graphDescendantCount",
+      "type": "function",
+      "name": "graphDescendantCount",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        816,
+        826
+      ],
+      "summary": "workflow model에서 특정 세션 아래의 모든 descendant agent 수를 순회 계산합니다.",
+      "tags": [
+        "graph-traversal",
+        "metrics",
+        "session-hierarchy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:compactGraphNode",
+      "type": "function",
+      "name": "compactGraphNode",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        828,
+        870
+      ],
+      "summary": "협업 graph overview에 맞춰 세션의 상태, provider, 실행 방식과 하위 수를 압축 카드로 렌더링합니다.",
+      "tags": [
+        "workflow-visualization",
+        "compact-view",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:providerFlowLane",
+      "type": "function",
+      "name": "providerFlowLane",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        872,
+        884
+      ],
+      "summary": "provider별 root 세션을 하나의 workflow lane으로 묶어 overview용 HTML을 생성합니다.",
+      "tags": [
+        "provider-grouping",
+        "workflow-visualization",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:liveTmuxEntries",
+      "type": "function",
+      "name": "liveTmuxEntries",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        891,
+        906
+      ],
+      "summary": "snapshot의 WSL/tmux tree에서 살아 있는 pane과 연결된 AI 정보를 평탄한 목록으로 수집합니다.",
+      "tags": [
+        "tmux",
+        "runtime-discovery",
+        "data-flattening"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:liveTmuxPaneCard",
+      "type": "function",
+      "name": "liveTmuxPaneCard",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        908,
+        924
+      ],
+      "summary": "실행 중인 tmux pane의 배포판, 명령, 작업 폴더와 연결 agent를 카드로 표시합니다.",
+      "tags": [
+        "tmux",
+        "runtime-card",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:runtimeSeparatedOverview",
+      "type": "function",
+      "name": "runtimeSeparatedOverview",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        926,
+        953
+      ],
+      "summary": "standard session과 tmux runtime을 분리해 각각의 실행 현황을 비교 가능한 overview로 구성합니다.",
+      "tags": [
+        "runtime-overview",
+        "tmux",
+        "workflow-visualization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:workflowMetrics",
+      "type": "function",
+      "name": "workflowMetrics",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        955,
+        966
+      ],
+      "summary": "선택 세션과 child 목록에서 실행·완료·주의 상태별 협업 지표를 집계합니다.",
+      "tags": [
+        "collaboration",
+        "metrics",
+        "aggregation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:workflowChildrenSummary",
+      "type": "function",
+      "name": "workflowChildrenSummary",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        968,
+        990
+      ],
+      "summary": "선택 agent의 child 작업 상태를 요약하고 완료 항목 disclosure를 포함한 HTML을 생성합니다.",
+      "tags": [
+        "collaboration",
+        "child-agents",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:communicationEndpoint",
+      "type": "function",
+      "name": "communicationEndpoint",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1013,
+        1022
+      ],
+      "summary": "통신 이벤트의 sender/receiver 식별자를 session model의 표시 가능한 agent endpoint로 해석합니다.",
+      "tags": [
+        "collaboration",
+        "event-normalization",
+        "identity-resolution"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:workflowCommunicationPanel",
+      "type": "function",
+      "name": "workflowCommunicationPanel",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1024,
+        1045
+      ],
+      "summary": "부모와 하위 agent 사이의 assignment, follow-up, result 이벤트를 시간순 통신 패널로 렌더링합니다.",
+      "tags": [
+        "collaboration",
+        "event-stream",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:agentCommandComposer",
+      "type": "function",
+      "name": "agentCommandComposer",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1079,
+        1119
+      ],
+      "summary": "선택 agent의 실행 target과 resume 가능 여부에 맞춰 후속 명령 입력 UI를 구성합니다.",
+      "tags": [
+        "agent-control",
+        "command-dispatch",
+        "form-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:focusedGraph",
+      "type": "function",
+      "name": "focusedGraph",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1121,
+        1147
+      ],
+      "summary": "선택 세션을 중심으로 upstream, current, downstream 관계와 통신 정보를 집중 graph view로 배치합니다.",
+      "tags": [
+        "workflow-visualization",
+        "focus-view",
+        "session-hierarchy"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:drawAgentWorkflowConnections",
+      "type": "function",
+      "name": "drawAgentWorkflowConnections",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1166,
+        1182
+      ],
+      "summary": "workflow node의 실제 DOM 좌표를 읽어 parent-child 관계를 잇는 SVG curve를 그립니다.",
+      "tags": [
+        "svg",
+        "workflow-visualization",
+        "layout-measurement"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderAgentMap",
+      "type": "function",
+      "name": "renderAgentMap",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1189,
+        1221
+      ],
+      "summary": "세션 관계를 overview 또는 focused workflow graph로 렌더링하고 연결선 갱신을 예약합니다.",
+      "tags": [
+        "workflow-visualization",
+        "graph-rendering",
+        "orchestration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:tmuxEntities",
+      "type": "function",
+      "name": "tmuxEntities",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1223,
+        1239
+      ],
+      "summary": "중첩된 distro/session/window/pane snapshot을 탐색 가능한 tmux entity index로 변환합니다.",
+      "tags": [
+        "tmux",
+        "data-indexing",
+        "tree-model"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:tmuxFocusPath",
+      "type": "function",
+      "name": "tmuxFocusPath",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1241,
+        1258
+      ],
+      "summary": "현재 선택한 tmux entity에서 배포판까지 이어지는 breadcrumb 경로를 계산합니다.",
+      "tags": [
+        "tmux",
+        "breadcrumb",
+        "tree-navigation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:tmuxPaneCard",
+      "type": "function",
+      "name": "tmuxPaneCard",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1260,
+        1277
+      ],
+      "summary": "tmux pane의 프로세스, cwd, agent 연결과 상태를 조작 가능한 카드로 렌더링합니다.",
+      "tags": [
+        "tmux",
+        "resource-card",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:filteredTmuxDistros",
+      "type": "function",
+      "name": "filteredTmuxDistros",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1287,
+        1314
+      ],
+      "summary": "선택한 tmux focus와 검색 조건에 맞춰 distro tree를 필요한 session/window/pane만 남기도록 필터링합니다.",
+      "tags": [
+        "tmux",
+        "tree-filtering",
+        "query-logic"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderTmuxMap",
+      "type": "function",
+      "name": "renderTmuxMap",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1316,
+        1330
+      ],
+      "summary": "tmux snapshot과 focus state를 배포판·세션·창·pane 계층 map으로 표시합니다.",
+      "tags": [
+        "tmux",
+        "tree-rendering",
+        "dashboard"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:recentConversation",
+      "type": "function",
+      "name": "recentConversation",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1332,
+        1343
+      ],
+      "summary": "세션 메시지에서 사용자와 assistant의 최근 대화 미리보기를 추립니다.",
+      "tags": [
+        "conversation",
+        "preview",
+        "data-selection"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:sessionCard",
+      "type": "function",
+      "name": "sessionCard",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1345,
+        1391
+      ],
+      "summary": "provider, 현재 활동, 토큰, runtime, 최근 대화를 포함한 dashboard 세션 카드를 생성합니다.",
+      "tags": [
+        "session-card",
+        "dashboard",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderSessions",
+      "type": "function",
+      "name": "renderSessions",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1393,
+        1458
+      ],
+      "summary": "필터 결과를 상태별 section과 빈 상태로 구성하고 세션 카드 및 agent map을 화면에 갱신합니다.",
+      "tags": [
+        "session-list",
+        "dashboard",
+        "ui-rendering"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:renderer/app.js:render",
+      "type": "function",
+      "name": "render",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1460,
+        1470
+      ],
+      "summary": "provider, workspace, 통계, update, session 등 dashboard의 모든 주요 영역을 한 번에 다시 그립니다.",
+      "tags": [
+        "renderer",
+        "orchestration",
+        "state-sync"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:resumeAgentTerminal",
+      "type": "function",
+      "name": "resumeAgentTerminal",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1489,
+        1509
+      ],
+      "summary": "종료된 agent 세션의 provider별 resume 인자를 구성해 terminal view에서 작업을 이어갑니다.",
+      "tags": [
+        "agent-control",
+        "session-resume",
+        "terminal"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:dispatchAgentCommand",
+      "type": "function",
+      "name": "dispatchAgentCommand",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1511,
+        1554
+      ],
+      "summary": "선택한 terminal 또는 tmux target으로 후속 agent 명령을 전송하고 성공·실패 상태를 UI에 반영합니다.",
+      "tags": [
+        "agent-control",
+        "command-dispatch",
+        "event-handler"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:openAgentTerminal",
+      "type": "function",
+      "name": "openAgentTerminal",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1556,
+        1568
+      ],
+      "summary": "세션의 실행 target을 선택하고 해당 agent에 연결된 terminal 화면을 엽니다.",
+      "tags": [
+        "agent-control",
+        "terminal",
+        "navigation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:copyBridgeCommand",
+      "type": "function",
+      "name": "copyBridgeCommand",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1570,
+        1580
+      ],
+      "summary": "provider 연결에 필요한 bridge command를 조회해 clipboard에 복사하고 안내 toast를 표시합니다.",
+      "tags": [
+        "clipboard",
+        "provider-bridge",
+        "user-action"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:openSessionOrigin",
+      "type": "function",
+      "name": "openSessionOrigin",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1582,
+        1593
+      ],
+      "summary": "선택 세션이 생성된 파일이나 외부 앱 위치를 Electron main process를 통해 엽니다.",
+      "tags": [
+        "session-origin",
+        "external-navigation",
+        "ipc-client"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:loadSessionDetail",
+      "type": "function",
+      "name": "loadSessionDetail",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1595,
+        1614
+      ],
+      "summary": "세션 상세 정보를 비동기로 조회하고 경쟁 요청을 방지하면서 drawer state를 갱신합니다.",
+      "tags": [
+        "session-detail",
+        "async-state",
+        "ipc-client"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:openDrawer",
+      "type": "function",
+      "name": "openDrawer",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1616,
+        1632
+      ],
+      "summary": "세션 상세 drawer를 열고 focus 복원 지점을 기록한 뒤 필요한 데이터를 불러옵니다.",
+      "tags": [
+        "drawer",
+        "focus-management",
+        "session-detail"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:openSubagentConversation",
+      "type": "function",
+      "name": "openSubagentConversation",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1643,
+        1661
+      ],
+      "summary": "선택한 subagent의 assignment와 통신 기록만 보여주는 전용 conversation drawer를 엽니다.",
+      "tags": [
+        "subagent",
+        "conversation",
+        "drawer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:closeDrawer",
+      "type": "function",
+      "name": "closeDrawer",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1663,
+        1676
+      ],
+      "summary": "drawer 종료 애니메이션 후 상세 state를 초기화하고 이전 trigger로 focus를 돌려줍니다.",
+      "tags": [
+        "drawer",
+        "animation",
+        "focus-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:chatHtml",
+      "type": "function",
+      "name": "chatHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1678,
+        1696
+      ],
+      "summary": "세션 메시지를 역할, 시간, 안전한 content HTML을 포함한 대화 목록으로 렌더링합니다.",
+      "tags": [
+        "conversation",
+        "html-rendering",
+        "sanitization"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:tokensHtml",
+      "type": "function",
+      "name": "tokensHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1704,
+        1724
+      ],
+      "summary": "누적 token usage와 context window 점유율을 구분해 상세 지표 HTML로 표시합니다.",
+      "tags": [
+        "token-metrics",
+        "context-window",
+        "html-rendering"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:subagentConversationHtml",
+      "type": "function",
+      "name": "subagentConversationHtml",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1747,
+        1778
+      ],
+      "summary": "subagent의 assignment, follow-up, 결과 이벤트를 보호된 payload 처리와 함께 읽기 쉬운 대화 흐름으로 구성합니다.",
+      "tags": [
+        "subagent",
+        "event-stream",
+        "security"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:renderDrawer",
+      "type": "function",
+      "name": "renderDrawer",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1780,
+        1843
+      ],
+      "summary": "drawer mode와 선택 세션에 따라 대화, lifecycle, token, memory, subagent 정보를 탭과 action으로 렌더링합니다.",
+      "tags": [
+        "drawer",
+        "session-detail",
+        "ui-rendering"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:renderer/app.js:syncRunComposer",
+      "type": "function",
+      "name": "syncRunComposer",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1869,
+        1891
+      ],
+      "summary": "새 AI 작업 form의 provider, workspace, prompt 길이와 실행 가능 상태를 동기화합니다.",
+      "tags": [
+        "form-state",
+        "agent-launch",
+        "validation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:openRunModal",
+      "type": "function",
+      "name": "openRunModal",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1903,
+        1917
+      ],
+      "summary": "새 작업 modal을 초기화하고 현재 filter를 기본값으로 적용한 뒤 prompt에 focus를 둡니다.",
+      "tags": [
+        "agent-launch",
+        "dialog",
+        "focus-management"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:closeRunModal",
+      "type": "function",
+      "name": "closeRunModal",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1919,
+        1929
+      ],
+      "summary": "새 작업 modal을 애니메이션으로 닫고 열기 전 focus를 복원합니다.",
+      "tags": [
+        "agent-launch",
+        "dialog",
+        "animation"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:toast",
+      "type": "function",
+      "name": "toast",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1931,
+        1943
+      ],
+      "summary": "일시적인 사용자 알림을 표시하고 기존 timer와 퇴장 애니메이션을 안전하게 교체합니다.",
+      "tags": [
+        "notification",
+        "animation",
+        "ui-feedback"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:handleRun",
+      "type": "function",
+      "name": "handleRun",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1945,
+        1974
+      ],
+      "summary": "새 agent 작업 form을 검증해 IPC 실행 요청을 보내고 성공 시 modal과 dashboard state를 갱신합니다.",
+      "tags": [
+        "agent-launch",
+        "form-handler",
+        "ipc-client"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:renderer/app.js:bindEvents",
+      "type": "function",
+      "name": "bindEvents",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        1976,
+        2337
+      ],
+      "summary": "navigation, filter, graph, drawer, update, workspace, modal, keyboard 및 delegated action을 dashboard state와 IPC 명령에 연결합니다.",
+      "tags": [
+        "event-handler",
+        "ui-controller",
+        "delegation",
+        "ipc-client"
+      ],
+      "complexity": "complex"
+    },
+    {
+      "id": "function:renderer/app.js:init",
+      "type": "function",
+      "name": "init",
+      "filePath": "renderer/app.js",
+      "lineRange": [
+        2339,
+        2376
+      ],
+      "summary": "가이드와 event listener를 초기화하고 bootstrap snapshot, provider, workspace, update state를 불러와 renderer를 시작합니다.",
+      "tags": [
+        "entry-point",
+        "bootstrap",
+        "renderer"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:renderer/i18n.js",
+      "type": "file",
+      "name": "i18n.js",
+      "filePath": "renderer/i18n.js",
+      "summary": "한국어·영어·중국어 번역 사전과 DOM observer를 제공하며 정적 텍스트, 속성, 동적 노드를 선택한 locale로 즉시 변환합니다.",
+      "tags": [
+        "localization",
+        "dom-observer",
+        "translation",
+        "renderer"
+      ],
+      "complexity": "complex",
+      "languageNotes": "원문 텍스트를 키로 사용하는 3열 번역표와 MutationObserver 기반 자동 번역을 결합합니다."
+    },
+    {
+      "id": "file:renderer/index.html",
+      "type": "file",
+      "name": "index.html",
+      "filePath": "renderer/index.html",
+      "summary": "LoadToAgent dashboard의 sidebar, 세션 현황, workflow graph, terminal/tmux workspace, 설정, drawer와 modal을 구성하는 접근성 중심 HTML shell입니다.",
+      "tags": [
+        "markup",
+        "dashboard",
+        "accessibility",
+        "responsive-ui"
+      ],
+      "complexity": "complex",
+      "languageNotes": "data-view와 안정적인 element ID를 renderer controller의 imperative DOM mount point로 사용합니다."
+    },
+    {
+      "id": "file:renderer/styles.css",
+      "type": "file",
+      "name": "styles.css",
+      "filePath": "renderer/styles.css",
+      "summary": "LoadToAgent dashboard의 dark theme, responsive layout, 세션·workflow graph·terminal/tmux·drawer·modal 컴포넌트와 reduced-motion 접근성을 정의합니다.",
+      "tags": [
+        "stylesheet",
+        "responsive-ui",
+        "dashboard",
+        "accessibility",
+        "animation"
+      ],
+      "complexity": "complex",
+      "languageNotes": "CSS custom properties, grid/flex layout, color-mix, container별 media query와 prefers-reduced-motion fallback을 폭넓게 사용합니다."
+    },
+    {
+      "id": "file:renderer/terminal.js",
+      "type": "file",
+      "name": "terminal.js",
+      "filePath": "renderer/terminal.js",
+      "summary": "xterm.js 기반 local/WSL terminal과 remote tmux pane을 관리하며 AI 세션 재개, 명령 전송, 대화 history 결합, terminal lifecycle 및 tmux resource 조작을 담당합니다.",
+      "tags": [
+        "terminal",
+        "tmux",
+        "xterm",
+        "agent-control",
+        "renderer"
+      ],
+      "complexity": "complex",
+      "languageNotes": "IIFE 내부 state machine이 local PTY와 tmux capture를 하나의 workbench UI로 추상화합니다."
+    },
+    {
+      "id": "file:scripts/actual-runtime-check.js",
+      "type": "file",
+      "name": "actual-runtime-check.js",
+      "filePath": "scripts/actual-runtime-check.js",
+      "summary": "Chrome DevTools Protocol로 실제 실행 중인 Electron 화면에 연결해 runtime 분리, 협업 workflow, subagent 대화와 통신 지표를 검증하고 screenshot 증거를 남깁니다.",
+      "tags": [
+        "test",
+        "runtime-validation",
+        "cdp",
+        "screenshot"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "HTTP target discovery 뒤 WebSocket CDP Runtime.evaluate를 사용해 실제 renderer 내부 상태와 DOM을 검사합니다."
+    },
+    {
+      "id": "function:scripts/actual-runtime-check.js:pageTarget",
+      "type": "function",
+      "name": "pageTarget",
+      "filePath": "scripts/actual-runtime-check.js",
+      "lineRange": [
+        13,
+        23
+      ],
+      "summary": "debug port의 CDP target 목록을 반복 조회해 LoadToAgent page의 WebSocket endpoint를 찾습니다.",
+      "tags": [
+        "cdp",
+        "target-discovery",
+        "polling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/actual-runtime-check.js:connect",
+      "type": "function",
+      "name": "connect",
+      "filePath": "scripts/actual-runtime-check.js",
+      "lineRange": [
+        25,
+        47
+      ],
+      "summary": "CDP WebSocket에 연결하고 sequence ID별 요청·응답을 Promise로 대응시키는 send 함수를 구성합니다.",
+      "tags": [
+        "websocket",
+        "cdp",
+        "async-transport"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/background-runtime-check.js",
+      "type": "file",
+      "name": "background-runtime-check.js",
+      "filePath": "scripts/background-runtime-check.js",
+      "summary": "관리 AI terminal이 Electron 창을 닫아도 tray background에서 유지되고 앱 재표시 후 정상 종료되는지 CDP로 end-to-end 검증합니다.",
+      "tags": [
+        "test",
+        "background-runtime",
+        "terminal",
+        "cdp"
+      ],
+      "complexity": "moderate",
+      "languageNotes": "renderer의 공개 preload API를 Runtime.evaluate로 호출해 창 visibility와 background session 수를 함께 검증합니다."
+    },
+    {
+      "id": "function:scripts/background-runtime-check.js:targetPage",
+      "type": "function",
+      "name": "targetPage",
+      "filePath": "scripts/background-runtime-check.js",
+      "lineRange": [
+        7,
+        17
+      ],
+      "summary": "지정된 debug port에서 LoadToAgent page target이 나타날 때까지 재시도합니다.",
+      "tags": [
+        "cdp",
+        "target-discovery",
+        "polling"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/background-runtime-check.js:connect",
+      "type": "function",
+      "name": "connect",
+      "filePath": "scripts/background-runtime-check.js",
+      "lineRange": [
+        19,
+        41
+      ],
+      "summary": "CDP target WebSocket을 열고 message ID를 기반으로 비동기 command 결과를 resolve 또는 reject합니다.",
+      "tags": [
+        "websocket",
+        "cdp",
+        "async-transport"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/background-runtime-check.js:waitFor",
+      "type": "function",
+      "name": "waitFor",
+      "filePath": "scripts/background-runtime-check.js",
+      "lineRange": [
+        49,
+        58
+      ],
+      "summary": "renderer expression이 truthy 값을 반환할 때까지 평가를 반복하고 timeout 시 검증 오류를 발생시킵니다.",
+      "tags": [
+        "test-utility",
+        "polling",
+        "assertion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/interaction-check.js",
+      "type": "file",
+      "name": "interaction-check.js",
+      "filePath": "scripts/interaction-check.js",
+      "summary": "fixture preload가 주입된 Electron 앱에서 navigation, 설정, 새 작업, drawer, graph, agent control, terminal과 tmux의 사용자 interaction을 여러 round로 검증하는 종합 UI 테스트입니다.",
+      "tags": [
+        "test",
+        "interaction-test",
+        "electron",
+        "ui-validation",
+        "regression"
+      ],
+      "complexity": "complex",
+      "languageNotes": "Electron BrowserWindow의 executeJavaScript와 screenshot manifest를 결합해 DOM 상태, IPC 호출 횟수, 반응형 화면을 검증합니다."
+    },
+    {
+      "id": "function:scripts/interaction-check.js:recordManifest",
+      "type": "function",
+      "name": "recordManifest",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        101,
+        111
+      ],
+      "summary": "현재 BrowserWindow 크기와 screenshot 정보를 검증 manifest에 기록합니다.",
+      "tags": [
+        "test-artifact",
+        "screenshot",
+        "manifest"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:click",
+      "type": "function",
+      "name": "click",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        127,
+        138
+      ],
+      "summary": "selector 대상의 존재와 활성 상태를 확인한 뒤 click action을 실행하는 UI 테스트 helper입니다.",
+      "tags": [
+        "test-utility",
+        "dom-interaction",
+        "assertion"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:step",
+      "type": "function",
+      "name": "step",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        148,
+        157
+      ],
+      "summary": "테스트 단계를 실행하고 round·단계 이름이 포함된 결과 또는 오류를 기록합니다.",
+      "tags": [
+        "test-runner",
+        "step-tracking",
+        "error-reporting"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseNavigation",
+      "type": "function",
+      "name": "exerciseNavigation",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        169,
+        186
+      ],
+      "summary": "sidebar와 주요 view 전환이 올바른 active state와 content visibility를 만드는지 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "navigation",
+        "ui-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseGuideAndMobileTools",
+      "type": "function",
+      "name": "exerciseGuideAndMobileTools",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        188,
+        202
+      ],
+      "summary": "초보자 가이드의 접기·완료 상태와 작은 화면의 mobile tools menu 동작을 확인합니다.",
+      "tags": [
+        "interaction-test",
+        "onboarding",
+        "responsive-ui"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseUpdates",
+      "type": "function",
+      "name": "exerciseUpdates",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        204,
+        226
+      ],
+      "summary": "update 확인, 다운로드, 현재 버전, release 열기 상태에 따라 버튼과 IPC 호출이 정확한지 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "auto-update",
+        "ipc-verification"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseLanguageSettings",
+      "type": "function",
+      "name": "exerciseLanguageSettings",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        228,
+        244
+      ],
+      "summary": "언어 선택이 DOM 번역과 locale 저장 IPC에 즉시 반영되는지 확인합니다.",
+      "tags": [
+        "interaction-test",
+        "localization",
+        "settings"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseDashboardControls",
+      "type": "function",
+      "name": "exerciseDashboardControls",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        246,
+        309
+      ],
+      "summary": "provider, workspace, filter, refresh와 카드 control이 dashboard state 및 공개 API 호출과 일치하는지 폭넓게 검사합니다.",
+      "tags": [
+        "interaction-test",
+        "dashboard",
+        "control-validation"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseRunModal",
+      "type": "function",
+      "name": "exerciseRunModal",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        311,
+        387
+      ],
+      "summary": "새 AI 작업 modal의 접근성, validation, suggestion, 지연·실패·성공 submission과 중복 방지를 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "agent-launch",
+        "form-validation",
+        "accessibility"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseDrawer",
+      "type": "function",
+      "name": "exerciseDrawer",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        389,
+        443
+      ],
+      "summary": "세션 상세 drawer의 탭, 대화·roadmap 표현, focus trap, 닫기와 origin action을 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "drawer",
+        "focus-management",
+        "session-detail"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:focusRoot",
+      "type": "function",
+      "name": "focusRoot",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        445,
+        457
+      ],
+      "summary": "협업 graph에서 root 세션을 찾아 선택하고 focus view가 준비될 때까지 기다립니다.",
+      "tags": [
+        "test-utility",
+        "workflow-graph",
+        "focus-state"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseGraph",
+      "type": "function",
+      "name": "exerciseGraph",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        459,
+        505
+      ],
+      "summary": "agent workflow overview와 focus graph의 node, edge, breadcrumb, 완료 disclosure 및 통신 패널을 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "workflow-graph",
+        "collaboration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseAgentControls",
+      "type": "function",
+      "name": "exerciseAgentControls",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        514,
+        594
+      ],
+      "summary": "실행 중·종료된 agent에 대한 target 선택, command 전송, terminal 열기, resume와 subagent 대화 control을 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "agent-control",
+        "command-dispatch",
+        "session-resume"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseTerminal",
+      "type": "function",
+      "name": "exerciseTerminal",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        596,
+        692
+      ],
+      "summary": "terminal 생성·선택·입력·signal·resize·restart·close와 대화 history 결합을 end-to-end 검사합니다.",
+      "tags": [
+        "interaction-test",
+        "terminal",
+        "lifecycle",
+        "xterm"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:exerciseTmux",
+      "type": "function",
+      "name": "exerciseTmux",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        706,
+        775
+      ],
+      "summary": "tmux pane 연결, capture, key/text 전송과 session/window/pane 생성·이름 변경·분할·삭제 조작을 검증합니다.",
+      "tags": [
+        "interaction-test",
+        "tmux",
+        "resource-management"
+      ],
+      "complexity": "moderate"
+    },
+    {
+      "id": "function:scripts/interaction-check.js:runRound",
+      "type": "function",
+      "name": "runRound",
+      "filePath": "scripts/interaction-check.js",
+      "lineRange": [
+        777,
+        800
+      ],
+      "summary": "하나의 viewport round에서 모든 interaction 검증 묶음을 정해진 순서로 실행하고 결과를 수집합니다.",
+      "tags": [
+        "test-runner",
+        "regression",
+        "orchestration"
+      ],
+      "complexity": "simple"
+    },
+    {
+      "id": "file:scripts/interaction-fixture-preload.js",
+      "type": "file",
+      "name": "interaction-fixture-preload.js",
+      "filePath": "scripts/interaction-fixture-preload.js",
+      "summary": "실제 main process 대신 provider, 세션 hierarchy, 협업 event, terminal/tmux와 update 상태를 재현하고 호출 기록·지연·실패를 제어하는 interaction-test용 preload fixture입니다.",
+      "tags": [
+        "test-fixture",
+        "preload",
+        "mock-api",
+        "electron",
+        "collaboration"
+      ],
+      "complexity": "complex",
+      "languageNotes": "contextBridge로 production API와 별도의 test control API를 함께 노출하고 mutable fixture state를 deep clone으로 격리합니다."
+    },
+    {
+      "id": "function:scripts/interaction-fixture-preload.js:controlled",
+      "type": "function",
+      "name": "controlled",
+      "filePath": "scripts/interaction-fixture-preload.js",
+      "lineRange": [
+        192,
+        202
+      ],
+      "summary": "mock API 호출을 기록하고 설정된 delay와 failure 횟수를 적용한 뒤 clone된 결과를 반환합니다.",
+      "tags": [
+        "test-fixture",
+        "fault-injection",
+        "call-recording"
+      ],
+      "complexity": "simple"
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:bin/loadtoagent.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/agentMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/agentRunner.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/bridgeServer.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/processMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/providerRegistry.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/terminalManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/tmuxController.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/tmuxMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "file:src/updateManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/tmux-integration-test.js",
+      "target": "file:src/tmuxController.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/tmux-integration-test.js",
+      "target": "file:src/tmuxMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "config:package.json",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:usage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:parseCliArguments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:parseArguments",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:terminalSize",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:desktopLaunchSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:launchDesktop",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:readDiscovery",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:run",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/regression-test.js",
+      "target": "function:scripts/regression-test.js:runTests",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/tmux-integration-test.js",
+      "target": "function:scripts/tmux-integration-test.js:main",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:safeName",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:safeTarget",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:runProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "class:src/tmuxController.js:TmuxController",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:normalizeWslList",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:uncHomeFor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:linuxPathToUnc",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:providerFromProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseElapsedSeconds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseProcessLine",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseTmuxProbe",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:descendantProcesses",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:selectAgentProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:buildDistroTopology",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:normalizeCwd",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:linkScore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:linkAgentSessions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "class:src/tmuxMonitor.js:TmuxMonitor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:normalizeVersion",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:compareVersions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:trustedDownloadUrl",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:assetScore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:selectReleaseAsset",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "class:src/updateManager.js:UpdateManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:usage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:parseCliArguments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:parseArguments",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:terminalSize",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:desktopLaunchSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:launchDesktop",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:readDiscovery",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:bin/loadtoagent.js",
+      "target": "function:bin/loadtoagent.js:run",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:safeName",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:safeTarget",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "function:src/tmuxController.js:runProcess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxController.js",
+      "target": "class:src/tmuxController.js:TmuxController",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:normalizeWslList",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:uncHomeFor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:linuxPathToUnc",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:providerFromProcess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseElapsedSeconds",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseProcessLine",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:parseTmuxProbe",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:buildDistroTopology",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:normalizeCwd",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "function:src/tmuxMonitor.js:linkAgentSessions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/tmuxMonitor.js",
+      "target": "class:src/tmuxMonitor.js:TmuxMonitor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:normalizeVersion",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:compareVersions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:trustedDownloadUrl",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "function:src/updateManager.js:selectReleaseAsset",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/updateManager.js",
+      "target": "class:src/updateManager.js:UpdateManager",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/agentRunner.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/bridgeServer.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/providerRegistry.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/terminalManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/tmuxController.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/tmuxMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "file:src/updateManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/readme-demo.js",
+      "target": "file:main.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "file:main.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/visual-check.js",
+      "target": "file:main.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "file:src/providerRegistry.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:installBridgeLauncher",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:saveWorkspaces",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:listWslDistros",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:hydratePlatformPath",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:createWindow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:updateBackgroundTrayMenu",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:ensureBackgroundTray",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:setupRuntime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:main.js",
+      "target": "function:main.js:bridgePresence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/readme-demo.js",
+      "target": "function:scripts/readme-demo.js:installFixture",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/readme-demo.js",
+      "target": "function:scripts/readme-demo.js:setFocus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/readme-demo.js",
+      "target": "function:scripts/readme-demo.js:showDrawer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/readme-demo.js",
+      "target": "function:scripts/readme-demo.js:buildDemo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "function:scripts/responsive-check.js:openView",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "function:scripts/responsive-check.js:layoutMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "function:scripts/responsive-check.js:overlayMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "function:scripts/responsive-check.js:setupWorkflowFixture",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/responsive-check.js",
+      "target": "function:scripts/responsive-check.js:workflowMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/visual-check.js",
+      "target": "function:scripts/visual-check.js:captureStableState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:findExecutable",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:probeProviders",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:eventText",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:makeSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:addMessage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:addLifecycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:usageFrom",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:updateContext",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:handleClaude",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:handleCodex",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:handleGemini",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:handleGrok",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:commandSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "class:src/agentRunner.js:AgentRunner",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:findExecutable",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:probeProviders",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:usageFrom",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "function:src/agentRunner.js:commandSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentRunner.js",
+      "target": "class:src/agentRunner.js:AgentRunner",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:scripts/bridge-integration-test.js",
+      "target": "file:src/bridgeServer.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/bridge-integration-test.js",
+      "target": "file:src/terminalManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/terminal-integration-test.js",
+      "target": "file:src/terminalManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "file:src/terminalManager.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:scripts/bridge-integration-test.js",
+      "target": "function:scripts/bridge-integration-test.js:runCli",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:bridgeDirectory",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:discoveryFile",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:endpointFor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:safeWriteJson",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "class:src/bridgeServer.js:BridgeServer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:shellQuote",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:numericDimension",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:resolveWindowsCommand",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:killPtyTree",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:normalizeLaunchOptions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:launchSpec",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:publicSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "class:src/terminalManager.js:TerminalManager",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:bridgeDirectory",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:discoveryFile",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:endpointFor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "function:src/bridgeServer.js:safeWriteJson",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/bridgeServer.js",
+      "target": "class:src/bridgeServer.js:BridgeServer",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:shellQuote",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:numericDimension",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:resolveWindowsCommand",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:killPtyTree",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:normalizeLaunchOptions",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "function:src/terminalManager.js:launchSpec",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/terminalManager.js",
+      "target": "class:src/terminalManager.js:TerminalManager",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:asText",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:readJsonLines",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:walkRecent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:addMessage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:jsonObject",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:agentEnvelope",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:retainedAgentsFromValue",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:addLifecycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:baseSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:claudeContent",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:claudeVisibleUserText",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseClaude",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:codexVisibleUserText",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:addCodexMessage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseCodex",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:genericUsage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:flattenGenericRows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseGeneric",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:contextInfo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseManagedSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:isProjectlessSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:attachHierarchy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:buildSummary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "class:src/agentMonitor.js:AgentMonitor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:cardMessage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:cardLifecycle",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:selectCardMessages",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:cardCollaboration",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:cardSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "function:src/monitorWorker.js:fingerprint",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:parseCsvRows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:wmiDateToIso",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:providerFromWindowsProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:providerFromPosixProcess",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:elapsedSeconds",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:posixProcessRows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:processRows",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:selectAgentProcesses",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:runtimeLinkScore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:markRuntime",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:syntheticRuntimeSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:bridgeLinkScore",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:syntheticBridgeSession",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:applyRuntimePresence",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "class:src/processMonitor.js:ProcessMonitor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:providerList",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:normalizeProvider",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:blankUsage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:finalizeUsage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "class:src/agentMonitor.js:AgentMonitor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseClaude",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseCodex",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:parseGeneric",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:isProjectlessSession",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:readJsonLines",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:buildSummary",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:contextInfo",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "function:src/agentMonitor.js:attachHierarchy",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "class:src/processMonitor.js:ProcessMonitor",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:parseCsvRows",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:processRows",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:wmiDateToIso",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:providerFromWindowsProcess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:providerFromPosixProcess",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:posixProcessRows",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:elapsedSeconds",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:selectAgentProcesses",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:runtimeLinkScore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:bridgeLinkScore",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "function:src/processMonitor.js:applyRuntimePresence",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:providerList",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:normalizeProvider",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:blankUsage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/providerRegistry.js",
+      "target": "function:src/providerRegistry.js:finalizeUsage",
+      "type": "exports",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "file:src/agentMonitor.js",
+      "target": "file:src/providerRegistry.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "file:src/agentMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "file:src/processMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "file:src/tmuxMonitor.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/processMonitor.js",
+      "target": "file:src/providerRegistry.js",
+      "type": "imports",
+      "direction": "forward",
+      "weight": 0.7
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "class:src/agentMonitor.js:AgentMonitor",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:src/monitorWorker.js",
+      "target": "class:src/processMonitor.js:ProcessMonitor",
+      "type": "depends_on",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "function:src/agentMonitor.js:parseClaude",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/agentMonitor.js:parseCodex",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/agentMonitor.js:parseGeneric",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/agentMonitor.js:parseManagedSession",
+      "target": "function:src/providerRegistry.js:modelContextWindow",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/agentMonitor.js:buildSummary",
+      "target": "function:src/providerRegistry.js:providerList",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/processMonitor.js:syntheticRuntimeSession",
+      "target": "function:src/providerRegistry.js:blankUsage",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "function:src/providerRegistry.js:finalizeUsage",
+      "target": "function:src/providerRegistry.js:blankUsage",
+      "type": "calls",
+      "direction": "forward",
+      "weight": 0.8
+    },
+    {
+      "source": "pipeline:.github/workflows/release.yml",
+      "target": "pipeline:.github/workflows/desktop-ci.yml",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.ko.md",
+      "target": "document:README.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.zh-CN.md",
+      "target": "document:README.md",
+      "type": "related",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.ko.md",
+      "target": "config:package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.md",
+      "target": "config:package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "document:README.zh-CN.md",
+      "target": "config:package.json",
+      "type": "documents",
+      "direction": "forward",
+      "weight": 0.5
+    },
+    {
+      "source": "config:package.json",
+      "target": "file:bin/loadtoagent.js",
+      "type": "configures",
+      "direction": "forward",
+      "weight": 0.6
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:captureMotionLayout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:playMotionLayout",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:loadGuideState",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderGuide",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:syncViewChrome",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:selectView",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:trapDialogFocus",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:jsonValueHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:markdownHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:roadmapHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:messageContentHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:timeAgo",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:readableActivityDetail",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:latestWorkCopy",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderGlobalStats",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:updatePresentation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderUpdateSettings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderProviderOverview",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:filteredSessions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:graphNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:graphPath",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:connectedGraphSessions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:agentExecutionMode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:graphDescendantCount",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:compactGraphNode",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:providerFlowLane",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:liveTmuxEntries",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:liveTmuxPaneCard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:runtimeSeparatedOverview",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:workflowMetrics",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:workflowChildrenSummary",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:communicationEndpoint",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:workflowCommunicationPanel",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:agentCommandComposer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:focusedGraph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:drawAgentWorkflowConnections",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderAgentMap",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:tmuxEntities",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:tmuxFocusPath",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:tmuxPaneCard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:filteredTmuxDistros",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderTmuxMap",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:recentConversation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:sessionCard",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderSessions",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:render",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:resumeAgentTerminal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:dispatchAgentCommand",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:openAgentTerminal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:copyBridgeCommand",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:openSessionOrigin",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:loadSessionDetail",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:openDrawer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:openSubagentConversation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:closeDrawer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:chatHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:tokensHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:subagentConversationHtml",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:renderDrawer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:syncRunComposer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:openRunModal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:closeRunModal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:toast",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:handleRun",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:bindEvents",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:renderer/app.js",
+      "target": "function:renderer/app.js:init",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/actual-runtime-check.js",
+      "target": "function:scripts/actual-runtime-check.js:pageTarget",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/actual-runtime-check.js",
+      "target": "function:scripts/actual-runtime-check.js:connect",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/background-runtime-check.js",
+      "target": "function:scripts/background-runtime-check.js:targetPage",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/background-runtime-check.js",
+      "target": "function:scripts/background-runtime-check.js:connect",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/background-runtime-check.js",
+      "target": "function:scripts/background-runtime-check.js:waitFor",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:recordManifest",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:click",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:step",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseNavigation",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseGuideAndMobileTools",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseUpdates",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseLanguageSettings",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseDashboardControls",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseRunModal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseDrawer",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:focusRoot",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseGraph",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseAgentControls",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseTerminal",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:exerciseTmux",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-check.js",
+      "target": "function:scripts/interaction-check.js:runRound",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    },
+    {
+      "source": "file:scripts/interaction-fixture-preload.js",
+      "target": "function:scripts/interaction-fixture-preload.js:controlled",
+      "type": "contains",
+      "direction": "forward",
+      "weight": 1
+    }
+  ],
+  "layers": [
+    {
+      "id": "layer:desktop-entry",
+      "name": "데스크톱 진입 및 IPC 레이어",
+      "description": "Electron 메인 프로세스와 preload 브리지, npm CLI 진입점을 통해 앱 실행과 렌더러·로컬 브리지 연결을 조정한다.",
+      "nodeIds": [
+        "file:main.js",
+        "file:preload.js",
+        "file:bin/loadtoagent.js"
+      ]
+    },
+    {
+      "id": "layer:core-services",
+      "name": "핵심 서비스 레이어",
+      "description": "에이전트와 프로세스 관찰, 터미널·tmux 수명주기, 로컬 브리지, provider 및 업데이트 동작을 제공한다.",
+      "nodeIds": [
+        "file:src/tmuxController.js",
+        "file:src/tmuxMonitor.js",
+        "file:src/updateManager.js",
+        "file:src/agentRunner.js",
+        "file:src/bridgeServer.js",
+        "file:src/terminalManager.js",
+        "file:src/agentMonitor.js",
+        "file:src/monitorWorker.js",
+        "file:src/processMonitor.js",
+        "file:src/providerRegistry.js"
+      ]
+    },
+    {
+      "id": "layer:ui",
+      "name": "UI 레이어",
+      "description": "세션 대시보드와 터미널 화면의 HTML 구조, 스타일, 국제화, 상호작용 및 렌더링을 담당한다.",
+      "nodeIds": [
+        "file:renderer/app.js",
+        "file:renderer/i18n.js",
+        "file:renderer/index.html",
+        "file:renderer/styles.css",
+        "file:renderer/terminal.js"
+      ]
+    },
+    {
+      "id": "layer:test-validation",
+      "name": "테스트 및 실행 검증 레이어",
+      "description": "회귀, 통합, 반응형·시각·상호작용 검사를 통해 Electron 런타임과 브리지·터미널·tmux 동작을 검증한다.",
+      "nodeIds": [
+        "file:scripts/regression-test.js",
+        "file:scripts/tmux-integration-test.js",
+        "file:scripts/readme-demo.js",
+        "file:scripts/responsive-check.js",
+        "file:scripts/visual-check.js",
+        "file:scripts/bridge-integration-test.js",
+        "file:scripts/terminal-integration-test.js",
+        "file:scripts/actual-runtime-check.js",
+        "file:scripts/background-runtime-check.js",
+        "file:scripts/interaction-check.js",
+        "file:scripts/interaction-fixture-preload.js"
+      ]
+    },
+    {
+      "id": "layer:config",
+      "name": "프로젝트 설정 레이어",
+      "description": "Node 패키지 실행·배포 메타데이터와 Understand Anything 분석 범위 및 출력 언어 설정을 정의한다.",
+      "nodeIds": [
+        "config:package.json",
+        "file:.understand-anything/.understandignore",
+        "config:.understand-anything/config.json"
+      ]
+    },
+    {
+      "id": "layer:ci-cd",
+      "name": "CI/CD 레이어",
+      "description": "데스크톱 품질 검증과 플랫폼별 릴리스 패키징·게시를 수행하는 GitHub Actions 파이프라인을 구성한다.",
+      "nodeIds": [
+        "pipeline:.github/workflows/desktop-ci.yml",
+        "pipeline:.github/workflows/release.yml"
+      ]
+    },
+    {
+      "id": "layer:documentation",
+      "name": "문서 레이어",
+      "description": "다국어 설치·사용 안내와 AI provider 계약을 설명해 사용자 및 통합 개발자의 진입 경로를 제공한다.",
+      "nodeIds": [
+        "document:README.ko.md",
+        "document:README.md",
+        "document:README.zh-CN.md",
+        "document:docs/PROVIDER-CONTRACTS.md"
+      ]
+    }
+  ],
+  "tour": [
+    {
+      "order": 1,
+      "title": "프로젝트 한눈에 보기",
+      "description": "README에서 LoadToAgent가 여러 AI CLI 세션을 하나의 로컬 데스크톱 화면에서 관찰하고 제어하는 도구임을 먼저 파악합니다. 한국어 안내서는 설치와 첫 사용 흐름을 보완하므로, 이후 단계에서 만날 대시보드·터미널·보안 개념의 공통 지도를 제공합니다.",
+      "nodeIds": [
+        "document:README.md",
+        "document:README.ko.md"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "데스크톱 진입 경로",
+      "description": "앞서 본 제품이 실제로 시작되는 경로를 Electron 메인 프로세스, 안전한 preload 브리지, npm CLI 진입점 순서로 살펴봅니다. 이 세 파일은 창과 트레이의 수명주기부터 내부 IPC, 외부 CLI 연결까지 애플리케이션의 가장 바깥 경계를 형성합니다.",
+      "nodeIds": [
+        "file:main.js",
+        "file:preload.js",
+        "file:bin/loadtoagent.js"
+      ],
+      "languageLesson": "Electron의 contextBridge는 렌더러에 Node.js 전체 권한을 주지 않고 명시적인 IPC API만 노출해 프로세스 경계를 안전하게 유지합니다."
+    },
+    {
+      "order": 3,
+      "title": "Provider 공통 계약",
+      "description": "진입 경계 다음에는 Claude·Codex·Gemini·Grok의 서로 다른 이벤트와 토큰 정보를 하나의 용어로 맞추는 계약을 배웁니다. providerRegistry는 표시 정보와 컨텍스트 창, 사용량 기본값을 중앙화해 이후 모니터와 실행기가 같은 세션 모델을 공유하게 합니다.",
+      "nodeIds": [
+        "document:docs/PROVIDER-CONTRACTS.md",
+        "file:src/providerRegistry.js"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "세션 관찰 파이프라인",
+      "description": "공통 계약을 바탕으로 agentMonitor가 로컬 기록을 정규화하고, processMonitor가 실제 OS 프로세스와 연결하며, monitorWorker가 tmux·브리지 상태까지 합친 스냅샷을 발행합니다. 이 흐름은 단순 로그 목록을 살아 있는 협업 계층과 실행 상태로 바꾸는 제품의 핵심 읽기 경로입니다.",
+      "nodeIds": [
+        "file:src/agentMonitor.js",
+        "file:src/processMonitor.js",
+        "file:src/monitorWorker.js"
+      ],
+      "languageLesson": "Node.js worker_threads는 파일·프로세스 스캔처럼 반복적인 작업을 렌더링 경로와 분리하고, 직렬화 가능한 스냅샷만 메인 프로세스로 전달하는 데 적합합니다."
+    },
+    {
+      "order": 5,
+      "title": "에이전트 실행과 기록",
+      "description": "관찰 파이프라인이 읽을 데이터를 agentRunner가 어떻게 만드는지 이어서 확인합니다. 각 AI CLI의 구조화 출력 스트림을 공통 메시지·수명주기·사용량 이벤트로 변환하고 디스크에 남기므로, 실행과 관찰 사이의 계약이 완성됩니다.",
+      "nodeIds": [
+        "file:src/agentRunner.js"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "대시보드 표현 계층",
+      "description": "이제 모니터 스냅샷이 사용자 화면으로 변환되는 과정을 HTML 셸, 대시보드 상태·렌더링, 다국어 변환 순서로 따라갑니다. app.js의 높은 fan-out은 세션 필터, 협업 그래프, drawer, 작업 실행을 한데 조율하는 UI 허브라는 점을 보여 주며, i18n은 정적·동적 DOM에 동일한 locale을 적용합니다.",
+      "nodeIds": [
+        "file:renderer/index.html",
+        "file:renderer/app.js",
+        "file:renderer/i18n.js"
+      ],
+      "languageLesson": "MutationObserver를 사용하면 비동기로 추가되는 DOM 노드에도 번역 규칙을 적용할 수 있지만, 관찰 범위와 중복 변환을 제한해야 렌더링 비용을 통제할 수 있습니다."
+    },
+    {
+      "order": 7,
+      "title": "터미널 수명주기",
+      "description": "대시보드에서 선택한 세션은 terminalManager의 PTY 수명주기와 renderer의 xterm 화면을 통해 실제 상호작용으로 이어집니다. 백엔드는 생성·재생·크기 변경·신호·종료를 통합하고, 프런트엔드는 로컬·WSL 터미널과 대화 기록 및 AI 세션 재개 경험을 연결합니다.",
+      "nodeIds": [
+        "file:src/terminalManager.js",
+        "file:renderer/terminal.js"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "tmux 토폴로지 제어",
+      "description": "일반 PTY에서 한 단계 확장해 tmuxController가 로컬과 WSL에 동일한 검증된 제어 API를 제공하고, tmuxMonitor가 pane·process·세션 기록을 계층 구조로 조합하는 방식을 봅니다. 이 두 모듈 덕분에 여러 터미널 pane도 앞서 배운 공통 세션 모델 안에서 안전하게 관찰하고 조작할 수 있습니다.",
+      "nodeIds": [
+        "file:src/tmuxController.js",
+        "file:src/tmuxMonitor.js"
+      ]
+    },
+    {
+      "order": 9,
+      "title": "외부 브리지 보안",
+      "description": "tmux와 PTY 제어가 앱 밖의 loadtoagent 명령까지 확장될 때 bridgeServer가 로컬 소켓 경계를 지킵니다. 사용자별 토큰 인증 뒤에만 입력·출력·크기 변경·신호를 중계하므로, 2단계의 CLI 진입 경로가 내부 터미널과 안전하게 연결됩니다.",
+      "nodeIds": [
+        "file:src/bridgeServer.js"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "안전한 업데이트 흐름",
+      "description": "핵심 실행 경로와 별도로 updateManager는 최신 안정 릴리스를 확인하고 현재 OS와 아키텍처에 맞는 설치 파일만 선택합니다. 다운로드 검증과 안전한 실행을 한 모듈에 모아 데스크톱 배포 수명주기를 런타임 기능과 분리합니다.",
+      "nodeIds": [
+        "file:src/updateManager.js"
+      ]
+    },
+    {
+      "order": 11,
+      "title": "사용자 경로 검증",
+      "description": "지금까지의 구조가 실제 제품에서 함께 작동하는지는 회귀, 상호작용, 반응형 검사가 교차 검증합니다. 특히 실제 Electron 렌더러에서 여러 라운드의 클릭과 다양한 viewport를 검사해 IPC 계약뿐 아니라 사용자가 보는 동작과 배치까지 보호합니다.",
+      "nodeIds": [
+        "file:scripts/regression-test.js",
+        "file:scripts/interaction-check.js",
+        "file:scripts/responsive-check.js"
+      ]
+    },
+    {
+      "order": 12,
+      "title": "빌드와 릴리스",
+      "description": "마지막으로 package.json의 실행·테스트·패키징 계약이 CI와 릴리스 파이프라인에서 어떻게 소비되는지 살펴봅니다. 데스크톱 CI는 운영체제별 품질 관문과 패키징을 수행하고, 릴리스 workflow는 버전 태그를 검증한 뒤 npm 패키지와 플랫폼별 설치물을 게시해 전체 여정을 마무리합니다.",
+      "nodeIds": [
+        "config:package.json",
+        "pipeline:.github/workflows/desktop-ci.yml",
+        "pipeline:.github/workflows/release.yml"
+      ],
+      "languageLesson": "GitHub Actions YAML에서 jobs는 병렬 실행 단위이고 steps는 한 job 안의 순차 실행 단위입니다. 플랫폼별 matrix와 캐시는 다중 운영체제 검증 시간을 줄이는 핵심 패턴입니다."
+    }
+  ]
+}

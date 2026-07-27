@@ -16,7 +16,8 @@ class AttentionNotifier {
     if (!this.enabled) return [];
     const needsAttention = (snapshot && Array.isArray(snapshot.sessions) ? snapshot.sessions : [])
       .filter(session => session && session.id && (
-        session.attention?.required
+        session.attention?.actionable
+        || session.attention?.required
         || session.health?.level === 'critical'
         || session.status === 'waiting'
       ));

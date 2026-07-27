@@ -88,8 +88,26 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
 
   function conversationOverlay(session) {
     const pending = state.pendingConversationMessages.get(session.id) || [];
-    if (!pending.length) return { session, forceLatestLive: false };
-    const messages = [...(session.messages || [])];
+    const resolved = state.resolvedConversationMessages?.get(session.id) || [];
+    const messageIdentity = message => {
+      const id = String(message?.id || "").trim();
+      return id
+        ? `id:${id}`
+        : `${message?.role || ""}:${String(message?.text || "").replace(/\s+/g, " ").trim()}:${message?.timestamp || ""}`;
+    };
+    const merged = new Map((session.messages || []).map(message => [messageIdentity(message), message]));
+    for (const message of resolved) {
+      const key = messageIdentity(message);
+      if (!merged.has(key)) merged.set(key, message);
+    }
+    const messages = [...merged.values()];
+    if (!pending.length) {
+      messages.sort((left, right) => Date.parse(left.timestamp || 0) - Date.parse(right.timestamp || 0));
+      return {
+        session: resolved.length ? { ...session, messages } : session,
+        forceLatestLive: false,
+      };
+    }
     const retained = [];
     let forceLatestLive = false;
     for (const entry of pending) {

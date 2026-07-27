@@ -19,7 +19,7 @@ function createClaudeParser(dependencies) {
     sumUsage,
     timestamp,
     trimSession,
-    assistantRequestsUserResponse,
+    assistantResponseIntent,
     isUserInputTool,
   } = dependencies;
 
@@ -499,9 +499,17 @@ function createClaudeParser(dependencies) {
     session.context = contextInfo(currentInput, modelContextWindow('claude', session.model, 0));
     const age = Date.now() - fileInfo.mtimeMs;
     const pendingUserInput = state.pendingUserInputCalls.size > 0;
+    const responseIntent = assistantResponseIntent(state.lastAssistantText);
+    session.responseIntent = pendingUserInput
+      ? {
+        category: 'required', required: true, optional: false,
+        requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        confidence: 'high', source: 'input-tool',
+      }
+      : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
     const activeSubagents = session.collaboration.spawns.filter(record => record.status === 'running');
     const conversationalInput = state.lastConversationRole === 'assistant'
-      && assistantRequestsUserResponse(state.lastAssistantText)
+      && responseIntent.required
       && (state.lastTurnFinished || age >= ACTIVE_THRESHOLD_MS);
     if (session.depth && state.subagentCompletedAt) {
       session.status = 'completed';
@@ -522,8 +530,10 @@ function createClaudeParser(dependencies) {
       session.status = 'running';
       session.statusDetail = state.lastRole === 'user' ? '응답 생성 중' : '도구 실행 또는 스트리밍 중';
     } else if (state.lastRole === 'user' && age < STALE_TURN_THRESHOLD_MS) {
-      session.status = 'waiting';
-      session.statusDetail = '응답 또는 권한 확인 필요';
+      // A user-authored row means the AI may still owe a response; it never
+      // means the user is blocking the task.
+      session.status = 'idle';
+      session.statusDetail = 'AI 응답 신호 대기';
     } else {
       session.status = 'idle';
       session.statusDetail = state.lastRole === 'user' ? '마지막 응답 기록이 종료됨' : '다음 요청 대기';

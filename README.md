@@ -100,7 +100,7 @@ If the session log does not confirm receipt within 12 seconds, the app reports a
 | Agent map | Live work grouped by Claude, Codex, Gemini, and Grok |
 | Relationship view | The request origin, selected agent, and every directly delegated subagent |
 | Execution units | Foreground shells, background shells, and background jobs started by an AI, including command, workspace, execution ID, and live status |
-| Operations and attention inbox | Prioritized failures, stalls, context risk, approvals, decisions, and input requests with immediate actions |
+| Operations and attention inbox | Blocking responses, optional follow-ups, and current failure, stall, or pause risks shown as separate categories |
 | Session detail | Chronological conversation, evidence-based delivery state, tool activity, lifecycle events, model, workspace, and status |
 | Management summary | Checkpoints, observation confidence, completion summary, artifacts, verification, and run controls |
 | Token view | Input, output, cached, reasoning, total, and reported context-window usage |
@@ -179,15 +179,17 @@ Provider event mappings and context-window rules are documented in [Provider Con
 
 ## Security and local data
 
-The renderer is sandboxed, release installers must be signed, and in-app
-updates require both a SHA-256 digest and a valid platform signature. Completed
+The renderer is sandboxed. In-app updates verify a trusted GitHub Release URL
+and SHA-256 digest, and production channels also require a valid platform
+signature. The current internal macOS channel permits unsigned DMGs and removes
+quarantine only from the app being staged for installation. Completed
 managed runs and terminal history expire after 30 days by default. See the
 [security policy](SECURITY.md), [threat model](docs/THREAT-MODEL.md), and
 [data-retention policy](docs/DATA-RETENTION.md).
 
 ## Release
 
-Pushing a `v*` Git tag validates the version, builds and verifies signed desktop artifacts, stages a draft release, publishes the npm package with provenance when enabled, and only then publishes the GitHub Release. The `package.json` version and tag must match, and release signing/notarization secrets are required.
+Pushing a `v*` Git tag validates the version, builds and verifies desktop artifacts, stages a draft release, publishes the npm package with provenance when enabled, and only then publishes the GitHub Release. The `package.json` version and tag must match. The current internal channel permits unsigned desktop artifacts; signing/notarization secrets and fail-closed checks must be restored before public production distribution.
 
 Maintainer credentials and gates are documented in [Releasing](docs/RELEASING.md).
 

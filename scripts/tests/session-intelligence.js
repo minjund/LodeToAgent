@@ -47,6 +47,27 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(cleanWaiting.attention.kind, 'approval');
     assert.equal(cleanWaiting.health.level, 'healthy', '응답 요청은 실제 상태 위험 신호와 분리해야 합니다.');
     assert.equal(cleanWaiting.health.signals.length, 0);
+
+    const optional = enrichSession({
+      ...waiting, id: 'optional-followup', parentId: null, status: 'idle', statusObserved: false,
+      statusDetail: '다음 요청 대기', lifecycle: [], context: { percent: 10 },
+      responseIntent: {
+        category: 'optional', required: false, optional: true, requestText: 'OPS 파일로 저장할까요?',
+        confidence: 'high', source: 'assistant-message',
+      },
+    }, [], now);
+    assert.equal(optional.attention.category, 'optional');
+    assert.equal(optional.attention.required, false);
+    assert.equal(optional.attention.actionable, false);
+    assert.equal(optional.attention.summary, 'OPS 파일로 저장할까요?');
+
+    const failed = enrichSession({
+      ...waiting, id: 'failed-risk', parentId: null, status: 'failed', statusObserved: true,
+      statusDetail: '테스트 실패', lifecycle: [], context: { percent: 10 },
+    }, [], now);
+    assert.equal(failed.attention.category, 'risk');
+    assert.equal(failed.attention.required, false);
+    assert.equal(failed.attention.actionable, true);
   });
 
   test('로그의 테스트 실행 상태를 통과·실패·실행 중·미확인으로 구분한다', () => {

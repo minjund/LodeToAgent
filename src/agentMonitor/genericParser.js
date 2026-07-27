@@ -23,7 +23,7 @@ function createGenericParser(dependencies) {
     sumUsage,
     timestamp,
     trimSession,
-    assistantRequestsUserResponse,
+    assistantResponseIntent,
     isUserInputTool,
   } = dependencies;
 
@@ -245,8 +245,16 @@ function createGenericParser(dependencies) {
     session.context = contextInfo(session.turnUsage.total || session.usage.total, context);
     const age = Date.now() - fileInfo.mtimeMs;
     const pendingUserInput = eventState.pendingUserInputCalls.size > 0;
+    const responseIntent = assistantResponseIntent(messageState.lastAssistantText);
+    session.responseIntent = pendingUserInput
+      ? {
+        category: 'required', required: true, optional: false,
+        requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        confidence: 'high', source: 'input-tool',
+      }
+      : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
     const conversationalInput = messageState.lastConversationRole === 'assistant'
-      && assistantRequestsUserResponse(messageState.lastAssistantText);
+      && responseIntent.required;
     session.status = eventState.failed
       ? 'failed'
       : (pendingUserInput || (!eventState.running && conversationalInput)

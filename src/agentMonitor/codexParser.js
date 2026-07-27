@@ -27,7 +27,7 @@ function createCodexParser(dependencies) {
     },
     textOps: {
       agentEnvelope,
-      assistantRequestsUserResponse,
+      assistantResponseIntent,
       codexContentText,
       codexVisibleUserText,
       compactText,
@@ -470,8 +470,16 @@ function createCodexParser(dependencies) {
     if (session.status !== 'failed') {
       const turnAge = Date.now() - fileInfo.mtimeMs;
       const pendingUserInput = state.pendingUserInputCalls.size > 0;
+      const responseIntent = assistantResponseIntent(state.lastAssistantText || state.lastFinalAnswer);
+      session.responseIntent = pendingUserInput
+        ? {
+          category: 'required', required: true, optional: false,
+          requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+          confidence: 'high', source: 'input-tool',
+        }
+        : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
       const conversationalInput = state.lastConversationRole === 'assistant'
-        && assistantRequestsUserResponse(state.lastAssistantText || state.lastFinalAnswer)
+        && responseIntent.required
         && (state.lastTurnCompleted || turnAge >= ACTIVE_THRESHOLD_MS);
       if (!session.depth && (pendingUserInput || conversationalInput)) {
         session.status = 'waiting';

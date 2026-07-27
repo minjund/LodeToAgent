@@ -115,7 +115,7 @@ function progressFor(session, attention) {
     failedSteps,
     totalSteps,
     currentStep: text((running || last || {}).label || session.statusDetail || '', 180),
-    blocker: attention.required ? attention.summary : '',
+    blocker: attention.actionable ? attention.summary : '',
     lastActivityAt: latestActivity(session),
     source: totalSteps ? 'lifecycle-events' : 'session-status',
     checkpoints,
@@ -174,30 +174,52 @@ function outcomeFor(session, evidence) {
 
 function attentionFor(session) {
   const latest = latestMeaningfulText(session);
-  const combined = `${session.statusDetail || ''} ${latest}`;
+  const responseIntent = session.responseIntent || {};
+  const requestText = text(responseIntent.requestText || '', 420);
+  const combined = requestText || (session.status === 'waiting' ? `${session.statusDetail || ''} ${latest}` : '');
+  let category = 'none';
   let kind = 'none';
-  if (session.status === 'failed' || (session.status === 'waiting' && FAILURE_PATTERN.test(session.statusDetail || ''))) kind = 'error';
-  else if (session.status === 'paused') kind = 'paused';
-  else if (session.status === 'waiting' && PERMISSION_PATTERN.test(combined)) kind = 'approval';
-  else if (session.status === 'waiting' && DECISION_PATTERN.test(combined)) kind = 'decision';
-  else if (session.status === 'waiting' && INPUT_PATTERN.test(combined)) kind = 'input';
-  else if (session.status === 'waiting') kind = 'response';
-  const required = kind !== 'none';
+  if (session.status === 'failed' || (session.status === 'waiting' && FAILURE_PATTERN.test(session.statusDetail || ''))) {
+    category = 'risk';
+    kind = 'error';
+  } else if (session.status === 'paused') {
+    category = 'risk';
+    kind = 'paused';
+  } else if (responseIntent.category === 'optional') {
+    category = 'optional';
+    kind = 'optional';
+  } else if (session.status === 'waiting') {
+    category = 'required';
+    if (responseIntent.source === 'input-tool') kind = 'input';
+    else if (PERMISSION_PATTERN.test(combined)) kind = 'approval';
+    else if (DECISION_PATTERN.test(combined)) kind = 'decision';
+    else if (INPUT_PATTERN.test(combined)) kind = 'input';
+    else kind = 'response';
+  }
+  const required = category === 'required';
+  const actionable = required || category === 'risk';
   const summaries = {
     error: session.statusDetail || latest || 'The run failed and needs review.',
     paused: session.statusDetail || 'The run is paused.',
-    approval: latest || session.statusDetail || 'Approval is required.',
-    decision: latest || session.statusDetail || 'A decision is required.',
-    input: latest || session.statusDetail || 'Input is required.',
-    response: latest || session.statusDetail || 'A response is required.',
+    approval: requestText || latest || session.statusDetail || 'Approval is required.',
+    decision: requestText || latest || session.statusDetail || 'A decision is required.',
+    input: requestText || latest || session.statusDetail || 'Input is required.',
+    response: requestText || latest || session.statusDetail || 'A response is required.',
+    optional: requestText || latest || 'An optional follow-up was offered.',
   };
   return {
+    category,
     required,
+    actionable,
     kind,
-    summary: required ? text(summaries[kind], 360) : '',
-    requestedAt: required ? latestActivity(session) : null,
-    source: session.statusObserved || session.runId ? 'observed-status' : 'message-inference',
-    confidence: session.statusObserved || session.runId ? 'high' : required ? 'medium' : 'low',
+    summary: category !== 'none' ? text(summaries[kind], 420) : '',
+    requestedAt: category !== 'none' ? latestActivity(session) : null,
+    source: responseIntent.source && responseIntent.source !== 'none'
+      ? responseIntent.source
+      : session.statusObserved || session.runId ? 'observed-status' : 'message-inference',
+    confidence: responseIntent.confidence && responseIntent.category !== 'none'
+      ? responseIntent.confidence
+      : session.statusObserved || session.runId ? 'high' : actionable ? 'medium' : 'low',
   };
 }
 

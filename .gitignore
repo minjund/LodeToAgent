@@ -6,3 +6,4 @@ artifacts/
 .env.*
 *.stackdump
 .claude/*.local.md
+.understand-anything/.trash-*/

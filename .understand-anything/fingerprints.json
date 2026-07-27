@@ -1,0 +1,2600 @@
+{
+  "version": "1.0.0",
+  "gitCommitHash": "52df51e42c31ade4e1ccf74c73d57c28247471e2",
+  "generatedAt": "2026-07-16T01:20:28.143Z",
+  "files": {
+    ".github/workflows/desktop-ci.yml": {
+      "filePath": ".github/workflows/desktop-ci.yml",
+      "contentHash": "9e0032326f0c7ae0c6e1788dc516af22f1fde54676ca4be455b279b7b0095b82",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    ".github/workflows/release.yml": {
+      "filePath": ".github/workflows/release.yml",
+      "contentHash": "088332f201707b3118ad106ee3e4273dd47ab393edbf0a3cac069a904e2b4016",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 107,
+      "hasStructuralAnalysis": true
+    },
+    ".understand-anything/.understandignore": {
+      "filePath": ".understand-anything/.understandignore",
+      "contentHash": "21ae3c433349837f43a97607c666c4aff1d43dbd4644724cfaab1bebb4498946",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 6,
+      "hasStructuralAnalysis": false
+    },
+    ".understand-anything/config.json": {
+      "filePath": ".understand-anything/config.json",
+      "contentHash": "6241daac28ec1ac6166af17c73964fef9fa7e728b98c19706b07b7b8f0712b20",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 4,
+      "hasStructuralAnalysis": true
+    },
+    "bin/loadtoagent.js": {
+      "filePath": "bin/loadtoagent.js",
+      "contentHash": "7d574285cb402254675f5a45142207aa92e862ff2b8bfb11e81f5852b5586a5a",
+      "functions": [
+        {
+          "name": "usage",
+          "params": [],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "parseCliArguments",
+          "params": [
+            "argv"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "parseArguments",
+          "params": [
+            "argv"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "terminalSize",
+          "params": [],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "desktopLaunchSpec",
+          "params": [],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "launchDesktop",
+          "params": [],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "readDiscovery",
+          "params": [],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "writeFrame",
+          "params": [
+            "socket",
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "run",
+          "params": [],
+          "exported": false,
+          "lineCount": 61
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 172,
+      "hasStructuralAnalysis": true
+    },
+    "docs/PROVIDER-CONTRACTS.md": {
+      "filePath": "docs/PROVIDER-CONTRACTS.md",
+      "contentHash": "3d872352905bc9059e60d6174f3a1f89eafcf238c07ed70ce0b01fe4bc238ece",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 59,
+      "hasStructuralAnalysis": true
+    },
+    "main.js": {
+      "filePath": "main.js",
+      "contentHash": "ebb29627d4a420f6451dd994107094f2a0d9fe32e228d03a4dec147f06442444",
+      "functions": [
+        {
+          "name": "userFile",
+          "params": [
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "mainText",
+          "params": [
+            "key"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "shellQuote",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "installBridgeLauncher",
+          "params": [],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "listWorkspaces",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "saveWorkspaces",
+          "params": [
+            "items"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "listWslDistros",
+          "params": [],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "hydratePlatformPath",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "createWindow",
+          "params": [],
+          "exported": false,
+          "lineCount": 30
+        },
+        {
+          "name": "backgroundAgentSessions",
+          "params": [],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "showMainWindow",
+          "params": [],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "updateBackgroundTrayMenu",
+          "params": [],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "ensureBackgroundTray",
+          "params": [],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "trustedSender",
+          "params": [
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "requireTrustedSender",
+          "params": [
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "handleTrusted",
+          "params": [
+            "channel",
+            "handler"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "sendTerminal",
+          "params": [
+            "channel",
+            "payload"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "refreshMonitor",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "sendSnapshot",
+          "params": [
+            "snapshot"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "sendUpdateState",
+          "params": [
+            "update"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "installationType",
+          "params": [],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "setupRuntime",
+          "params": [],
+          "exported": false,
+          "lineCount": 51
+        },
+        {
+          "name": "bridgePresence",
+          "params": [],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "bootstrapState",
+          "params": [],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "requestAgentDetail",
+          "params": [
+            "sessionId"
+          ],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "registerIpcHandlers",
+          "params": [],
+          "exported": false,
+          "lineCount": 83
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 482,
+      "hasStructuralAnalysis": true
+    },
+    "package.json": {
+      "filePath": "package.json",
+      "contentHash": "0aecfb045aa8355fa53f03e6d869d6978814fe4af5bafb516d5173560c357452",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 134,
+      "hasStructuralAnalysis": true
+    },
+    "preload.js": {
+      "filePath": "preload.js",
+      "contentHash": "c5e5f070c86ffeaf5d166438715ba1ab6cb2209685c8347ae81d15896b2b6271",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 76,
+      "hasStructuralAnalysis": true
+    },
+    "README.ko.md": {
+      "filePath": "README.ko.md",
+      "contentHash": "3ed995ac726032c50fd8272ca5b2b4d4798e997e0eb07d149f7962f1e6d66300",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "README.md": {
+      "filePath": "README.md",
+      "contentHash": "7b82bed31d03c0c2cc8d54e98fb52522cf9736f209c54c744ac4aa1c0f200200",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "README.zh-CN.md": {
+      "filePath": "README.zh-CN.md",
+      "contentHash": "474cf02faa2ad013a40344aaa59ca2a1eca0fb7701e32211c93742791d7260c6",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 176,
+      "hasStructuralAnalysis": true
+    },
+    "renderer/app.js": {
+      "filePath": "renderer/app.js",
+      "contentHash": "b05d0a0fdc723104c619abd6c701fed25bb71bee75809cf88d299dabf8961518",
+      "functions": [
+        {
+          "name": "captureMotionLayout",
+          "params": [],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "motionEnterOffset",
+          "params": [
+            "element",
+            "kind"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "playMotionLayout",
+          "params": [
+            "previous"
+          ],
+          "exported": false,
+          "lineCount": 42
+        },
+        {
+          "name": "animateVisibleSections",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "loadGuideState",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "saveGuideState",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "renderGuide",
+          "params": [],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "markGuideStep",
+          "params": [
+            "step"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "syncViewChrome",
+          "params": [],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "selectView",
+          "params": [
+            "view"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "currentDialog",
+          "params": [],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "dialogFocusable",
+          "params": [
+            "dialog"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "trapDialogFocus",
+          "params": [
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "rememberDialogTrigger",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "restoreDialogTrigger",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "readablePreview",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "memoryCategoryLabel",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "jsonValueHtml",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "memoryCandidatesHtml",
+          "params": [
+            "items"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "inlineMarkdown",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "markdownHtml",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 31
+        },
+        {
+          "name": "roadmapHtml",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "messageContentHtml",
+          "params": [
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "compact",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "fullNumber",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "timeAgo",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "timeOnly",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "providerInfo",
+          "params": [
+            "id"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "providerStyle",
+          "params": [
+            "id"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "agentRoleLabel",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "statusClass",
+          "params": [
+            "status"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "currentActivity",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "isLiveSession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "subagentWorkState",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "subagentWorkLabel",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "readableActivityDetail",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "latestWorkCopy",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "statusIcon",
+          "params": [
+            "type"
+          ],
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 514,
+      "hasStructuralAnalysis": true
+    },
+    "renderer/i18n.js": {
+      "filePath": "renderer/i18n.js",
+      "contentHash": "be006030fdc8621bbf0cc9b7ddf7f14abe858a52bbf6a96a80cc4b61d8c4da65",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 501,
+      "hasStructuralAnalysis": true
+    },
+    "renderer/index.html": {
+      "filePath": "renderer/index.html",
+      "contentHash": "cbd9a61fc52d2156d0902ee4639a71e28fa6dc07c9de30192a215a73ac912f6b",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 359,
+      "hasStructuralAnalysis": false
+    },
+    "renderer/styles.css": {
+      "filePath": "renderer/styles.css",
+      "contentHash": "bd1961e1669de0dd6dd0ead6ab688e845e0286d7e36cf641e54d8adf1bef9f5d",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 96,
+      "hasStructuralAnalysis": false
+    },
+    "renderer/terminal.js": {
+      "filePath": "renderer/terminal.js",
+      "contentHash": "5c3c8ad1eaf79e84506c9fc5cad73dbe6fbac0c9453ab192dcb0b60c809c0489",
+      "functions": [],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 416,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/actual-runtime-check.js": {
+      "filePath": "scripts/actual-runtime-check.js",
+      "contentHash": "44a9c78727c0791f707f262e0a06203e7cd618393081cf19af0b502d81999ea4",
+      "functions": [
+        {
+          "name": "pause",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "pageTarget",
+          "params": [],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "connect",
+          "params": [
+            "url"
+          ],
+          "exported": false,
+          "lineCount": 23
+        },
+        {
+          "name": "evaluate",
+          "params": [
+            "send",
+            "expression"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "waitFor",
+          "params": [
+            "send",
+            "expression",
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "screenshot",
+          "params": [
+            "send",
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 178,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/background-runtime-check.js": {
+      "filePath": "scripts/background-runtime-check.js",
+      "contentHash": "b9743fdcb279f8632be0b91d2a3f5fb007f1d4052b81b3fea42229365b85df24",
+      "functions": [
+        {
+          "name": "pause",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "targetPage",
+          "params": [],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "connect",
+          "params": [
+            "url"
+          ],
+          "exported": false,
+          "lineCount": 23
+        },
+        {
+          "name": "evaluate",
+          "params": [
+            "send",
+            "expression"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "waitFor",
+          "params": [
+            "send",
+            "expression",
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 10
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 87,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/bridge-integration-test.js": {
+      "filePath": "scripts/bridge-integration-test.js",
+      "contentHash": "5142db51f684a68dd0d4f6e6359b628b08f94af7330c7b790c11d807b450be2f",
+      "functions": [
+        {
+          "name": "runCli",
+          "params": [
+            "file",
+            "discovery"
+          ],
+          "exported": false,
+          "lineCount": 16
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 53,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/interaction-check.js": {
+      "filePath": "scripts/interaction-check.js",
+      "contentHash": "7bed83504b13d903940164b4404b4c25b63e92cd66db66d3fc22e8c6c1b91752",
+      "functions": [
+        {
+          "name": "sleep",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "mark",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "recordManifest",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "assert",
+          "params": [
+            "value",
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "waitFor",
+          "params": [
+            "win",
+            "expression",
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "click",
+          "params": [
+            "win",
+            "selector",
+            "action"
+          ],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "callCount",
+          "params": [
+            "win",
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "clearCalls",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "step",
+          "params": [
+            "round",
+            "name",
+            "fn"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "installPageGuards",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "exerciseNavigation",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "exerciseGuideAndMobileTools",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "exerciseUpdates",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 23
+        },
+        {
+          "name": "exerciseLanguageSettings",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "exerciseDashboardControls",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 64
+        },
+        {
+          "name": "exerciseRunModal",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 77
+        },
+        {
+          "name": "exerciseDrawer",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 55
+        },
+        {
+          "name": "focusRoot",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "exerciseGraph",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 47
+        },
+        {
+          "name": "resetGraphToOverview",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "exerciseAgentControls",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 81
+        },
+        {
+          "name": "exerciseTerminal",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 97
+        },
+        {
+          "name": "openTmuxControl",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "verifyOneCall",
+          "params": [
+            "win",
+            "actionName",
+            "selector",
+            "apiName"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "exerciseTmux",
+          "params": [
+            "win",
+            "round"
+          ],
+          "exported": false,
+          "lineCount": 70
+        },
+        {
+          "name": "runRound",
+          "params": [
+            "win",
+            "index"
+          ],
+          "exported": false,
+          "lineCount": 24
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 861,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/interaction-fixture-preload.js": {
+      "filePath": "scripts/interaction-fixture-preload.js",
+      "contentHash": "9dc525c2354449f92abd0969a6d29628960b3fefb73d756eb7c6c28f01b7fd4d",
+      "functions": [
+        {
+          "name": "clone",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "record",
+          "params": [
+            "name"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "controlled",
+          "params": [
+            "name",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 11
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 309,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/readme-demo.js": {
+      "filePath": "scripts/readme-demo.js",
+      "contentHash": "a9e730bbf6ad85acdf54bb9d31d668fb1bb29a4ed8c0e0367b7f4325f73da51b",
+      "functions": [
+        {
+          "name": "delay",
+          "params": [
+            "ms"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "waitForRenderer",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "capture",
+          "params": [
+            "win",
+            "count"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "installFixture",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 135
+        },
+        {
+          "name": "setFocus",
+          "params": [
+            "win",
+            "id",
+            "targetSelector"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "showDrawer",
+          "params": [
+            "win",
+            "id"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "buildDemo",
+          "params": [],
+          "exported": false,
+          "lineCount": 43
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 263,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/regression-test.js": {
+      "filePath": "scripts/regression-test.js",
+      "contentHash": "686d4caea5c76b97e5f798fedd0a11ee3b6450254395f629da5deca68b5a1053",
+      "functions": [
+        {
+          "name": "test",
+          "params": [
+            "name",
+            "fn"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "jsonl",
+          "params": [
+            "file",
+            "rows"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "runTests",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 945,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/responsive-check.js": {
+      "filePath": "scripts/responsive-check.js",
+      "contentHash": "ec7ff0f8cf1ff7819c5934b116f6e176f93b4ffd9aa6c53ef0274e3ce6454ab1",
+      "functions": [
+        {
+          "name": "wait",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "waitForWindow",
+          "params": [],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "waitForRenderer",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "setWindowSize",
+          "params": [
+            "win",
+            "width",
+            "height"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "openView",
+          "params": [
+            "win",
+            "view"
+          ],
+          "exported": false,
+          "lineCount": 18
+        },
+        {
+          "name": "layoutMetrics",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 29
+        },
+        {
+          "name": "assertLayout",
+          "params": [
+            "metrics",
+            "context"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "overlayMetrics",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 74
+        },
+        {
+          "name": "setupWorkflowFixture",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 53
+        },
+        {
+          "name": "workflowMetrics",
+          "params": [
+            "win"
+          ],
+          "exported": false,
+          "lineCount": 73
+        },
+        {
+          "name": "assertWorkflow",
+          "params": [
+            "metrics"
+          ],
+          "exported": false,
+          "lineCount": 5
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 399,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/terminal-integration-test.js": {
+      "filePath": "scripts/terminal-integration-test.js",
+      "contentHash": "c6decb741c4ce53d4c153d6a40ae3c79a3a5a8341071748abda4afd62ba524ee",
+      "functions": [
+        {
+          "name": "finish",
+          "params": [
+            "error"
+          ],
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 41,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/tmux-integration-test.js": {
+      "filePath": "scripts/tmux-integration-test.js",
+      "contentHash": "08ec45743a9de405d74256b14cb3e654d4d6fece0de4f56649f8a3799cd75f00",
+      "functions": [
+        {
+          "name": "wait",
+          "params": [],
+          "exported": false,
+          "lineCount": 1
+        },
+        {
+          "name": "main",
+          "params": [],
+          "exported": false,
+          "lineCount": 27
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 45,
+      "hasStructuralAnalysis": true
+    },
+    "scripts/visual-check.js": {
+      "filePath": "scripts/visual-check.js",
+      "contentHash": "f33c26cc848abac783ae5316f237fbd45954cc75635a115d3a259be70c3435d1",
+      "functions": [
+        {
+          "name": "markerCommand",
+          "params": [
+            "marker"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "waitForRenderer",
+          "params": [
+            "win",
+            "expression"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "captureStableState",
+          "params": [
+            "win",
+            "setupExpression",
+            "verifyExpression"
+          ],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "setTestWindowSize",
+          "params": [
+            "win",
+            "width",
+            "height"
+          ],
+          "exported": false,
+          "lineCount": 6
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 994,
+      "hasStructuralAnalysis": true
+    },
+    "src/agentMonitor.js": {
+      "filePath": "src/agentMonitor.js",
+      "contentHash": "235aa7b891f1ee098c07b93ef57b6c8b88b4f82eb2eddf09b7a7af9bae1390db",
+      "functions": [
+        {
+          "name": "asText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "compactText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "timestamp",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "addMessage",
+          "params": [
+            "session",
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 16
+        },
+        {
+          "name": "jsonObject",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "collaborationTaskName",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "encryptedCollaborationText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "agentEnvelope",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "collaborationCapacity",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "retainedAgentsFromValue",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "retainedAgentsFromWorldState",
+          "params": [
+            "value",
+            "observedAt"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "addLifecycle",
+          "params": [
+            "session",
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 12
+        },
+        {
+          "name": "settleLifecycle",
+          "params": [
+            "session",
+            "id"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "settleRunningLifecycle",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "baseSession",
+          "params": [
+            "provider",
+            "externalId",
+            "file",
+            "stat"
+          ],
+          "exported": false,
+          "lineCount": 48
+        },
+        {
+          "name": "sumUsage",
+          "params": [
+            "values"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "codexUsage",
+          "params": [],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "codexContentText",
+          "params": [
+            "content"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "codexVisibleUserText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "addCodexMessage",
+          "params": [
+            "session",
+            "observations",
+            "message",
+            "source"
+          ],
+          "exported": false,
+          "lineCount": 23
+        },
+        {
+          "name": "contextInfo",
+          "params": [
+            "used",
+            "windowInfo"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "trimSession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "parseManagedSession",
+          "params": [
+            "runDir"
+          ],
+          "exported": false,
+          "lineCount": 21
+        },
+        {
+          "name": "workspaceLabel",
+          "params": [
+            "cwd"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "isProjectlessSession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "buildSummary",
+          "params": [
+            "sessions",
+            "availability"
+          ],
+          "exported": false,
+          "lineCount": 26
+        }
+      ],
+      "classes": [
+        {
+          "name": "AgentMonitor",
+          "methods": [
+            "constructor",
+            "setAvailability",
+            "setHistoryHomes",
+            "files",
+            "parseFile",
+            "hintedFiles",
+            "managedSessions",
+            "scanNow",
+            "start",
+            "stop"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 151
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 594,
+      "hasStructuralAnalysis": true
+    },
+    "src/agentRunner.js": {
+      "filePath": "src/agentRunner.js",
+      "contentHash": "a577d763fd16ae825648b88912e55b5b28834f0b0477a2c3e97c4850f958610d",
+      "functions": [
+        {
+          "name": "ensureDir",
+          "params": [
+            "dir"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "runId",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "findExecutable",
+          "params": [
+            "command"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "probeProviders",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "atomicJson",
+          "params": [
+            "file",
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "eventText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "clip",
+          "params": [
+            "text"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "makeSession",
+          "params": [
+            "id",
+            "provider",
+            "opts"
+          ],
+          "exported": false,
+          "lineCount": 27
+        },
+        {
+          "name": "addMessage",
+          "params": [
+            "state",
+            "role",
+            "text"
+          ],
+          "exported": false,
+          "lineCount": 22
+        },
+        {
+          "name": "addLifecycle",
+          "params": [
+            "state",
+            "type",
+            "label"
+          ],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "usageFrom",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "updateContext",
+          "params": [
+            "state"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "handleClaude",
+          "params": [
+            "state",
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 37
+        },
+        {
+          "name": "handleCodex",
+          "params": [
+            "state",
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 34
+        },
+        {
+          "name": "handleGemini",
+          "params": [
+            "state",
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 29
+        },
+        {
+          "name": "handleGrok",
+          "params": [
+            "state",
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 30
+        },
+        {
+          "name": "commandSpec",
+          "params": [
+            "provider",
+            "opts",
+            "executable"
+          ],
+          "exported": false,
+          "lineCount": 25
+        }
+      ],
+      "classes": [
+        {
+          "name": "AgentRunner",
+          "methods": [
+            "constructor",
+            "listActive",
+            "start",
+            "consume",
+            "flush",
+            "handleLine",
+            "persist",
+            "stop"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 138
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 466,
+      "hasStructuralAnalysis": true
+    },
+    "src/bridgeServer.js": {
+      "filePath": "src/bridgeServer.js",
+      "contentHash": "bc20b4ea34d43cd7bf836794b7b5b57ea7cd85e5e32246193e874be2be0520d2",
+      "functions": [
+        {
+          "name": "bridgeDirectory",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "discoveryFile",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "endpointFor",
+          "params": [],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "safeWriteJson",
+          "params": [
+            "file",
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "sendFrame",
+          "params": [
+            "socket",
+            "payload"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "validProvider",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "decodeBase64",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 7
+        }
+      ],
+      "classes": [
+        {
+          "name": "BridgeServer",
+          "methods": [
+            "constructor",
+            "start",
+            "attachTerminalListeners",
+            "detachTerminalListeners",
+            "info",
+            "accept",
+            "consume",
+            "handle",
+            "forwardData",
+            "forwardState",
+            "detach",
+            "dispose"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 177
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 242,
+      "hasStructuralAnalysis": true
+    },
+    "src/monitorWorker.js": {
+      "filePath": "src/monitorWorker.js",
+      "contentHash": "ddc7af8b05c36f69bf6e72215ac6f07dfea5fe7e3315694543ff1ef46e581bff",
+      "functions": [
+        {
+          "name": "clip",
+          "params": [
+            "value",
+            "limit"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "cardMessage",
+          "params": [
+            "message"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "cardLifecycle",
+          "params": [
+            "event"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "selectCardMessages",
+          "params": [
+            "messages"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "cardCollaboration",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 42
+        },
+        {
+          "name": "cardSession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 54
+        },
+        {
+          "name": "fingerprint",
+          "params": [
+            "snapshot",
+            "tmux"
+          ],
+          "exported": false,
+          "lineCount": 31
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 270,
+      "hasStructuralAnalysis": true
+    },
+    "src/processMonitor.js": {
+      "filePath": "src/processMonitor.js",
+      "contentHash": "d177f5546a8b0909f5bfe2e503028ec39da976de1b11d9d6cdf9c506e8cc4cf4",
+      "functions": [
+        {
+          "name": "parseCsvRows",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 37
+        },
+        {
+          "name": "wmiDateToIso",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "providerFromWindowsProcess",
+          "params": [],
+          "exported": false,
+          "lineCount": 22
+        },
+        {
+          "name": "providerFromPosixProcess",
+          "params": [],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "elapsedSeconds",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "posixProcessRows",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 15
+        },
+        {
+          "name": "processRows",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "selectAgentProcesses",
+          "params": [
+            "rows"
+          ],
+          "exported": false,
+          "lineCount": 33
+        },
+        {
+          "name": "utilitySession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "runtimeLinkScore",
+          "params": [
+            "session",
+            "processInfo"
+          ],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "markRuntime",
+          "params": [
+            "session",
+            "presence"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "syntheticRuntimeSession",
+          "params": [
+            "processInfo"
+          ],
+          "exported": false,
+          "lineCount": 38
+        },
+        {
+          "name": "bridgeLinkScore",
+          "params": [
+            "session",
+            "bridge"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "syntheticBridgeSession",
+          "params": [
+            "bridge"
+          ],
+          "exported": false,
+          "lineCount": 14
+        },
+        {
+          "name": "applyRuntimePresence",
+          "params": [
+            "agentSessions",
+            "tmuxSnapshot",
+            "processSnapshot"
+          ],
+          "exported": false,
+          "lineCount": 72
+        }
+      ],
+      "classes": [
+        {
+          "name": "ProcessMonitor",
+          "methods": [
+            "constructor",
+            "scan"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 31
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 395,
+      "hasStructuralAnalysis": true
+    },
+    "src/providerRegistry.js": {
+      "filePath": "src/providerRegistry.js",
+      "contentHash": "b39ac06502b94ef183914fca3cee417adc4e32e10b19d4a00a78aa74e507b395",
+      "functions": [
+        {
+          "name": "providerList",
+          "params": [],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "normalizeProvider",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "modelContextWindow",
+          "params": [
+            "provider",
+            "model",
+            "observed"
+          ],
+          "exported": false,
+          "lineCount": 32
+        },
+        {
+          "name": "blankUsage",
+          "params": [],
+          "exported": false,
+          "lineCount": 10
+        },
+        {
+          "name": "finalizeUsage",
+          "params": [],
+          "exported": false,
+          "lineCount": 9
+        }
+      ],
+      "classes": [],
+      "imports": [],
+      "exports": [],
+      "totalLines": 121,
+      "hasStructuralAnalysis": true
+    },
+    "src/terminalManager.js": {
+      "filePath": "src/terminalManager.js",
+      "contentHash": "fa52a6b2f32265a538b360b6efca276974175134b660a3d165202f3310983cfd",
+      "functions": [
+        {
+          "name": "cleanText",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "shellQuote",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 3
+        },
+        {
+          "name": "numericDimension",
+          "params": [
+            "value",
+            "fallback",
+            "min",
+            "max"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "terminalEnvironment",
+          "params": [],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "powershellExecutable",
+          "params": [],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "windowsPathValue",
+          "params": [],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "resolveWindowsCommand",
+          "params": [
+            "command"
+          ],
+          "exported": false,
+          "lineCount": 17
+        },
+        {
+          "name": "killPtyTree",
+          "params": [
+            "handle",
+            "pid"
+          ],
+          "exported": false,
+          "lineCount": 20
+        },
+        {
+          "name": "normalizeLaunchOptions",
+          "params": [],
+          "exported": false,
+          "lineCount": 32
+        },
+        {
+          "name": "launchSpec",
+          "params": [
+            "options"
+          ],
+          "exported": false,
+          "lineCount": 46
+        },
+        {
+          "name": "publicSession",
+          "params": [
+            "session"
+          ],
+          "exported": false,
+          "lineCount": 25
+        }
+      ],
+      "classes": [
+        {
+          "name": "TerminalManager",
+          "methods": [
+            "constructor",
+            "pty",
+            "create",
+            "spawn",
+            "emitState",
+            "list",
+            "get",
+            "required",
+            "write",
+            "command",
+            "resize",
+            "signal",
+            "kill",
+            "restart",
+            "close",
+            "dispose"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 206
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 416,
+      "hasStructuralAnalysis": true
+    },
+    "src/tmuxController.js": {
+      "filePath": "src/tmuxController.js",
+      "contentHash": "e24345c84709e92e288c84311c59836c0f21c9561e9100ad70c68f2b99ca1899",
+      "functions": [
+        {
+          "name": "clean",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "safeName",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "safeTarget",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "runProcess",
+          "params": [
+            "file",
+            "args"
+          ],
+          "exported": false,
+          "lineCount": 37
+        }
+      ],
+      "classes": [
+        {
+          "name": "TmuxController",
+          "methods": [
+            "constructor",
+            "execute",
+            "sendText",
+            "sendKey",
+            "capture",
+            "newSession",
+            "newWindow",
+            "splitPane",
+            "renameSession",
+            "renameWindow",
+            "selectLayout",
+            "killPane",
+            "killWindow",
+            "killSession"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 102
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 177,
+      "hasStructuralAnalysis": true
+    },
+    "src/tmuxMonitor.js": {
+      "filePath": "src/tmuxMonitor.js",
+      "contentHash": "dca8f6f13ba7be31783ba37730c04866ff7527f5605fbb37bb2821eee9077db7",
+      "functions": [
+        {
+          "name": "decodeCommandOutput",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 7
+        },
+        {
+          "name": "normalizeWslList",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "uncHomeFor",
+          "params": [
+            "distro",
+            "linuxHome"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "linuxPathToUnc",
+          "params": [
+            "distro",
+            "linuxPath"
+          ],
+          "exported": false,
+          "lineCount": 5
+        },
+        {
+          "name": "providerFromProcess",
+          "params": [],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "parseElapsedSeconds",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "parseProcessLine",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 11
+        },
+        {
+          "name": "parseTmuxProbe",
+          "params": [
+            "value",
+            "distro"
+          ],
+          "exported": false,
+          "lineCount": 49
+        },
+        {
+          "name": "descendantProcesses",
+          "params": [
+            "rootPid",
+            "processes"
+          ],
+          "exported": false,
+          "lineCount": 20
+        },
+        {
+          "name": "selectAgentProcess",
+          "params": [
+            "pane",
+            "processes"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "buildDistroTopology",
+          "params": [
+            "probe"
+          ],
+          "exported": false,
+          "lineCount": 72
+        },
+        {
+          "name": "normalizeCwd",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "sessionEnvironmentMatches",
+          "params": [
+            "session",
+            "distro"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "linkScore",
+          "params": [
+            "session",
+            "pane",
+            "distro",
+            "processInfo"
+          ],
+          "exported": false,
+          "lineCount": 19
+        },
+        {
+          "name": "linkAgentSessions",
+          "params": [
+            "snapshot",
+            "agentSessions"
+          ],
+          "exported": false,
+          "lineCount": 59
+        }
+      ],
+      "classes": [
+        {
+          "name": "TmuxMonitor",
+          "methods": [
+            "constructor",
+            "discoverDistros",
+            "probeDistro",
+            "scan",
+            "historyHomes"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 100
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 432,
+      "hasStructuralAnalysis": true
+    },
+    "src/updateManager.js": {
+      "filePath": "src/updateManager.js",
+      "contentHash": "3c8e87e86be46e62e1a8edf0bdfbd7c051ee02dcbe583535bf409036eef51524",
+      "functions": [
+        {
+          "name": "normalizeVersion",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 13
+        },
+        {
+          "name": "compareVersions",
+          "params": [
+            "left",
+            "right"
+          ],
+          "exported": false,
+          "lineCount": 27
+        },
+        {
+          "name": "trustedDownloadUrl",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        },
+        {
+          "name": "assetScore",
+          "params": [
+            "asset",
+            "options"
+          ],
+          "exported": false,
+          "lineCount": 34
+        },
+        {
+          "name": "selectReleaseAsset",
+          "params": [
+            "assets",
+            "options"
+          ],
+          "exported": false,
+          "lineCount": 6
+        },
+        {
+          "name": "publicAsset",
+          "params": [
+            "asset"
+          ],
+          "exported": false,
+          "lineCount": 9
+        },
+        {
+          "name": "safeFileName",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 4
+        },
+        {
+          "name": "trustedReleasePage",
+          "params": [
+            "value"
+          ],
+          "exported": false,
+          "lineCount": 8
+        }
+      ],
+      "classes": [
+        {
+          "name": "UpdateManager",
+          "methods": [
+            "constructor",
+            "getState",
+            "setState",
+            "check",
+            "performCheck",
+            "download",
+            "performDownload",
+            "openDownloaded",
+            "openReleasePage"
+          ],
+          "properties": [],
+          "exported": false,
+          "lineCount": 189
+        }
+      ],
+      "imports": [],
+      "exports": [],
+      "totalLines": 328,
+      "hasStructuralAnalysis": true
+    }
+  }
+}

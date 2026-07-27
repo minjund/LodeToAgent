@@ -332,7 +332,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#navAllCount").textContent = rootCount;
     const activeRootCount = sessions.filter((session) => !session.parentId && isControlRoomSession(session)).length;
     $("#navActiveCount").textContent = activeRootCount;
-    const reviewCount = sessions.filter((session) => context.needsManagementReview?.(session)).length;
+    const reviewCount = sessions.filter((session) => context.needsManagementInbox?.(session)).length;
     $("#navWaitingCount").textContent = reviewCount;
     const scheduledCount = (state.snapshot?.automations || [])
       .filter((item) => isProviderVisible(item.provider || "codex")).length;
@@ -576,7 +576,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const allSessions = displaySessions();
     let sessions = state.view === "waiting" ? allSessions : allSessions.filter((session) => !session.parentId);
     if (state.view === "active") sessions = sessions.filter(isControlRoomSession);
-    if (state.view === "waiting") sessions = sessions.filter((session) => context.needsManagementReview?.(session));
+    if (state.view === "waiting") sessions = sessions.filter((session) => context.needsManagementInbox?.(session));
     if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);
     const query = state.search.replace(/\s+/g, " ").trim().toLowerCase();

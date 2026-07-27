@@ -590,6 +590,16 @@
   box-shadow: inset 0 1px rgba(255,255,255,.018);
 }
 
+.control-room-project-group.has-attention {
+  border-color: rgba(247,190,57,.64);
+  background: linear-gradient(135deg,rgba(247,190,57,.08),rgba(7,12,18,.76) 42%);
+  box-shadow: 0 0 0 1px rgba(247,190,57,.12),inset 3px 0 #e9ad27;
+}
+
+.control-room-project-group.has-attention > .control-project-header {
+  background: rgba(247,190,57,.035);
+}
+
 body details.control-room-project-group > summary.control-project-header {
   min-height: 50px !important;
   display: flex;
@@ -666,6 +676,29 @@ body details.control-room-project-group > summary.control-project-header {
   font-size: 12px;
   font-style: normal;
   font-weight: 750;
+}
+
+.control-project-attention,
+.control-session-attention {
+  min-height: 23px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid rgba(247,190,57,.48);
+  border-radius: 999px;
+  background: rgba(247,190,57,.13);
+  color: #ffd469;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.control-project-attention > i,
+.control-session-attention > i {
+  font-style: normal;
+  font-weight: 900;
 }
 
 .control-project-handle {
@@ -745,6 +778,11 @@ body details.control-room-project-group > summary.control-project-header {
   border-radius: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.control-project-body .control-room-session.has-attention {
+  background: linear-gradient(90deg,rgba(247,190,57,.075),transparent 34%);
+  box-shadow: inset 3px 0 #e9ad27;
 }
 
 .control-project-body .control-room-session + .control-room-session {
@@ -880,6 +918,11 @@ body details.control-room-project-group > summary.control-project-header {
   border-radius: 16px;
   background: linear-gradient(135deg,color-mix(in srgb,var(--provider) 3%,#0d141d),#080d14 58%);
   box-shadow: 0 16px 38px rgba(0,0,0,.17),inset 0 1px rgba(255,255,255,.025);
+}
+
+.control-room-session.has-attention {
+  border-color: rgba(247,190,57,.64);
+  box-shadow: 0 0 0 1px rgba(247,190,57,.12),0 16px 38px rgba(0,0,0,.17),inset 3px 0 #e9ad27;
 }
 
 [data-session-sortable] {
@@ -2479,6 +2522,39 @@ body.conversation-panel-resizing {
   color: #79d9f8;
 }
 
+/*
+ * Keep the conversation transcript flat in both overlay and split presentations.
+ * Presentation changes should affect placement, not turn visual language.
+ */
+.detail-drawer .chat-list {
+  gap: 22px;
+}
+
+.detail-drawer .chat-turn {
+  gap: 16px;
+  padding-bottom: 22px;
+}
+
+.detail-drawer .chat-content.markdown {
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #d1dae2;
+  font-size: 14px;
+  line-height: 1.72;
+}
+
+.detail-drawer .chat-row {
+  grid-template-columns: 31px minmax(0,1fr);
+  gap: 12px;
+}
+
+.detail-drawer .chat-avatar {
+  width: 29px;
+  height: 29px;
+}
+
 @media (min-width:1680px) {
   body.conversation-context-open #appShell {
     width: calc(100vw - var(--conversation-panel-width));
@@ -2621,42 +2697,6 @@ body.conversation-panel-resizing {
     top: -14px;
     margin: -14px 0 14px;
     padding-top: 10px;
-  }
-
-  body.conversation-context-open .detail-drawer .chat-list {
-    gap: 22px;
-  }
-
-  body.conversation-context-open .detail-drawer .chat-turn {
-    gap: 16px;
-    padding-bottom: 22px;
-  }
-
-  body.conversation-context-open .detail-drawer .chat-content.markdown {
-    padding: 2px 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: #d1dae2;
-    font-size: 14px;
-    line-height: 1.72;
-  }
-
-  body.conversation-context-open .detail-drawer .chat-row.user .chat-content.markdown {
-    padding: 10px 12px;
-    border-left: 2px solid color-mix(in srgb,var(--drawer-provider,#79d9f8) 65%,#526271);
-    border-radius: 0 8px 8px 0;
-    background: rgba(255,255,255,.025);
-  }
-
-  body.conversation-context-open .detail-drawer .chat-row {
-    grid-template-columns: 31px minmax(0,1fr);
-    gap: 12px;
-  }
-
-  body.conversation-context-open .detail-drawer .chat-avatar {
-    width: 29px;
-    height: 29px;
   }
 
   body.conversation-context-open .detail-drawer .chat-history-head {

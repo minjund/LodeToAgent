@@ -5,7 +5,10 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   if (root) root.LoadToAgentConversationDelivery = api;
 })(typeof window === "object" ? window : null, function createConversationDelivery() {
-  const CONFIRMATION_DELAY_MS = 12_000;
+  // Claude startup hooks can delay the provider log by tens of seconds even
+  // though the prompt was already handed to the CLI. Avoid turning normal
+  // startup latency into an alarming false "unreceived" state.
+  const CONFIRMATION_DELAY_MS = 60_000;
 
   function normalizedText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();

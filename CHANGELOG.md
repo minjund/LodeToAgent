@@ -3,6 +3,28 @@
 Notable user-facing changes are documented here. Release tags and generated
 GitHub release notes remain the authoritative version history.
 
+## Unreleased
+
+## 1.3.18 - 2026-07-27
+
+- Render every conversation turn as a flat transcript without message
+  bubbles in both overlay and split-panel presentations.
+- Keep the conversation panel in overlay mode below 1680px and reserve at
+  least 960px for the dashboard in split-panel mode.
+- Separate blocking responses, optional follow-ups, and run risks throughout
+  attention detection and the review inbox.
+- Show the exact request sentence that triggered a review item and keep
+  optional follow-ups out of urgent intervention counts.
+- Improve terminal command delivery, session parsing, execution summaries,
+  attention highlighting, and interaction coverage.
+
+## 1.3.16 - 2026-07-27
+
+- Restore internal unsigned macOS updates while retaining trusted GitHub
+  release URL and SHA-256 digest verification.
+- Remove quarantine attributes only from the staged internal macOS app before
+  relaunch.
+
 ## 1.3.14 - 2026-07-27
 
 - Adopt the MIT License.

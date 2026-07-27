@@ -129,7 +129,9 @@ try {
   check('intent.question', assistantRequestsUserResponse('어느 환경을 선택할까요?'));
   check('intent.korean-request', assistantRequestsUserResponse('원하는 값을 알려주세요.'));
   check('intent.english-request', assistantRequestsUserResponse('Please choose Windows or WSL.'));
-  check('intent.courtesy-not-waiting', !assistantRequestsUserResponse('추가 질문이 있으면 알려주세요.'));
+  check('intent.optional-not-waiting',
+    !assistantRequestsUserResponse('추가 질문이 있으면 알려주세요.')
+    && !assistantRequestsUserResponse('필요하시면 OPS 파일로 저장해 드리겠습니다. 저장할까요?'));
   check('intent.completion-not-waiting', !assistantRequestsUserResponse('모든 작업을 완료했습니다.'));
 
   const passed = checks.filter(item => item.passed).length;

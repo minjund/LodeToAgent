@@ -535,6 +535,7 @@ async function exerciseManagementControls(win, round) {
     const recentFailed = { ...recent, status: 'failed', health: { level: 'critical', signals: [{ code: 'run-failed' }] } };
     const oldFailed = { ...recentFailed, updatedAt: old.updatedAt };
     const recentResponse = { ...recent, status: 'waiting', attention: { required: true, kind: 'response' }, health: { level: 'healthy', signals: [] } };
+    const recentOptional = { ...recent, attention: { category: 'optional', required: false, actionable: false, kind: 'optional' } };
     const freshSignal = new Date(now - 30 * 1000).toISOString();
     const staleSignal = new Date(now - 7 * 60 * 60 * 1000).toISOString();
     return {
@@ -545,6 +546,8 @@ async function exerciseManagementControls(win, round) {
       recentRiskReview: app.needsManagementReview(recentFailed, now),
       oldRiskExcluded: !app.needsManagementReview(oldFailed, now),
       recentResponseReview: app.needsManagementReview(recentResponse, now),
+      optionalInInbox: app.needsManagementInbox(recentOptional, now),
+      optionalNotActionable: !app.needsManagementReview(recentOptional, now),
       todayCompletedVisible: app.filteredSessions().some(session => session.id === 'fixture-ended'),
       freshOperationOutranksStaleRunning: app.supervisionFreshnessScore(freshSignal, now) > app.supervisionFreshnessScore(staleSignal, now),
       missingOperationRanksBelowStale: app.supervisionFreshnessScore(null, now) < app.supervisionFreshnessScore(staleSignal, now),
@@ -575,19 +578,32 @@ async function exerciseManagementControls(win, round) {
     critical: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.matchesManagementFilter(session, 'critical')).length,
     warning: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.matchesManagementFilter(session, 'warning')).length,
     attention: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.matchesManagementFilter(session, 'attention')).length,
+    optional: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.matchesManagementFilter(session, 'optional')).length,
     clear: window.LoadToAgentApp.graphFilteredSessions().filter(session => !window.LoadToAgentApp.needsManagementReview(session)).length,
+    inboxExpected: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.needsManagementInbox(session)).length,
     reviewTotal: Number(document.querySelector('[data-home-attention]')?.dataset.homeAttention || 0),
     reviewExpected: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.needsManagementReview(session)).length,
+    rootReviewExpected: window.LoadToAgentApp.rootManagementReviews(window.LoadToAgentApp.graphFilteredSessions()).length,
     attentionItems: document.querySelectorAll('.home-attention-item').length,
+    childListedDirectly: Boolean(document.querySelector('.home-attention-item[data-open-session="fixture-child"]')),
+    childCopyLeaked: document.querySelector('#operationsOverview')?.innerText.includes('서브에이전트 내부 확인 문구'),
     controlRooms: document.querySelectorAll('[data-control-session]').length,
     rootMain: Boolean(document.querySelector('[data-control-session="fixture-root"] .control-room-main')),
+    rootAttention: document.querySelector('[data-control-session="fixture-root"]')?.classList.contains('has-attention')
+      && Number(document.querySelector('[data-control-session="fixture-root"]')?.dataset.attentionCount || 0) >= 1,
+    projectAttention: document.querySelector('[data-control-project="fixture"]')?.classList.contains('has-attention')
+      && Number(document.querySelector('[data-control-project="fixture"]')?.dataset.attentionCount || 0) >= 1,
     rootHelpers: document.querySelectorAll('[data-control-session="fixture-root"] .helper-node').length,
     rootExecutions: document.querySelectorAll('[data-control-session="fixture-root"] .execution-node').length,
     rootCompleted: document.querySelectorAll('[data-control-session="fixture-root"] .completed-list .control-room-node').length,
     flowVisibleWithoutFocus: window.LoadToAgentApp.state.graphFocusId === null && Boolean(document.querySelector('[data-control-room-overview]')),
   }))()`);
-  assert(managementScope.critical + managementScope.warning + managementScope.attention + managementScope.clear >= managementScope.total, `최근 24시간 상태 기준 집계가 표시 범위를 빠뜨렸습니다: ${JSON.stringify(managementScope)}`);
-  assert(managementScope.reviewTotal === managementScope.reviewExpected && managementScope.attentionItems === Math.min(3, managementScope.reviewExpected), `홈 확인 필요 항목이 실제 검토 대상과 일치하지 않습니다: ${JSON.stringify(managementScope)}`);
+  assert(managementScope.critical + managementScope.warning + managementScope.attention + managementScope.optional <= managementScope.total, `확인 항목 분류가 서로 중복 집계됩니다: ${JSON.stringify(managementScope)}`);
+  assert(managementScope.reviewTotal === managementScope.rootReviewExpected
+    && managementScope.attentionItems === Math.min(3, managementScope.rootReviewExpected)
+    && !managementScope.childListedDirectly && !managementScope.childCopyLeaked,
+  `홈 확인 필요 항목이 메인 세션 단위로 집계되지 않았습니다: ${JSON.stringify(managementScope)}`);
+  assert(managementScope.rootAttention && managementScope.projectAttention, `프로젝트·메인 세션의 노란 확인 표시가 누락됐습니다: ${JSON.stringify(managementScope)}`);
   assert(managementScope.controlRooms >= 1 && managementScope.rootMain && managementScope.rootHelpers >= 1
     && managementScope.rootExecutions >= 1 && managementScope.rootCompleted >= 1 && managementScope.flowVisibleWithoutFocus,
     `클릭 전 메인·서브에이전트·실행 명령·완료 흐름이 보이지 않습니다: ${JSON.stringify(managementScope)}`);
@@ -713,6 +729,13 @@ async function exerciseManagementControls(win, round) {
     && Boolean(document.querySelector('[data-management-session="fixture-waiting"]'))
     && !document.querySelector('[data-management-session="fixture-failed"]')
     && !document.querySelector('[data-management-session="fixture-paused-run"]')`, '내 응답 필요 필터가 실제 응답 요청만 표시하지 못했습니다.');
+  await click(win, '[data-management-inbox-filter="optional"]', 'management:inbox-filter');
+  await waitFor(win, `window.LoadToAgentApp.state.managementFilter === 'optional'
+    && Boolean(document.querySelector('[data-management-session="fixture-optional"][data-attention-category="optional"]'))
+    && !document.querySelector('[data-management-session="fixture-waiting"]')
+    && document.querySelector('.attention-classification-guide')?.innerText.includes('진행 차단')
+    && document.querySelector('.attention-classification-guide')?.innerText.includes('선택 사항')
+    && document.querySelector('.attention-classification-guide')?.innerText.includes('실행 위험')`, '선택 사항이 필수 응답·실행 위험과 분리되어 표시되지 않았습니다.');
   await click(win, '[data-management-inbox-filter="all"]', 'management:inbox-filter');
   await waitFor(win, `Boolean(document.querySelector('[data-management-session="fixture-waiting"] [data-attention-quick]'))
     && Boolean(document.querySelector('[data-management-session="fixture-failed"] [data-managed-run-action="retry"]'))
@@ -1785,6 +1808,11 @@ async function exerciseGraph(win, round) {
   await click(win, secondReset, 'graph:reset');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === null && !document.querySelector('.agent-workflow-canvas')`, 'breadcrumb graph reset 실패');
 
+  // Contextual conversation mode intentionally starts at the wide desktop
+  // breakpoint. Exercise that contract at a matching viewport instead of
+  // expecting it from the default 1440px interaction-test window.
+  win.setSize(1800, 940);
+  await sleep(120);
   await focusRoot(win);
   await clearCalls(win);
   await click(win, '#liveSessionGrid [data-open-session="fixture-root"]', 'drawer:open-graph');
@@ -1808,6 +1836,8 @@ async function exerciseGraph(win, round) {
   await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')
     && !document.body.classList.contains('conversation-context-open')
     && document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '에이전트 흐름으로 돌아가며 대화 패널을 닫지 못했습니다.');
+  win.setSize(1440, 940);
+  await sleep(120);
   round.observed.graphResetClicks = 2;
 }
 
@@ -1954,6 +1984,19 @@ async function exerciseAgentControls(win, round) {
     && document.querySelector('#drawerContent .chat-delivery-progress')?.dataset.deliveryPhase === 'confirming'`,
   'WSL 외부 CLI를 지속형 관리 터미널로 이어받고 대화 상세 화면을 유지하지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
+    input.value = 'HANDOFF_EXISTING_SESSION';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.closest('form').requestSubmit();
+  })()`);
+  await sleep(120);
+  assert(
+    await win.webContents.executeJavaScript(`window.interactionTest.getCalls().filter(item =>
+      (item.name === 'terminalCreate' && item.args[0]?.args?.includes('HANDOFF_EXISTING_SESSION'))
+      || (item.name === 'terminalCommand' && item.args[1] === 'HANDOFF_EXISTING_SESSION')).length`) === 1,
+    '수신 확인이 늦을 때 같은 Claude 메시지를 중복 전송했습니다.',
+  );
+  await win.webContents.executeJavaScript(`(() => {
     const now = Date.now();
     const original = window.interactionTest.getSnapshot().sessions.find(session => session.id === 'fixture-live-0');
     window.interactionTest.addSession({
@@ -1974,8 +2017,11 @@ async function exerciseAgentControls(win, round) {
   })()`);
   await waitFor(win, `!document.querySelector('#drawerContent .chat-row.is-optimistic')
     && !document.querySelector('#drawerContent .chat-delivery-progress')
-    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-live-0')`,
-  'Claude가 같은 프로젝트의 새 세션 로그에 응답을 기록한 뒤에도 대화 수신 확인이 완료되지 않았습니다.');
+    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-live-0')
+    && document.querySelector('#drawerContent')?.innerText.includes('HANDOFF_EXISTING_SESSION')
+    && document.querySelector('#drawerContent')?.innerText.includes('BACKGROUND_AI_RESPONSE')
+    && (window.LoadToAgentApp.state.resolvedConversationMessages.get('fixture-live-0') || []).length === 2`,
+  'Claude가 새 세션 로그에 기록한 요청과 응답을 원래 대화창으로 합치지 못했습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
   await click(win, '#closeDrawerBtn', 'drawer:close');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '이어받기 후 대화 상세 drawer가 닫히지 않았습니다.');

@@ -140,6 +140,17 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     context.renderDrawer?.();
   }
 
+  function matchingPendingConversation(sessionId, command) {
+    const normalize = window.LoadToAgentConversationDelivery?.normalizedText
+      || (value => String(value || "").replace(/\s+/g, " ").trim());
+    const expected = normalize(command);
+    return (state.pendingConversationMessages.get(sessionId) || []).find(entry =>
+      entry
+      && entry.status !== "failed"
+      && entry.phase !== "responded"
+      && normalize(entry.text) === expected) || null;
+  }
+
   function agentControlMode(session, targets) {
     if (targets.length && isLiveSession(session)) return "direct";
     const resume = agentResumeSupport(session);
@@ -356,6 +367,9 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (routingEnabled && !["direct", "resume", "handoff", "origin-resume"].includes(mode)) return context.toast(t("agent.route_unavailable"));
     const input = form.querySelector("[data-agent-command-draft]");
     const command = String((input && input.value) || "").trim();
+    if (conversationSubmission && command && matchingPendingConversation(sessionId, command)) {
+      return context.toast(t("agent.command_already_pending"));
+    }
     const routedCommand = conversationSubmission && routingEnabled && routeContext.route === "parent"
       ? t("agent.route_via_parent_prompt", {
           task: session.delegation?.taskName || session.taskName || session.agentName || session.title,

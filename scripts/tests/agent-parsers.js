@@ -6,7 +6,7 @@ const path = require('path');
 const {
   AgentMonitor, parseClaude, parseCodex, attachHierarchy, isProjectlessSession, mergeManagedWithHistory,
 } = require('../../src/agentMonitor');
-const { assistantRequestsUserResponse } = require('../../src/agentMonitor/responseIntent');
+const { assistantRequestsUserResponse, assistantResponseIntent } = require('../../src/agentMonitor/responseIntent');
 
 function registerClaudeParserTests(context) {
   const { test, temp, jsonl } = context;
@@ -431,6 +431,15 @@ function registerCodexParserTests(context) {
     assert.equal(assistantRequestsUserResponse('Please send the log file.'), true);
     assert.equal(assistantRequestsUserResponse('To continue, please confirm the branch.'), true);
     assert.equal(assistantRequestsUserResponse('Could you select one?\n- WSL\n- Windows'), true);
+    assert.deepStrictEqual(
+      assistantResponseIntent('필요하시면 이 SQL을 OPS 스크립트 파일로 저장해 드리겠습니다. 저장할까요?'),
+      {
+        category: 'optional', required: false, optional: true,
+        requestText: '저장할까요?', confidence: 'high',
+      },
+    );
+    assert.equal(assistantRequestsUserResponse('원하시면 변경 내역도 문서화해 드릴까요?'), false);
+    assert.equal(assistantResponseIntent('배포 전에 대상 환경을 선택해 주세요.').category, 'required');
   });
 
   test('Codex 데스크톱의 new-chat 임시 경로를 프로젝트 없는 세션으로 분류한다', () => {

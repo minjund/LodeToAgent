@@ -374,6 +374,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return sortGraphNodes(found);
   }
 
+  const sessionNeedsReview = session => typeof context.needsManagementReview === "function"
+    ? context.needsManagementReview(session)
+    : Boolean(session?.attention?.actionable || session?.attention?.required);
+
   function controlRoomIntent(value) {
     const text = String(value || "");
     const loopCommand = ["w", "c", "c", "-loop"].join("");
@@ -510,6 +514,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const retained = isControlRoomSession(root) && !isLiveSession(root) && !delivery;
     const descendants = controlRoomDescendants(root, model);
     const actors = [root, ...descendants];
+    const attentionCount = actors.filter(sessionNeedsReview).length;
+    const hasAttention = attentionCount > 0;
     const executionItems = actors.flatMap(owner => (owner.executions || []).map(activity => ({ activity, owner })));
     const activeChildren = descendants.filter(child => ["starting", "running", "paused", "waiting"].includes(child.status) && !child.completionObserved);
     const completedChildren = descendants.filter(child => ["completed", "cancelled", "failed"].includes(child.status) || child.completionObserved);
@@ -550,10 +556,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         : (waiting ? "control.waiting_session" : (retained ? "control.recently_completed" : "control.live_session"));
     const retention = retained ? `<small class="control-session-retention">${esc(t("control.auto_history_in_minutes", { minutes: sessionRetentionMinutes(root) }))}</small>` : "";
     const archive = retained ? `<button type="button" class="control-session-archive" data-session-archive="${esc(root.id)}">${esc(t("control.move_to_history"))}</button>` : "";
-    return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}"
+    return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
-      <header><div><span class="control-session-live"><i></i>${esc(t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow"))} ↗</button></header>
+      <header><div><span class="control-session-live"><i></i>${esc(t(sessionStateKey))}</span><b>${esc(title.text)}</b>${hasAttention ? `<span class="control-session-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow"))} ↗</button></header>
       <div class="control-room-flow">
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
@@ -599,9 +605,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       const projectTotals = allGroups.get(key) || { roots: projectRoots, tmuxEntries: projectTmuxEntries };
       const activeCount = projectTotals.roots.filter((root) => isLiveSession(root)).length;
       const attentionCount = projectTotals.roots.filter((root) =>
-        !isLiveSession(root)
-        && isControlRoomSession(root)
-        && ["waiting", "failed", "paused"].includes(root.status)).length;
+        [root, ...controlRoomDescendants(root, model)].some(sessionNeedsReview)).length;
       const sessionSummary = attentionCount
         ? t("control.project_live_attention_summary", { active: activeCount, attention: attentionCount })
         : t("control.project_live_summary", { active: activeCount });
@@ -619,10 +623,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="live-tmux-grid">${projectTmuxEntries.map((entry) => liveTmuxPaneCard(entry)).join("")}</div>
         </section>`
         : "";
-      return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}">
+      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
-          <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small><em>${totalCount}</em></span>
+          <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small>${attentionCount ? `<span class="control-project-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}<em>${totalCount}</em></span>
           <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
         </summary>
         ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>` : ""}

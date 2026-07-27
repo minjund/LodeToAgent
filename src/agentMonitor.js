@@ -14,7 +14,7 @@ const { createCodexParser } = require('./agentMonitor/codexParser');
 const { createClaudeParser } = require('./agentMonitor/claudeParser');
 const { createGenericParser } = require('./agentMonitor/genericParser');
 const { createHierarchyAttacher } = require('./agentMonitor/hierarchy');
-const { assistantRequestsUserResponse, isUserInputTool } = require('./agentMonitor/responseIntent');
+const { assistantResponseIntent, isUserInputTool } = require('./agentMonitor/responseIntent');
 const {
   MAX_FILES_PER_PROVIDER,
   readJson,
@@ -188,6 +188,7 @@ function baseSession(provider, externalId, file, stat) {
     status: 'idle',
     statusDetail: '',
     statusObserved: false,
+    responseIntent: { category: 'none', required: false, optional: false, requestText: '', confidence: 'low', source: 'none' },
     startedAt: updatedAt,
     updatedAt,
     endedAt: null,
@@ -239,7 +240,7 @@ const parseClaude = createClaudeParser({
   sumUsage,
   timestamp,
   trimSession,
-  assistantRequestsUserResponse,
+  assistantResponseIntent,
   isUserInputTool,
 });
 
@@ -310,7 +311,7 @@ const parseCodex = createCodexParser({
   textOps: {
     agentEnvelope, codexContentText, codexVisibleUserText,
     compactText, encryptedCollaborationText, jsonObject,
-    assistantRequestsUserResponse, isUserInputTool,
+    assistantResponseIntent, isUserInputTool,
   },
   collaborationOps: {
     collaborationCapacity, collaborationTaskName,
@@ -337,7 +338,7 @@ const parseGeneric = createGenericParser({
   sumUsage,
   timestamp,
   trimSession,
-  assistantRequestsUserResponse,
+  assistantResponseIntent,
   isUserInputTool,
 });
 
@@ -454,6 +455,7 @@ function mergeManagedWithHistory(history, managed) {
     messages: mergeObservedRows(history.messages, managed.messages),
     lifecycle: mergeObservedRows(history.lifecycle, managed.lifecycle),
     executions: (history.executions || []).length ? history.executions : (managed.executions || []),
+    responseIntent: history.responseIntent?.category !== 'none' ? history.responseIntent : managed.responseIntent,
     childIds: [...new Set([...(history.childIds || []), ...(managed.childIds || [])])],
     collaboration,
   };

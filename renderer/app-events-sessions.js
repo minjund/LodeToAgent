@@ -210,7 +210,11 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     });
   };
 
-  const managementFilterLabel = value => value === "all" ? window.LoadToAgentI18n.t("management.filter_all") : window.LoadToAgentI18n.t(`management.health.${value}`);
+  const managementFilterLabel = value => {
+    if (value === "all") return window.LoadToAgentI18n.t("management.filter_all");
+    if (value === "optional") return window.LoadToAgentI18n.t("management.attention.optional");
+    return window.LoadToAgentI18n.t(`management.health.${value}`);
+  };
   const announceManagementFilter = value => announce(window.LoadToAgentI18n.t("management.filter_results", {
     filter: managementFilterLabel(value),
     count: $("#attentionInbox")?.querySelectorAll("[data-management-session]").length || 0,

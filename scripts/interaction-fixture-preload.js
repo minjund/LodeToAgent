@@ -70,6 +70,11 @@ const childSession = {
   ...rootSession, id: 'fixture-child', externalId: 'fixture-child-external', provider: 'gpt', model: 'gpt-fixture',
   title: '세션 관제 화면의 읽기 흐름과 개입 경로 검증', parentId: 'fixture-root', childIds: ['fixture-grandchild'], agentName: 'button-auditor', agentRole: 'tester',
   statusDetail: '홈 화면과 대화 참여 경로를 냉정하게 검토하는 중',
+  responseIntent: {
+    category: 'required', required: true, optional: false,
+    requestText: '서브에이전트 내부 확인 문구는 상단 목록에 직접 노출하지 않아야 합니다.',
+    confidence: 'high', source: 'structured-input',
+  },
   messages: [
     { id: 'm-user', role: 'user', text: '상호작용 테스트를 진행해줘', timestamp: now },
     { id: 'm-assistant', role: 'assistant', text: '버튼과 입력 동작을 확인하고 있습니다.', timestamp: now },
@@ -129,6 +134,16 @@ const endedSession = {
 const waitingSession = {
   ...endedSession, id: 'fixture-waiting', externalId: 'fixture-waiting-external', provider: 'gemini',
   title: '사용자 승인 대기 검증', status: 'waiting', statusDetail: '권한 승인 대기',
+};
+
+const optionalSession = {
+  ...endedSession, id: 'fixture-optional', externalId: 'fixture-optional-external', provider: 'claude',
+  title: '선택적 문서화 제안 검증', status: 'idle', statusDetail: '다음 요청 대기',
+  responseIntent: {
+    category: 'optional', required: false, optional: true,
+    requestText: '원하시면 변경 내역도 문서화해 드릴까요?',
+    confidence: 'high', source: 'assistant-message',
+  },
 };
 
 const failedSession = {
@@ -263,10 +278,19 @@ const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 't
 
 const sessionRecords = [
   rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession,
-  ...extraLiveSessions, endedSession, waitingSession, failedSession, pausedSession, staleIdleSession,
+  ...extraLiveSessions, endedSession, waitingSession, optionalSession, failedSession, pausedSession, staleIdleSession,
   oldParentWithRunningChild, runningChildOfOldParent, ...extraEndedSessions,
 ];
-const enrichedSessionRecords = sessionRecords.map(session => enrichSession(session, sessionRecords, Date.now()));
+const enrichedSessionRecords = sessionRecords
+  .map(session => enrichSession(session, sessionRecords, Date.now()))
+  .map(session => session.id === 'fixture-child' ? {
+    ...session,
+    attention: {
+      category: 'required', required: true, actionable: true, kind: 'input',
+      summary: '서브에이전트 내부 확인 문구는 상단 목록에 직접 노출하지 않아야 합니다.',
+      requestedAt: now, source: 'structured-input', confidence: 'high',
+    },
+  } : session);
 
 const snapshot = {
   generatedAt: now,

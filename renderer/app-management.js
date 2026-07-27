@@ -23,7 +23,11 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const RESPONSE_ATTENTION_KINDS = new Set(["approval", "decision", "input", "response"]);
   const ACTIONABLE_RISK_SIGNALS = new Set(["run-failed", "run-paused", "stalled", "waiting-too-long", "repeated-failures"]);
   const needsUserResponse = session => Boolean(
-    session.attention?.required && RESPONSE_ATTENTION_KINDS.has(session.attention.kind),
+    (session.attention?.category === "required" || (!session.attention?.category && session.attention?.required))
+    && RESPONSE_ATTENTION_KINDS.has(session.attention.kind),
+  );
+  const hasOptionalFollowup = session => Boolean(
+    session.attention?.category === "optional" || session.attention?.kind === "optional",
   );
   const sessionActivityTimestamp = session => Math.max(0, ...[
     session.health?.lastActivityAt,
@@ -51,6 +55,10 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   );
   const needsManagementReview = (session, now = Date.now()) => Boolean(
     isRecentSession(session, now) && (needsUserResponse(session) || hasCurrentRisk(session, now)),
+  );
+  const needsManagementInbox = (session, now = Date.now()) => Boolean(
+    isRecentSession(session, now)
+    && (needsUserResponse(session) || hasOptionalFollowup(session) || hasCurrentRisk(session, now)),
   );
   const prioritySummary = value => {
     const lines = String(value || "")
@@ -105,7 +113,10 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const attentionFlow = session => {
     const attention = session.attention || {};
     const responseRequired = needsUserResponse(session);
-    const kind = responseRequired ? attention.kind : (session.status === "failed" ? "error" : session.status === "paused" ? "paused" : "risk");
+    const optional = hasOptionalFollowup(session);
+    const kind = responseRequired
+      ? attention.kind
+      : optional ? "optional" : (session.status === "failed" ? "error" : session.status === "paused" ? "paused" : "risk");
     const check = t(`management.flow_check_${kind}`);
     const action = t(`management.flow_action_${kind}`);
     const reply = t(`management.flow_reply_${kind}`);
@@ -118,8 +129,9 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       }).join(" / ") || session.statusDetail || latestAgentReply(session));
     return {
       responseRequired,
+      optional,
       kind,
-      agentReply: latestAgentReply(session),
+      agentReply: optional ? flowExcerpt(attention.summary, 420) : latestAgentReply(session),
       reason: flowExcerpt(replySource, 260),
       check,
       action,
@@ -141,18 +153,42 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   };
 
   function managementBucket(session, now = Date.now()) {
-    if (!needsManagementReview(session, now)) return "healthy";
+    if (needsUserResponse(session)) return "attention";
     if (hasCurrentRisk(session, now) && actionableRiskLevel(session) === "critical") return "critical";
     if (hasCurrentRisk(session, now) && actionableRiskLevel(session) === "warning") return "warning";
-    if (needsUserResponse(session)) return "attention";
+    if (isRecentSession(session, now) && hasOptionalFollowup(session)) return "optional";
     return "healthy";
   }
 
   function matchesManagementFilter(session, filter, now = Date.now()) {
-    if (filter === "critical") return hasCurrentRisk(session, now) && actionableRiskLevel(session) === "critical";
-    if (filter === "warning") return hasCurrentRisk(session, now) && actionableRiskLevel(session) === "warning";
-    if (filter === "attention") return isRecentSession(session, now) && needsUserResponse(session);
-    return needsManagementReview(session, now);
+    const bucket = managementBucket(session, now);
+    if (filter === "critical" || filter === "warning" || filter === "attention" || filter === "optional") return bucket === filter;
+    return needsManagementInbox(session, now);
+  }
+
+  function rootManagementReviews(sessions, now = Date.now()) {
+    const visible = Array.isArray(sessions) ? sessions : [];
+    const allSessions = state.snapshot?.sessions || visible;
+    const byId = new Map(allSessions.map(session => [session.id, session]));
+    const grouped = new Map();
+    const rootSession = (session) => {
+      let current = session;
+      const visited = new Set();
+      while (current?.parentId && !visited.has(current.id)) {
+        visited.add(current.id);
+        const parent = byId.get(current.parentId);
+        if (!parent) break;
+        current = parent;
+      }
+      return current || session;
+    };
+    visible.filter(session => needsManagementReview(session, now)).forEach((source) => {
+      const root = rootSession(source);
+      if (!root?.id) return;
+      if (!grouped.has(root.id)) grouped.set(root.id, { session: root, sources: [] });
+      grouped.get(root.id).sources.push(source);
+    });
+    return [...grouped.values()];
   }
 
   function progressHtml(session, compactView = false) {
@@ -202,7 +238,8 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
 
   function quickActionsHtml(session) {
     const attention = session.attention || {};
-    if (!attention.required) return "";
+    const category = attention.category || (attention.required ? "required" : "none");
+    if (category === "none") return "";
     const controls = session.controlCapabilities || {};
     const buttons = [];
     // A yes/no approval message is only safe for explicit approval requests.
@@ -221,14 +258,19 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const attention = session.attention || {};
     const health = session.health || { level: "unknown", signals: [] };
     const evidence = session.evidence || {};
-    const cardLabel = attention.required ? attentionLabel(attention.kind) : healthLabel(health.level);
+    const bucket = managementBucket(session);
+    const category = attention.category || (needsUserResponse(session) ? "required" : "risk");
+    const cardLabel = category === "required" || category === "optional"
+      ? attentionLabel(attention.kind)
+      : healthLabel(bucket === "critical" || bucket === "warning" ? bucket : health.level);
     const flow = attentionFlow(session);
     const canDraft = Boolean(session.controlCapabilities?.sendInstruction && flow.kind !== "approval");
     const draftAction = canDraft
       ? `<button type="button" class="attention-draft-action" data-attention-session-id="${esc(session.id)}" data-attention-draft="${esc(flow.reply)}">${esc(t("management.flow_use_reply"))}</button>`
       : "";
-    return `<article class="attention-card ${esc(attention.kind || "response")}" data-management-session="${esc(session.id)}" style="--management-provider:${provider.accent}">
+    return `<article class="attention-card ${esc(category)} ${esc(attention.kind || "response")}" data-management-session="${esc(session.id)}" data-attention-category="${esc(category)}" style="--management-provider:${provider.accent}">
       <header><span class="provider-mark">${esc(provider.mark)}</span><div><small>${esc(provider.label)} · ${esc(cardLabel)}</small><h3>${esc(session.title)}</h3></div><em class="confidence ${esc(evidence.confidence || "low")}">${esc(evidenceLabel(evidence.confidence))}</em></header>
+      <div class="attention-category-banner ${esc(category)}"><i aria-hidden="true"></i><span><b>${esc(t(`management.category.${category}`))}</b><small>${esc(t(`management.category.${category}_detail`))}</small></span></div>
       <div class="attention-decision-flow" data-attention-flow="${esc(flow.kind)}" aria-label="${esc(t("management.flow_label"))}">
         <section class="agent-reply"><span><i>1</i>${esc(t("management.flow_agent_reply"))}</span><blockquote>${esc(flow.agentReply)}</blockquote><small><b>${esc(t("management.flow_why_here"))}</b>${esc(flow.reason)}</small></section>
         <i class="attention-flow-arrow" aria-hidden="true">→</i>
@@ -248,19 +290,24 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     if (!section) return 0;
     const preserveFocusedComposer = document.activeElement?.matches?.("[data-agent-command-draft]")
       && section.contains(document.activeElement);
-    const reviewSessions = context.filteredSessions().filter(needsManagementReview);
-    const filter = ["critical", "warning", "attention"].includes(state.managementFilter) ? state.managementFilter : "all";
+    const reviewSessions = context.filteredSessions().filter(needsManagementInbox);
+    const filter = ["critical", "warning", "attention", "optional"].includes(state.managementFilter) ? state.managementFilter : "all";
     const sessions = reviewSessions.filter(session => filter === "all" || matchesManagementFilter(session, filter));
     const counts = {
       critical: reviewSessions.filter(session => matchesManagementFilter(session, "critical")).length,
       warning: reviewSessions.filter(session => matchesManagementFilter(session, "warning")).length,
       attention: reviewSessions.filter(session => matchesManagementFilter(session, "attention")).length,
+      optional: reviewSessions.filter(session => matchesManagementFilter(session, "optional")).length,
     };
     const filterButton = (value, label, count) => `<button type="button" data-management-inbox-filter="${value}" aria-pressed="${filter === value ? "true" : "false"}"><i></i><span>${esc(label)}</span><b>${count}</b></button>`;
     const nextHtml = `<header class="attention-inbox-head"><div><p>${esc(t("management.inbox_eyebrow"))}</p><h2>${esc(t("management.inbox_title"))}</h2><span>${esc(t("management.inbox_description"))}</span></div><strong>${sessions.length}</strong></header>
+      <div class="attention-classification-guide" aria-label="${esc(t("management.category.guide"))}">
+        ${["required", "optional", "risk"].map(category => `<article class="${category}"><i aria-hidden="true"></i><span><b>${esc(t(`management.category.${category}`))}</b><small>${esc(t(`management.category.${category}_detail`))}</small></span></article>`).join("")}
+      </div>
       <div class="attention-inbox-summary" role="toolbar" aria-label="${esc(t("management.operations_severity_buckets"))}">
         <div class="management-filter-all">${filterButton("all", t("management.filter_all"), reviewSessions.length)}</div>
         <div class="management-filter-group response" role="group" aria-label="${esc(t("management.filter_group_response"))}"><small>${esc(t("management.filter_group_response"))}</small>${filterButton("attention", t("management.health.attention"), counts.attention)}</div>
+        <div class="management-filter-group optional" role="group" aria-label="${esc(t("management.filter_group_optional"))}"><small>${esc(t("management.filter_group_optional"))}</small>${filterButton("optional", t("management.attention.optional"), counts.optional)}</div>
         <div class="management-filter-group risk" role="group" aria-label="${esc(t("management.filter_group_risk"))}"><small>${esc(t("management.filter_group_risk"))}</small>${filterButton("critical", t("management.health.critical"), counts.critical)}${filterButton("warning", t("management.health.warning"), counts.warning)}</div>
       </div>
       <div class="attention-card-list">${sessions.length ? sessions.map(attentionCardHtml).join("") : `<div class="management-empty"><b>${esc(t("management.inbox_empty"))}</b><span>${esc(t("management.inbox_empty_detail"))}</span></div>`}</div>`;
@@ -272,16 +319,17 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const sessions = typeof context.graphFilteredSessions === "function"
       ? context.graphFilteredSessions()
       : (state.snapshot?.sessions || []);
-    const candidates = sessions.filter(needsManagementReview);
     const score = session => {
       if (matchesManagementFilter(session, "critical")) return 3;
       if (matchesManagementFilter(session, "attention")) return 2;
       if (matchesManagementFilter(session, "warning")) return 1;
       return 0;
     };
-    const ordered = [...candidates].sort((a, b) =>
-      score(b) - score(a)
-      || Date.parse(b.attention?.requestedAt || b.updatedAt || 0) - Date.parse(a.attention?.requestedAt || a.updatedAt || 0),
+    const entryScore = entry => Math.max(0, ...entry.sources.map(score));
+    const entryTimestamp = entry => Math.max(0, ...entry.sources.map(session =>
+      Date.parse(session.attention?.requestedAt || session.updatedAt || 0)).filter(Number.isFinite));
+    const ordered = rootManagementReviews(sessions).sort((a, b) =>
+      entryScore(b) - entryScore(a) || entryTimestamp(b) - entryTimestamp(a),
     );
     if (!ordered.length) {
       section.innerHTML = "";
@@ -292,17 +340,23 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     section.classList.remove("hidden");
     section.removeAttribute("aria-hidden");
     const shown = ordered.slice(0, 3);
-    const item = session => {
+    const item = entry => {
+      const { session, sources } = entry;
       const provider = providerInfo(session.provider);
-      const tone = matchesManagementFilter(session, "critical") ? "critical" : matchesManagementFilter(session, "attention") ? "attention" : "warning";
-      const label = session.attention?.required
-        ? attentionLabel(session.attention.kind)
-        : healthLabel(session.health?.level);
-      const summary = prioritySummary(session.attention?.summary || session.statusDetail || latestAgentReply(session));
+      const strongest = [...sources].sort((a, b) => score(b) - score(a))[0] || session;
+      const tone = matchesManagementFilter(strongest, "critical") ? "critical" : matchesManagementFilter(strongest, "attention") ? "attention" : "warning";
+      const directReview = sources.includes(session);
+      const childReviewCount = sources.filter(source => source.id !== session.id).length;
+      const label = directReview
+        ? (session.attention?.required ? attentionLabel(session.attention.kind) : healthLabel(session.health?.level))
+        : t("control.attention_session_unit");
+      const summary = directReview
+        ? prioritySummary(session.attention?.summary || session.statusDetail || latestAgentReply(session))
+        : t("control.attention_subagent_summary", { count: childReviewCount });
       return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" style="--management-provider:${provider.accent}" aria-label="${esc(`${label}: ${session.title}. ${summary}`)}">
         <span class="home-attention-dot" aria-hidden="true"></span>
         <span><small>${esc(label)} · ${esc(provider.label)}</small><b>${esc(readablePreview(session.title, 54).text)}</b><em title="${esc(summary)}">${esc(summary)}</em></span>
-        <time>${esc(timeAgo(session.attention?.requestedAt || session.updatedAt))}</time><i aria-hidden="true">→</i>
+        <time>${esc(timeAgo(directReview ? session.attention?.requestedAt || session.updatedAt : entryTimestamp(entry)))}</time><i aria-hidden="true">→</i>
       </button>`;
     };
     const overflow = Math.max(0, ordered.length - shown.length);
@@ -528,7 +582,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
         <header><div><span>${esc(t("management.outcome"))}</span><h3>${esc(t(`management.outcome.${outcome.status || "in-progress"}`))}</h3></div><em class="${outcome.verified ? "verified" : "unverified"}">${esc(outcome.verified ? t("management.verified") : t("management.unverified"))}</em></header>
         <p>${esc(outcome.summary || t("management.outcome_pending"))}</p>
       </section>
-      ${session.attention?.required ? `<section class="management-attention-detail"><header><span>${esc(attentionLabel(session.attention.kind))}</span><b>${esc(session.attention.summary)}</b></header>${quickActionsHtml(session)}${controls.sendInstruction ? context.agentCommandComposer(session) : ""}</section>` : ""}
+      ${(session.attention?.category && session.attention.category !== "none") || session.attention?.required ? `<section class="management-attention-detail"><header><span>${esc(attentionLabel(session.attention.kind))}</span><b>${esc(session.attention.summary)}</b></header>${quickActionsHtml(session)}${controls.sendInstruction ? context.agentCommandComposer(session) : ""}</section>` : ""}
       ${progressHtml(session)}
       ${healthHtml(session)}
       <section class="management-artifacts"><header><span>${esc(t("management.artifacts"))}</span><b>${esc(t("common.items", { count: (outcome.artifacts || []).length }))}</b></header>${outcome.artifacts?.length ? `<ul>${outcome.artifacts.map(item => `<li><i>${esc(item.kind)}</i><b title="${esc(item.value)}">${esc(item.value)}</b><span>${esc(t("management.detected"))}</span></li>`).join("")}</ul>` : `<p>${esc(t("management.no_artifacts"))}</p>`}</section>
@@ -542,6 +596,8 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     isRecentSession,
     managementBucket,
     matchesManagementFilter,
+    rootManagementReviews,
+    needsManagementInbox,
     needsManagementReview,
     attentionCardHtml,
     controlButtonsHtml,

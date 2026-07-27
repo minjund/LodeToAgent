@@ -81,6 +81,79 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(result.promptSent, true);
     assert.equal(workbenchOpened, false, '백그라운드 전송은 터미널 화면을 강제로 열지 않아야 합니다.');
   });
+
+  test('느린 수신 확인 중 다시 보내도 같은 Claude 터미널을 재사용한다', async () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    let created = 0;
+    const commands = [];
+    const state = {
+      snapshot: null,
+      sessions: [{
+        id: 'terminal:existing',
+        type: 'agent',
+        provider: 'claude',
+        bridgeId: 'claude:session-123',
+        status: 'running',
+        title: 'Claude existing',
+        pid: 4242,
+      }],
+      platform: { id: 'win32' },
+      wslDistros: [],
+    };
+    const sandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        loadtoagent: {
+          terminalCommand: async (id, prompt) => {
+            commands.push([id, prompt]);
+            return { ok: true };
+          },
+          terminalCreate: async () => {
+            created += 1;
+            return { id: 'terminal:new' };
+          },
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      $: () => null,
+      state,
+      init: async () => {},
+      notice: () => {},
+      moveWorkbench: () => {},
+      selectTmux: async () => {},
+      selectSession: async () => {},
+      bindAgent: () => {},
+      queueHistoryRefresh: () => {},
+      renderTarget: () => {},
+      fitEntry: () => {},
+      refreshSessions: async () => {},
+      resumeSupport: () => ({
+        supported: true,
+        provider: 'claude',
+        sessionId: 'session-123',
+        args: ['--resume', 'session-123'],
+      }),
+      resumeLaunchArgs: support => support.args,
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+      esc: value => String(value),
+    });
+
+    const result = await actions.resumeForAgent({
+      id: 'claude:session-123',
+      provider: 'claude',
+      externalId: 'session-123',
+      cwd: 'D:\\workspace',
+      runtimePresence: [],
+    }, '중복 없이 이어서 보내줘', true, { focus: false });
+
+    assert.deepStrictEqual(commands, [['terminal:existing', '중복 없이 이어서 보내줘']]);
+    assert.equal(created, 0);
+    assert.equal(result.reused, true);
+    assert.equal(result.promptSent, true);
+  });
 }
 
 module.exports = { registerTerminalAgentActionTests };

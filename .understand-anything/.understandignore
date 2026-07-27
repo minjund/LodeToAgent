@@ -1,0 +1,4 @@
+# .understandignore — patterns for files/dirs to exclude from analysis
+# Syntax: same as .gitignore (globs, # comments, ! negation, trailing / for dirs)
+# Built-in defaults already exclude generated and dependency directories.
+# Tests and scripts intentionally remain included for this whole-program audit.

@@ -256,6 +256,10 @@ const MANAGEMENT_SEMANTIC_CONTRACTS = [
   'RECENT_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000',
   'function managementBucket(session, now = Date.now())',
   'needsManagementReview',
+  'needsManagementInbox',
+  'data-attention-category',
+  'management-filter-group optional',
+  'attention-classification-guide',
   'management-filter-group response',
   'management-filter-group risk',
   'signals.length',
@@ -453,6 +457,8 @@ const COLLABORATION_VIEW_CONTRACTS = [
 ];
 
 const WORKFLOW_INTERACTION_CONTRACTS = [
+  'CONTEXT_DRAWER_MIN_WIDTH',
+  'CONTEXT_WORKSPACE_MIN_WIDTH',
   'function drawAgentWorkflowConnections',
   'function workflowCurve',
   'data-workflow-edge-kind',
@@ -1087,6 +1093,16 @@ function registerUiContractTests(context) {
       contract => `${contract} 201–300 품질 번역 계약이 없습니다.`,
     );
     assert.match(styles, /-webkit-line-clamp:\s*5/, '서브에이전트 미리보기의 5줄 제한 계약이 없습니다.');
+    assert.match(
+      styles,
+      /(?:^|\n)\.detail-drawer \.chat-content\.markdown\s*\{[^}]*border:\s*0;[^}]*background:\s*transparent;/s,
+      '오버레이와 2분할 대화창 모두 평면형 대화 스타일을 유지해야 합니다.',
+    );
+    assert.doesNotMatch(
+      styles,
+      /(?:^|\n)\.detail-drawer \.chat-row\.user \.chat-content\.markdown\s*\{/,
+      '사용자 대화만 다시 말풍선으로 덮어쓰면 안 됩니다.',
+    );
     assert.match(styles, /@media\s*\(prefers-reduced-motion:\s*reduce\)/, '동작 줄이기 미디어 계약이 없습니다.');
     const terminal = rendererSource([
       'terminal-workbench.js',

@@ -1,0 +1,337 @@
+{
+  "name": "loadtoagent",
+  "description": "Claude, Codex, Gemini, Grok의 로컬 세션을 모니터링하고 관리하는 Electron 데스크톱 대시보드입니다. 세션 관계와 token 사용량을 확인하고 연결된 terminal로 작업을 전달할 수 있습니다.",
+  "languages": [
+    "css",
+    "html",
+    "javascript",
+    "json",
+    "markdown",
+    "unknown",
+    "yaml"
+  ],
+  "frameworks": [
+    "Electron",
+    "GitHub Actions"
+  ],
+  "files": [
+    {
+      "path": ".github/workflows/desktop-ci.yml",
+      "language": "yaml",
+      "sizeLines": 52,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".github/workflows/release.yml",
+      "language": "yaml",
+      "sizeLines": 106,
+      "fileCategory": "infra"
+    },
+    {
+      "path": ".understand-anything/.understandignore",
+      "language": "unknown",
+      "sizeLines": 5,
+      "fileCategory": "code"
+    },
+    {
+      "path": ".understand-anything/config.json",
+      "language": "json",
+      "sizeLines": 3,
+      "fileCategory": "config"
+    },
+    {
+      "path": "bin/loadtoagent.js",
+      "language": "javascript",
+      "sizeLines": 171,
+      "fileCategory": "code"
+    },
+    {
+      "path": "docs/PROVIDER-CONTRACTS.md",
+      "language": "markdown",
+      "sizeLines": 58,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "main.js",
+      "language": "javascript",
+      "sizeLines": 609,
+      "fileCategory": "code"
+    },
+    {
+      "path": "package.json",
+      "language": "json",
+      "sizeLines": 133,
+      "fileCategory": "config"
+    },
+    {
+      "path": "preload.js",
+      "language": "javascript",
+      "sizeLines": 75,
+      "fileCategory": "code"
+    },
+    {
+      "path": "README.ko.md",
+      "language": "markdown",
+      "sizeLines": 175,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.md",
+      "language": "markdown",
+      "sizeLines": 175,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "README.zh-CN.md",
+      "language": "markdown",
+      "sizeLines": 175,
+      "fileCategory": "docs"
+    },
+    {
+      "path": "renderer/app.js",
+      "language": "javascript",
+      "sizeLines": 2392,
+      "fileCategory": "code"
+    },
+    {
+      "path": "renderer/i18n.js",
+      "language": "javascript",
+      "sizeLines": 500,
+      "fileCategory": "code"
+    },
+    {
+      "path": "renderer/index.html",
+      "language": "html",
+      "sizeLines": 344,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "renderer/styles.css",
+      "language": "css",
+      "sizeLines": 1000,
+      "fileCategory": "markup"
+    },
+    {
+      "path": "renderer/terminal.js",
+      "language": "javascript",
+      "sizeLines": 1000,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/actual-runtime-check.js",
+      "language": "javascript",
+      "sizeLines": 177,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/background-runtime-check.js",
+      "language": "javascript",
+      "sizeLines": 86,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/bridge-integration-test.js",
+      "language": "javascript",
+      "sizeLines": 52,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/interaction-check.js",
+      "language": "javascript",
+      "sizeLines": 860,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/interaction-fixture-preload.js",
+      "language": "javascript",
+      "sizeLines": 308,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/readme-demo.js",
+      "language": "javascript",
+      "sizeLines": 262,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/regression-test.js",
+      "language": "javascript",
+      "sizeLines": 847,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/responsive-check.js",
+      "language": "javascript",
+      "sizeLines": 398,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/terminal-integration-test.js",
+      "language": "javascript",
+      "sizeLines": 40,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/tmux-integration-test.js",
+      "language": "javascript",
+      "sizeLines": 44,
+      "fileCategory": "code"
+    },
+    {
+      "path": "scripts/visual-check.js",
+      "language": "javascript",
+      "sizeLines": 993,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/agentMonitor.js",
+      "language": "javascript",
+      "sizeLines": 1330,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/agentRunner.js",
+      "language": "javascript",
+      "sizeLines": 465,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/bridgeServer.js",
+      "language": "javascript",
+      "sizeLines": 208,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/monitorWorker.js",
+      "language": "javascript",
+      "sizeLines": 269,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/processMonitor.js",
+      "language": "javascript",
+      "sizeLines": 390,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/providerRegistry.js",
+      "language": "javascript",
+      "sizeLines": 120,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/terminalManager.js",
+      "language": "javascript",
+      "sizeLines": 408,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/tmuxController.js",
+      "language": "javascript",
+      "sizeLines": 168,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/tmuxMonitor.js",
+      "language": "javascript",
+      "sizeLines": 431,
+      "fileCategory": "code"
+    },
+    {
+      "path": "src/updateManager.js",
+      "language": "javascript",
+      "sizeLines": 312,
+      "fileCategory": "code"
+    }
+  ],
+  "totalFiles": 38,
+  "filteredByIgnore": 0,
+  "estimatedComplexity": "moderate",
+  "importMap": {
+    ".github/workflows/desktop-ci.yml": [],
+    ".github/workflows/release.yml": [],
+    ".understand-anything/.understandignore": [],
+    ".understand-anything/config.json": [],
+    "bin/loadtoagent.js": [
+      "package.json"
+    ],
+    "docs/PROVIDER-CONTRACTS.md": [],
+    "main.js": [
+      "src/agentRunner.js",
+      "src/bridgeServer.js",
+      "src/providerRegistry.js",
+      "src/terminalManager.js",
+      "src/tmuxController.js",
+      "src/tmuxMonitor.js",
+      "src/updateManager.js"
+    ],
+    "package.json": [],
+    "preload.js": [],
+    "README.ko.md": [],
+    "README.md": [],
+    "README.zh-CN.md": [],
+    "renderer/app.js": [],
+    "renderer/i18n.js": [],
+    "renderer/index.html": [],
+    "renderer/styles.css": [],
+    "renderer/terminal.js": [],
+    "scripts/actual-runtime-check.js": [],
+    "scripts/background-runtime-check.js": [],
+    "scripts/bridge-integration-test.js": [
+      "src/bridgeServer.js",
+      "src/terminalManager.js"
+    ],
+    "scripts/interaction-check.js": [],
+    "scripts/interaction-fixture-preload.js": [],
+    "scripts/readme-demo.js": [
+      "main.js"
+    ],
+    "scripts/regression-test.js": [
+      "bin/loadtoagent.js",
+      "src/agentMonitor.js",
+      "src/agentRunner.js",
+      "src/bridgeServer.js",
+      "src/processMonitor.js",
+      "src/providerRegistry.js",
+      "src/terminalManager.js",
+      "src/tmuxController.js",
+      "src/tmuxMonitor.js",
+      "src/updateManager.js"
+    ],
+    "scripts/responsive-check.js": [
+      "main.js"
+    ],
+    "scripts/terminal-integration-test.js": [
+      "src/terminalManager.js"
+    ],
+    "scripts/tmux-integration-test.js": [
+      "src/tmuxController.js",
+      "src/tmuxMonitor.js"
+    ],
+    "scripts/visual-check.js": [
+      "main.js"
+    ],
+    "src/agentMonitor.js": [
+      "src/providerRegistry.js"
+    ],
+    "src/agentRunner.js": [
+      "src/providerRegistry.js"
+    ],
+    "src/bridgeServer.js": [
+      "src/terminalManager.js"
+    ],
+    "src/monitorWorker.js": [
+      "src/agentMonitor.js",
+      "src/processMonitor.js",
+      "src/tmuxMonitor.js"
+    ],
+    "src/processMonitor.js": [
+      "src/providerRegistry.js"
+    ],
+    "src/providerRegistry.js": [],
+    "src/terminalManager.js": [],
+    "src/tmuxController.js": [],
+    "src/tmuxMonitor.js": [],
+    "src/updateManager.js": []
+  }
+}

@@ -52,6 +52,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     agentCommandInputModes: new Map(),
     agentCommandSending: new Set(),
     pendingConversationMessages: new Map(),
+    resolvedConversationMessages: new Map(),
     stopRequests: new Set(),
     runControlRequests: new Set(),
     managementFilter: "all",
@@ -656,6 +657,22 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     entry.observedPhase = delivery.phase;
     entry.phase = delivery.phase;
     entry.phaseChangedAt = new Date().toISOString();
+    if (
+      delivery.phase === "responded"
+      && delivery.observationSessionId
+      && delivery.observationSessionId !== session?.id
+      && delivery.userMessage
+      && delivery.assistantMessage
+    ) {
+      const sessionId = String(session?.id || "");
+      const previous = state.resolvedConversationMessages.get(sessionId) || [];
+      const delivered = [delivery.userMessage, delivery.assistantMessage].map(message => ({
+        ...message,
+        observedSessionId: delivery.observationSessionId,
+      }));
+      const unique = new Map([...previous, ...delivered].map(message => [conversationMessageKey(message), message]));
+      state.resolvedConversationMessages.set(sessionId, [...unique.values()].slice(-80));
+    }
     console.info("[LoadToAgent:conversation-delivery]", {
       event: "conversation-delivery-phase-changed",
       sessionId: String(session?.id || ""),

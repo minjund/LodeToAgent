@@ -150,6 +150,47 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       provider: providerLabel(agentSession.provider),
       session: agentSession.taskName || agentSession.agentName || t('terminal.type.session'),
     });
+    // The drawer can still hold a stale "resume" projection while the terminal
+    // created by the previous send is already running. Reuse the explicit
+    // bridge target so a delayed receipt cannot spawn a second Claude process
+    // for the same session and prompt.
+    await refreshSessions();
+    const reusable = state.sessions.find(session =>
+      session
+      && session.type === 'agent'
+      && session.provider === support.provider
+      && session.bridgeId === agentSession.id
+      && session.status === 'running') || null;
+    if (reusable) {
+      if (sendDraft && prompt) {
+        const result = await window.loadtoagent.terminalCommand(reusable.id, prompt);
+        if (!result || result.ok === false) throw new Error(result?.error || t('terminal.agent.send_failed'));
+      }
+      const target = {
+        id: reusable.id,
+        kind: 'terminal',
+        label: reusable.title || title,
+        detail: `${String(reusable.type || 'agent').toUpperCase()} · PID ${reusable.pid || '--'}`,
+        terminalId: reusable.id,
+      };
+      if (options.focus === false) return { ...target, promptSent: Boolean(sendDraft && prompt), background: true, reused: true };
+      state.mode = 'general';
+      moveWorkbench('general');
+      await selectSession(reusable.id);
+      bindAgent(agentSession, target);
+      queueHistoryRefresh(agentSession);
+      renderTarget();
+      const input = $('#terminalCommandInput');
+      if (input) {
+        input.value = sendDraft ? '' : String(draft || '');
+        state.commandDrafts.set(target.id, input.value);
+        input.focus({ preventScroll: true });
+      }
+      notice(sendDraft && prompt
+        ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
+        : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
+      return { ...target, promptSent: Boolean(sendDraft && prompt), reused: true };
+    }
     const created = await window.loadtoagent.terminalCreate({
       type: 'agent',
       provider: support.provider,
