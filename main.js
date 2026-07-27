@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { pathToFileURL } = require('url');
+const { fileURLToPath } = require('url');
 const { Worker } = require('worker_threads');
 const { execFileSync } = require('child_process');
 const { AgentRunner, probeProviders } = require('./src/agentRunner');
@@ -296,9 +296,15 @@ async function ensureBackgroundTray() {
 
 function trustedSender(event) {
   if (!mainWindow || mainWindow.isDestroyed() || !event || !event.sender || event.sender.id !== mainWindow.webContents.id) return false;
-  const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
   const senderUrl = event.senderFrame && event.senderFrame.url || event.sender.getURL();
-  return senderUrl === allowedUrl;
+  try {
+    const senderPath = path.resolve(fileURLToPath(senderUrl));
+    const allowedPath = path.resolve(__dirname, 'renderer', 'index.html');
+    if (process.platform === 'win32') return senderPath.toLowerCase() === allowedPath.toLowerCase();
+    return senderPath === allowedPath;
+  } catch {
+    return false;
+  }
 }
 
 function requireTrustedSender(event) {

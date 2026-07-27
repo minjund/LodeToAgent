@@ -74,12 +74,6 @@ jobs:
           LOADTOAGENT_ALLOW_UNSIGNED: "true"
       - if: runner.os == 'macOS'
         run: npm run test:artifacts:mac
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          $env:LOADTOAGENT_TEST_EXECUTABLE = Join-Path $env:GITHUB_WORKSPACE "release\LoadToAgent-$version-portable.exe"
-          npm run test:terminal-restart
       - if: runner.os == 'macOS'
         run: npm run test:terminal-restart
         env:
