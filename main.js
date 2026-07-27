@@ -4,7 +4,7 @@ const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { fileURLToPath } = require('url');
+const { fileURLToPath, pathToFileURL } = require('url');
 const { Worker } = require('worker_threads');
 const { execFileSync } = require('child_process');
 const { AgentRunner, probeProviders } = require('./src/agentRunner');
