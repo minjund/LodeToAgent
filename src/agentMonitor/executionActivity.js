@@ -83,6 +83,9 @@ function executionInput(name, args = {}, rawInput = '') {
   const source = String(rawInput || '');
   const nestedExec = normalizedName === 'exec' && /tools\.exec_command\s*\(/.test(source);
   const shell = SHELL_TOOLS.has(normalizedName) || nestedExec;
+  const sandboxPermissions = args.sandbox_permissions || args.sandboxPermissions
+    || scalarProperty(source, 'sandbox_permissions') || scalarProperty(source, 'sandboxPermissions');
+  const approvalRequired = String(sandboxPermissions || '').toLowerCase() === 'require_escalated';
   const runInBackground = args.run_in_background === true
     || args.background === true
     || args.detach === true
@@ -102,12 +105,18 @@ function executionInput(name, args = {}, rawInput = '') {
     cwd: String(cwd || ''),
     description: String(description || ''),
     tool: nestedExec ? 'exec_command' : normalizedName,
+    approvalRequired,
   };
 }
 
 function runtimeLabel(activity) {
-  const value = `${activity.tool || ''} ${activity.command || ''}`.toLowerCase();
+  const command = String(activity.command || '');
+  const value = `${activity.tool || ''} ${command}`.toLowerCase();
   if (/\bpowershell\b|\bpwsh\b/.test(value)) return 'PowerShell';
+  if (/(?:^|[;&|]\s*)(?:get|set|new|start|stop|remove|select|where|resolve|join|test|write|convert(?:to|from)|invoke|format)-[a-z][\w-]*/im.test(command)
+    || /\[(?:pscustomobject|system\.[\w.]+)\]/i.test(command)
+    || /(?:^|\s)-(?:literalpath|erroraction|expandproperty|windowstyle|passthru)\b/i.test(command)
+    || /\.ps1(?:\s|$)/i.test(command)) return 'PowerShell';
   if (/\bcmd(?:\.exe)?\b/.test(value)) return 'Command Prompt';
   if (/\bbash\b/.test(value)) return 'Bash';
   return activity.kind === 'shell' ? 'Shell' : 'Background';
@@ -208,6 +217,7 @@ function createExecutionTracker(options = {}) {
       startedAt,
       updatedAt: startedAt,
       completedAt: null,
+      approvalRequired: input.approvalRequired,
       source: 'tool-call',
     };
     activity.runtime = runtimeLabel(activity);
@@ -282,6 +292,16 @@ function reconcileExecutionActivities(activities = [], options = {}) {
     const foregroundEnded = activity.mode !== 'background' && turnSettled;
     const executionUnobserved = observationStale;
     if (!foregroundEnded && !executionUnobserved) return activity;
+    if (activity.approvalRequired) {
+      return {
+        ...activity,
+        status: 'cancelled',
+        statusDetail: foregroundEnded
+          ? '권한 승인 없이 실행 종료'
+          : '권한 승인 요청 만료',
+        completedAt: activity.updatedAt || activity.startedAt || null,
+      };
+    }
     return {
       ...activity,
       status: 'unverified',
