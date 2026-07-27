@@ -3,6 +3,8 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDialogEventBindings = function createDialogEventBindings(context = {}) {
+  const CONTEXT_DRAWER_MIN_WIDTH = 1680;
+  const CONTEXT_WORKSPACE_MIN_WIDTH = 960;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
@@ -138,7 +140,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     else $("#drawerBackdrop").addEventListener("click", closeDrawer);
     const resizeHandle = $("#drawerResizeHandle");
     const setConversationPanelWidth = (nextWidth) => {
-      const maximum = Math.max(560, Math.min(860, window.innerWidth - 700));
+      const maximum = Math.max(560, Math.min(860, window.innerWidth - CONTEXT_WORKSPACE_MIN_WIDTH));
       const width = Math.max(560, Math.min(maximum, Math.round(nextWidth)));
       document.documentElement.style.setProperty("--conversation-panel-width", `${width}px`);
       resizeHandle.setAttribute("aria-valuemax", String(maximum));
@@ -335,7 +337,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     });
     window.addEventListener("resize", () => {
       scheduleAgentWorkflowConnections();
-      if (window.innerWidth < 1280 && state.drawerPresentation === "context") closeDrawer(false);
+      if (window.innerWidth < CONTEXT_DRAWER_MIN_WIDTH && state.drawerPresentation === "context") closeDrawer(false);
     });
   }
 

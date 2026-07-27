@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}) {
+  const CONTEXT_DRAWER_MIN_WIDTH = 1680;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState,
@@ -32,7 +33,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   function resolvedPresentation(options = {}) {
     const requested = options.presentation || (options.context ? "context" : "modal");
     if (requested !== "context") return "modal";
-    return state.view === "all" && window.matchMedia("(min-width: 1280px)").matches
+    return state.view === "all" && window.innerWidth >= CONTEXT_DRAWER_MIN_WIDTH
       ? "context"
       : "modal";
   }

@@ -50,7 +50,7 @@
   "scripts": {
     "start": "electron .",
     "check:source": "node scripts/check-source.js",
-    "test": "node scripts/regression-test.js && node scripts/execution-activity-test.js",
+    "test": "node scripts/regression-test.js && node scripts/execution-activity-test.js && node scripts/conversation-layout-test.js",
     "test:accuracy": "node scripts/accuracy-evaluation.js",
     "test:terminal": "electron scripts/terminal-integration-test.js",
     "test:terminal:managed": "electron scripts/managed-tmux-integration-test.js",

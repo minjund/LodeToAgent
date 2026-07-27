@@ -2479,7 +2479,7 @@ body.conversation-panel-resizing {
   color: #79d9f8;
 }
 
-@media (min-width:1280px) {
+@media (min-width:1680px) {
   body.conversation-context-open #appShell {
     width: calc(100vw - var(--conversation-panel-width));
     max-width: calc(100vw - var(--conversation-panel-width));
