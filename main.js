@@ -9,6 +9,7 @@ const { Worker } = require('worker_threads');
 const { execFileSync } = require('child_process');
 const { AgentRunner, probeProviders } = require('./src/agentRunner');
 const { providerList, blankUsage } = require('./src/providerRegistry');
+const { collectProviderUsage } = require('./src/providerUsage');
 const { TerminalManager } = require('./src/terminalManager');
 const { TerminalHostClient, launchTerminalHost, resolveTerminalHostExecutable } = require('./src/terminalHost');
 const { TmuxController } = require('./src/tmuxController');
@@ -683,6 +684,7 @@ function registerIpcHandlers() {
       return availability;
     },
   });
+  handleTrusted('providers:usage', options => collectProviderUsage(options || {}));
   registerTerminalIpc({
     ipcMain,
     requireTrustedSender,

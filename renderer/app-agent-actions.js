@@ -480,6 +480,46 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     }
   }
 
+  async function resetAgentSession(sessionId, model = "") {
+    if (state.agentCommandSending.has(sessionId)) return;
+    const session = snapshotSession(sessionId) || state.details.get(sessionId);
+    if (!session || !window.LoadToAgentTerminal?.resetForAgent) return context.toast(t("agent.session_not_found"));
+    state.agentCommandSending.add(sessionId);
+    try {
+      if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
+      selectView("terminal");
+      await window.LoadToAgentTerminal.resetForAgent(session, model);
+      document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+      context.toast(t("session.reset_complete"));
+    } catch (error) {
+      context.toast(errorText(error, "session.reset_failed"));
+    } finally {
+      state.agentCommandSending.delete(sessionId);
+    }
+  }
+
+  async function changeAgentModel(sessionId, model) {
+    if (state.agentCommandSending.has(sessionId)) return;
+    const session = snapshotSession(sessionId) || state.details.get(sessionId);
+    if (!session || !window.LoadToAgentTerminal?.changeModelForAgent) return context.toast(t("agent.session_not_found"));
+    state.agentCommandSending.add(sessionId);
+    try {
+      const result = await window.LoadToAgentTerminal.changeModelForAgent(session, model);
+      if (result?.mode === "new-session") {
+        if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
+        selectView("terminal");
+        document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+        context.toast(t("session.model_changed_new_session", { model }));
+      } else {
+        context.toast(t("session.model_changed_now", { model }));
+      }
+    } catch (error) {
+      context.toast(errorText(error, "session.model_change_failed"));
+    } finally {
+      state.agentCommandSending.delete(sessionId);
+    }
+  }
+
   async function interruptConversation(sessionId) {
     if (state.conversationInterruptRequests.has(sessionId)) return;
     const entries = state.pendingConversationMessages.get(sessionId) || [];
@@ -619,6 +659,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     snapshotSession,
     chosenAgentCommandTarget,
     resumeAgentTerminal,
+    resetAgentSession,
+    changeAgentModel,
     dispatchAgentCommand,
     interruptConversation,
     openAgentTerminal,

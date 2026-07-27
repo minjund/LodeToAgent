@@ -373,10 +373,81 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     return ordered.length;
   }
 
+  function usageResetLabel(value) {
+    if (!value) return t("usage.reset_unknown");
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return t("usage.reset_unknown");
+    return t("usage.resets_at", {
+      time: new Intl.DateTimeFormat(undefined, {
+        weekday: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date),
+    });
+  }
+
+  function usageWindowHtml(window, kind) {
+    if (!window || !Number.isFinite(Number(window.remainingPercent))) {
+      return `<div class="provider-limit-row is-unknown"><div><b>${esc(kind)}</b><span>${esc(t("usage.not_available"))}</span></div><div class="provider-limit-track"><i></i></div><small>${esc(t("usage.no_reset"))}</small></div>`;
+    }
+    const remaining = Math.max(0, Math.min(100, Number(window.remainingPercent)));
+    const tone = remaining <= 10 ? "critical" : remaining <= 30 ? "warning" : "healthy";
+    return `<div class="provider-limit-row ${tone}">
+      <div><b>${esc(window.label || kind)}</b><span>${esc(t("usage.remaining_percent", { percent: Math.round(remaining) }))}</span></div>
+      <div class="provider-limit-track" role="progressbar" aria-label="${esc(window.label || kind)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${remaining}"><i style="width:${remaining}%"></i></div>
+      <small>${esc(usageResetLabel(window.resetsAt))}</small>
+    </div>`;
+  }
+
+  function usageUnavailableReason(item, provider) {
+    if (!state.availability[provider.id]) return t("usage.cli_unavailable");
+    if (item?.reason === "not-signed-in") return t("usage.sign_in_required");
+    if (item?.reason === "usage-not-observed") return t("usage.run_once");
+    if (item?.reason === "request-failed" || String(item?.reason || "").startsWith("http-")) return t("usage.refresh_failed");
+    return t("usage.provider_not_supported");
+  }
+
+  function renderProviderUsage(section) {
+    const providers = (state.providers || []).filter(provider => !state.hiddenProviders.has(provider.id));
+    section.classList.remove("hidden");
+    section.removeAttribute("aria-hidden");
+    const cards = providers.map(provider => {
+      const item = state.providerUsage?.providers?.[provider.id];
+      const info = providerInfo(provider.id);
+      const windows = item?.available && (item.shortWindow || item.weekly || item.modelWindow)
+        ? `${usageWindowHtml(item.shortWindow, t("usage.short_limit"))}${usageWindowHtml(item.weekly, t("usage.weekly_limit"))}${item.modelWindow ? usageWindowHtml(item.modelWindow, t("usage.model_limit")) : ""}`
+        : `<div class="provider-limit-unavailable"><b>${esc(t("usage.unavailable"))}</b><span>${esc(usageUnavailableReason(item, provider))}</span></div>`;
+      return `<article class="provider-limit-card" style="--usage-provider:${info.accent}" data-provider-usage="${esc(provider.id)}">
+        <header><span class="provider-limit-mark">${esc(info.mark)}</span><div><b>${esc(info.label)}</b><small>${esc(item?.plan ? t("usage.plan", { plan: item.plan }) : t("usage.account_limit"))}</small></div></header>
+        ${windows}
+      </article>`;
+    }).join("");
+    section.innerHTML = `<div class="provider-usage-overview">
+      <header class="provider-usage-head"><div><p>${esc(t("usage.eyebrow"))}</p><h2>${esc(t("usage.title"))}</h2><span>${esc(t("usage.description"))}</span></div>
+      <button type="button" data-provider-usage-refresh ${state.providerUsageLoading ? 'disabled aria-busy="true"' : ""}>${esc(t(state.providerUsageLoading ? "usage.refreshing" : "usage.refresh"))}</button></header>
+      <div class="provider-limit-grid">${cards || `<div class="provider-limit-unavailable"><b>${esc(t("usage.no_visible_ai"))}</b></div>`}</div>
+      <footer>${esc(t("usage.accuracy_note"))}</footer>
+    </div>`;
+  }
+
+  async function refreshProviderUsage(force = false) {
+    if (!window.loadtoagent?.providerUsage || state.providerUsageLoading) return state.providerUsage;
+    state.providerUsageLoading = true;
+    const section = $("#operationsOverview");
+    if (section) renderProviderUsage(section);
+    try {
+      state.providerUsage = await window.loadtoagent.providerUsage({ force: Boolean(force) });
+    } finally {
+      state.providerUsageLoading = false;
+      if (section && state.view === "all") renderProviderUsage(section);
+    }
+    return state.providerUsage;
+  }
+
   function renderOperationsOverview() {
     const section = $("#operationsOverview");
     if (!section) return;
-    renderHomeAttention(section);
+    renderProviderUsage(section);
     return;
     const sessions = typeof context.graphFilteredSessions === "function"
       ? context.graphFilteredSessions()
@@ -606,6 +677,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     progressHtml,
     renderAttentionInbox,
     renderOperationsOverview,
+    refreshProviderUsage,
     supervisionFreshnessScore,
   };
 };

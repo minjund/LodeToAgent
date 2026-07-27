@@ -166,6 +166,30 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     closeDrawer();
   }
 
+  function sessionModelSuggestions(session) {
+    const current = String(session.model || "").trim();
+    const known = session.provider === "claude"
+      ? ["sonnet", "opus", "fable"]
+      : session.provider === "codex"
+        ? ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"]
+        : [];
+    return [...new Set([current, ...known].filter(Boolean))];
+  }
+
+  function sessionControlsHtml(session) {
+    const listId = `session-models-${String(session.id || "").replace(/[^a-z0-9_-]/gi, "-")}`;
+    const options = sessionModelSuggestions(session).map(model => `<option value="${esc(model)}"></option>`).join("");
+    return `<div class="drawer-session-controls">
+      <form data-session-model-form="${esc(session.id)}">
+        <label><span>${esc(t("session.change_model"))}</span><input name="model" value="${esc(session.model || "")}" list="${esc(listId)}" maxlength="120" autocomplete="off" spellcheck="false" placeholder="${esc(t("session.model_placeholder"))}" /></label>
+        <datalist id="${esc(listId)}">${options}</datalist>
+        <button type="submit">${esc(t("session.apply_model"))}</button>
+      </form>
+      <button type="button" class="session-reset-button" data-session-reset="${esc(session.id)}">${esc(t("session.reset"))}</button>
+      <small>${esc(session.provider === "claude" ? t("session.model_policy_claude") : t("session.model_policy_new"))}</small>
+    </div>`;
+  }
+
   function renderDrawer() {
     const session = selectedSession();
     if (!session) return closeDrawer();
@@ -241,6 +265,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
         </span>`
             : ""
         }${resume}${stop}`;
+    if (!executionMode && !subagentMode) $("#drawerMeta").insertAdjacentHTML("beforeend", sessionControlsHtml(session));
     $$(".drawer-tab").forEach((tab) => {
       const hidden = (subagentMode || executionMode) && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);

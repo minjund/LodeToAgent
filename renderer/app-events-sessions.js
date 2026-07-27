@@ -12,6 +12,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     moveSessionOrder = () => false,
     moveProjectOrder = () => false,
     archiveSession = () => false,
+    refreshProviderUsage = async () => null,
   } = context;
 
   let sessionDragJustEnded = false;
@@ -222,6 +223,11 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
 
   function bindManagementEvents() {
     $("#operationsOverview").addEventListener("click", async (event) => {
+      const usageRefresh = event.target.closest("[data-provider-usage-refresh]");
+      if (usageRefresh) {
+        await refreshProviderUsage(true);
+        return;
+      }
       const intervention = event.target.closest("[data-supervision-intervention-open]");
       if (intervention) {
         const details = $("#operationsOverview")?.querySelector(`.supervision-intervention[data-disclosure-key="supervision:command:${CSS.escape(intervention.dataset.supervisionInterventionOpen)}"]`);

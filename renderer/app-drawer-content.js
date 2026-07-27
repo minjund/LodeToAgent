@@ -382,7 +382,17 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     session = overlay.session;
     const messages = session.messages || [];
     const calls = options.showSubagentCalls === false ? [] : subagentCallEvents(session);
-    if (!messages.length && !calls.length) return `<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
+    const context = session.context || {};
+    const contextPercent = Math.max(0, Math.min(100, Number(context.percent || 0)));
+    const contextValue = context.window
+      ? `${fullNumber(context.used)} / ${fullNumber(context.window)}`
+      : fullNumber(context.used);
+    const contextHtml = `<section class="conversation-context-meter" data-conversation-context="${esc(session.id)}" style="--context-percent:${contextPercent}%">
+      <div><span>${esc(t("session.live_context"))}</span><b>${esc(t("drawer.tokens", { count: contextValue }))}</b><small>${esc(session.model || t("session.model_unknown"))}</small></div>
+      <div class="conversation-context-track" role="progressbar" aria-label="${esc(t("session.live_context"))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${contextPercent}"><i></i></div>
+      <strong>${context.window ? `${contextPercent.toFixed(1)}%` : t("session.context_size_unknown")}</strong>
+    </section>`;
+    if (!messages.length && !calls.length) return `${contextHtml}<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
     const userLabel = options.userLabel || t("drawer.user");
     const assistantLabel = options.assistantLabel || providerInfo(session.provider).label;
     const conversationLabel = options.conversationLabel || t("drawer.conversation");
@@ -419,7 +429,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     }));
     const callOnlyRows = unmatchedCalls.map(subagentCallHtml).join("");
     const emptyConversation = turns.length || calls.length ? "" : `<div class="empty-state compact"><h3>${esc(t("drawer.no_user_ai_conversation"))}</h3></div>`;
-    return `${notice}<div class="chat-history-head">
+    return `${contextHtml}${notice}<div class="chat-history-head">
       <span>${esc(t("drawer.turn_summary", { label: conversationLabel, count: turns.length, updates: "" }))}</span>
       <button type="button" data-scroll-latest>${esc(t("drawer.latest_conversation"))} ↓</button>
       </div>

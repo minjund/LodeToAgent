@@ -457,6 +457,23 @@ const api = {
   retryAgent: runId => controlled('retryAgent', [runId], { ok: true, runId: 'fixture-retry-run', retriedFrom: runId }),
   activeRuns: async () => [],
   probeProviders: async () => controlled('probeProviders', [], Object.fromEntries(providers.map(provider => [provider.id, true]))),
+  providerUsage: options => controlled('providerUsage', [options], {
+    generatedAt: new Date().toISOString(),
+    providers: {
+      claude: {
+        provider: 'claude', available: true, source: 'anthropic-oauth', plan: 'max',
+        shortWindow: { label: '5시간 한도', usedPercent: 35, remainingPercent: 65, resetsAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(), windowMinutes: 300 },
+        weekly: { label: '주간 한도', usedPercent: 60, remainingPercent: 40, resetsAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), windowMinutes: 10080 },
+      },
+      codex: {
+        provider: 'codex', available: true, source: 'codex-session', plan: 'plus',
+        shortWindow: { label: '5시간 한도', usedPercent: 20, remainingPercent: 80, resetsAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(), windowMinutes: 300 },
+        weekly: { label: '주간 한도', usedPercent: 10, remainingPercent: 90, resetsAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(), windowMinutes: 10080 },
+      },
+      gemini: { provider: 'gemini', available: false, source: 'provider', reason: 'usage-not-supported' },
+      grok: { provider: 'grok', available: false, source: 'provider', reason: 'usage-not-supported' },
+    },
+  }),
   setProviderVisibility: preference => controlled('setProviderVisibility', [preference]),
   listWorkspaces: async () => [{ name: 'fixture', path: 'D:\\fixture' }],
   addWorkspaces: async () => controlled('addWorkspaces', [], {

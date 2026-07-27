@@ -12,6 +12,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     copyText = async () => false,
     dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
+    resetAgentSession = async () => {}, changeAgentModel = async () => {},
   } = context;
 
   function bindRunComposerEvents() {
@@ -230,6 +231,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         await copyText(copy.dataset.copyText);
         return;
       }
+      const reset = event.target.closest("[data-session-reset]");
+      if (reset) {
+        await resetAgentSession(reset.dataset.sessionReset);
+        return;
+      }
       const promptToggle = event.target.closest("[data-prompt-toggle]");
       if (promptToggle) {
         const promptKey = promptToggle.dataset.promptToggle;
@@ -319,7 +325,14 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       event.preventDefault();
       input.closest("form")?.requestSubmit();
     });
-    $("#detailDrawer").addEventListener("submit", (event) => {
+    $("#detailDrawer").addEventListener("submit", async (event) => {
+      const modelForm = event.target.closest("[data-session-model-form]");
+      if (modelForm) {
+        event.preventDefault();
+        const model = String(new FormData(modelForm).get("model") || "").trim();
+        await changeAgentModel(modelForm.dataset.sessionModelForm, model);
+        return;
+      }
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();

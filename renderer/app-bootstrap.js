@@ -38,7 +38,7 @@
   ].forEach(install);
   window.LoadToAgentApp = app;
 
-  const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast } = app;
+  const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast, refreshProviderUsage = async () => null } = app;
 
   let initializationError = "";
   const showInitializationError = (message) => {
@@ -99,6 +99,9 @@
     });
     bindEvents();
     render();
+    refreshProviderUsage().catch(error => {
+      window.LoadToAgentRendererUtils.reportRecoverableError("provider-usage-refresh", error);
+    });
     saveDashboardPreferences();
     $("#appConnectionState")?.classList.remove("connection-error");
     $("#appErrorBanner").classList.add("hidden");

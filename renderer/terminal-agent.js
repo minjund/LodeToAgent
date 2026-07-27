@@ -249,5 +249,90 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return { ...target, promptSent: Boolean(sendDraft && prompt) };
   }
 
-  return { tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent };
+  function freshSessionArgs(provider, model = '') {
+    const value = String(model || '').trim();
+    if (!value) return [];
+    if (provider === 'codex') return ['--model', value];
+    return ['--model', value];
+  }
+
+  async function resetForAgent(agentSession, model = '', options = {}) {
+    await init();
+    const provider = String(agentSession?.provider || '').toLowerCase();
+    if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
+      throw new Error(t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }));
+    }
+    const cwd = String(agentSession.cwd || preferredWorkspace() || '').trim();
+    if (!cwd) throw new Error(t('terminal.agent.cwd_missing'));
+    const value = String(model || '').trim();
+    if (value.length > 120 || (value && !/^[a-z0-9._:/-]+$/i.test(value))) {
+      throw new Error(t('session.model_invalid'));
+    }
+    const environment = agentSession.environment || {};
+    const tmuxPresence = (agentSession.runtimePresence || []).find(item => item.kind === 'tmux') || {};
+    const tmuxPresenceId = String(tmuxPresence.id || '');
+    const distroFromPresenceId = tmuxPresenceId.startsWith('tmux:')
+      ? tmuxPresenceId.slice(5, tmuxPresenceId.lastIndexOf(':'))
+      : '';
+    const wslCwd = state.platform.id === 'win32'
+      && (environment.kind === 'wsl' || /^\/(?:mnt|home|root|workspace)(?:\/|$)/.test(cwd));
+    const distro = wslCwd
+      ? String(environment.distro || tmuxPresence.distro || distroFromPresenceId
+        || (state.wslDistros.length === 1 ? state.wslDistros[0] : '')).trim()
+      : '';
+    if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
+    const created = await window.loadtoagent.terminalCreate({
+      type: 'agent',
+      provider,
+      args: freshSessionArgs(provider, value),
+      cwd,
+      distro,
+      title: t('session.fresh_session_title', { provider: providerLabel(provider) }),
+      transient: false,
+      cols: 120,
+      rows: 32,
+    });
+    if (!created?.id) throw new Error(t('session.reset_failed'));
+    await refreshSessions();
+    const target = {
+      id: created.id,
+      kind: 'terminal',
+      label: created.title || providerLabel(provider),
+      detail: `${String(created.type || 'agent').toUpperCase()} · PID ${created.pid || '--'}`,
+      terminalId: created.id,
+    };
+    if (options.focus === false) return { ...target, mode: 'new-session', model: value };
+    state.mode = 'general';
+    moveWorkbench('general');
+    await selectSession(created.id);
+    renderTarget();
+    $('#terminalCommandInput')?.focus({ preventScroll: true });
+    return { ...target, mode: 'new-session', model: value };
+  }
+
+  async function changeModelForAgent(agentSession, model) {
+    await init();
+    const provider = String(agentSession?.provider || '').toLowerCase();
+    const value = String(model || '').trim();
+    if (!value) throw new Error(t('session.model_required'));
+    if (value.length > 120 || !/^[a-z0-9._:/-]+$/i.test(value)) throw new Error(t('session.model_invalid'));
+    // Claude documents /model as an in-session switch. Other providers are
+    // launched with their model flag so the previous transcript stays intact
+    // and the CLI remains the authority on account/model access.
+    if (provider === 'claude') {
+      await refreshSessions();
+      const live = agentTargets(agentSession).find(target => target.kind === 'terminal');
+      if (live?.terminalId) {
+        const result = await window.loadtoagent.terminalCommand(live.terminalId, `/model ${value}`);
+        if (!result || result.ok === false) throw new Error(result?.error || t('session.model_change_failed'));
+        return { ...live, mode: 'immediate', model: value };
+      }
+    }
+    return resetForAgent(agentSession, value);
+  }
+
+  return {
+    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent,
+    openForAgent, resumeForAgent, resetForAgent, changeModelForAgent,
+  };
 };

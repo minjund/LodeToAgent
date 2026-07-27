@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   retryAgent: runId => ipcRenderer.invoke('agents:retry', runId),
   activeRuns: () => ipcRenderer.invoke('agents:active-runs'),
   probeProviders: () => ipcRenderer.invoke('providers:probe'),
+  providerUsage: options => ipcRenderer.invoke('providers:usage', options),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   addWorkspaces: () => ipcRenderer.invoke('workspaces:add'),
   removeWorkspace: folder => ipcRenderer.invoke('workspaces:remove', folder),

@@ -11,6 +11,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     providers: [],
     providerMap: new Map(),
     availability: {},
+    providerUsage: { generatedAt: '', providers: {} },
+    providerUsageLoading: false,
     workspaces: [],
     snapshot: null,
     rawSnapshot: null,

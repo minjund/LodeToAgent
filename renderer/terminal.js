@@ -646,7 +646,7 @@
   });
 
   const {
-    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent,
+    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, resetForAgent, changeModelForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
@@ -820,6 +820,8 @@
     interruptAgent,
     openForAgent,
     resumeForAgent,
+    resetForAgent,
+    changeModelForAgent,
     scrollTmuxToLine,
     scrollTmuxByLines,
     scrollTerminalToLine,
