@@ -46,12 +46,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
       const activeList = event.currentTarget;
-      const start = event.target.closest("[data-start-workspace]");
-      if (start) {
-        event.stopPropagation();
-        startProjectTask(start.dataset.startWorkspace);
-        return;
-      }
       const remove = event.target.closest("[data-remove-workspace]");
       if (remove) {
         event.stopPropagation();

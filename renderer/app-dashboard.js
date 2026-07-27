@@ -205,13 +205,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const tmuxRootSessions = unlinkedLiveTmuxSessions();
     const allLiveRootSessions = [...liveRootSessions, ...tmuxRootSessions];
     const projects = observedProjects(rootSessions);
-    const controlProjects = observedProjects(allLiveRootSessions);
+    const liveProjects = observedProjects(allLiveRootSessions)
+      .filter((project) => Number(project.count || 0) > 0);
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
     const savedWorkspaceExists = state.workspace === "all"
       || (state.workspace === PROJECTLESS_WORKSPACE && projectlessCount > 0)
       || projects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace))
-      || controlProjects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
+      || liveProjects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
     if (!savedWorkspaceExists) state.workspace = "all";
     const projectButton = (item, compactClass = "") => `<button type="button" class="workspace-item observed-project ${compactClass} ${Number(item.liveCount || 0) ? "has-live-sessions" : ""} ${state.workspace === item.path ? "selected" : ""}"
       data-workspace="${esc(item.path)}" title="${esc(item.path)}"
@@ -221,12 +222,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       <strong>${esc(item.name)}</strong><small>${Number(item.count || 0)}</small>
       ${Number(item.liveCount || 0) ? `<span class="workspace-live-state" title="${esc(t("project.in_progress"))}"><i aria-hidden="true"></i><b>${esc(t("project.in_progress"))}</b></span>` : ""}
       </button>`;
-    const projectEntry = (item) => `<div class="control-room-project-entry">
-      ${projectButton(item, "control-room-project-chip")}
-      <button type="button" class="control-room-project-start" data-start-workspace="${esc(item.path)}"
-        title="${esc(t("control.start_project_task", { name: item.name }))}"
-        aria-label="${esc(t("control.start_project_task", { name: item.name }))}">＋</button>
-      </div>`;
     const mobileHtml =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
@@ -253,14 +248,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
       <strong>${esc(t("control.all_projects"))}</strong><small>${allLiveRootSessions.length}</small>
       </button>` +
-      controlProjects.map(projectEntry).join("") +
+      liveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("") +
       (liveProjectlessCount
         ? `<button type="button" class="workspace-item projectless control-room-project-chip ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
           data-workspace="${PROJECTLESS_WORKSPACE}" aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
         <strong>${esc(t("control.other_projects"))}</strong><small>${liveProjectlessCount}</small>
         </button>`
         : "") +
-      (!controlProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
+      (!liveProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
     const desktopList = $("#workspaceList");
     const mobileList = $("#mobileWorkspaceList");
     if (desktopList) {
@@ -285,7 +280,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const projectSelect = $("#controlRoomProjectSelect");
     if (projectSelect) {
       projectSelect.innerHTML = `<option value="all">${esc(t("control.all_projects"))}</option>`
-        + controlProjects.map((item) => `<option value="${esc(item.path)}">${esc(item.name)}</option>`).join("")
+        + liveProjects.map((item) => `<option value="${esc(item.path)}">${esc(item.name)}</option>`).join("")
         + (liveProjectlessCount ? `<option value="${PROJECTLESS_WORKSPACE}">${esc(t("control.other_projects"))}</option>` : "");
       projectSelect.value = [...projectSelect.options].some((option) => option.value === state.workspace) ? state.workspace : "all";
     }

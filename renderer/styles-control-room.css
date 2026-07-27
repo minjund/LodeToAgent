@@ -278,38 +278,6 @@
   display: none;
 }
 
-.control-room-project-entry {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: stretch;
-}
-
-.control-room-project-entry .workspace-item {
-  border-radius: 8px 0 0 8px;
-}
-
-.control-room-project-start {
-  width: 34px;
-  min-width: 34px;
-  min-height: 40px;
-  margin-left: -1px;
-  border: 1px solid rgba(89,216,255,.3);
-  border-radius: 0 8px 8px 0;
-  background: rgba(9,27,37,.72);
-  color: #81e5f4;
-  font-size: 17px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.control-room-project-start:hover,
-.control-room-project-start:focus-visible {
-  position: relative;
-  border-color: rgba(89,216,255,.72);
-  background: rgba(89,216,255,.13);
-  color: #e7fbff;
-}
-
 .control-room-project-list.is-overflowing {
   padding-bottom: 5px;
   scrollbar-color: rgba(89,216,255,.58) rgba(89,216,255,.08);
@@ -2094,7 +2062,6 @@ body details.control-room-project-group > summary.control-project-header {
   }
 
   .control-room-project-toolbar .workspace-item,
-  .control-room-project-start,
   .control-room-add-project {
     min-height: 44px !important;
   }

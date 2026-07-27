@@ -1425,7 +1425,6 @@
     "control.add_project": {"ko":"프로젝트 추가","en":"Add project","zh-CN":"添加项目"},
     "control.project_added_ready": {"ko":"프로젝트를 추가했습니다. 맡길 일을 입력해 주세요.","en":"Project added. Describe the task to assign.","zh-CN":"项目已添加。请输入要分配的任务。"},
     "control.project_already_ready": {"ko":"이미 추가된 프로젝트입니다. 새 작업을 이어서 시작합니다.","en":"This project is already added. Start another task from it.","zh-CN":"该项目已添加。可继续从此项目启动新任务。"},
-    "control.start_project_task": {"ko":"{name}에서 AI 작업 시작","en":"Start an AI task in {name}","zh-CN":"在 {name} 中启动 AI 任务"},
     "control.start_project_work": {"ko":"프로젝트에서 작업 시작","en":"Start from a project","zh-CN":"从项目开始任务"},
     "control.all_projects": {"ko":"모든 프로젝트","en":"All projects","zh-CN":"所有项目"},
     "control.completed_empty": {"ko":"아직 최근 실행 기록이 없습니다","en":"No recent execution record yet","zh-CN":"尚无最近的执行记录"},

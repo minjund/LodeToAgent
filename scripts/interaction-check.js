@@ -39,7 +39,6 @@ const ACTION_MANIFEST = [
   { selector: '#probeBtn', action: 'dashboard:probe' },
   { selector: '#addWorkspaceBtn', action: 'workspace:add' },
   { selector: '#mobileAddWorkspaceBtn', action: 'workspace:add' },
-  { selector: '[data-start-workspace]', action: 'workspace:start' },
   { selector: '#newRunBtn', action: 'run:open' },
   { selector: '#newPowerShellBtn', action: 'terminal:create-windows' },
   { selector: '#newWslBtn', action: 'terminal:create-linux' },
@@ -1021,12 +1020,6 @@ async function exerciseDashboardControls(win, round) {
   '기존 프로젝트를 선택했을 때 해당 폴더가 입력된 AI 작업 창이 열리지 않았습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal()`);
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '프로젝트 작업 시작 창을 닫지 못했습니다.');
-  await click(win, '[data-start-workspace="D:\\\\fixture"]', 'workspace:start');
-  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')
-    && document.querySelector('#runCwd').value === 'D:\\\\fixture'`,
-  '프로젝트의 새 작업 버튼으로 해당 폴더의 AI 작업 창을 열지 못했습니다.');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal()`);
-  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '프로젝트 새 작업 창을 닫지 못했습니다.');
   await waitFor(win, `Boolean(document.querySelector('[data-workspace="__projectless__"]')) && document.querySelector('[data-workspace="__projectless__"] small')?.textContent === '1'`, '프로젝트 없는 세션 필터와 개수가 표시되지 않았습니다.');
   await waitFor(win, `(() => { const item = [...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin'); return item?.querySelector('small')?.textContent === '1'; })()`, '등록하지 않은 관측 프로젝트가 세션 개수와 함께 자동 표시되지 않았습니다.');
   await waitFor(win, `(() => {
@@ -1064,15 +1057,9 @@ async function exerciseDashboardControls(win, round) {
     app.state.workspaces.push({ name: 'empty-live-project', path: 'D:\\\\empty-live-project' });
     app.render('empty-live-project');
   })()`);
-  await waitFor(win, `(() => {
-    const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
-      .find(node => node.dataset.workspace === 'D:\\\\empty-live-project');
-    const start = [...document.querySelectorAll('#workspaceList [data-start-workspace]')]
-      .find(node => node.dataset.startWorkspace === 'D:\\\\empty-live-project');
-    return item?.querySelector('small')?.textContent === '0'
-      && Boolean(start);
-  })()`,
-  '진행 중인 세션이 없는 저장 프로젝트와 새 작업 버튼이 홈에 표시되지 않았습니다.');
+  await waitFor(win, `![...document.querySelectorAll('#workspaceList [data-workspace]')]
+    .some(node => node.dataset.workspace === 'D:\\\\empty-live-project')`,
+  '진행 중인 세션이 0개인 저장 프로젝트가 홈 관제 필터에 노출됐습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     app.state.workspaces = app.state.workspaces.filter(item => item.path !== 'D:\\\\empty-live-project');
