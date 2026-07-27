@@ -354,11 +354,27 @@ function registerGenericAgentTests(context) {
     const runsDir = path.join(temp, 'agent-runs-retry');
     const previousId = 'legacy-run';
     const previousDir = path.join(runsDir, previousId);
+    const expiredDir = path.join(runsDir, 'expired-completed-run');
+    const activeDir = path.join(runsDir, 'old-active-run');
     fs.mkdirSync(previousDir, { recursive: true });
+    fs.mkdirSync(expiredDir, { recursive: true });
+    fs.mkdirSync(activeDir, { recursive: true });
     fs.writeFileSync(path.join(previousDir, 'meta.json'), JSON.stringify({
       provider: 'codex', prompt: '검증을 다시 실행해줘', cwd: root, model: 'gpt-fixture', allowWrites: true,
     }), 'utf8');
-    const runner = new AgentRunner({ runsDir });
+    fs.writeFileSync(path.join(expiredDir, 'session.json'), JSON.stringify({
+      status: 'completed', endedAt: '2025-01-01T00:00:00.000Z',
+    }), 'utf8');
+    fs.writeFileSync(path.join(activeDir, 'session.json'), JSON.stringify({
+      status: 'running', updatedAt: '2025-01-01T00:00:00.000Z',
+    }), 'utf8');
+    const runner = new AgentRunner({
+      runsDir,
+      retentionDays: 30,
+      now: Date.parse('2026-01-01T00:00:00.000Z'),
+    });
+    assert.equal(fs.existsSync(expiredDir), false);
+    assert.equal(fs.existsSync(activeDir), true);
     let received = null;
     runner.start = options => {
       received = options;
@@ -799,6 +815,25 @@ function registerTerminalLifecycleTests(context) {
     processes[3].exitCallback({ exitCode: 0, signal: 0 });
     assert.equal(manager.get(transient.id), null);
     assert.equal(fs.readFileSync(storeFile, 'utf8').includes(transient.id), false);
+    manager.persistNow();
+    fs.writeFileSync(storeFile, JSON.stringify({
+      version: 2,
+      sessions: [{
+        id: 'expired-terminal',
+        options: { type: 'powershell', cwd: root, sessionBackend: 'direct' },
+        status: 'exited',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      }],
+    }), 'utf8');
+    manager = new TerminalManager({
+      ...managerOptions,
+      retentionDays: 30,
+      now: () => Date.parse('2026-01-01T00:00:00.000Z'),
+    });
+    assert.equal(manager.get('expired-terminal'), null);
+    manager.persistNow();
+    assert.equal(fs.readFileSync(storeFile, 'utf8').includes('expired-terminal'), false);
     assert.equal(normalizeLaunchOptions({ type: 'cmd', cwd: root }).type, 'cmd');
     assert.ok(launchSpec(normalizeLaunchOptions({ type: 'powershell', cwd: root })).args.includes('-NoLogo'));
     const macShell = normalizeLaunchOptions({ cwd: root }, 'darwin');

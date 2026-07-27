@@ -4,9 +4,17 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
 
   function bindFilterAndWorkspaceEvents() {
+    const startProjectTask = (path) => {
+      const workspacePath = String(path || "").trim();
+      if (!workspacePath) return;
+      $("#runCwd").value = workspacePath;
+      openRunModal();
+      syncRunComposer();
+      saveRunDraft();
+    };
     const syncFilterResetButton = () => {
       const hasFilters = Boolean(
         $("#searchInput").value || state.search || state.providerFilters.size || state.workspace !== "all" || state.sort !== "recent" || state.controlRoomSort !== "recent",
@@ -38,6 +46,12 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
       const activeList = event.currentTarget;
+      const start = event.target.closest("[data-start-workspace]");
+      if (start) {
+        event.stopPropagation();
+        startProjectTask(start.dataset.startWorkspace);
+        return;
+      }
       const remove = event.target.closest("[data-remove-workspace]");
       if (remove) {
         event.stopPropagation();
@@ -283,19 +297,24 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const addWorkspaceButtons = [$("#addWorkspaceBtn"), $("#mobileAddWorkspaceBtn")].filter(Boolean);
     const addWorkspace = async (event) => {
       const trigger = event.currentTarget;
+      const response = await performUiAction(() => window.loadtoagent.addWorkspaces(), t("workspace.add_failed"), trigger);
+      if (!response || response.canceled) return;
+      const workspaces = Array.isArray(response) ? response : response.workspaces;
+      if (!Array.isArray(workspaces)) return;
       const previousPaths = new Set(state.workspaces.map((workspace) => workspace.path));
-      const workspaces = await performUiAction(() => window.loadtoagent.addWorkspaces(), t("workspace.add_failed"), trigger);
-      if (!workspaces) return;
       state.workspaces = workspaces;
       renderWorkspaces();
       syncFilterResetButton();
       const added = state.workspaces.find((workspace) => !previousPaths.has(workspace.path));
+      const selected = Array.isArray(response) ? added : response.selected;
+      if (!selected?.path) return;
+      toast(t(response.alreadyAdded ? "control.project_already_ready" : "control.project_added_ready"));
+      announce(t(response.alreadyAdded ? "control.project_already_ready" : "control.project_added_ready"));
+      startProjectTask(selected.path);
       requestAnimationFrame(() => {
         const targetList = trigger.id === "mobileAddWorkspaceBtn" ? $("#mobileWorkspaceList") : $("#workspaceList");
-        if (added) targetList?.querySelector(`[data-workspace="${CSS.escape(added.path)}"]`)?.focus();
-        else trigger.focus();
+        targetList?.querySelector(`[data-workspace="${CSS.escape(selected.path)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
       });
-      announce(window.LoadToAgentI18n.t("quality.workspace_added", { count: state.workspaces.length }));
     };
     addWorkspaceButtons.forEach((button) => button.addEventListener("click", addWorkspace));
     $("#probeBtn").addEventListener("click", async () => {

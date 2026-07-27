@@ -6,7 +6,10 @@
   const app = {};
   const install = (name) => {
     if (typeof factories[name] !== "function") throw new Error(t("bootstrap.module_missing", { name }));
-    Object.assign(app, factories[name](app));
+    const additions = factories[name](app) || {};
+    const duplicate = Object.keys(additions).find(key => Object.prototype.hasOwnProperty.call(app, key));
+    if (duplicate) throw new Error(`Renderer module "${name}" attempted to replace "${duplicate}".`);
+    Object.assign(app, additions);
   };
 
   [
@@ -65,7 +68,7 @@
       showInitializationError(t("bootstrap.open_in_app"));
       return;
     }
-    const bootstrap = await window.loadtoagent.bootstrap();
+    const bootstrap = await window.LoadToAgentRendererUtils.bootstrap();
     if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || "ko");
     state.providers = bootstrap.providers || [];
     state.providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
@@ -89,6 +92,11 @@
       } else toast(t("bootstrap.opened_attention_list"));
     };
     if (window.loadtoagent.onAttentionRequested) window.loadtoagent.onAttentionRequested(handleAttentionRequested);
+    if (window.loadtoagent.onMonitorError) window.loadtoagent.onMonitorError((message) => {
+      const detail = String(message || t("ui.connection_failed"));
+      showInitializationError(detail);
+      toast(detail);
+    });
     bindEvents();
     render();
     saveDashboardPreferences();
@@ -96,18 +104,26 @@
     $("#appErrorBanner").classList.add("hidden");
     app.initialized = true;
     $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);
+    let snapshotRenderFrame = 0;
+    let latestSnapshot = null;
     window.loadtoagent.onSnapshot((snapshot) => {
       state.rawSnapshot = snapshot;
       state.snapshot = projectVisibleSnapshot(snapshot);
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       $("#lastSync").textContent = timeOnly(snapshot.generatedAt);
-      render();
-      saveDashboardPreferences();
-      if (state.selectedId && $("#detailDrawer").classList.contains("open") && !state.detailLoadingIds.has(state.selectedId)) {
-        const card = (snapshot.sessions || []).find((session) => session.id === state.selectedId);
-        const detail = state.details.get(state.selectedId);
-        if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
-      }
+      latestSnapshot = snapshot;
+      if (snapshotRenderFrame) return;
+      snapshotRenderFrame = requestAnimationFrame(() => {
+        snapshotRenderFrame = 0;
+        const renderedSnapshot = latestSnapshot;
+        render();
+        saveDashboardPreferences();
+        if (state.selectedId && $("#detailDrawer").classList.contains("open") && !state.detailLoadingIds.has(state.selectedId)) {
+          const card = (renderedSnapshot.sessions || []).find((session) => session.id === state.selectedId);
+          const detail = state.details.get(state.selectedId);
+          if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
+        }
+      });
     });
     if (window.loadtoagent.rendererReady) await window.loadtoagent.rendererReady();
     if (window.loadtoagent.onUpdateState)

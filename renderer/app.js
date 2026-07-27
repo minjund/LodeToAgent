@@ -603,7 +603,31 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return `${message?.role || ""}:${String(message?.text || "").replace(/\s+/g, " ").trim()}:${message?.timestamp || ""}`;
   }
   function conversationDeliveryState(session, entry, now = Date.now()) {
-    return window.LoadToAgentConversationDelivery?.deliveryState?.(session, entry, now) || null;
+    if (!session) return null;
+    const normalizePath = value => String(value || "").trim().replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const projectPath = normalizePath(session.originCwd || session.cwd);
+    const dispatchedAt = Date.parse(entry?.dispatchedAt || entry?.timestamp || 0);
+    const recentEnough = candidate => {
+      if (!Number.isFinite(dispatchedAt)) return true;
+      const updatedAt = Date.parse(candidate?.updatedAt || candidate?.startedAt || 0);
+      return Number.isFinite(updatedAt) && updatedAt >= dispatchedAt - 2_000;
+    };
+    const observations = [session];
+    const snapshot = (state.snapshot?.sessions || []).find(candidate => candidate.id === session.id);
+    if (snapshot && snapshot !== session) observations.push(snapshot);
+    if (session.provider === "claude" && projectPath) {
+      for (const candidate of state.snapshot?.sessions || []) {
+        if (!candidate || candidate.id === session.id || candidate.provider !== "claude") continue;
+        if (normalizePath(candidate.originCwd || candidate.cwd) !== projectPath) continue;
+        if (Number(candidate.depth || 0) !== Number(session.depth || 0)) continue;
+        if (!recentEnough(candidate)) continue;
+        observations.push(state.details.get(candidate.id) || candidate);
+      }
+    }
+    return window.LoadToAgentConversationDelivery?.deliveryState?.({
+      ...session,
+      deliveryObservationSessions: observations,
+    }, entry, now) || null;
   }
   function pendingConversationDelivery(session, now = Date.now()) {
     const pending = state.pendingConversationMessages.get(String(session?.id || "")) || [];
@@ -641,6 +665,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       userMessageObserved: Boolean(delivery.userMessage),
       responseStartObserved: Boolean(delivery.responseStartEvent),
       assistantMessageObserved: Boolean(delivery.assistantMessage),
+      observationSessionId: String(delivery.observationSessionId || ""),
     });
   }
   function loadSessionArchives() {

@@ -158,9 +158,9 @@ function processExists(pid) {
       : `printf '${beforeMarker}\\n'`;
     const created = await evaluate(firstPage.send, `(async () => window.loadtoagent.terminalCreate({ type: ${JSON.stringify(bootstrap.platform.localShell)}, cwd: ${JSON.stringify(root)}, title: '앱 재시작 유지 검증' }))()`);
     terminalId = created.id;
-    terminalPid = created.pid;
     await evaluate(firstPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(command)})`);
-    await waitFor(firstPage.send, `(async () => (await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}))?.replay?.includes(${JSON.stringify(beforeMarker)}))()`, '첫 앱에서 터미널 출력 표식을 받지 못했습니다.');
+    const liveTerminal = await waitFor(firstPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(beforeMarker)}) && item.pid > 0 ? item : null; })()`, '첫 앱에서 터미널 출력 표식과 PID를 받지 못했습니다.');
+    terminalPid = liveTerminal.pid;
     for (let attempt = 0; attempt < 50 && !fs.existsSync(hostFile); attempt += 1) await pause(100);
     if (!fs.existsSync(hostFile)) throw new Error(`터미널 호스트 발견 파일이 없습니다: ${hostFile}`);
     hostPid = Number(JSON.parse(fs.readFileSync(hostFile, 'utf8')).pid || 0);
@@ -200,13 +200,18 @@ function processExists(pid) {
     }
     if (!nextHostPid) throw new Error('터미널 호스트가 강제 종료 뒤 자동으로 다시 실행되지 않았습니다.');
     hostPid = nextHostPid;
-    const recovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 강제 종료 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
-    if (recovered.pid === terminalPid) throw new Error('호스트 강제 종료 뒤 PTY PID가 새 프로세스로 교체되지 않았습니다.');
+    let recovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 강제 종료 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
     const recoveryCommand = bootstrap.platform.id === 'win32'
       ? `Write-Output "${recoveryMarker}"`
       : `printf '${recoveryMarker}\\n'`;
     await evaluate(secondPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(recoveryCommand)})`);
-    await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}))?.replay?.includes(${JSON.stringify(recoveryMarker)}))()`, '호스트 복구 뒤 터미널 명령을 실행하지 못했습니다.');
+    recovered = await waitFor(secondPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(recoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
+    // Windows can immediately reuse the terminated ConPTY PID. The changed
+    // authenticated host PID plus recoveredAfterHostRestart is authoritative
+    // there; POSIX systems should always expose a distinct child PID.
+    if (process.platform !== 'win32' && recovered.pid === terminalPid) {
+      throw new Error('호스트 강제 종료 뒤 PTY 프로세스가 교체되지 않았습니다.');
+    }
 
     await pause(300);
     const terminatedHostPid = hostPid;
@@ -224,13 +229,13 @@ function processExists(pid) {
     }
     if (!gracefulHostPid) throw new Error('터미널 호스트가 SIGTERM 뒤 자동으로 다시 실행되지 않았습니다.');
     hostPid = gracefulHostPid;
-    const gracefulRecovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart && item.pid !== ${JSON.stringify(recovered.pid)}) || null)()`, '호스트 SIGTERM 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
-    if (gracefulRecovered.pid === recovered.pid) throw new Error('호스트 SIGTERM 뒤 PTY PID가 새 프로세스로 교체되지 않았습니다.');
+    let gracefulRecovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 SIGTERM 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
     const gracefulCommand = bootstrap.platform.id === 'win32'
       ? `Write-Output "${gracefulRecoveryMarker}"`
       : `printf '${gracefulRecoveryMarker}\\n'`;
     await evaluate(secondPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(gracefulCommand)})`);
-    await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}))?.replay?.includes(${JSON.stringify(gracefulRecoveryMarker)}))()`, '호스트 SIGTERM 복구 뒤 터미널 명령을 실행하지 못했습니다.');
+    gracefulRecovered = await waitFor(secondPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(gracefulRecoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 SIGTERM 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
+    if (process.platform !== 'win32' && gracefulRecovered.pid === recovered.pid) throw new Error('호스트 SIGTERM 뒤 PTY PID가 새 프로세스로 교체되지 않았습니다.');
     await evaluate(secondPage.send, `window.loadtoagent.terminalClose(${JSON.stringify(terminalId)})`);
     terminalId = '';
     outcome = {

@@ -39,6 +39,7 @@ const ACTION_MANIFEST = [
   { selector: '#probeBtn', action: 'dashboard:probe' },
   { selector: '#addWorkspaceBtn', action: 'workspace:add' },
   { selector: '#mobileAddWorkspaceBtn', action: 'workspace:add' },
+  { selector: '[data-start-workspace]', action: 'workspace:start' },
   { selector: '#newRunBtn', action: 'run:open' },
   { selector: '#newPowerShellBtn', action: 'terminal:create-windows' },
   { selector: '#newWslBtn', action: 'terminal:create-linux' },
@@ -1015,6 +1016,17 @@ async function exerciseDashboardControls(win, round) {
   await clearCalls(win);
   await click(win, '#addWorkspaceBtn', 'workspace:add');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'addWorkspaces')`, 'workspace 추가가 호출되지 않았습니다.');
+  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')
+    && document.querySelector('#runCwd').value === 'D:\\\\fixture'`,
+  '기존 프로젝트를 선택했을 때 해당 폴더가 입력된 AI 작업 창이 열리지 않았습니다.');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal()`);
+  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '프로젝트 작업 시작 창을 닫지 못했습니다.');
+  await click(win, '[data-start-workspace="D:\\\\fixture"]', 'workspace:start');
+  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')
+    && document.querySelector('#runCwd').value === 'D:\\\\fixture'`,
+  '프로젝트의 새 작업 버튼으로 해당 폴더의 AI 작업 창을 열지 못했습니다.');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal()`);
+  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '프로젝트 새 작업 창을 닫지 못했습니다.');
   await waitFor(win, `Boolean(document.querySelector('[data-workspace="__projectless__"]')) && document.querySelector('[data-workspace="__projectless__"] small')?.textContent === '1'`, '프로젝트 없는 세션 필터와 개수가 표시되지 않았습니다.');
   await waitFor(win, `(() => { const item = [...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin'); return item?.querySelector('small')?.textContent === '1'; })()`, '등록하지 않은 관측 프로젝트가 세션 개수와 함께 자동 표시되지 않았습니다.');
   await waitFor(win, `(() => {
@@ -1052,9 +1064,15 @@ async function exerciseDashboardControls(win, round) {
     app.state.workspaces.push({ name: 'empty-live-project', path: 'D:\\\\empty-live-project' });
     app.render('empty-live-project');
   })()`);
-  await waitFor(win, `![...document.querySelectorAll('#workspaceList [data-workspace]')]
-    .some(node => node.dataset.workspace === 'D:\\\\empty-live-project')`,
-  '진행 중인 세션이 0개인 저장 프로젝트가 홈 관제 필터에 노출됐습니다.');
+  await waitFor(win, `(() => {
+    const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
+      .find(node => node.dataset.workspace === 'D:\\\\empty-live-project');
+    const start = [...document.querySelectorAll('#workspaceList [data-start-workspace]')]
+      .find(node => node.dataset.startWorkspace === 'D:\\\\empty-live-project');
+    return item?.querySelector('small')?.textContent === '0'
+      && Boolean(start);
+  })()`,
+  '진행 중인 세션이 없는 저장 프로젝트와 새 작업 버튼이 홈에 표시되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     app.state.workspaces = app.state.workspaces.filter(item => item.path !== 'D:\\\\empty-live-project');
@@ -1950,18 +1968,27 @@ async function exerciseAgentControls(win, round) {
   'WSL 외부 CLI를 지속형 관리 터미널로 이어받고 대화 상세 화면을 유지하지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const now = Date.now();
-    window.interactionTest.appendSessionMessages('fixture-live-0', [
-      { id: 'fixture-live-0-user-reply-test', role: 'user', text: 'HANDOFF_EXISTING_SESSION', timestamp: new Date(now).toISOString() },
-      { id: 'fixture-live-0-assistant-reply-test', role: 'assistant', text: 'BACKGROUND_AI_RESPONSE', timestamp: new Date(now + 1).toISOString() },
-    ]);
+    const original = window.interactionTest.getSnapshot().sessions.find(session => session.id === 'fixture-live-0');
+    window.interactionTest.addSession({
+      ...original,
+      id: 'fixture-live-0-resumed',
+      externalId: 'fixture-live-0-resumed-external',
+      title: 'Claude 터미널에서 이어진 후속 세션',
+      startedAt: new Date(now).toISOString(),
+      updatedAt: new Date(now + 1).toISOString(),
+      runtimePresence: [],
+      messages: [
+        { id: 'fixture-live-0-resumed-user', role: 'user', text: 'HANDOFF_EXISTING_SESSION', timestamp: new Date(now).toISOString() },
+        { id: 'fixture-live-0-resumed-assistant', role: 'assistant', text: 'BACKGROUND_AI_RESPONSE', timestamp: new Date(now + 1).toISOString() },
+      ],
+      lifecycle: [],
+    });
     window.interactionTest.emitSnapshot();
   })()`);
-  await waitFor(win, `document.querySelector('#drawerContent [data-message-id="fixture-live-0-user-reply-test"]')
-    && document.querySelector('#drawerContent [data-message-id="fixture-live-0-assistant-reply-test"]')?.innerText.includes('BACKGROUND_AI_RESPONSE')
-    && !document.querySelector('#drawerContent .chat-row.is-optimistic')
+  await waitFor(win, `!document.querySelector('#drawerContent .chat-row.is-optimistic')
     && !document.querySelector('#drawerContent .chat-delivery-progress')
     && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-live-0')`,
-  '백그라운드 AI 응답이 도착한 뒤 임시 메시지를 실제 대화로 교체하지 못했습니다.');
+  'Claude가 같은 프로젝트의 새 세션 로그에 응답을 기록한 뒤에도 대화 수신 확인이 완료되지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
   await click(win, '#closeDrawerBtn', 'drawer:close');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '이어받기 후 대화 상세 drawer가 닫히지 않았습니다.');

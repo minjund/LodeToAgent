@@ -1,10 +1,10 @@
 {
   "name": "loadtoagent",
-  "version": "1.3.13",
+  "version": "1.3.14",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "homepage": "https://github.com/minjund/LodeToAgent#readme",
   "repository": {
     "type": "git",
@@ -33,6 +33,9 @@
     "renderer",
     "src",
     "docs",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md",
     "README.md",
     "README.ko.md",
     "README.zh-CN.md"
@@ -42,6 +45,7 @@
   },
   "scripts": {
     "start": "electron .",
+    "check:source": "node scripts/check-source.js",
     "test": "node scripts/regression-test.js",
     "test:accuracy": "node scripts/accuracy-evaluation.js",
     "test:terminal": "electron scripts/terminal-integration-test.js",
@@ -60,12 +64,13 @@
     "test:readability": "electron scripts/readability-visual-check.js",
     "test:update:mac": "node scripts/mac-update-integration-test.js",
     "test:artifacts:mac": "node scripts/mac-artifact-check.js",
+    "test:artifacts:win": "node scripts/windows-artifact-check.js",
     "demo:readme": "electron scripts/readme-demo.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "pack": "electron-builder --dir",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm run check:source && npm test"
   },
   "publishConfig": {
     "access": "public",
@@ -77,11 +82,11 @@
     "node-pty": "1.2.0-beta.14"
   },
   "peerDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^43.2.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.wincube.loadtoagent",
@@ -95,12 +100,14 @@
       "bin/**/*",
       "src/**/*",
       "renderer/**/*",
+      "LICENSE",
       "package.json"
     ],
     "asarUnpack": [
       "bin/**/*",
       "node_modules/node-pty/**/*"
     ],
+    "npmRebuild": false,
     "afterPack": "scripts/after-pack.js",
     "win": {
       "icon": "build/icon.ico",
@@ -122,6 +129,8 @@
     "mac": {
       "icon": "build/icon.png",
       "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "notarize": true,
       "target": [
         {
           "target": "dmg",

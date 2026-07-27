@@ -435,7 +435,12 @@ const api = {
   probeProviders: async () => controlled('probeProviders', [], Object.fromEntries(providers.map(provider => [provider.id, true]))),
   setProviderVisibility: preference => controlled('setProviderVisibility', [preference]),
   listWorkspaces: async () => [{ name: 'fixture', path: 'D:\\fixture' }],
-  addWorkspaces: async () => controlled('addWorkspaces', [], [{ name: 'fixture', path: 'D:\\fixture' }]),
+  addWorkspaces: async () => controlled('addWorkspaces', [], {
+    canceled: false,
+    workspaces: [{ name: 'fixture', path: 'D:\\fixture' }],
+    selected: { name: 'fixture', path: 'D:\\fixture' },
+    alreadyAdded: true,
+  }),
   removeWorkspace: folder => controlled('removeWorkspace', [folder], []),
   pickWorkspace: () => controlled('pickWorkspace', [], 'D:\\fixture-picked'),
   openExternal: url => controlled('openExternal', [url]),
@@ -555,6 +560,12 @@ const testApi = {
     session.messages = [...(session.messages || []), ...clone(messages || [])];
     session.updatedAt = new Date(Date.now() + 1000).toISOString();
     snapshot.generatedAt = session.updatedAt;
+    return true;
+  },
+  addSession: session => {
+    if (!session || !session.id || snapshot.sessions.some(item => item.id === session.id)) return false;
+    snapshot.sessions.push(clone(session));
+    snapshot.generatedAt = new Date(Date.now() + 1000).toISOString();
     return true;
   },
   clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); detailResponses = new Map(); },

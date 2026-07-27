@@ -8,7 +8,7 @@ const { EventEmitter } = require('events');
 const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
-const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath } = require('../../src/updateInstaller');
+const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath, verifyDownloadedInstaller } = require('../../src/updateInstaller');
 const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
@@ -220,6 +220,7 @@ function registerCliAndUpdateTests(context) {
         ? new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json' } })
         : new Response(payload, { status: 200, headers: { 'content-length': String(payload.length) } }),
       shell: { openPath: async file => { opened.push(file); return ''; }, openExternal: async () => {} },
+      verifyInstaller: async () => {},
     });
     const available = await manager.check();
     assert.equal(available.status, 'available');
@@ -232,6 +233,13 @@ function registerCliAndUpdateTests(context) {
     const malformedSize = await malformedSizeManager.check();
     assert.equal(malformedSize.asset.size, 0);
     assert.equal(malformedSize.totalBytes, 0);
+    const missingDigestManager = new UpdateManager({
+      currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      fetch: async () => ({ ok: true, json: async () => ({ ...release, assets: [{ ...asset, digest: '' }] }) }),
+    });
+    const missingDigest = await missingDigestManager.check();
+    assert.equal(missingDigest.asset, null);
+    assert.match(missingDigest.error, /SHA-256 digest/);
     const downloaded = await manager.download();
     assert.equal(downloaded.status, 'downloaded');
     assert.equal(fs.readFileSync(downloaded.downloadedPath, 'utf8'), payload.toString());
@@ -240,10 +248,13 @@ function registerCliAndUpdateTests(context) {
 
     let spawnCall = null;
     let unrefCalled = false;
+    const verifiedInstallers = [];
+    const verifyInstaller = async options => { verifiedInstallers.push(options); };
     const automatic = await launchDownloadedUpdate({
       platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
       environment: { SystemRoot: 'C:\\Windows' },
+      verifyInstaller,
       spawn: (command, args, options) => {
         spawnCall = { command, args, options };
         const child = new EventEmitter();
@@ -255,6 +266,7 @@ function registerCliAndUpdateTests(context) {
     });
     assert.equal(automatic.mode, 'automatic');
     assert.equal(unrefCalled, true);
+    assert.equal(verifiedInstallers[0].installerPath, downloaded.downloadedPath);
     assert.equal(spawnCall.command, path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
     assert.equal(spawnCall.options.detached, true);
     assert.equal(spawnCall.options.windowsHide, true);
@@ -285,6 +297,7 @@ function registerCliAndUpdateTests(context) {
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
       environment: { FIXTURE: 'yes' },
+      verifyInstaller,
       spawn: (command, args, options) => {
         macSpawnCall = { command, args, options };
         const child = new EventEmitter();
@@ -317,6 +330,7 @@ function registerCliAndUpdateTests(context) {
     const manual = await launchDownloadedUpdate({
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir, installerPath: downloaded.downloadedPath,
       shell: { openPath: async file => { manualOpened.push(file); return ''; } },
+      verifyInstaller,
     });
     assert.equal(manual.mode, 'manual');
     assert.deepStrictEqual(manualOpened, [downloaded.downloadedPath]);
@@ -326,6 +340,7 @@ function registerCliAndUpdateTests(context) {
         platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
         installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
         spawnTimeoutMs: 100,
+        verifyInstaller,
         spawn: () => {
           const child = new EventEmitter();
           child.unref = () => {};
@@ -335,6 +350,18 @@ function registerCliAndUpdateTests(context) {
       }),
       /PowerShell unavailable/,
     );
+    const signatureCalls = [];
+    await verifyDownloadedInstaller({
+      platform: 'win32',
+      installerPath: downloaded.downloadedPath,
+      environment: { SystemRoot: 'C:\\Windows' },
+      execFile: async (command, args, options) => { signatureCalls.push({ command, args, options }); },
+    });
+    assert.equal(signatureCalls.length, 1);
+    assert(signatureCalls[0].args.includes('-EncodedCommand'));
+    assert.equal(signatureCalls[0].options.env.LOADTOAGENT_VERIFY_PATH, downloaded.downloadedPath);
+    const encodedIndex = signatureCalls[0].args.indexOf('-EncodedCommand') + 1;
+    assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /Get-AuthenticodeSignature/);
   });
 
   test('macOS 업데이트 헬퍼가 앱을 교체하고 실패하면 원본을 복구해 재실행한다', async () => {

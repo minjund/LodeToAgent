@@ -14,7 +14,7 @@ const { TerminalHostClient, launchTerminalHost, resolveTerminalHostExecutable } 
 const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
 const { UpdateManager } = require('./src/updateManager');
-const { launchDownloadedUpdate } = require('./src/updateInstaller');
+const { launchDownloadedUpdate, verifyDownloadedInstaller } = require('./src/updateInstaller');
 const { readWorkspaces, removeWorkspace, writeWorkspaces } = require('./src/workspaceStore');
 const { registerAppIpc } = require('./src/ipc/registerAppIpc');
 const { registerAgentIpc } = require('./src/ipc/registerAgentIpc');
@@ -36,6 +36,9 @@ const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
 const ATTENTION_NOTIFICATIONS_ENABLED = false;
 let mainWindow = null;
 let monitorWorker = null;
+let monitorWorkerConfig = null;
+let monitorWorkerRestartTimer = null;
+let monitorWorkerRestartAttempts = 0;
 let runner = null;
 let terminalManager = null;
 let bridgeLauncher = null;
@@ -167,6 +170,7 @@ function saveProviderVisibility(value = {}) {
   if (!providerVisibilityStore) loadProviderVisibility();
   const saved = providerVisibilityStore.save(value);
   updateBackgroundTrayMenu();
+  sendSnapshot(visibleSnapshotSessions(lastSnapshot));
   return saved;
 }
 
@@ -212,7 +216,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
   mainWindow.setMenuBarVisibility(false);
@@ -320,6 +324,67 @@ function refreshMonitor() {
 function sendSnapshot(snapshot) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   try { mainWindow.webContents.send('agents:snapshot', snapshot); } catch (error) { reportRecoverableError('ipc-send:agents:snapshot', error); }
+}
+
+function rejectPendingDetails() {
+  for (const pending of pendingDetails.values()) pending.resolve(null);
+  pendingDetails.clear();
+}
+
+function sendMonitorError(error) {
+  const message = error && error.message || String(error || 'Unknown monitor worker error');
+  reportRecoverableError('monitor-worker', error);
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agents:monitor-error', message);
+}
+
+function scheduleMonitorWorkerRestart() {
+  if (isQuitting || demoCapture || monitorWorkerRestartTimer || !monitorWorkerConfig) return;
+  const delay = Math.min(30_000, 1_000 * (2 ** Math.min(monitorWorkerRestartAttempts, 5)));
+  monitorWorkerRestartAttempts += 1;
+  monitorWorkerRestartTimer = setTimeout(() => {
+    monitorWorkerRestartTimer = null;
+    startMonitorWorker();
+  }, delay);
+}
+
+function startMonitorWorker() {
+  if (isQuitting || demoCapture || !monitorWorkerConfig) return null;
+  const worker = new Worker(path.join(__dirname, 'src', 'monitorWorker.js'), {
+    workerData: monitorWorkerConfig,
+  });
+  monitorWorker = worker;
+  worker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
+  worker.on('message', message => {
+    if (message && message.type === 'snapshot') {
+      monitorWorkerRestartAttempts = 0;
+      lastSnapshot = message.snapshot;
+      const snapshot = visibleSnapshotSessions(lastSnapshot);
+      attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
+      sendSnapshot(snapshot);
+    }
+    if (message && message.type === 'detail-result') {
+      const pending = pendingDetails.get(message.requestId);
+      if (pending) {
+        pendingDetails.delete(message.requestId);
+        pending.resolve(message.session);
+      }
+    }
+  });
+  worker.once('error', error => {
+    worker.__loadtoagentErrorReported = true;
+    if (monitorWorker === worker) monitorWorker = null;
+    rejectPendingDetails();
+    sendMonitorError(error);
+    scheduleMonitorWorkerRestart();
+  });
+  worker.once('exit', code => {
+    if (monitorWorker === worker) monitorWorker = null;
+    if (isQuitting) return;
+    if (code !== 0 && !worker.__loadtoagentErrorReported) sendMonitorError(new Error(`Monitor worker exited with code ${code}.`));
+    rejectPendingDetails();
+    scheduleMonitorWorkerRestart();
+  });
+  return worker;
 }
 
 function openAttentionSession(session) {
@@ -461,6 +526,7 @@ async function setupRuntime() {
     fetch: (...args) => net.fetch(...args),
     shell,
     downloadsDir: path.join(app.getPath('userData'), 'updates'),
+    verifyInstaller: installerPath => verifyDownloadedInstaller({ installerPath, platform: process.platform }),
   });
   updateManager.on('state', sendUpdateState);
   attentionNotifier = createAttentionNotifier();
@@ -501,27 +567,8 @@ async function setupRuntime() {
   });
   await connectTerminalForStartup();
   availability = probeProviders();
-  monitorWorker = new Worker(path.join(__dirname, 'src', 'monitorWorker.js'), {
-    workerData: { runsDir, home: os.homedir(), intervalMs: 1200, availability },
-  });
-  monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
-  monitorWorker.on('message', message => {
-    if (message && message.type === 'snapshot') {
-      lastSnapshot = message.snapshot;
-      attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
-      sendSnapshot(lastSnapshot);
-    }
-    if (message && message.type === 'detail-result') {
-      const pending = pendingDetails.get(message.requestId);
-      if (pending) {
-        pendingDetails.delete(message.requestId);
-        pending.resolve(message.session);
-      }
-    }
-  });
-  monitorWorker.on('error', error => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('agents:monitor-error', error.message);
-  });
+  monitorWorkerConfig = { runsDir, home: os.homedir(), intervalMs: 1200, availability };
+  startMonitorWorker();
   runner.on('changed', () => monitorWorker && monitorWorker.postMessage({ type: 'scan' }));
 }
 
@@ -552,7 +599,7 @@ function bootstrapState() {
     providers: providerList(),
     availability,
     workspaces: listWorkspaces(),
-    snapshot: lastSnapshot,
+    snapshot: visibleSnapshotSessions(lastSnapshot),
     activeRuns: runner ? runner.listActive() : [],
     versions: { app: app.getVersion(), electron: process.versions.electron, node: process.versions.node },
     platform: {
@@ -611,7 +658,7 @@ function registerIpcHandlers() {
   });
   registerAgentIpc({
     handleTrusted,
-    snapshot: () => { refreshMonitor(); return lastSnapshot; },
+    snapshot: () => { refreshMonitor(); return visibleSnapshotSessions(lastSnapshot); },
     requestDetail: requestAgentDetail,
     runner: () => runner,
     isProviderVisible,
@@ -636,9 +683,26 @@ function registerIpcHandlers() {
     handleTrusted,
     list: listWorkspaces,
     add: async () => {
-      const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory', 'multiSelections'], title: mainText('addWorkspaces') });
-      if (result.canceled) return listWorkspaces();
-      return saveWorkspaces([...listWorkspaces(), ...result.filePaths.map(folder => ({ path: folder, name: path.basename(folder) }))]);
+      const current = listWorkspaces();
+      const result = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'], title: mainText('addWorkspaces') });
+      if (result.canceled || !result.filePaths[0]) {
+        return { canceled: true, workspaces: current, selected: null, alreadyAdded: false };
+      }
+      const selectedPath = path.resolve(result.filePaths[0]);
+      const selectedKey = process.platform === 'win32' ? selectedPath.toLowerCase() : selectedPath;
+      const alreadyAdded = current.some(item => {
+        const itemPath = path.resolve(item.path);
+        return (process.platform === 'win32' ? itemPath.toLowerCase() : itemPath) === selectedKey;
+      });
+      const workspaces = saveWorkspaces([
+        ...current,
+        { path: selectedPath, name: path.basename(selectedPath) },
+      ]);
+      const selected = workspaces.find(item => {
+        const itemPath = path.resolve(item.path);
+        return (process.platform === 'win32' ? itemPath.toLowerCase() : itemPath) === selectedKey;
+      }) || { path: selectedPath, name: path.basename(selectedPath) };
+      return { canceled: false, workspaces, selected, alreadyAdded };
     },
     remove: folder => saveWorkspaces(removeWorkspace(listWorkspaces(), folder)),
     pick: async () => {
@@ -703,6 +767,8 @@ app.on('before-quit', () => {
     monitorWorker.postMessage({ type: 'stop' });
     monitorWorker.terminate();
   }
+  if (monitorWorkerRestartTimer) clearTimeout(monitorWorkerRestartTimer);
+  monitorWorkerRestartTimer = null;
 });
 
 app.on('will-quit', () => {

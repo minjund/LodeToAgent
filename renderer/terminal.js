@@ -784,7 +784,7 @@
         bindEvents();
         state.eventsBound = true;
       }
-      const [bootstrap, sessions, environments] = await Promise.all([window.loadtoagent.bootstrap(), window.loadtoagent.terminalList(), window.loadtoagent.wslDistros()]);
+      const [bootstrap, sessions, environments] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), window.loadtoagent.terminalList(), window.loadtoagent.wslDistros()]);
       state.platform = bootstrap.platform || state.platform;
       state.sessions = Array.isArray(sessions) ? sessions : [];
       state.wslDistros = Array.isArray(environments) ? environments : [];

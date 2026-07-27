@@ -2,7 +2,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const { spawn: spawnProcess } = require('child_process');
+const { execFile: execFileCallback, spawn: spawnProcess } = require('child_process');
+const { promisify } = require('util');
+
+const execFileProcess = promisify(execFileCallback);
 
 const MAC_UPDATE_HELPER_SOURCE = path.join(__dirname, 'macUpdateHelper.js');
 
@@ -85,12 +88,66 @@ function waitForProcessSpawn(child, timeoutMs = 5000) {
   });
 }
 
+async function verifyDownloadedInstaller(options = {}) {
+  const installerPath = String(options.installerPath || '');
+  const platform = String(options.platform || process.platform);
+  const execFile = options.execFile || execFileProcess;
+  if (!installerPath || !fs.existsSync(installerPath)) throw new Error('서명을 확인할 설치 파일을 찾지 못했습니다.');
+  if (platform === 'win32') {
+    const systemRoot = String(options.environment?.SystemRoot || options.environment?.WINDIR || process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows');
+    const windowsModulePath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules');
+    const script = [
+      'Import-Module Microsoft.PowerShell.Security -ErrorAction Stop',
+      '$signature = Get-AuthenticodeSignature -LiteralPath $env:LOADTOAGENT_VERIFY_PATH',
+      "if ($signature.Status -ne 'Valid') { throw ('Invalid Authenticode signature: ' + $signature.Status) }",
+      '$signature.SignerCertificate.Thumbprint',
+    ].join('; ');
+    const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+    await execFile(windowsPowerShell(options.environment), [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-EncodedCommand',
+      encodedScript,
+    ], {
+      windowsHide: true,
+      timeout: 20_000,
+      maxBuffer: 256 * 1024,
+      env: {
+        ...process.env,
+        ...(options.environment || {}),
+        PSModulePath: windowsModulePath,
+        LOADTOAGENT_VERIFY_PATH: installerPath,
+      },
+    });
+    return { platform, verified: true };
+  }
+  if (platform === 'darwin') {
+    await execFile('/usr/sbin/spctl', [
+      '--assess',
+      '--type', 'open',
+      '--context', 'context:primary-signature',
+      '--verbose=2',
+      installerPath,
+    ], { timeout: 20_000, maxBuffer: 256 * 1024 });
+    return { platform, verified: true };
+  }
+  throw new Error('이 운영체제에서는 업데이트 서명을 검증할 수 없습니다.');
+}
+
 async function launchDownloadedUpdate(options = {}) {
   const installerPath = String(options.installerPath || '');
   const downloadsDir = String(options.downloadsDir || '');
   if (!installerPath || !fs.existsSync(installerPath)) throw new Error('내려받은 설치 파일을 찾지 못했습니다. 다시 다운로드해 주세요.');
 
   const platform = String(options.platform || process.platform);
+  const verifyInstaller = options.verifyInstaller || verifyDownloadedInstaller;
+  await verifyInstaller({
+    installerPath,
+    platform,
+    environment: options.environment,
+    execFile: options.execFile,
+  });
   const automaticPlatform = automaticInstallPlatform({
     platform,
     installType: String(options.installType || ''),
@@ -171,5 +228,6 @@ module.exports = {
   launchDownloadedUpdate,
   macAppBundlePath,
   waitForProcessSpawn,
+  verifyDownloadedInstaller,
   windowsPowerShell,
 };

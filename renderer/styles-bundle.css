@@ -1,0 +1,39 @@
+@layer vendor, foundation, components, cards, overlays, features, product, management, quality, responsive, readability, control-room;
+
+@import url("../node_modules/@xterm/xterm/css/xterm.css") layer(vendor);
+@import url("styles.css") layer(foundation);
+@import url("styles-components.css") layer(components);
+@import url("styles-cards.css") layer(cards);
+@import url("styles-overlays.css") layer(overlays);
+@import url("styles-agent-map.css") layer(features);
+@import url("styles-workflows.css") layer(features);
+@import url("styles-workflow-map.css") layer(features);
+@import url("styles-collaboration.css") layer(features);
+@import url("styles-tmux.css") layer(features);
+@import url("styles-terminal.css") layer(features);
+@import url("styles-run-composer.css") layer(features);
+@import url("styles-product.css") layer(product);
+@import url("styles-management.css") layer(management);
+@import url("styles-runtime-overview.css") layer(management);
+@import url("styles-onboarding.css") layer(product);
+@import url("styles-settings.css") layer(product);
+@import url("styles-quality.css") layer(quality);
+@import url("styles-responsive-shell.css") layer(responsive);
+@import url("styles-responsive-workflows.css") layer(responsive);
+@import url("styles-responsive-runtime.css") layer(responsive);
+@import url("styles-responsive-product.css") layer(responsive);
+@import url("styles-readability.css") layer(readability);
+@import url("styles-control-room.css") layer(control-room);
+
+@layer control-room {
+  .downstream-stack .child-session .agent-flow-session-title,
+  .downstream-stack .child-session .agent-flow-assignment strong,
+  .downstream-stack .child-session .agent-flow-outcome-copy {
+    display: block;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

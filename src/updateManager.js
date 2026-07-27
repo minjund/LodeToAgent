@@ -115,6 +115,10 @@ function publicAsset(asset) {
   };
 }
 
+function hasTrustedDigest(asset) {
+  return /^sha256:[0-9a-f]{64}$/i.test(String(asset && asset.digest || ''));
+}
+
 function safeFileName(value) {
   const fileName = path.basename(String(value || '')).replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 180);
   return !fileName || fileName === '.' || fileName === '..' ? '' : fileName;
@@ -129,6 +133,7 @@ class UpdateManager extends EventEmitter {
     this.installType = String(options.installType || 'desktop');
     this.fetch = options.fetch;
     this.shell = options.shell;
+    this.verifyInstaller = options.verifyInstaller;
     this.downloadsDir = String(options.downloadsDir || '');
     this.apiUrl = String(options.apiUrl || RELEASE_API);
     this.checkPromise = null;
@@ -190,7 +195,7 @@ class UpdateManager extends EventEmitter {
       const releaseUrl = trustedReleasePage(release.html_url) ? release.html_url : RELEASE_PAGE;
       const asset = selectReleaseAsset(release.assets, { platform: this.platform, arch: this.arch, version: latest.raw });
       const available = compareVersions(latest.raw, this.currentVersion) > 0;
-      const exposedAsset = available ? publicAsset(asset) : null;
+      const exposedAsset = available && hasTrustedDigest(asset) ? publicAsset(asset) : null;
       return this.setState({
         status: available ? 'available' : 'current',
         latestVersion: latest.raw,
@@ -204,7 +209,9 @@ class UpdateManager extends EventEmitter {
         totalBytes: exposedAsset ? exposedAsset.size : 0,
         downloadedPath: '',
         checkedAt: new Date().toISOString(),
-        error: available && !asset ? '이 운영체제에 맞는 설치 파일이 아직 릴리스에 올라오지 않았습니다.' : '',
+        error: available && !asset
+          ? '이 운영체제에 맞는 설치 파일이 아직 릴리스에 올라오지 않았습니다.'
+          : (available && !hasTrustedDigest(asset) ? '릴리스 파일에 SHA-256 digest가 없어 안전하게 업데이트할 수 없습니다.' : ''),
       });
     } catch (error) {
       return this.setState({ status: 'error', error: error && error.message || '업데이트 확인 중 문제가 발생했습니다.', checkedAt: new Date().toISOString() });
@@ -215,6 +222,7 @@ class UpdateManager extends EventEmitter {
     if (this.downloadPromise) return this.downloadPromise;
     if (this.state.status === 'downloaded' && this.state.downloadedPath && fs.existsSync(this.state.downloadedPath)) return this.getState();
     if (!this.state.asset || !trustedDownloadUrl(this.state.asset.url)) throw new Error('다운로드할 설치 파일이 없습니다.');
+    if (!hasTrustedDigest(this.state.asset)) throw new Error('SHA-256 digest가 확인되지 않은 설치 파일은 다운로드할 수 없습니다.');
     this.downloadPromise = this.performDownload().finally(() => { this.downloadPromise = null; });
     return this.downloadPromise;
   }
@@ -275,7 +283,7 @@ class UpdateManager extends EventEmitter {
       handle = null;
       if (asset.size && downloadedBytes !== Number(asset.size)) throw new Error('다운로드한 파일 크기가 GitHub 릴리스 정보와 다릅니다.');
       const digest = `sha256:${hash.digest('hex')}`;
-      if (asset.digest && digest !== asset.digest) throw new Error('다운로드한 파일의 SHA-256 검증에 실패했습니다.');
+      if (digest !== asset.digest) throw new Error('다운로드한 파일의 SHA-256 검증에 실패했습니다.');
       await fs.promises.rm(finalPath, { force: true });
       await fs.promises.rename(temporaryPath, finalPath);
       return this.setState({
@@ -303,6 +311,8 @@ class UpdateManager extends EventEmitter {
   async openDownloaded() {
     const file = this.state.downloadedPath;
     if (!file || !fs.existsSync(file)) throw new Error('내려받은 설치 파일을 찾지 못했습니다. 다시 다운로드해 주세요.');
+    if (typeof this.verifyInstaller !== 'function') throw new Error('설치 파일 서명 검증기를 사용할 수 없습니다.');
+    await this.verifyInstaller(file);
     if (!this.shell || typeof this.shell.openPath !== 'function') throw new Error('설치 파일을 열 수 없습니다.');
     const error = await this.shell.openPath(file);
     if (error) throw new Error(error);
@@ -333,6 +343,7 @@ module.exports = {
   UpdateManager,
   compareVersions,
   normalizeVersion,
+  hasTrustedDigest,
   selectReleaseAsset,
   trustedDownloadUrl,
   safeFileName,

@@ -177,9 +177,19 @@ npm run dist:win
 
 Provider event mappings and context-window rules are documented in [Provider Contracts](docs/PROVIDER-CONTRACTS.md).
 
+## Security and local data
+
+The renderer is sandboxed, release installers must be signed, and in-app
+updates require both a SHA-256 digest and a valid platform signature. Completed
+managed runs and terminal history expire after 30 days by default. See the
+[security policy](SECURITY.md), [threat model](docs/THREAT-MODEL.md), and
+[data-retention policy](docs/DATA-RETENTION.md).
+
 ## Release
 
-Pushing a `v*` Git tag runs the full test suite, publishes the npm package with provenance, builds the macOS and Windows artifacts, and creates the GitHub Release with those files attached. The `package.json` version and tag must match.
+Pushing a `v*` Git tag validates the version, builds and verifies signed desktop artifacts, stages a draft release, publishes the npm package with provenance when enabled, and only then publishes the GitHub Release. The `package.json` version and tag must match, and release signing/notarization secrets are required.
+
+Maintainer credentials and gates are documented in [Releasing](docs/RELEASING.md).
 
 ```bash
 npm version patch --no-git-tag-version
@@ -189,6 +199,10 @@ git commit -m "release: v$VERSION"
 git tag "v$VERSION"
 git push origin HEAD --follow-tags
 ```
+
+## License
+
+LoadToAgent is available under the [MIT License](LICENSE).
 
 ---
 

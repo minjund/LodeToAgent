@@ -7,9 +7,11 @@ const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const { PROVIDERS, normalizeProvider, modelContextWindow, blankUsage, finalizeUsage } = require('./providerRegistry');
 const { runBestEffort } = require('./diagnostics');
+const { pruneManagedRuns, restrictPathPermissions } = require('./dataRetention');
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+  restrictPathPermissions(dir);
 }
 
 function runId() {
@@ -40,11 +42,12 @@ function probeProviders() {
 
 function atomicJson(file, value) {
   const temp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(temp, JSON.stringify(value, null, 2), 'utf8');
+  fs.writeFileSync(temp, JSON.stringify(value, null, 2), { encoding: 'utf8', mode: 0o600 });
   try { fs.renameSync(temp, file); } catch (_renameUnavailable) {
     // Windows can transiently lock the destination; copy-and-clean is the atomic-write fallback.
     try { fs.copyFileSync(temp, file); } finally { runBestEffort('runner-temp-cleanup', () => fs.unlinkSync(temp)); }
   }
+  restrictPathPermissions(file);
 }
 
 function eventText(value) {
@@ -323,6 +326,10 @@ class AgentRunner extends EventEmitter {
     this.runsDir = options.runsDir;
     this.active = new Map();
     ensureDir(this.runsDir);
+    pruneManagedRuns(this.runsDir, {
+      retentionDays: options.retentionDays,
+      now: options.now,
+    });
   }
 
   listActive() {

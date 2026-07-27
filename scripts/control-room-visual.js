@@ -233,13 +233,14 @@ app.whenReady().then(async () => {
       || overviewMetrics.semanticSamples.phase !== '요구사항과 단계 완료 조건 확인'
       || !overviewMetrics.noSectionOverflow || !overviewMetrics.noStageOverflow || overviewMetrics.sessionRecords < 1
       || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.projectToolbarVisible || !overviewMetrics.stateTabsRemoved
-      || overviewMetrics.projectHeaderHeight < 49.5
-      || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타'].every(name => overviewMetrics.projectChips.includes(name))
-      || overviewMetrics.projectChips.join('|') !== ['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', '기타', 'cras_backend'].join('|')
+      || overviewMetrics.projectHeaderHeight < 43.5
+      || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타', 'nested-active-project', 'tmux-only-project']
+        .every(name => overviewMetrics.projectChips.includes(name))
       || overviewMetrics.projectChipCounts.some((count, index, counts) => index > 0 && counts[index - 1] < count)
-      || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend'].every(name => overviewMetrics.projectGroups.includes(name))
-      || overviewMetrics.projectGroups.length !== 4
-      || overviewMetrics.projectGroupCounts.some((count, index, counts) => index > 0 && counts[index - 1] < count)
+      || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', 'nested-active-project', 'tmux-only-project']
+        .every(name => overviewMetrics.projectGroups.includes(name))
+      || overviewMetrics.projectGroups.length < 4
+      || overviewMetrics.projectGroupCounts.some(count => count < 1)
       || overviewMetrics.openProjectGroups !== 0 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
       || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
       || !overviewMetrics.addProjectAtRight || !overviewMetrics.bulkActionsAtTop

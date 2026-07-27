@@ -5,30 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <title data-i18n="app.document.title">LoadToAgent · AI 작업 도우미</title>
-  <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="styles-components.css" />
-  <link rel="stylesheet" href="styles-cards.css" />
-  <link rel="stylesheet" href="styles-overlays.css" />
-  <link rel="stylesheet" href="styles-agent-map.css" />
-  <link rel="stylesheet" href="styles-workflows.css" />
-  <link rel="stylesheet" href="styles-workflow-map.css" />
-  <link rel="stylesheet" href="styles-collaboration.css" />
-  <link rel="stylesheet" href="styles-tmux.css" />
-  <link rel="stylesheet" href="styles-terminal.css" />
-  <link rel="stylesheet" href="styles-run-composer.css" />
-  <link rel="stylesheet" href="styles-product.css" />
-  <link rel="stylesheet" href="styles-management.css" />
-  <link rel="stylesheet" href="styles-runtime-overview.css" />
-  <link rel="stylesheet" href="styles-onboarding.css" />
-  <link rel="stylesheet" href="styles-settings.css" />
-  <link rel="stylesheet" href="styles-quality.css" />
-  <link rel="stylesheet" href="styles-responsive-shell.css" />
-  <link rel="stylesheet" href="styles-responsive-workflows.css" />
-  <link rel="stylesheet" href="styles-responsive-runtime.css" />
-  <link rel="stylesheet" href="styles-responsive-product.css" />
-  <link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css" />
-  <link rel="stylesheet" href="styles-readability.css" />
-  <link rel="stylesheet" href="styles-control-room.css" />
+  <link rel="stylesheet" href="styles-bundle.css" />
 </head>
 <body>
   <div id="appShell" class="app-shell">
@@ -309,7 +286,7 @@
         </div>
         <div id="controlRoomProjectToolbar" class="control-room-project-toolbar">
           <div id="workspaceList" class="workspace-list control-room-project-list" role="toolbar" aria-label="프로젝트별 실행 세션 필터" data-i18n-aria-label="control.project_filter"></div>
-          <button id="addWorkspaceBtn" class="control-room-add-project" type="button" title="프로젝트 추가" data-i18n-title="control.add_project" aria-label="프로젝트 추가" data-i18n-aria-label="control.add_project" aria-controls="workspaceList">＋ <span data-i18n="control.add_project">프로젝트 추가</span></button>
+          <button id="addWorkspaceBtn" class="control-room-add-project" type="button" title="프로젝트에서 AI 작업 시작" data-i18n-title="control.start_project_work" aria-label="프로젝트에서 AI 작업 시작" data-i18n-aria-label="control.start_project_work" aria-controls="workspaceList">＋ <span data-i18n="control.start_project_work">프로젝트에서 작업 시작</span></button>
         </div>
         <div id="controlRoomListToolbar" class="control-room-list-toolbar">
           <span class="control-room-toolbar-spacer" aria-hidden="true"></span>
@@ -378,7 +355,7 @@
     <div class="mobile-tools-head"><span><b id="mobileToolsTitle" data-i18n="app.nav.more">더보기</b><small data-i18n="ui.advanced_tools_to_open_only_when_needed">필요할 때만 여는 고급 기능이에요.</small></span><button id="mobileToolsCloseBtn" type="button" aria-label="닫기" data-i18n-aria-label="common.close">×</button></div>
     <details class="mobile-project-picker">
       <summary><i aria-hidden="true">□</i><span><b data-i18n="ui.workspaces">프로젝트 폴더 필터</b><small id="mobileWorkspaceSummary" data-i18n="project.all">모든 프로젝트 폴더</small></span><em aria-hidden="true">⌄</em></summary>
-      <div class="mobile-project-picker-body"><div id="mobileWorkspaceList" class="workspace-list" role="group" aria-label="작업 시작 폴더별 AI 세션 필터" data-i18n-aria-label="quality.workspace_filter"></div><button id="mobileAddWorkspaceBtn" type="button" data-i18n="ui.add_workspace">폴더 필터 추가</button></div>
+      <div class="mobile-project-picker-body"><div id="mobileWorkspaceList" class="workspace-list" role="group" aria-label="작업 시작 폴더별 AI 세션 필터" data-i18n-aria-label="quality.workspace_filter"></div><button id="mobileAddWorkspaceBtn" type="button" data-i18n="control.start_project_work">프로젝트에서 작업 시작</button></div>
     </details>
     <button type="button" data-mobile-guide data-guide-action="mobile"><i aria-hidden="true">?</i><span><b data-i18n="ui.10_minute_quick_start">10분 시작 가이드</b><small data-i18n="ui.try_each_step_to_explore_the_app">하나씩 눌러 직접 둘러보세요.</small></span></button>
     <button type="button" data-mobile-view="runtime"><i aria-hidden="true">↻</i><span><b data-i18n="runtime.title">예약·실행 단계</b><small data-i18n="runtime.description">실제 예약 작업과 현재 AI의 추정 실행 단계를 나눠서 확인합니다.</small></span></button>

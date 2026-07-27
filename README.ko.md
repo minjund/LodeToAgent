@@ -179,9 +179,15 @@ npm run dist:win
 
 AI별 이벤트 매핑과 컨텍스트 계산 원칙은 [Provider Contracts](docs/PROVIDER-CONTRACTS.md)에 정리되어 있습니다.
 
+## 보안과 로컬 데이터
+
+렌더러는 샌드박스에서 실행되고, 배포 설치 파일에는 코드 서명이 필요합니다. 앱 내 업데이트는 SHA-256 digest와 운영체제 서명을 모두 검증합니다. 완료된 관리 실행과 터미널 기록은 기본 30일 후 만료됩니다. 자세한 내용은 [보안 정책](SECURITY.md), [위협 모델](docs/THREAT-MODEL.md), [데이터 보존 정책](docs/DATA-RETENTION.md)을 참고하세요.
+
 ## 릴리스
 
-`v*` 형식의 Git 태그를 원격 저장소에 푸시하면 전체 테스트를 실행하고, 출처 증명이 포함된 npm 패키지를 발행하며, macOS·Windows 배포 파일이 첨부된 GitHub Release를 자동 생성합니다. `package.json` 버전과 태그는 반드시 같아야 합니다.
+`v*` 형식의 Git 태그를 원격 저장소에 푸시하면 버전 검증, 서명된 데스크톱 빌드·검사, 비공개 초안 업로드, 출처 증명이 포함된 npm 발행 순서로 처리한 뒤 GitHub Release를 공개합니다. `package.json` 버전과 태그는 반드시 같아야 하며, 코드 서명·공증 비밀값이 없으면 릴리스는 실패합니다.
+
+관리자용 인증 정보와 검증 단계는 [Releasing](docs/RELEASING.md)에 정리되어 있습니다.
 
 ```bash
 npm version patch --no-git-tag-version
@@ -191,6 +197,10 @@ git commit -m "release: v$VERSION"
 git tag "v$VERSION"
 git push origin HEAD --follow-tags
 ```
+
+## 라이선스
+
+LoadToAgent는 [MIT 라이선스](LICENSE)로 제공됩니다.
 
 ---
 

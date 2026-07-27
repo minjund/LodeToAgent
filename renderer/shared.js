@@ -5,6 +5,8 @@
  * Keeping these on one frozen namespace avoids duplicate implementations
  * without introducing a bundler or changing Electron's preload boundary.
  */
+let bootstrapPromise = null;
+
 window.LoadToAgentRendererUtils = Object.freeze({
   $: selector => document.querySelector(selector),
   $$: selector => [...document.querySelectorAll(selector)],
@@ -35,6 +37,16 @@ window.LoadToAgentRendererUtils = Object.freeze({
   isScrolledToEnd(element, tolerance = 2) {
     if (!element) return true;
     return element.scrollHeight - element.scrollTop - element.clientHeight <= tolerance;
+  },
+  bootstrap() {
+    if (!window.loadtoagent?.bootstrap) return Promise.reject(new Error('LoadToAgent preload bridge is unavailable.'));
+    if (!bootstrapPromise) {
+      bootstrapPromise = Promise.resolve(window.loadtoagent.bootstrap()).catch(error => {
+        bootstrapPromise = null;
+        throw error;
+      });
+    }
+    return bootstrapPromise;
   },
   reportRecoverableError(operation, error) {
     const message = error && error.message ? error.message : String(error || 'unknown error');

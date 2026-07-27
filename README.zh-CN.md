@@ -177,9 +177,15 @@ npm run dist:win
 
 各提供商的事件映射与上下文计算规则记录在 [Provider Contracts](docs/PROVIDER-CONTRACTS.md) 中。
 
+## 安全与本地数据
+
+渲染进程在沙箱中运行，发行安装包必须经过代码签名。应用内更新同时验证 SHA-256 digest 和平台签名。已完成的托管任务与终端历史默认在 30 天后过期。详情请参阅[安全政策](SECURITY.md)、[威胁模型](docs/THREAT-MODEL.md)和[数据保留政策](docs/DATA-RETENTION.md)。
+
 ## 发布
 
-将 `v*` Git 标签推送到远程仓库后，工作流会运行完整测试、发布带来源证明的 npm 包、构建 macOS 与 Windows 文件，并自动创建附带这些文件的 GitHub Release。`package.json` 版本必须与标签一致。
+将 `v*` Git 标签推送到远程仓库后，工作流会先验证版本、构建并检查已签名的桌面文件、上传私有草稿，再按配置发布带来源证明的 npm 包，最后公开 GitHub Release。`package.json` 版本必须与标签一致；缺少代码签名或 notarization 密钥时发布会失败。
+
+维护者所需凭据和发布门禁记录在 [Releasing](docs/RELEASING.md) 中。
 
 ```bash
 npm version patch --no-git-tag-version
@@ -189,6 +195,10 @@ git commit -m "release: v$VERSION"
 git tag "v$VERSION"
 git push origin HEAD --follow-tags
 ```
+
+## 许可证
+
+LoadToAgent 采用 [MIT 许可证](LICENSE)发布。
 
 ---
 

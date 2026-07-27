@@ -523,6 +523,7 @@ const APP_AGENT_CONTRACTS = [
 ];
 
 const STYLE_FILES = [
+  'styles-bundle.css',
   'styles.css',
   'styles-components.css',
   'styles-cards.css',
@@ -687,7 +688,7 @@ const QUALITY_201_300_APP_CONTRACTS = [
   'body.dataset.qualityMotion',
   'body.dataset.qualityDensity',
   'document.documentElement.dataset.qualityViewport',
-  'requestAnimationFrame(() => enhanceQualityControls())',
+  'roots.forEach(enhanceQualityControls)',
   'MutationObserver',
 ];
 
@@ -880,8 +881,8 @@ const PRODUCT_NAME_TARGETS = [
 const RELEASE_WORKFLOW_CONTRACTS = [
   'tags:',
   '"v*"',
-  'actions/checkout@v6',
-  'actions/setup-node@v6',
+  'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803',
+  'actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38',
   'gh release create',
   'release/*.exe',
   'release/*.dmg',
@@ -891,7 +892,7 @@ const RELEASE_WORKFLOW_CONTRACTS = [
   'npm_version.outputs.published',
   'id-token: write',
   'npm publish --access public --tag latest',
-  'Verify npm publication and latest tag',
+  'Verify npm publication',
 ];
 
 function assertIncludesAll(source, contracts, messageForContract) {
@@ -1037,11 +1038,11 @@ function registerUiContractTests(context) {
       html.indexOf('src="i18n.js"') < html.indexOf('src="app.js"'),
       '다국어 런타임은 앱 렌더링보다 먼저 로드되어야 합니다.',
     );
-    STYLE_FILES.reduce((previous, style) => {
-      const index = html.indexOf(`href="${style}"`);
-      assert.ok(index > previous, `${style} CSS 계층 로드 순서가 올바르지 않습니다.`);
-      return index;
-    }, -1);
+    assert.ok(html.includes('href="styles-bundle.css"'), '명시적 cascade layer 번들이 로드되어야 합니다.');
+    const styleBundle = fs.readFileSync(path.join(root, 'renderer', 'styles-bundle.css'), 'utf8');
+    STYLE_FILES.slice(1).forEach((style) => {
+      assert.ok(styleBundle.includes(`url("${style}")`), `${style} CSS가 명시적 계층 번들에 없습니다.`);
+    });
     for (const heading of CSS_RESPONSIBILITY_HEADINGS) {
       assert.ok(styles.includes(heading), `${heading} CSS 책임 경계가 없습니다.`);
     }

@@ -24,19 +24,49 @@
     return (session?.messages || []).filter(message => !baseline.has(messageKey(message)));
   }
 
+  function observedAtOrAfter(message, minimumAt) {
+    if (!Number.isFinite(minimumAt)) return true;
+    const observedAt = Date.parse(message?.timestamp || 0);
+    return Number.isFinite(observedAt) && observedAt >= minimumAt;
+  }
+
   function deliveryState(session, entry, now = Date.now()) {
     if (!entry) return null;
-    const newMessages = newMessagesForEntry(session, entry);
     const expectedText = normalizedText(entry.text);
-    const userMessage = newMessages.find(message =>
-      message?.role === "user" && normalizedText(message.text) === expectedText) || null;
-    const assistantMessage = newMessages.find(message =>
-      message?.role === "assistant" && normalizedText(message.text)) || null;
     const dispatchedAt = Date.parse(entry.dispatchedAt || entry.timestamp || 0);
     const elapsedMs = Number.isFinite(dispatchedAt) ? Math.max(0, Number(now) - dispatchedAt) : 0;
+    // Claude can continue a terminal-resumed conversation in a new session
+    // file. The renderer supplies same-project observation sessions so receipt
+    // confirmation follows the actual log instead of remaining pinned to the
+    // session id that launched the terminal.
+    const observationSessions = Array.isArray(session?.deliveryObservationSessions)
+      ? session.deliveryObservationSessions
+      : [session];
+    const minimumObservedAt = Number.isFinite(dispatchedAt) ? dispatchedAt - 2_000 : Number.NaN;
+    let observedSession = null;
+    let observedMessages = [];
+    let userMessage = null;
+    for (const candidate of observationSessions) {
+      const candidateMessages = newMessagesForEntry(candidate, entry);
+      const matched = candidateMessages.find(message =>
+        message?.role === "user"
+        && normalizedText(message.text) === expectedText
+        && observedAtOrAfter(message, minimumObservedAt)) || null;
+      if (!matched) continue;
+      observedSession = candidate;
+      observedMessages = candidateMessages;
+      userMessage = matched;
+      break;
+    }
     const userObservedAt = Date.parse(userMessage?.timestamp || 0);
+    const assistantMessage = userMessage
+      ? observedMessages.find(message =>
+        message?.role === "assistant"
+        && normalizedText(message.text)
+        && observedAtOrAfter(message, Number.isFinite(userObservedAt) ? userObservedAt : minimumObservedAt)) || null
+      : null;
     const responseStartEvent = userMessage
-      ? (session?.lifecycle || []).find(event => {
+      ? (observedSession?.lifecycle || []).find(event => {
         const eventAt = Date.parse(event?.timestamp || 0);
         return Number.isFinite(eventAt)
           && (!Number.isFinite(userObservedAt) || eventAt >= userObservedAt)
@@ -59,6 +89,7 @@
       userMessage,
       assistantMessage,
       responseStartEvent,
+      observationSessionId: observedSession?.id || null,
       receivedAt: userMessage?.timestamp || null,
       responseObservedAt: assistantMessage?.timestamp || responseStartEvent?.timestamp || null,
     };

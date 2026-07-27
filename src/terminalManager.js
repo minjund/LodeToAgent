@@ -9,6 +9,11 @@ const { spawn: spawnChild } = require('child_process');
 const { runBestEffort } = require('./diagnostics');
 const { ManagedTmuxRuntime } = require('./managedTmuxRuntime');
 const { ensureMacNodePtyRuntime } = require('./nodePtyRuntime');
+const {
+  retentionDays,
+  shouldRetainTerminalSession,
+  restrictPathPermissions,
+} = require('./dataRetention');
 
 const MAX_SESSIONS = 24;
 const MAX_INPUT_CHARS = 128 * 1024;
@@ -365,6 +370,8 @@ class TerminalManager extends EventEmitter {
     this.onPersistenceError = typeof options.onPersistenceError === 'function'
       ? options.onPersistenceError
       : () => {};
+    this.retentionDays = retentionDays(options.retentionDays);
+    this.now = typeof options.now === 'function' ? options.now : Date.now;
     this.persistTimer = null;
     this.sessions = new Map();
     this.loadPersistedSessions();
@@ -382,6 +389,7 @@ class TerminalManager extends EventEmitter {
       const parsed = JSON.parse(this.fileSystem.readFileSync(this.storeFile, 'utf8'));
       if (![1, STORE_VERSION].includes(parsed?.version) || !Array.isArray(parsed.sessions)) throw new Error('지원하지 않는 터미널 기록 형식입니다.');
       for (const value of parsed.sessions.slice(0, MAX_SESSIONS)) {
+        if (!shouldRetainTerminalSession(value, this.retentionDays, this.now())) continue;
         const id = cleanText(value?.id, 200);
         const options = normalizeLaunchOptions(
           restoredOptions(value?.options, this.platform, parsed.version),
@@ -438,13 +446,18 @@ class TerminalManager extends EventEmitter {
     }
     const temporary = `${this.storeFile}.${process.pid}.tmp`;
     try {
-      this.fileSystem.mkdirSync(path.dirname(this.storeFile), { recursive: true });
+      this.fileSystem.mkdirSync(path.dirname(this.storeFile), { recursive: true, mode: 0o700 });
       const payload = {
         version: STORE_VERSION,
-        sessions: [...this.sessions.values()].filter(session => !session.options.transient).map(persistedSession),
+        sessions: [...this.sessions.values()]
+          .filter(session => !session.options.transient)
+          .filter(session => shouldRetainTerminalSession(session, this.retentionDays, this.now()))
+          .map(persistedSession),
       };
-      this.fileSystem.writeFileSync(temporary, JSON.stringify(payload), 'utf8');
+      this.fileSystem.writeFileSync(temporary, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
       this.fileSystem.renameSync(temporary, this.storeFile);
+      restrictPathPermissions(path.dirname(this.storeFile), { fileSystem: this.fileSystem, platform: this.platform });
+      restrictPathPermissions(this.storeFile, { fileSystem: this.fileSystem, platform: this.platform });
     } catch (error) {
       runBestEffort('terminal-persistence-temp-cleanup', () => this.fileSystem.unlinkSync(temporary));
       this.persistenceError('save', error);
@@ -583,11 +596,13 @@ class TerminalManager extends EventEmitter {
       if (this.platform !== 'win32') spawnOptions.encoding = 'utf8';
       const processHandle = this.pty().spawn(session.spec.file, session.spec.args, spawnOptions);
       session.process = processHandle;
-      session.pid = processHandle.pid;
+      session.pid = Number(processHandle.pid) > 0 ? Number(processHandle.pid) : null;
       session.status = 'running';
       session.updatedAt = new Date().toISOString();
       processHandle.onData(data => {
         if (session.generation !== generation) return;
+        const readyPid = Number(processHandle.pid);
+        if (Number.isSafeInteger(readyPid) && readyPid > 0) session.pid = readyPid;
         const text = String(data || '');
         session.replay = `${session.replay}${text}`.slice(-MAX_REPLAY_CHARS);
         session.updatedAt = new Date().toISOString();

@@ -51,6 +51,64 @@ function registerConversationDeliveryTests(context) {
     const failed = { ...entry, status: "failed" };
     assert.equal(deliveryState({ ...session, messages: oldMessages }, failed, Date.parse(sentAt) + 1_000).phase, "failed");
   });
+
+  test("Claude 터미널 재개가 새 세션 로그를 만들면 같은 프로젝트의 후속 로그에서 수신을 확인한다", () => {
+    const sentAt = "2026-07-27T01:00:00.000Z";
+    const entry = {
+      text: "터미널로 보낸 요청",
+      timestamp: sentAt,
+      dispatchedAt: sentAt,
+      status: "awaiting",
+      baselineMessageKeys: new Set(),
+    };
+    const original = {
+      id: "claude:original",
+      messages: [{ id: "old", role: "assistant", text: "이전 답변", timestamp: "2026-07-27T00:59:00.000Z" }],
+      lifecycle: [],
+    };
+    const resumed = {
+      id: "claude:resumed",
+      messages: [
+        { id: "resumed-user", role: "user", text: "터미널로 보낸 요청", timestamp: "2026-07-27T01:00:02.000Z" },
+      ],
+      lifecycle: [],
+    };
+    const observed = { ...original, deliveryObservationSessions: [original, resumed] };
+
+    const received = deliveryState(observed, entry, Date.parse(sentAt) + 3_000);
+    assert.equal(received.phase, "received");
+    assert.equal(received.observationSessionId, "claude:resumed");
+
+    resumed.messages.push({
+      id: "resumed-answer",
+      role: "assistant",
+      text: "응답을 시작했습니다.",
+      timestamp: "2026-07-27T01:00:04.000Z",
+    });
+    assert.equal(deliveryState(observed, entry, Date.parse(sentAt) + 5_000).phase, "responded");
+  });
+
+  test("다른 Claude 로그의 전송 이전 동일 문구는 새 수신으로 오인하지 않는다", () => {
+    const sentAt = "2026-07-27T01:00:00.000Z";
+    const entry = {
+      text: "반복 요청",
+      timestamp: sentAt,
+      dispatchedAt: sentAt,
+      status: "awaiting",
+      baselineMessageKeys: new Set(),
+    };
+    const original = { id: "claude:original", messages: [], lifecycle: [] };
+    const oldRelated = {
+      id: "claude:old-related",
+      messages: [
+        { id: "old-repeat", role: "user", text: "반복 요청", timestamp: "2026-07-27T00:59:00.000Z" },
+        { id: "old-answer", role: "assistant", text: "이전 응답", timestamp: "2026-07-27T00:59:10.000Z" },
+      ],
+      lifecycle: [],
+    };
+    const observed = { ...original, deliveryObservationSessions: [original, oldRelated] };
+    assert.equal(deliveryState(observed, entry, Date.parse(sentAt) + 5_000).phase, "confirming");
+  });
 }
 
 module.exports = { registerConversationDeliveryTests };

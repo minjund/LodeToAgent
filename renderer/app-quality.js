@@ -20,6 +20,8 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   let quickDialogGeneration = 0;
   let shortcutDialogGeneration = 0;
   let qualityMutationFrame = 0;
+  let runDraftTimer = 0;
+  const pendingQualityRoots = new Set();
   let qualityGuardsInstalled = false;
 
   function safeParse(storage, key) {
@@ -158,6 +160,8 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   }
 
   function saveRunDraft() {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = 0;
     const draft = currentRunDraft();
     state.runDraft = { ...draft };
     try {
@@ -165,6 +169,11 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     } catch (error) {
       window.LoadToAgentRendererUtils.reportRecoverableError("run-draft-save", error);
     }
+  }
+
+  function scheduleRunDraftSave() {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = setTimeout(saveRunDraft, 250);
   }
 
   function restoreRunDraft() {
@@ -177,6 +186,8 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   }
 
   function clearRunDraft(options = {}) {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = 0;
     state.runDraft = { prompt: "", cwd: "", model: "", allowWrites: false, provider: "" };
     try {
       sessionStorage.removeItem(RUN_DRAFT_STORAGE_KEY);
@@ -205,7 +216,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       ["settings", "⚙", t("app.nav.settings"), t("quality.command.view"), () => selectView("settings", { focusMain: true })],
       ["new-task", "+", t("ui.new_ai_task"), t("quality.command.action"), () => openRunModal()],
       ["probe", "↻", t("ui.check_ai_connections_again"), t("quality.command.action"), () => $("#probeBtn")?.click()],
-      ["workspace", "⌘", t("ui.add_workspace"), t("quality.command.action"), () => $("#addWorkspaceBtn")?.click()],
+      ["workspace", "⌘", t("control.start_project_work"), t("quality.command.action"), () => $("#addWorkspaceBtn")?.click()],
       ["shortcuts", "?", t("quality.shortcuts.title"), t("quality.command.help"), () => openShortcutHelp()],
     ].map(([id, icon, label, group, run]) => ({ id, icon, label, group, run }));
   }
@@ -346,10 +357,11 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
   function markInputModality(mode) {
     const preferences = { ...defaultQualityPreferences(), ...(state.qualityPreferences || {}) };
-    preferences.inputModality = mode === "keyboard" ? "keyboard" : "pointer";
+    const next = mode === "keyboard" ? "keyboard" : "pointer";
+    if (preferences.inputModality === next) return;
+    preferences.inputModality = next;
     state.qualityPreferences = preferences;
     applyQualityPreferences();
-    saveQualityPreferences();
   }
 
   function describeControl(control) {
@@ -365,14 +377,14 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
   function enhanceControl(control) {
     if (!(control instanceof HTMLElement)) return;
-    if (control.dataset.qualityEnhanced === "true") return;
+    const firstEnhancement = control.dataset.qualityEnhanced !== "true";
     control.dataset.qualityEnhanced = "true";
     const label = describeControl(control);
-    if (label && !control.getAttribute("aria-label") && control.matches(".icon-button, .top-icon-action, .close-button")) {
+    if (firstEnhancement && label && !control.getAttribute("aria-label") && control.matches(".icon-button, .top-icon-action, .close-button")) {
       control.setAttribute("aria-label", label);
     }
-    if (label && !control.getAttribute("title") && control.scrollWidth > control.clientWidth) control.setAttribute("title", label);
-    if (control.matches("button") && !control.getAttribute("type")) control.setAttribute("type", "button");
+    if (firstEnhancement && label && !control.getAttribute("title") && control.scrollWidth > control.clientWidth) control.setAttribute("title", label);
+    if (firstEnhancement && control.matches("button") && !control.getAttribute("type")) control.setAttribute("type", "button");
     if (control.matches("button, [role='button'], input, select, textarea")) {
       control.setAttribute("data-quality-control", "");
       if (control.matches("input[required], textarea[required], select[required]")) control.setAttribute("aria-required", "true");
@@ -384,21 +396,31 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     if (control.matches(":disabled, [aria-disabled='true']")) {
       control.setAttribute("data-quality-disabled", "true");
       if (!control.getAttribute("aria-describedby")) control.setAttribute("data-quality-disabled-reason", t("quality.disabled_reason"));
+    } else {
+      control.removeAttribute("data-quality-disabled");
+      control.removeAttribute("data-quality-disabled-reason");
     }
   }
 
   function enhanceQualityControls(root = document) {
+    if (root instanceof HTMLElement && root.matches("button, [role='button'], input, select, textarea, summary, [tabindex]")) enhanceControl(root);
     root.querySelectorAll?.("button, [role='button'], input, select, textarea, summary, [tabindex]").forEach(enhanceControl);
-    document.querySelectorAll?.("[data-quality-disabled='true']:not(:disabled):not([aria-disabled='true'])").forEach((control) => {
-      control.removeAttribute("data-quality-disabled");
-      control.removeAttribute("data-quality-disabled-reason");
-    });
   }
 
   function installQualityMutationObserver() {
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((records) => {
+      records.forEach((record) => {
+        if (record.type === "attributes") pendingQualityRoots.add(record.target);
+        record.addedNodes?.forEach((node) => {
+          if (node instanceof HTMLElement) pendingQualityRoots.add(node);
+        });
+      });
       cancelAnimationFrame(qualityMutationFrame);
-      qualityMutationFrame = requestAnimationFrame(() => enhanceQualityControls());
+      qualityMutationFrame = requestAnimationFrame(() => {
+        const roots = [...pendingQualityRoots];
+        pendingQualityRoots.clear();
+        roots.forEach(enhanceQualityControls);
+      });
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["disabled", "aria-disabled", "class", "title", "aria-label"] });
     return observer;
@@ -519,8 +541,9 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       if (button) executeQuickCommand(button.dataset.quickCommand);
     });
     $("#clearRunDraftBtn")?.addEventListener("click", clearRunDraft);
-    $("#runForm")?.addEventListener("input", saveRunDraft);
+    $("#runForm")?.addEventListener("input", scheduleRunDraftSave);
     $("#runForm")?.addEventListener("change", saveRunDraft);
+    window.addEventListener("beforeunload", saveRunDraft);
     $("#emptyClearFiltersBtn")?.addEventListener("click", () => $("#resetFiltersBtn")?.click());
     document.addEventListener("keydown", (event) => {
       const editable = event.target instanceof HTMLElement && Boolean(event.target.closest("input, textarea, select, [contenteditable='true']"));
