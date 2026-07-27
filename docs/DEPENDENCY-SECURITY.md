@@ -13,7 +13,8 @@ and increased the vulnerable/deprecated dependency surface, so it is not an
 acceptable fix.
 
 Risk is constrained by lockfile-only CI installs, pinned GitHub Actions,
-controlled package inputs, isolated build runners, signed/notarized artifacts,
-post-build signature checks, CodeQL, and Dependabot. The full audit remains a
-tracked upstream issue; the stable builder should be upgraded as soon as it
-publishes a dependency graph without these advisories.
+controlled package inputs, isolated build runners, SHA-256-verified internal
+artifacts, signed/notarized production artifacts, post-build checks, CodeQL,
+and Dependabot. The full audit remains a tracked upstream issue; the stable
+builder should be upgraded as soon as it publishes a dependency graph without
+these advisories.

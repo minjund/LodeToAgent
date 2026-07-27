@@ -123,14 +123,19 @@ async function verifyDownloadedInstaller(options = {}) {
     return { platform, verified: true };
   }
   if (platform === 'darwin') {
-    await execFile('/usr/sbin/spctl', [
-      '--assess',
-      '--type', 'open',
-      '--context', 'context:primary-signature',
-      '--verbose=2',
-      installerPath,
-    ], { timeout: 20_000, maxBuffer: 256 * 1024 });
-    return { platform, verified: true };
+    try {
+      await execFile('/usr/sbin/spctl', [
+        '--assess',
+        '--type', 'open',
+        '--context', 'context:primary-signature',
+        '--verbose=2',
+        installerPath,
+      ], { timeout: 20_000, maxBuffer: 256 * 1024 });
+      return { platform, verified: true, unsignedAllowed: false };
+    } catch (error) {
+      if (!options.allowUnsignedMacUpdates) throw error;
+      return { platform, verified: false, unsignedAllowed: true };
+    }
   }
   throw new Error('이 운영체제에서는 업데이트 서명을 검증할 수 없습니다.');
 }
@@ -147,6 +152,7 @@ async function launchDownloadedUpdate(options = {}) {
     platform,
     environment: options.environment,
     execFile: options.execFile,
+    allowUnsignedMacUpdates: options.allowUnsignedMacUpdates === true,
   });
   const automaticPlatform = automaticInstallPlatform({
     platform,
@@ -183,6 +189,7 @@ async function launchDownloadedUpdate(options = {}) {
       '--target', targetApp,
       '--parent-pid', String(parentPid),
       '--log', logPath,
+      '--allow-unsigned-mac-updates', String(options.allowUnsignedMacUpdates === true),
     ], {
       detached: true,
       stdio: 'ignore',

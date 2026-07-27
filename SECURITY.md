@@ -23,8 +23,10 @@ permissions.
 The renderer runs with Electron sandboxing, context isolation, and no Node.js
 integration. Privileged operations are exposed only through the preload bridge
 and validated IPC handlers. Updates are accepted only from this repository's
-HTTPS release assets, require a GitHub-provided SHA-256 digest, and are checked
-for a valid platform code signature before launch.
+HTTPS release assets and require a GitHub-provided SHA-256 digest. Production
+channels also require a valid platform code signature. The explicit internal
+macOS channel may accept an unsigned DMG after the URL, filename, size, and
+digest checks and removes quarantine only from the staged application bundle.
 
 See [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and
 [docs/DATA-RETENTION.md](docs/DATA-RETENTION.md) for operational details.

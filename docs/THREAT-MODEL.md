@@ -28,8 +28,10 @@ account is out of scope.
 - Terminal command injection: argument arrays and validated identifiers instead
   of interpolated shell commands.
 - Update substitution: repository/HTTPS allow-list, exact versioned filenames,
-  mandatory SHA-256 digest, Authenticode or Gatekeeper signature verification,
-  and signed/notarized release builds.
+  and mandatory SHA-256 digest. Production channels additionally require
+  Authenticode or Gatekeeper signature verification and signed/notarized
+  release builds. The explicit internal macOS channel may accept unsigned DMGs
+  and clear quarantine only on the staged application bundle.
 - Sensitive-data accumulation: 30-day default expiry for completed managed runs
   and terminal history, bounded replay, and restrictive POSIX permissions.
 - Supply-chain compromise: lockfile installs, pinned CI actions, production

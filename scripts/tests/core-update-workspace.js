@@ -297,6 +297,7 @@ function registerCliAndUpdateTests(context) {
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
       environment: { FIXTURE: 'yes' },
+      allowUnsignedMacUpdates: true,
       verifyInstaller,
       spawn: (command, args, options) => {
         macSpawnCall = { command, args, options };
@@ -316,6 +317,9 @@ function registerCliAndUpdateTests(context) {
     assert.equal(macSpawnCall.options.env.FIXTURE, 'yes');
     assert(macSpawnCall.args.includes(macInstaller));
     assert(macSpawnCall.args.includes(macAutomatic.targetApp));
+    assert(macSpawnCall.args.includes('--allow-unsigned-mac-updates'));
+    assert(macSpawnCall.args.includes('true'));
+    assert.equal(verifiedInstallers.at(-1).allowUnsignedMacUpdates, true);
     assert.match(fs.readFileSync(macAutomatic.helperPath, 'utf8'), /async function installMacUpdate/);
     assert.equal(canInstallSilently({
       platform: 'darwin', installType: 'desktop', installerPath: macInstaller,
@@ -362,6 +366,32 @@ function registerCliAndUpdateTests(context) {
     assert.equal(signatureCalls[0].options.env.LOADTOAGENT_VERIFY_PATH, downloaded.downloadedPath);
     const encodedIndex = signatureCalls[0].args.indexOf('-EncodedCommand') + 1;
     assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /Get-AuthenticodeSignature/);
+
+    const macSignatureCalls = [];
+    const signedMacResult = await verifyDownloadedInstaller({
+      platform: 'darwin',
+      installerPath: macInstaller,
+      execFile: async (command, args) => { macSignatureCalls.push({ command, args }); },
+    });
+    assert.deepStrictEqual(signedMacResult, { platform: 'darwin', verified: true, unsignedAllowed: false });
+    assert.equal(macSignatureCalls[0].command, '/usr/sbin/spctl');
+    assert(macSignatureCalls[0].args.includes('--assess'));
+
+    const unsignedMacResult = await verifyDownloadedInstaller({
+      platform: 'darwin',
+      installerPath: macInstaller,
+      allowUnsignedMacUpdates: true,
+      execFile: async () => { throw new Error('rejected unsigned fixture'); },
+    });
+    assert.deepStrictEqual(unsignedMacResult, { platform: 'darwin', verified: false, unsignedAllowed: true });
+    await assert.rejects(
+      verifyDownloadedInstaller({
+        platform: 'darwin',
+        installerPath: macInstaller,
+        execFile: async () => { throw new Error('rejected unsigned fixture'); },
+      }),
+      /rejected unsigned fixture/,
+    );
   });
 
   test('macOS 업데이트 헬퍼가 앱을 교체하고 실패하면 원본을 복구해 재실행한다', async () => {
@@ -380,9 +410,11 @@ function registerCliAndUpdateTests(context) {
 
     function fixtureRunner(fixture, options = {}) {
       const openedVersions = [];
+      const xattrCalls = [];
       let openCount = 0;
       return {
         openedVersions,
+        xattrCalls,
         run: async (command, args) => {
           if (command === 'hdiutil' && args[0] === 'attach') {
             const source = path.join(fixture.mountPath, 'LoadToAgent.app', 'Contents');
@@ -393,6 +425,10 @@ function registerCliAndUpdateTests(context) {
           if (command === 'hdiutil' && args[0] === 'detach') return;
           if (command === 'ditto') {
             await fs.promises.cp(args[0], args[1], { recursive: true });
+            return;
+          }
+          if (command === 'xattr') {
+            xattrCalls.push(args);
             return;
           }
           if (command === 'open') {
@@ -412,12 +448,15 @@ function registerCliAndUpdateTests(context) {
       ...successful,
       parentPid: 1234,
       operationId: 'success',
+      allowUnsignedMacUpdates: true,
       waitForParentExit: async pid => assert.equal(pid, 1234),
-      commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+      commands: { hdiutil: 'hdiutil', ditto: 'ditto', xattr: 'xattr', open: 'open' },
       run: successfulRunner.run,
     });
     assert.equal(fs.readFileSync(path.join(successful.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
     assert.deepStrictEqual(successfulRunner.openedVersions, ['new']);
+    assert.deepStrictEqual(successfulRunner.xattrCalls, [['-cr', path.join(successful.root, 'Applications', '.LoadToAgent.app.update-success')]]);
+    assert.match(fs.readFileSync(successful.logPath, 'utf8'), /internal unsigned update quarantine removed/);
     assert.match(fs.readFileSync(successful.logPath, 'utf8'), /update installed and relaunched/);
 
     const failed = await prepareFixture('mac-update-rollback');

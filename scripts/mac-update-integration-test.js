@@ -79,6 +79,7 @@ try {
     '--target', targetApp,
     '--parent-pid', '99999999',
     '--log', logPath,
+    '--allow-unsigned-mac-updates', 'true',
   ], {
     timeout: 60_000,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
@@ -88,6 +89,7 @@ try {
   assert.equal(fs.readFileSync(path.join(targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
   assert.equal(fs.statSync(path.join(targetApp, nodePtyHelper)).mode & 0o111, 0o111);
   assert.equal(fs.existsSync(leakedEnvironmentMarker), false);
+  assert.match(fs.readFileSync(logPath, 'utf8'), /internal unsigned update quarantine removed/);
   assert.match(fs.readFileSync(logPath, 'utf8'), /update installed and relaunched/);
   console.log('✓ 실제 DMG 마운트, 실행 권한 보존, 앱 교체, 자동 재실행 통합 테스트 통과');
 } finally {

@@ -25,8 +25,11 @@ const { reportRecoverableError } = require('./src/diagnostics');
 const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
 const { macPathEntries } = require('./src/platformPath');
+const packageMetadata = require('./package.json');
 
 const PRODUCT_NAME = 'LoadToAgent';
+const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
+  && packageMetadata.loadToAgent?.allowUnsignedMacUpdates === true;
 app.setName(PRODUCT_NAME);
 process.title = PRODUCT_NAME;
 if (process.platform === 'win32') app.setAppUserModelId('com.wincube.loadtoagent');
@@ -495,6 +498,7 @@ async function installDownloadedUpdate() {
     appPath: process.execPath,
     parentPid: process.pid,
     shell,
+    allowUnsignedMacUpdates: ALLOW_UNSIGNED_MAC_UPDATES,
   });
   if (outcome.mode === 'automatic') {
     isQuitting = true;
@@ -532,7 +536,11 @@ async function setupRuntime() {
     fetch: (...args) => net.fetch(...args),
     shell,
     downloadsDir: path.join(app.getPath('userData'), 'updates'),
-    verifyInstaller: installerPath => verifyDownloadedInstaller({ installerPath, platform: process.platform }),
+    verifyInstaller: installerPath => verifyDownloadedInstaller({
+      installerPath,
+      platform: process.platform,
+      allowUnsignedMacUpdates: ALLOW_UNSIGNED_MAC_UPDATES,
+    }),
   });
   updateManager.on('state', sendUpdateState);
   attentionNotifier = createAttentionNotifier();

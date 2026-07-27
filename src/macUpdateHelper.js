@@ -9,6 +9,7 @@ const { spawn } = require('child_process');
 const DEFAULT_COMMANDS = Object.freeze({
   hdiutil: '/usr/bin/hdiutil',
   ditto: '/usr/bin/ditto',
+  xattr: '/usr/bin/xattr',
   open: '/usr/bin/open',
 });
 
@@ -111,6 +112,10 @@ async function installMacUpdate(options = {}) {
     if (!await pathIsDirectory(sourceApp, fileSystem)) throw new Error('DMG에서 LoadToAgent.app을 찾지 못했습니다.');
     await run(commands.ditto, [sourceApp, stagedApp]);
     if (!await pathIsDirectory(stagedApp, fileSystem)) throw new Error('새 앱을 설치 위치에 복사하지 못했습니다.');
+    if (options.allowUnsignedMacUpdates === true) {
+      await run(commands.xattr, ['-cr', stagedApp]);
+      await appendLog(logPath, 'internal unsigned update quarantine removed', fileSystem);
+    }
 
     try {
       await run(commands.hdiutil, ['detach', mountPath]);
@@ -170,16 +175,21 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!/^--(?:dmg|target|parent-pid|log)$/.test(String(flag || '')) || value == null) {
+    if (!/^--(?:dmg|target|parent-pid|log|allow-unsigned-mac-updates)$/.test(String(flag || '')) || value == null) {
       throw new Error('macOS 업데이트 헬퍼 인자가 올바르지 않습니다.');
     }
     values[flag.slice(2)] = value;
+  }
+  if (values['allow-unsigned-mac-updates'] != null
+    && !/^(?:true|false)$/.test(values['allow-unsigned-mac-updates'])) {
+    throw new Error('macOS 내부 업데이트 허용 값이 올바르지 않습니다.');
   }
   return {
     dmgPath: values.dmg,
     targetApp: values.target,
     parentPid: Number(values['parent-pid']),
     logPath: values.log,
+    allowUnsignedMacUpdates: values['allow-unsigned-mac-updates'] === 'true',
   };
 }
 
