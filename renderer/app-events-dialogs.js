@@ -11,7 +11,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     closeDrawer, backToAgentFlow, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     copyText = async () => false,
-    dispatchAgentCommand, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
+    dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
   } = context;
 
   function bindRunComposerEvents() {
@@ -280,6 +280,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       if (latest) {
         const content = $("#drawerContent");
         content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
+        return;
+      }
+      const interrupt = event.target.closest("[data-conversation-interrupt]");
+      if (interrupt) {
+        await interruptConversation(interrupt.dataset.conversationInterrupt);
         return;
       }
       const stop = event.target.closest("[data-stop-run]");

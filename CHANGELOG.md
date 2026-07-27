@@ -5,6 +5,9 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+- Add an in-conversation stop control that sends Ctrl+C to the exact terminal
+  or tmux pane handling the current AI response while keeping the session open.
+
 ## 1.3.18 - 2026-07-27
 
 - Render every conversation turn as a flat transcript without message

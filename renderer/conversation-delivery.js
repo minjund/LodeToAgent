@@ -80,6 +80,7 @@
 
     let phase = "confirming";
     if (entry.status === "failed") phase = "failed";
+    else if (entry.status === "interrupted") phase = "interrupted";
     else if (assistantMessage) phase = "responded";
     else if (userMessage && responseStartEvent) phase = "responding";
     else if (userMessage) phase = "received";

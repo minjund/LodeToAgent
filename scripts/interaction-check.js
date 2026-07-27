@@ -97,6 +97,7 @@ const ACTION_MANIFEST = [
   { selector: '[data-scroll-latest]', action: 'drawer:latest' },
   { selector: '[data-retry-detail]', action: 'drawer:retry' },
   { selector: '[data-stop-run]', action: 'drawer:stop-double' },
+  { selector: '[data-conversation-interrupt]', action: 'agent:interrupt-response' },
   { selector: '#runForm', action: 'run:submit' },
   { selector: '#closeRunModalBtn', action: 'run:close-x' },
   { selector: '#pickRunCwdBtn', action: 'run:pick-cwd' },
@@ -1890,6 +1891,62 @@ async function exerciseAgentControls(win, round) {
     && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')`,
   '연결된 tmux 세션의 지시가 기존 pane 대신 새 세션 터미널을 만들었습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.state.agentCommandTargets.set('fixture-root', 'terminal-main')`);
+
+  await click(win, '[data-open-session="fixture-root"]', 'drawer:open-graph');
+  await waitFor(win, `document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]')?.dataset.agentCommandInputModeSelected === 'conversation'`,
+    '메인 AI 대화 입력창이 열리지 않았습니다.');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+    input.value = 'INTERRUPT_CURRENT_RESPONSE';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.closest('form').requestSubmit();
+  })()`);
+  mark('agent:command-submit');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
+    && item.args[0] === 'terminal-main'
+    && item.args[1] === 'INTERRUPT_CURRENT_RESPONSE')
+    && !document.querySelector('#drawerComposer [data-conversation-interrupt="fixture-root"]')?.hidden`,
+  '대화 요청 전송 후 현재 응답 중단 버튼이 나타나지 않았습니다.');
+  await click(win, '#drawerComposer [data-conversation-interrupt="fixture-root"]', 'agent:interrupt-response');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalSignal'
+    && item.args[0] === 'terminal-main'
+    && item.args[1] === 'interrupt')
+    && (window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
+      item.text === 'INTERRUPT_CURRENT_RESPONSE' && item.phase === 'interrupted')
+    && document.querySelector('#drawerContent .chat-delivery-status.interrupted')
+    && document.querySelector('#drawerContent .chat-delivery-progress.phase-interrupted')?.innerText.includes('현재 AI 응답을 중단했습니다')`,
+  '현재 AI 응답에 Ctrl+C를 전달하고 중단 상태로 전환하지 못했습니다.');
+  assert(
+    await callCount(win, 'terminalSignal') === 1,
+    '응답 중단 클릭 한 번에 Ctrl+C 신호가 한 번만 전달되어야 합니다.',
+  );
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+    input.value = 'CONTINUE_AFTER_INTERRUPT';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.closest('form').requestSubmit();
+  })()`);
+  mark('agent:command-submit');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
+    && item.args[0] === 'terminal-main'
+    && item.args[1] === 'CONTINUE_AFTER_INTERRUPT')
+    && !(window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
+      item.text === 'INTERRUPT_CURRENT_RESPONSE')
+    && (window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
+      item.text === 'CONTINUE_AFTER_INTERRUPT')
+    && !document.querySelector('#drawerComposer [data-conversation-interrupt="fixture-root"]')?.hidden`,
+  '응답 중단 뒤 같은 대화에서 새 메시지를 이어 보내지 못했습니다.');
+  await click(win, '#drawerComposer [data-conversation-interrupt="fixture-root"]', 'agent:interrupt-response');
+  await waitFor(win, `(window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
+      item.text === 'CONTINUE_AFTER_INTERRUPT' && item.phase === 'interrupted')
+    && window.interactionTest.getCalls().some(item => item.name === 'terminalSignal'
+      && item.args[0] === 'terminal-main'
+      && item.args[1] === 'interrupt')`,
+  '이어 보낸 AI 응답을 다시 중단하지 못했습니다.');
+  await click(win, '#drawerBackToFlowBtn', 'drawer:back-to-flow');
+  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '응답 중단 후 대화창이 닫히지 않았습니다.');
 
   await resetGraphToOverview(win);
   await focusRoot(win);

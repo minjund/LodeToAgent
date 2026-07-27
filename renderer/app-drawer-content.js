@@ -67,6 +67,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       delayed: "drawer.message_unconfirmed",
       received: "drawer.message_received",
       responding: "drawer.message_responding",
+      interrupted: "drawer.message_interrupted",
       failed: "drawer.message_failed",
     };
     const deliveryStatus = !assistant && message.deliveryStatus
@@ -314,10 +315,16 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       delayed: ["drawer.delivery_delayed_title", "drawer.delivery_delayed_detail", "drawer.delivery_evidence_delayed"],
       received: ["drawer.delivery_received_title", "drawer.delivery_received_detail", "drawer.delivery_evidence_received"],
       responding: ["drawer.delivery_responding_title", "drawer.delivery_responding_detail", "drawer.delivery_evidence_responding"],
+      interrupted: ["drawer.delivery_interrupted_title", "drawer.delivery_interrupted_detail", "drawer.delivery_evidence_interrupted"],
       failed: ["drawer.delivery_failed_title", "drawer.delivery_failed_detail", "drawer.delivery_evidence_failed"],
     }[phase] || ["drawer.delivery_confirming_title", "drawer.delivery_confirming_detail", "drawer.delivery_evidence_confirming"];
     const stepState = (step) => {
       if (phase === "failed") return step === 0 ? "error" : "pending";
+      if (phase === "interrupted") {
+        if (step === 0) return "done";
+        if (step === 1) return tracking.userMessage ? "done" : "pending";
+        return "error";
+      }
       if (phase === "sending") return step === 0 ? "active" : "pending";
       if (phase === "confirming" || phase === "delayed") {
         if (step === 0) return "done";

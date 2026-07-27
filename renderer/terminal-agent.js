@@ -106,6 +106,21 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return { ok: true, target };
   }
 
+  async function interruptAgent(target) {
+    await init();
+    if (!target) throw new Error(t('terminal.agent.interrupt_target_missing'));
+    const result = target.kind === 'tmux'
+      ? await window.loadtoagent.tmuxSendKey({
+        distro: target.distro,
+        target: target.paneNativeId,
+        key: 'C-c',
+      })
+      : await window.loadtoagent.terminalSignal(target.terminalId, 'interrupt');
+    if (result && result.ok === false) throw new Error(result.error || t('terminal.agent.interrupt_failed'));
+    notice(t('terminal.agent.interrupt_sent', { target: target.label }), 'success');
+    return { ok: true, target };
+  }
+
   async function openForAgent(agentSession, targetId = '', draft = '') {
     await init();
     const target = requiredAgentTarget(agentSession, targetId);
@@ -234,5 +249,5 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return { ...target, promptSent: Boolean(sendDraft && prompt) };
   }
 
-  return { tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, openForAgent, resumeForAgent };
+  return { tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent };
 };

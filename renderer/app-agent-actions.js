@@ -105,7 +105,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       presented: false,
       baselineMessageKeys: new Set(baselineMessages.map(conversationMessageKey)),
     };
-    const pending = state.pendingConversationMessages.get(session.id) || [];
+    // Keep the stopped state visible until the user starts the next turn, then
+    // retire it so it cannot resurface as the latest delivery after that turn.
+    const pending = (state.pendingConversationMessages.get(session.id) || [])
+      .filter(item => item?.status !== "interrupted");
     pending.push(entry);
     state.pendingConversationMessages.set(session.id, pending);
     state.drawerForceLatest = true;
@@ -146,8 +149,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const expected = normalize(command);
     return (state.pendingConversationMessages.get(sessionId) || []).find(entry =>
       entry
-      && entry.status !== "failed"
-      && entry.phase !== "responded"
+      && !["failed", "interrupted"].includes(entry.status)
+      && !["responded", "interrupted"].includes(entry.phase)
       && normalize(entry.text) === expected) || null;
   }
 
@@ -192,6 +195,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const target = targets.find((item) => item.id === targetId) || null;
     const draft = state.agentCommandDrafts.get(session.id) || "";
     const sending = state.agentCommandSending.has(session.id);
+    const interruptEntry = options.conversation ? options.delivery?.entry || null : null;
+    const interrupting = state.conversationInterruptRequests.has(session.id);
+    const canInterrupt = inputMode === "conversation"
+      && Boolean(interruptEntry?.target)
+      && ["confirming", "delayed", "received", "responding"].includes(options.delivery?.phase);
     const canSend = ((mode === "direct" && Boolean(target)) || ["resume", "handoff", "origin-resume"].includes(mode)) && !sending;
     const origin = originAppInfo(targetSession);
     const status = relayed
@@ -280,6 +288,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           <span aria-hidden="true">›_</span>${esc(t("agent.input_mode_terminal"))}
         </button>`
       : "";
+    const interruptAction = options.conversation && inputMode === "conversation"
+      ? `<button class="conversation-interrupt" type="button" data-conversation-interrupt="${esc(session.id)}"
+          ${canInterrupt && !interrupting ? "" : "disabled"} ${canInterrupt || interrupting ? "" : 'hidden'}
+          ${interrupting ? 'aria-busy="true"' : ""}>
+          ${esc(t(interrupting ? "agent.stopping_response" : "agent.stop_response"))}</button>`
+      : "";
     const terminalExpanded = options.conversation && inputMode === "terminal"
       ? `<div class="conversation-terminal-expanded ${mode === "direct" ? "connected" : ""}">
           <button type="button" data-agent-command-session="${esc(session.id)}" data-agent-command-input-mode="conversation">
@@ -303,7 +317,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="${options.conversation ? "2" : "3"}"
           placeholder="${esc(placeholder)}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
       </label>
-      <div class="agent-command-actions"><small aria-live="polite">${esc(help)}</small>${terminalToggle}${actions}</div>
+      <div class="agent-command-actions"><small aria-live="polite">${esc(help)}</small>${terminalToggle}${interruptAction}${actions}</div>
     </form>`;
     return options.conversation
       ? `<div class="conversation-composer-shell mode-${esc(inputMode)}">${terminalExpanded}${form}</div>`
@@ -383,7 +397,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         state.agentCommandSending.add(sessionId);
         const pendingMessage = conversationSubmission ? beginConversationMessage(session, command) : null;
         try {
-          await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false });
+          const resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false });
+          if (pendingMessage) pendingMessage.target = resumedTarget;
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -417,7 +432,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       submit.textContent = t("agent.sending");
     }
     try {
-      await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id);
+      const dispatched = await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id);
+      if (pendingMessage) pendingMessage.target = dispatched?.target || target;
       state.agentCommandDrafts.delete(sessionId);
       if (input) input.value = "";
       updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -432,7 +448,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if (shouldRecover) {
         try {
           state.agentCommandDrafts.set(sessionId, command);
-          await window.LoadToAgentTerminal.resumeForAgent(latest, routedCommand, true, { focus: drawerSubmission ? false : true });
+          const resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(
+            latest,
+            routedCommand,
+            true,
+            { focus: drawerSubmission ? false : true },
+          );
+          if (pendingMessage) pendingMessage.target = resumedTarget;
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -455,6 +477,36 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           ? "agent.send_via_parent"
           : inputMode === "terminal" ? "agent.send_terminal" : drawerSubmission ? "agent.send_request" : "agent.send_now");
       }
+    }
+  }
+
+  async function interruptConversation(sessionId) {
+    if (state.conversationInterruptRequests.has(sessionId)) return;
+    const entries = state.pendingConversationMessages.get(sessionId) || [];
+    const entry = [...entries].reverse().find(item =>
+      item?.target
+      && !["failed", "interrupted"].includes(item.status)
+      && !["responded", "interrupted"].includes(item.phase));
+    if (!entry || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
+      return context.toast(t("agent.no_active_response"));
+    }
+    state.conversationInterruptRequests.add(sessionId);
+    context.renderDrawer?.();
+    try {
+      await window.LoadToAgentTerminal.interruptAgent(entry.target);
+      entry.status = "interrupted";
+      entry.phase = "interrupted";
+      entry.interruptedAt = new Date().toISOString();
+      clearTimeout(entry.confirmationTimer);
+      entry.confirmationTimer = 0;
+      state.drawerForceLatest = true;
+      context.toast(t("agent.response_stopped"));
+    } catch (error) {
+      context.toast(errorText(error, "agent.interrupt_failed"));
+    } finally {
+      state.conversationInterruptRequests.delete(sessionId);
+      context.render?.();
+      context.renderDrawer?.();
     }
   }
 
@@ -568,6 +620,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     chosenAgentCommandTarget,
     resumeAgentTerminal,
     dispatchAgentCommand,
+    interruptConversation,
     openAgentTerminal,
     copyBridgeCommand,
     controlManagedRun,

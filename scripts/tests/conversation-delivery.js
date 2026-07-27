@@ -50,6 +50,11 @@ function registerConversationDeliveryTests(context) {
 
     const failed = { ...entry, status: "failed" };
     assert.equal(deliveryState({ ...session, messages: oldMessages }, failed, Date.parse(sentAt) + 1_000).phase, "failed");
+    const interrupted = { ...entry, status: "interrupted" };
+    assert.equal(
+      deliveryState({ ...session, messages: oldMessages }, interrupted, Date.parse(sentAt) + 1_000).phase,
+      "interrupted",
+    );
   });
 
   test("Claude 터미널 재개가 새 세션 로그를 만들면 같은 프로젝트의 후속 로그에서 수신을 확인한다", () => {

@@ -49,6 +49,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     delayed: "control.delivery_delayed",
     received: "control.delivery_received",
     responding: "control.delivery_responding",
+    interrupted: "control.delivery_interrupted",
     failed: "control.delivery_failed",
   })[phase] || "control.delivery_confirming";
   const deliverySummaryKey = (phase) => ({
@@ -57,6 +58,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     delayed: "drawer.delivery_delayed_title",
     received: "drawer.delivery_received_title",
     responding: "drawer.delivery_responding_title",
+    interrupted: "drawer.delivery_interrupted_title",
     failed: "drawer.delivery_failed_title",
   })[phase] || "drawer.delivery_confirming_title";
 

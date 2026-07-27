@@ -554,6 +554,11 @@ button[aria-busy="true"] {
   color: #ff9baa !important;
 }
 
+.chat-delivery-status.interrupted {
+  background: rgba(255,107,127,.1);
+  color: #ffb0bc !important;
+}
+
 @keyframes chat-message-send {
   from {
     opacity: 0;
@@ -1354,12 +1359,14 @@ button[aria-busy="true"] {
   animation: none;
 }
 
-.chat-delivery-progress.phase-failed {
+.chat-delivery-progress.phase-failed,
+.chat-delivery-progress.phase-interrupted {
   border-color: rgba(255,107,127,.3);
   background: linear-gradient(145deg,rgba(94,31,44,.14),rgba(10,15,22,.76));
 }
 
-.chat-delivery-progress.phase-failed > header > span {
+.chat-delivery-progress.phase-failed > header > span,
+.chat-delivery-progress.phase-interrupted > header > span {
   background: #ff7e91;
   box-shadow: 0 0 0 4px rgba(255,107,127,.08);
   animation: none;

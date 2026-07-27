@@ -2453,6 +2453,18 @@ body.conversation-panel-resizing {
   font-weight: 800;
 }
 
+.agent-command-actions .conversation-interrupt {
+  border-color: rgba(255,107,127,.52);
+  background: rgba(116,32,49,.2);
+  color: #ffacb9;
+}
+
+.agent-command-actions .conversation-interrupt:hover:not(:disabled) {
+  border-color: #ff7f93;
+  background: rgba(139,38,57,.3);
+  color: #ffe9ed;
+}
+
 .conversation-terminal-expanded > span {
   min-width: 0;
 }

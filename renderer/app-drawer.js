@@ -20,6 +20,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     delayed: "control.delivery_delayed",
     received: "control.delivery_received",
     responding: "control.delivery_responding",
+    interrupted: "control.delivery_interrupted",
     failed: "control.delivery_failed",
   })[phase] || "control.delivery_confirming";
 
@@ -312,6 +313,19 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     } else if (!showComposer && composer.innerHTML) {
       composer.innerHTML = "";
       motionState.drawerComposerHtml = "";
+    }
+    // A snapshot may change delivery state while the textarea keeps focus.
+    // Update the stable interrupt control in place so preserving IME/caret
+    // state never delays the user's ability to stop the current AI turn.
+    const interruptButton = composer.querySelector(`[data-conversation-interrupt="${CSS.escape(session.id)}"]`);
+    if (interruptButton) {
+      const interrupting = state.conversationInterruptRequests.has(session.id);
+      const interruptible = Boolean(delivery?.entry?.target)
+        && ["confirming", "delayed", "received", "responding"].includes(delivery?.phase);
+      interruptButton.hidden = !interruptible && !interrupting;
+      interruptButton.disabled = !interruptible || interrupting;
+      interruptButton.toggleAttribute("aria-busy", interrupting);
+      interruptButton.textContent = t(interrupting ? "agent.stopping_response" : "agent.stop_response");
     }
     restoreDisclosureStates(content);
     content.classList.toggle("motion-content-in", shouldAnimateContent && !motionPreference.matches);
