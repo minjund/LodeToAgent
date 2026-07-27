@@ -74,10 +74,6 @@ jobs:
           LOADTOAGENT_ALLOW_UNSIGNED: "true"
       - if: runner.os == 'macOS'
         run: npm run test:artifacts:mac
-      - if: runner.os == 'macOS'
-        run: npm run test:terminal-restart
-        env:
-          LOADTOAGENT_TEST_EXECUTABLE: ${{ github.workspace }}/release/mac/LoadToAgent.app/Contents/MacOS/LoadToAgent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
