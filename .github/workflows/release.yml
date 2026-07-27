@@ -65,25 +65,9 @@ jobs:
       - run: npm run test:bridge
       - if: runner.os == 'macOS'
         run: npm run test:terminal:mac-stress
-      - name: Require release signing credentials
-        shell: bash
-        env:
-          WINDOWS_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-          WINDOWS_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
-          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            test -n "$WINDOWS_CSC_LINK" && test -n "$WINDOWS_CSC_KEY_PASSWORD"
-          else
-            test -n "$MAC_CSC_LINK" && test -n "$MAC_CSC_KEY_PASSWORD"
-            test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID"
-          fi
       - run: ${{ matrix.command }}
         env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
           CSC_LINK: ${{ runner.os == 'Windows' && secrets.WINDOWS_CSC_LINK || secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WINDOWS_CSC_KEY_PASSWORD || secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
