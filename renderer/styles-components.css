@@ -601,6 +601,39 @@ button[aria-busy="true"] {
   margin-bottom: 0;
 }
 
+.chat-user-prompt {
+  min-width: 0;
+}
+
+.chat-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.chat-prompt-actions button {
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(16,23,33,.82);
+  color: #9eabb9;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-prompt-actions button:hover,
+.chat-prompt-actions button:focus-visible {
+  border-color: color-mix(in srgb,var(--drawer-provider) 45%,var(--line));
+  color: #e2e9f0;
+}
+
+.chat-prompt-actions [data-user-prompt-copy] {
+  border-color: rgba(89,223,167,.22);
+  color: #86cfb2;
+}
+
 .chat-content.markdown h3 {
   margin: 13px 0 6px;
   color: #e2e9f0;

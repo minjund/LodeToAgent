@@ -111,7 +111,7 @@ const endedSession = {
   title: '완료된 대화 상세 검증', status: 'completed', statusDetail: '검증 완료', parentId: null, childIds: [],
   runtimePresence: [], executions: [], runId: '',
   messages: [
-    { id: 'ended-user', role: 'user', text: '이 요청은 상세 대화에서 생략하지 말고 전체 내용을 보여주되, AI가 만든 긴 로드맵은 처음부터 전부 펼치지 말고 읽기 좋은 형태로 정리해줘.', timestamp: now },
+    { id: 'ended-user', role: 'user', text: '이 요청은 상세 대화에서 생략하지 말고 전체 내용을 보여주되, AI가 만든 긴 로드맵은 처음부터 전부 펼치지 말고 읽기 좋은 형태로 정리해줘. 사용자 프롬프트가 길어져도 대화 흐름을 한눈에 읽을 수 있도록 처음 200자까지만 미리 보여주고 나머지는 전체 보기 버튼으로 확인할 수 있게 해줘. 전체 내용을 펼친 상태에서는 닫기 버튼으로 다시 간단히 접을 수 있어야 하고, 화면이 자동으로 새로고침되어도 사용자가 선택한 펼침 상태가 유지되어야 해. 또한 원문을 손실 없이 클립보드로 옮길 수 있도록 각 사용자 프롬프트마다 복사 버튼을 제공하고 실제 전체 문장이 복사되는지도 검증해줘.', timestamp: now },
     { id: 'ended-progress', role: 'assistant', text: '먼저 상세 대화 구조와 반응형 화면을 확인하겠습니다.', timestamp: now },
     { id: 'ended-hidden-tool', role: 'tool', title: '검사 도구', text: '대화 탭에서 숨겨야 하는 도구 시스템 활동', timestamp: now },
     { id: 'ended-roadmap', role: 'assistant', text: `## 반응형 UI 개선 로드맵

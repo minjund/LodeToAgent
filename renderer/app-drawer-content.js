@@ -77,14 +77,37 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const optimisticClasses = message.optimistic
       ? ` is-optimistic is-${esc(message.deliveryStatus || "awaiting")}${message.animate ? " is-new" : ""}`
       : "";
+    const messageBody = assistant
+      ? messageContentHtml(message, session.id)
+      : userPromptHtml(message, session);
     return `<div class="chat-row ${assistant ? "assistant" : "user"}${optimisticClasses}" data-message-id="${esc(message.id || "")}">
       <span class="chat-avatar">${esc(avatar)}</span>
       <div class="chat-bubble">
       <div class="chat-bubble-head">
       <b>${esc(label)}</b>
       <span title="${esc(fullTime)}">${esc(timeOnly(message.timestamp))}</span>${deliveryStatus}${answerKind}
-      </div>${messageContentHtml(message, session.id)}</div>
+      </div>${messageBody}</div>
       </div>`;
+  }
+
+  function userPromptHtml(message, session) {
+    const text = String(message?.text || "").trim();
+    if (!text) return messageContentHtml(message, session.id);
+    const characters = Array.from(text);
+    const truncated = characters.length > 200;
+    const messageKey = String(message.id || message.timestamp || `${characters.length}:${text.slice(0, 32)}`);
+    const promptKey = `prompt:${session.id}:${messageKey}`;
+    const expanded = truncated && state.expandedConversationPrompts.has(promptKey);
+    const visibleText = expanded ? text : truncated ? `${characters.slice(0, 200).join("").trimEnd()}…` : text;
+    const visibleMessage = visibleText === text ? message : { ...message, text: visibleText };
+    return `<div class="chat-user-prompt" data-user-prompt="${esc(promptKey)}"
+      data-prompt-truncated="${truncated ? "true" : "false"}" data-prompt-expanded="${expanded ? "true" : "false"}">
+      ${messageContentHtml(visibleMessage, session.id)}
+      <div class="chat-prompt-actions">
+        ${truncated ? `<button type="button" data-prompt-toggle="${esc(promptKey)}" aria-expanded="${expanded ? "true" : "false"}">${esc(t(expanded ? "drawer.prompt_close" : "drawer.prompt_show_full"))}</button>` : ""}
+        <button type="button" data-copy-text="${esc(text)}" data-user-prompt-copy="${esc(promptKey)}">${esc(t("drawer.prompt_copy"))}</button>
+      </div>
+    </div>`;
   }
 
   function conversationOverlay(session) {

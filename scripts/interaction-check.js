@@ -86,6 +86,8 @@ const ACTION_MANIFEST = [
   { selector: '#closeDrawerBtn', action: 'drawer:close' },
   { selector: '#drawerBackToFlowBtn', action: 'drawer:back-to-flow' },
   { selector: '[data-copy-text]', action: 'drawer:copy' },
+  { selector: '[data-prompt-toggle]', action: 'drawer:prompt-toggle' },
+  { selector: '[data-user-prompt-copy]', action: 'drawer:prompt-copy' },
   ...['summary', 'chat', 'lifecycle', 'tokens'].map(tab => ({ selector: `[data-tab="${tab}"]`, action: `drawer:tab-${tab}` })),
   { selector: '[data-management-filter]', action: 'management:filter' },
   { selector: '[data-agent-command-input-mode]', action: 'drawer:input-mode' },
@@ -1516,6 +1518,42 @@ async function exerciseDrawer(win, round) {
     await click(win, `[data-tab="${tab}"]`, `drawer:tab-${tab}`);
     await waitFor(win, `window.LoadToAgentApp.state.drawerTab === ${JSON.stringify(tab)} && document.querySelector('[data-tab="${tab}"]').classList.contains('active')`, `${tab} 탭 전환 실패`);
   }
+  const collapsedPrompt = await win.webContents.executeJavaScript(`(() => {
+    const prompt = document.querySelector('[data-message-id="ended-user"] [data-user-prompt]');
+    const content = prompt?.querySelector('.chat-content');
+    const copy = prompt?.querySelector('[data-user-prompt-copy]');
+    const toggle = prompt?.querySelector('[data-prompt-toggle]');
+    return {
+      truncated: prompt?.dataset.promptTruncated,
+      expanded: prompt?.dataset.promptExpanded,
+      preview: content?.innerText || '',
+      fullText: copy?.dataset.copyText || '',
+      toggleLabel: toggle?.textContent.trim() || '',
+      copyLabel: copy?.textContent.trim() || '',
+    };
+  })()`);
+  assert(collapsedPrompt.truncated === 'true' && collapsedPrompt.expanded === 'false'
+    && Array.from(collapsedPrompt.preview).length <= 201 && collapsedPrompt.preview.endsWith('…')
+    && Array.from(collapsedPrompt.fullText).length > 200
+    && collapsedPrompt.toggleLabel === '전체 보기' && collapsedPrompt.copyLabel === '프롬프트 복사',
+  `200자 초과 프롬프트의 접기·복사 UI가 올바르지 않습니다: ${JSON.stringify(collapsedPrompt)}`);
+  await click(win, '[data-message-id="ended-user"] [data-prompt-toggle]', 'drawer:prompt-toggle');
+  await waitFor(win, `document.querySelector('[data-message-id="ended-user"] [data-user-prompt]')?.dataset.promptExpanded === 'true'
+    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '닫기'
+    && document.querySelector('[data-message-id="ended-user"] .chat-content')?.innerText.includes('실제 전체 문장이 복사되는지도 검증해줘')`,
+  '긴 사용자 프롬프트 전체 보기 또는 닫기 전환이 동작하지 않았습니다.');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.renderDrawer()`);
+  await waitFor(win, `document.querySelector('[data-message-id="ended-user"] [data-user-prompt]')?.dataset.promptExpanded === 'true'`,
+    '대화창 자동 새로고침 뒤 긴 프롬프트 펼침 상태가 유지되지 않았습니다.');
+  await clearCalls(win);
+  await click(win, '[data-message-id="ended-user"] [data-user-prompt-copy]', 'drawer:prompt-copy');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'writeClipboard'
+    && item.args[0] === document.querySelector('[data-message-id="ended-user"] [data-user-prompt-copy]')?.dataset.copyText)`,
+  '프롬프트 복사 버튼이 축약문이 아닌 전체 원문을 복사하지 못했습니다.');
+  await click(win, '[data-message-id="ended-user"] [data-prompt-toggle]', 'drawer:prompt-toggle');
+  await waitFor(win, `document.querySelector('[data-message-id="ended-user"] [data-user-prompt]')?.dataset.promptExpanded === 'false'
+    && document.querySelector('[data-message-id="ended-user"] [data-prompt-toggle]')?.textContent.trim() === '전체 보기'`,
+  '긴 사용자 프롬프트 닫기 버튼이 내용을 다시 접지 못했습니다.');
   await waitFor(win, `document.querySelector('.chat-roadmap') && !document.querySelector('.chat-roadmap').open`, '긴 로드맵이 기본 접힘 상태로 표시되지 않았습니다.');
   const roadmap = await win.webContents.executeJavaScript(`(() => {
     const details = document.querySelector('.chat-roadmap');

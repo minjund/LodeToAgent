@@ -5,6 +5,8 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+- Collapse user prompts longer than 200 characters with persistent full/close
+  controls and add a copy action to every user prompt.
 - Add an in-conversation stop control that sends Ctrl+C to the exact terminal
   or tmux pane handling the current AI response while keeping the session open.
 

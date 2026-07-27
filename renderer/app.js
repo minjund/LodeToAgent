@@ -54,6 +54,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     pendingConversationMessages: new Map(),
     resolvedConversationMessages: new Map(),
     conversationInterruptRequests: new Set(),
+    expandedConversationPrompts: new Set(),
     stopRequests: new Set(),
     runControlRequests: new Set(),
     managementFilter: "all",

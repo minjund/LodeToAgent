@@ -230,6 +230,18 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         await copyText(copy.dataset.copyText);
         return;
       }
+      const promptToggle = event.target.closest("[data-prompt-toggle]");
+      if (promptToggle) {
+        const promptKey = promptToggle.dataset.promptToggle;
+        const expanded = promptToggle.getAttribute("aria-expanded") === "true";
+        if (expanded) state.expandedConversationPrompts.delete(promptKey);
+        else state.expandedConversationPrompts.add(promptKey);
+        renderDrawer();
+        requestAnimationFrame(() => {
+          $("#detailDrawer")?.querySelector(`[data-prompt-toggle="${CSS.escape(promptKey)}"]`)?.focus({ preventScroll: true });
+        });
+        return;
+      }
       const terminal = event.target.closest("[data-agent-terminal-open]");
       if (terminal) {
         await openAgentTerminal(terminal.dataset.agentTerminalOpen);
