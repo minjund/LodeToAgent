@@ -178,9 +178,30 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     return sessions;
   }
 
+  function controlRoomRootSessions() {
+    const allSessions = visibleSessions();
+    const byId = new Map(allSessions.map((session) => [String(session.id || ""), session]));
+    const roots = new Map();
+    for (const session of displaySessions().filter(isControlRoomSession)) {
+      let root = session;
+      const seen = new Set();
+      while (root?.parentId && !seen.has(String(root.id || ""))) {
+        seen.add(String(root.id || ""));
+        const parent = byId.get(String(root.parentId || ""));
+        if (!parent) break;
+        root = parent;
+      }
+      const projected = isControlRoomSession(root)
+        ? root
+        : { ...root, status: "running", statusDetail: session.statusDetail || root.statusDetail };
+      roots.set(String(root.id || session.id || ""), projected);
+    }
+    return [...roots.values()];
+  }
+
   function renderWorkspaces() {
     const rootSessions = displaySessions().filter((session) => !session.parentId);
-    const liveRootSessions = rootSessions.filter(isControlRoomSession);
+    const liveRootSessions = controlRoomRootSessions();
     const tmuxRootSessions = unlinkedLiveTmuxSessions();
     const allLiveRootSessions = [...liveRootSessions, ...tmuxRootSessions];
     const projects = observedProjects(rootSessions);
@@ -643,6 +664,21 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           .toLowerCase()
           .includes(query),
       );
+    const allById = new Map(visibleSessions().map((session) => [String(session.id || ""), session]));
+    const contextual = new Map(sessions.map((session) => [String(session.id || ""), session]));
+    for (const session of sessions.filter(isControlRoomSession)) {
+      let current = session;
+      const seen = new Set();
+      while (current?.parentId && !seen.has(String(current.id || ""))) {
+        seen.add(String(current.id || ""));
+        const parent = allById.get(String(current.parentId || ""));
+        if (!parent || !matchesWorkspaceFilter(parent)) break;
+        if (state.providerFilters.size && !state.providerFilters.has(parent.provider)) break;
+        contextual.set(String(parent.id || ""), parent);
+        current = parent;
+      }
+    }
+    sessions = [...contextual.values()];
     if (state.controlRoomSort === "tokens") return [...sessions].sort((a, b) => Number((b.usage && b.usage.total) || 0) - Number((a.usage && a.usage.total) || 0));
     if (state.controlRoomSort === "context") return [...sessions].sort((a, b) => Number((b.context && b.context.percent) || 0) - Number((a.context && a.context.percent) || 0));
     return [...sessions].sort((a, b) => Date.parse(b.updatedAt || 0) - Date.parse(a.updatedAt || 0));
@@ -674,6 +710,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     controlRoomProject,
     matchesWorkspaceFilter,
     unlinkedLiveTmuxSessions,
+    controlRoomRootSessions,
     renderWorkspaces,
     renderGlobalStats,
     formatBytes,

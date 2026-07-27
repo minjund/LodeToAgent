@@ -854,7 +854,7 @@ async function exerciseDashboardControls(win, round) {
     humanSummaries: [...document.querySelectorAll('.control-room-main, .helper-node, .execution-node')]
       .map(node => node.dataset.controlSummary || ''),
   }))()`);
-  assert(controlRoom.rooms === 9 && controlRoom.mains === controlRoom.rooms && controlRoom.helperNodes >= 3
+  assert(controlRoom.rooms === 10 && controlRoom.mains === controlRoom.rooms && controlRoom.helperNodes >= 3
     && controlRoom.executionNodes >= 3 && controlRoom.completedNodes >= 3 && controlRoom.legends === 0
     && !controlRoom.mainLeakedIntoWorkColumns && controlRoom.invalidRunningUnits === 0
     && controlRoom.invalidCompletedUnits === 0 && controlRoom.emptyRunningColumns >= 1
@@ -1022,6 +1022,12 @@ async function exerciseDashboardControls(win, round) {
       .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project');
     return item?.querySelector('small')?.textContent === '1' && item?.dataset.liveSessionCount === '1';
   })()`, '대화 기록에 연결되지 않은 tmux AI 세션을 pane 경로의 프로젝트로 가져오지 못했습니다.');
+  await waitFor(win, `(() => {
+    const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
+      .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/nested-active-project');
+    return item?.querySelector('small')?.textContent === '1'
+      && document.querySelector('[data-control-project="nested-active-project"] [data-control-session="fixture-old-parent"]');
+  })()`, '오래된 부모 아래 실행 중인 tmux 서브에이전트가 홈 프로젝트에서 사라졌습니다.');
   const standaloneTmuxIds = await win.webContents.executeJavaScript(
     `window.LoadToAgentApp.unlinkedLiveTmuxSessions().map(session => session.id)`,
   );

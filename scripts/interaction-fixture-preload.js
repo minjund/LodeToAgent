@@ -211,6 +211,33 @@ const staleIdleSession = {
   messages: [{ id: 'stale-assistant', role: 'assistant', text: '대기합니다.', timestamp: '2020-01-01T00:00:00.000Z' }],
 };
 
+const oldParentWithRunningChild = {
+  ...staleIdleSession,
+  id: 'fixture-old-parent',
+  externalId: 'fixture-old-parent-external',
+  title: '오래된 부모 아래 실행 중인 tmux 작업',
+  status: 'waiting',
+  statusDetail: '하위 작업 확인 대기',
+  cwd: '/mnt/c/Users/fixture/nested-active-project',
+  originCwd: '/mnt/c/Users/fixture/nested-active-project',
+  workspace: 'nested-active-project',
+  childIds: ['fixture-running-child'],
+};
+const runningChildOfOldParent = {
+  ...rootSession,
+  id: 'fixture-running-child',
+  externalId: 'fixture-running-child-external',
+  title: '오래된 부모에서 계속 실행 중인 tmux 서브에이전트',
+  parentId: oldParentWithRunningChild.id,
+  childIds: [],
+  cwd: oldParentWithRunningChild.cwd,
+  originCwd: oldParentWithRunningChild.originCwd,
+  workspace: oldParentWithRunningChild.workspace,
+  executions: [],
+  runtimePresence: [{ kind: 'tmux', paneId: 'fixture-nested-pane', label: 'FixtureLinux · nested pane' }],
+  runId: '',
+};
+
 const tmuxPane = {
   id: 'tmux-pane-id', nativeId: '%7', index: 0, pid: 51001, active: true, dead: false,
   command: 'claude', cwd: '/tmp/fixture', title: 'fixture pane',
@@ -236,7 +263,8 @@ const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 't
 
 const sessionRecords = [
   rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession,
-  ...extraLiveSessions, endedSession, waitingSession, failedSession, pausedSession, staleIdleSession, ...extraEndedSessions,
+  ...extraLiveSessions, endedSession, waitingSession, failedSession, pausedSession, staleIdleSession,
+  oldParentWithRunningChild, runningChildOfOldParent, ...extraEndedSessions,
 ];
 const enrichedSessionRecords = sessionRecords.map(session => enrichSession(session, sessionRecords, Date.now()));
 
