@@ -55,8 +55,11 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const label = assistant ? options.assistantLabel : options.userLabel;
     const avatar = assistant ? providerInfo(session.provider).mark : "ME";
     const fullTime = new Date(message.timestamp).toLocaleString(uiLocale());
+    const workingIndicator = options.live
+      ? `<span class="chat-working-dots" aria-hidden="true"><i></i><i></i><i></i></span>`
+      : "";
     const answerKind = assistant && options.answerKind
-      ? `<span class="chat-answer-kind${options.live ? " is-live" : ""}">${esc(options.answerKind)}</span>`
+      ? `<span class="chat-answer-kind${options.live ? " is-live" : ""}">${esc(options.answerKind)}${workingIndicator}</span>`
       : "";
     const deliveryStatusKey = {
       sending: "drawer.message_sending",

@@ -145,16 +145,53 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     return !isProjectlessSession(session) && projectContainsPath(state.workspace, sessionOriginPath(session));
   }
 
+  function unlinkedLiveTmuxSessions() {
+    const displayedSessionIds = new Set(displaySessions().map((session) => String(session.id || "")));
+    const allSessionsById = new Map((state.snapshot?.sessions || []).map((session) => [String(session.id || ""), session]));
+    const sessions = [];
+    for (const distro of state.snapshot?.tmux?.distros || []) {
+      for (const tmuxSession of distro.sessions || []) {
+        for (const window of tmuxSession.windows || []) {
+          for (const pane of window.panes || []) {
+            if (!pane.agent || pane.dead || !pane.cwd || !isProviderVisible(pane.agent.provider)) continue;
+            const linkedSessionId = String(pane.agent.linkedSessionId || "");
+            const linkedSession = linkedSessionId ? allSessionsById.get(linkedSessionId) : null;
+            if (linkedSessionId && displayedSessionIds.has(linkedSessionId)) continue;
+            // A tmux process can remain alive for days after its linked AI task
+            // becomes idle. Do not promote that stale shell back into the Home
+            // project count merely because the old conversation aged out of the
+            // recent-session list. A still-running linked task remains eligible.
+            if (linkedSession && !isControlRoomSession(linkedSession)) continue;
+            sessions.push({
+              id: `tmux:${pane.id}`,
+              provider: pane.agent.provider,
+              status: "running",
+              originCwd: pane.cwd,
+              cwd: pane.cwd,
+              workspace: tmuxSession.name,
+              title: pane.agent.title || tmuxSession.name,
+            });
+          }
+        }
+      }
+    }
+    return sessions;
+  }
+
   function renderWorkspaces() {
     const rootSessions = displaySessions().filter((session) => !session.parentId);
     const liveRootSessions = rootSessions.filter(isControlRoomSession);
+    const tmuxRootSessions = unlinkedLiveTmuxSessions();
+    const allLiveRootSessions = [...liveRootSessions, ...tmuxRootSessions];
     const projects = observedProjects(rootSessions);
-    const liveProjects = observedProjects(liveRootSessions);
+    const liveProjects = observedProjects(allLiveRootSessions)
+      .filter((project) => Number(project.count || 0) > 0);
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
     const savedWorkspaceExists = state.workspace === "all"
       || (state.workspace === PROJECTLESS_WORKSPACE && projectlessCount > 0)
-      || projects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
+      || projects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace))
+      || liveProjects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
     if (!savedWorkspaceExists) state.workspace = "all";
     const projectButton = (item, compactClass = "") => `<button type="button" class="workspace-item observed-project ${compactClass} ${Number(item.liveCount || 0) ? "has-live-sessions" : ""} ${state.workspace === item.path ? "selected" : ""}"
       data-workspace="${esc(item.path)}" title="${esc(item.path)}"
@@ -188,7 +225,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const desktopHtml =
       `<button type="button" class="workspace-item control-room-project-chip ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
-      <strong>${esc(t("control.all_projects"))}</strong><small>${liveRootSessions.length}</small>
+      <strong>${esc(t("control.all_projects"))}</strong><small>${allLiveRootSessions.length}</small>
       </button>` +
       liveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("") +
       (liveProjectlessCount
@@ -636,6 +673,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     sessionWorkspaceLabel,
     controlRoomProject,
     matchesWorkspaceFilter,
+    unlinkedLiveTmuxSessions,
     renderWorkspaces,
     renderGlobalStats,
     formatBytes,

@@ -780,6 +780,51 @@ body details.control-room-project-group > summary.control-project-header {
   padding: 9px 10px;
 }
 
+.control-project-tmux-section {
+  padding: 12px 14px 14px;
+  border-top: 1px solid rgba(104,130,151,.17);
+  background: rgba(8,14,20,.42);
+}
+
+.control-project-tmux-section > header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 2px 8px;
+}
+
+.control-project-tmux-section > header > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #78dfbd;
+}
+
+.control-project-tmux-section > header i {
+  font-size: 12px;
+  font-style: normal;
+}
+
+.control-project-tmux-section > header b {
+  color: #c8ddd6;
+  font-size: 12px;
+}
+
+.control-project-tmux-section > header small {
+  overflow: hidden;
+  color: #708493;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control-project-tmux-section .live-tmux-grid {
+  grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+  padding: 0;
+}
+
 .control-room-project-group:not([open]) .control-project-header {
   min-height: 50px !important;
 }

@@ -677,11 +677,16 @@ function registerCodexRecoveryTests(context) {
     const codexInfo = jsonl(codexFile, [
       { timestamp: '2026-07-10T02:00:00Z', type: 'session_meta', payload: { id: 'stale-running', cwd: 'D:\\repo' } },
       { timestamp: '2026-07-10T02:00:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'old-turn' } },
+      { timestamp: '2026-07-10T02:00:02Z', type: 'response_item', payload: { type: 'function_call', call_id: 'orphan-shell', name: 'shell_command', arguments: '{"command":"npm test"}' } },
     ]);
     const old = new Date(Date.now() - 10 * 60_000);
     fs.utimesSync(codexFile, old, old);
     codexInfo.mtimeMs = fs.statSync(codexFile).mtimeMs;
-    assert.equal(parseCodex(codexInfo).status, 'idle');
+    const staleCodex = parseCodex(codexInfo);
+    assert.equal(staleCodex.status, 'idle');
+    assert.deepStrictEqual(staleCodex.executions.map(item => [item.mode, item.status, item.statusDetail]), [
+      ['foreground', 'unverified', '최근 실행 신호 없음'],
+    ]);
 
     const claudeFile = path.join(temp, 'claude', 'stale-waiting.jsonl');
     const claudeInfo = jsonl(claudeFile, [{ type: 'user', timestamp: '2026-07-10T02:00:00Z', message: { role: 'user', content: '오래된 요청' } }]);

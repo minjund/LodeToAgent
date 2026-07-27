@@ -196,6 +196,21 @@ const extraEndedSessions = Array.from({ length: 34 }, (_, index) => ({
   updatedAt: new Date(Date.now() - (index + 1) * 60_000).toISOString(),
 }));
 
+const staleIdleSession = {
+  ...endedSession,
+  id: 'fixture-stale-idle',
+  externalId: 'fixture-stale-idle-external',
+  provider: 'claude',
+  title: '오래전에 대기 상태가 된 tmux 대화',
+  status: 'idle',
+  statusDetail: '다음 요청 대기',
+  cwd: 'D:\\fixture',
+  originCwd: 'D:\\fixture',
+  workspace: 'fixture',
+  updatedAt: '2020-01-01T00:00:00.000Z',
+  messages: [{ id: 'stale-assistant', role: 'assistant', text: '대기합니다.', timestamp: '2020-01-01T00:00:00.000Z' }],
+};
+
 const tmuxPane = {
   id: 'tmux-pane-id', nativeId: '%7', index: 0, pid: 51001, active: true, dead: false,
   command: 'claude', cwd: '/tmp/fixture', title: 'fixture pane',
@@ -203,19 +218,25 @@ const tmuxPane = {
 };
 const unlinkedTmuxPane = {
   ...tmuxPane, id: 'tmux-pane-unlinked', nativeId: '%8', index: 1, pid: 51002, active: false,
-  agent: { ...rootSession, id: 'tmux-unlinked-agent', linkedSessionId: '', pid: 51002 },
+  cwd: '/mnt/c/Users/fixture/tmux-only-project',
+  agent: { ...rootSession, id: 'tmux-unlinked-agent', linkedSessionId: '', pid: 51002, title: 'tmux 전용 마이그레이션 작업' },
+};
+const staleIdleTmuxPane = {
+  ...tmuxPane, id: 'tmux-pane-stale-idle', nativeId: '%10', index: 2, pid: 51004, active: false,
+  cwd: 'D:\\fixture',
+  agent: { ...staleIdleSession, linkedSessionId: staleIdleSession.id, pid: 51004 },
 };
 const deadTmuxPane = {
-  ...tmuxPane, id: 'tmux-pane-dead', nativeId: '%9', index: 2, pid: 51003, active: false, dead: true,
+  ...tmuxPane, id: 'tmux-pane-dead', nativeId: '%9', index: 3, pid: 51003, active: false, dead: true,
   agent: { ...rootSession, id: 'tmux-dead-agent', linkedSessionId: '', pid: 51003 },
 };
-const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', active: true, panes: [tmuxPane, unlinkedTmuxPane, deadTmuxPane] };
+const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', active: true, panes: [tmuxPane, unlinkedTmuxPane, staleIdleTmuxPane, deadTmuxPane] };
 const tmuxSession = { id: 'tmux-session-id', nativeId: '$2', name: 'fixture-session', attached: false, windows: [tmuxWindow] };
 const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 'tmux 3.4', sessions: [tmuxSession] };
 
 const sessionRecords = [
   rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession,
-  ...extraLiveSessions, endedSession, waitingSession, failedSession, pausedSession, ...extraEndedSessions,
+  ...extraLiveSessions, endedSession, waitingSession, failedSession, pausedSession, staleIdleSession, ...extraEndedSessions,
 ];
 const enrichedSessionRecords = sessionRecords.map(session => enrichSession(session, sessionRecords, Date.now()));
 
@@ -272,7 +293,7 @@ const snapshot = {
   },
   tmux: {
     available: true, status: 'fixture ready', distros: [tmuxDistro],
-    summary: { distros: 1, sessions: 1, windows: 1, panes: 3, aiPanes: 2, linked: 1 },
+    summary: { distros: 1, sessions: 1, windows: 1, panes: 4, aiPanes: 3, linked: 2 },
   },
 };
 

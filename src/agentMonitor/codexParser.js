@@ -2,7 +2,7 @@
 
 const path = require('path');
 const { createCodexCollaboration } = require('./codexCollaboration');
-const { createExecutionTracker } = require('./executionActivity');
+const { createExecutionTracker, reconcileExecutionActivities } = require('./executionActivity');
 
 const COLLABORATION_TOOLS = new Set([
   'spawn_agent',
@@ -459,7 +459,11 @@ function createCodexParser(dependencies) {
     const collaboration = state.collaboration.finalize(session.collaboration.retainedAgents);
     session.collaboration.spawns = collaboration.spawns;
     session.collaboration.communications = collaboration.communications;
-    session.executions = state.executionTracker.finalize();
+    session.executions = reconcileExecutionActivities(state.executionTracker.finalize(), {
+      staleAfterMs: STALE_TURN_THRESHOLD_MS,
+      turnFinished: state.lastTurnCompleted,
+      waitingForUser: session.status === 'waiting',
+    });
     const windowInfo = modelContextWindow('codex', session.model, state.observedWindow);
     session.context = contextInfo(session.turnUsage.total || session.turnUsage.input, windowInfo);
 

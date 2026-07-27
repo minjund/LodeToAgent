@@ -1476,6 +1476,8 @@
     "control.project_filter": {"ko":"프로젝트별 실행 세션 필터","en":"Filter live sessions by project","zh-CN":"按项目筛选运行会话"},
     "control.project_live_attention_summary": {"ko":"실행 중 {active} · 확인 필요 {attention}","en":"{active} running · {attention} need attention","zh-CN":"运行中 {active} · 需确认 {attention}"},
     "control.project_live_summary": {"ko":"실행 중 {active}","en":"{active} running","zh-CN":"运行中 {active}"},
+    "control.project_tmux_summary": {"ko":"tmux {count}개","en":"{count} tmux","zh-CN":"tmux {count} 个"},
+    "control.project_tmux_help": {"ko":"이 프로젝트 경로에서 직접 감지한 AI 터미널","en":"AI terminals detected directly from this project path","zh-CN":"从此项目路径直接检测到的 AI 终端"},
     "control.recent_activity": {"ko":"최근 활동순","en":"Recent activity","zh-CN":"最近活动"},
     "control.search_sessions": {"ko":"실행 세션 검색","en":"Search live sessions","zh-CN":"搜索运行会话"},
     "control.sort_sessions": {"ko":"실행 세션 정렬","en":"Sort live sessions","zh-CN":"排序运行会话"},

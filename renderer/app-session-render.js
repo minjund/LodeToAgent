@@ -168,7 +168,11 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const graphLiveCount = showMap ? renderAgentMap(graphFilteredSessions(), motionKind) : 0;
     const regular = state.view === "all" ? sessions.filter((session) => !isControlRoomSession(session)) : state.view === "active" ? [] : sessions;
     const visible = regular.slice(0, state.visibleLimit);
-    const resultCount = attentionView ? attentionCount : graphLiveCount + regular.length;
+    const resultCount = attentionView
+      ? attentionCount
+      : state.view === "active"
+        ? graphLiveCount
+        : regular.length;
     $("#sessionResultSummary").textContent = window.LoadToAgentI18n.t("quality.results_summary", { count: resultCount });
     const activeEmpty = state.view === "active" && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);

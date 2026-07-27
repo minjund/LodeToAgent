@@ -35,6 +35,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     graphDescendantCount,
     sessionWorkspaceLabel,
     controlRoomProject = session => ({ key: String(session?.workspace || session?.id || "unknown"), label: sessionWorkspaceLabel(session) }),
+    matchesWorkspaceFilter = () => true,
     ensureProjectOrder = projectKeys => projectKeys,
   } = context;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
@@ -280,11 +281,49 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     );
   }
 
+  function tmuxEntrySession(entry) {
+    return {
+      id: `tmux:${entry?.pane?.id || ""}`,
+      provider: entry?.agent?.provider || "",
+      status: "running",
+      title: entry?.agent?.title || entry?.tmuxSession?.name || "",
+      workspace: "",
+      originCwd: entry?.pane?.cwd || "",
+      cwd: entry?.pane?.cwd || "",
+    };
+  }
+
+  function filteredLiveTmuxEntries(model, entries = liveTmuxEntries(state.snapshot && state.snapshot.tmux)) {
+    const sessionsById = new Map((state.snapshot?.sessions || []).map((session) => [String(session.id || ""), session]));
+    const modelSessionIds = new Set((model?.nodes || []).map((session) => String(session.id || "")));
+    const query = String(state.search || "").replace(/\s+/g, " ").trim().toLowerCase();
+    return entries.filter((entry) => {
+      const linkedId = String(entry?.agent?.linkedSessionId || "");
+      const linkedSession = linkedId ? sessionsById.get(linkedId) : null;
+      if (linkedId && modelSessionIds.has(linkedId)) return false;
+      if (linkedSession && !isControlRoomSession(linkedSession)) return false;
+      const session = tmuxEntrySession(entry);
+      if (!session.originCwd || !matchesWorkspaceFilter(session)) return false;
+      if (!query) return true;
+      return [
+        session.title,
+        session.workspace,
+        session.originCwd,
+        entry?.distro?.name,
+        entry?.window?.name,
+        entry?.pane?.command,
+        entry?.agent?.command,
+      ].join(" ").toLowerCase().includes(query);
+    });
+  }
+
   function liveTmuxPaneCard(entry) {
     const { distro, tmuxSession, window, pane, agent } = entry;
     const provider = providerInfo(agent.provider);
     const linked = agent.linkedSessionId ? (state.snapshot?.sessions || []).find((session) => session.id === agent.linkedSessionId) || null : null;
-    const title = linked ? linked.title : pane.title || t("graph.tmux_task", { provider: provider.label });
+    const title = linked
+      ? linked.title
+      : agent.title || pane.title || t("graph.tmux_task", { provider: provider.label });
     const stateLabel = pane.dead ? t("graph.ended") : pane.active ? t("graph.selected_pane") : t("graph.background_running");
     return `<article class="live-tmux-card ${pane.active ? "active" : ""} ${pane.dead ? "dead" : ""}"
       style="${providerStyle(agent.provider)}"
@@ -525,50 +564,69 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     </article>`;
   }
 
-  function runtimeSeparatedOverview(roots, model, allRoots = roots) {
+  function runtimeSeparatedOverview(roots, model, allRoots = roots, tmuxEntries = filteredLiveTmuxEntries(model)) {
     const projectDescriptor = (root) => {
       const project = controlRoomProject(root);
       return { key: project.key, name: project.label };
     };
+    const addGroupItem = (groups, key, name, field, value) => {
+      if (!groups.has(key)) groups.set(key, { name, roots: [], tmuxEntries: [] });
+      groups.get(key)[field].push(value);
+    };
     const allGroups = new Map();
     allRoots.forEach((root) => {
       const { key, name } = projectDescriptor(root);
-      if (!allGroups.has(key)) allGroups.set(key, { name, roots: [] });
-      allGroups.get(key).roots.push(root);
+      addGroupItem(allGroups, key, name, "roots", root);
     });
     const groups = new Map();
     roots.forEach((root) => {
       const { key, name } = projectDescriptor(root);
-      if (!groups.has(key)) groups.set(key, { name, roots: [] });
-      groups.get(key).roots.push(root);
+      addGroupItem(groups, key, name, "roots", root);
+    });
+    tmuxEntries.forEach((entry) => {
+      const { key, name } = projectDescriptor(tmuxEntrySession(entry));
+      addGroupItem(allGroups, key, name, "tmuxEntries", entry);
+      addGroupItem(groups, key, name, "tmuxEntries", entry);
     });
     const defaultOrderedGroups = [...groups.entries()].sort(([leftKey], [rightKey]) =>
-      Number(allGroups.get(rightKey)?.roots.length || 0) - Number(allGroups.get(leftKey)?.roots.length || 0));
+      Number((allGroups.get(rightKey)?.roots.length || 0) + (allGroups.get(rightKey)?.tmuxEntries.length || 0))
+      - Number((allGroups.get(leftKey)?.roots.length || 0) + (allGroups.get(leftKey)?.tmuxEntries.length || 0)));
     const projectOrder = ensureProjectOrder(defaultOrderedGroups.map(([key]) => key));
     const projectRank = new Map(projectOrder.map((key, index) => [key, index]));
     const orderedGroups = defaultOrderedGroups.sort(([leftKey], [rightKey]) =>
       Number(projectRank.get(leftKey) ?? Number.MAX_SAFE_INTEGER) - Number(projectRank.get(rightKey) ?? Number.MAX_SAFE_INTEGER));
-    const projectGroups = orderedGroups.map(([key, { name, roots: projectRoots }], index) => {
-      const projectTotals = allGroups.get(key)?.roots || projectRoots;
-      const activeCount = projectTotals.filter((root) => isLiveSession(root)).length;
-      const attentionCount = projectTotals.filter((root) =>
+    const projectGroups = orderedGroups.map(([key, { name, roots: projectRoots, tmuxEntries: projectTmuxEntries }], index) => {
+      const projectTotals = allGroups.get(key) || { roots: projectRoots, tmuxEntries: projectTmuxEntries };
+      const activeCount = projectTotals.roots.filter((root) => isLiveSession(root)).length;
+      const attentionCount = projectTotals.roots.filter((root) =>
         !isLiveSession(root)
         && isControlRoomSession(root)
         && ["waiting", "failed", "paused"].includes(root.status)).length;
-      const summary = attentionCount
+      const sessionSummary = attentionCount
         ? t("control.project_live_attention_summary", { active: activeCount, attention: attentionCount })
         : t("control.project_live_summary", { active: activeCount });
+      const tmuxSummary = projectTotals.tmuxEntries.length
+        ? t("control.project_tmux_summary", { count: projectTotals.tmuxEntries.length })
+        : "";
+      const summary = projectTotals.roots.length ? [sessionSummary, tmuxSummary].filter(Boolean).join(" · ") : tmuxSummary;
       const disclosureKey = `control-project:${key}`;
       const presentation = index === 0 ? "is-primary" : "is-secondary";
       const projectFocusId = projectRoots[0]?.id || "";
+      const totalCount = projectTotals.roots.length + projectTotals.tmuxEntries.length;
+      const tmuxCards = projectTmuxEntries.length
+        ? `<section class="control-project-tmux-section">
+          <header><span><i aria-hidden="true">▦</i><b>${esc(t("graph.tmux_session"))}</b></span><small>${esc(t("control.project_tmux_help"))}</small></header>
+          <div class="live-tmux-grid">${projectTmuxEntries.map((entry) => liveTmuxPaneCard(entry)).join("")}</div>
+        </section>`
+        : "";
       return `<details class="control-room-project-group ${presentation}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
-          <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small><em>${projectTotals.length}</em></span>
+          <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small><em>${totalCount}</em></span>
           <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
         </summary>
-        <button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>
-        <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}</div>
+        ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>` : ""}
+        <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}${tmuxCards}</div>
       </details>`;
     }).join("");
     return `<div class="control-room-overview" data-control-room-overview="true">
@@ -892,7 +950,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   }
 
   return {
-    graphNode, compactGraphNode, providerFlowLane, workflowCompactNode, liveTmuxEntries, liveTmuxPaneCard, runtimeSeparatedOverview,
+    graphNode, compactGraphNode, providerFlowLane, workflowCompactNode, liveTmuxEntries, tmuxEntrySession, filteredLiveTmuxEntries, liveTmuxPaneCard, runtimeSeparatedOverview,
     controlRoomIntent, controlRoomSummary, controlRoomAgentGoal, inferredExecutionSummary,
     workflowMetrics, workflowChildrenSummary, splitSubagents, completedSubagentDisclosure, agentPathTaskName, communicationEndpoint,
     workflowCommunicationPanel, executionActivityLabel, executionActivityStatus, executionActivityCard, executionActivityPanel, focusedGraph,

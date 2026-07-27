@@ -17,6 +17,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     stableSessionSort = sessions => [...sessions],
     runtimeAgentSummary,
     liveTmuxEntries,
+    filteredLiveTmuxEntries,
     runtimeSeparatedOverview,
     focusedGraph,
     scheduleAgentWorkflowConnections,
@@ -39,6 +40,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       && liveSessionGrid.contains(document.activeElement);
     rememberDisclosureStates(liveSessionGrid);
     const model = connectedGraphSessions(sessions);
+    const tmuxEntries = filteredLiveTmuxEntries(model, liveTmuxEntries(state.snapshot && state.snapshot.tmux));
     const focus =
       state.graphFocusId && model.byId.get(state.graphFocusId) && model.included.has(state.graphFocusId) ? model.byId.get(state.graphFocusId) : null;
     if (state.graphFocusId && !focus) state.graphFocusId = null;
@@ -48,7 +50,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       : state.controlRoomSort === "context"
         ? [...rootSessions].sort((a, b) => Number((b.context && b.context.percent) || 0) - Number((a.context && a.context.percent) || 0))
         : stableSessionSort(rootSessions);
-    if (!model.nodes.length) {
+    if (!model.nodes.length && !tmuxEntries.length) {
       if (!preserveFocusedComposer) liveSessionGrid.innerHTML = "";
       $("#graphBreadcrumbs").innerHTML = "";
       $("#graphResetBtn").classList.add("hidden");
@@ -78,8 +80,8 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#graphResetBtn").classList.remove("hidden");
       scheduleAgentWorkflowConnections();
     } else {
-      const runtime = runtimeAgentSummary(model, liveTmuxEntries(state.snapshot && state.snapshot.tmux));
-      if (!preserveFocusedComposer) liveSessionGrid.innerHTML = runtimeSeparatedOverview(roots, model, roots);
+      const runtime = runtimeAgentSummary(model, tmuxEntries);
+      if (!preserveFocusedComposer) liveSessionGrid.innerHTML = runtimeSeparatedOverview(roots, model, roots, tmuxEntries);
       restoreDisclosureStates(liveSessionGrid);
       $("#graphBreadcrumbs").innerHTML = "";
       $("#agentMapToolbar")?.classList.add("hidden");
@@ -87,7 +89,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#controlRoomListToolbar")?.classList.remove("hidden");
       syncControlRoomDisclosureButtons();
       $("#graphResetBtn").classList.add("hidden");
-      return runtime.activeCount;
+      return runtime.activeCount + tmuxEntries.length;
     }
     return model.nodes.filter(isControlRoomSession).length;
   }

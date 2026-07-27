@@ -313,16 +313,29 @@ async function exerciseQualityEnhancements(win, round) {
   await click(win, '#emptyClearFiltersBtn', 'filter:empty-clear');
   await waitFor(win, `window.LoadToAgentApp.state.search === '' && document.activeElement?.id === 'searchInput' && document.querySelector('#emptyClearFiltersBtn').classList.contains('hidden')`, '빈 결과 조건 지우기가 상태와 초점을 복원하지 못했습니다.');
 
-  const semanticContracts = await win.webContents.executeJavaScript(`(() => ({
-    navControls: [...document.querySelectorAll('.nav-item[data-view]')].every(button => button.hasAttribute('aria-controls')),
-    providerControls: document.querySelector('#probeBtn').getAttribute('aria-controls') === 'providerRail',
-    workspaceControls: document.querySelector('#addWorkspaceBtn').getAttribute('aria-controls') === 'workspaceList',
-    filterToolbar: document.querySelector('#providerFilter').getAttribute('role') === 'toolbar',
-    filterTabStops: document.querySelectorAll('#providerFilter [tabindex="0"]').length,
-    overviewTabStops: document.querySelectorAll('#providerOverview [tabindex="0"]').length,
-    resultSummary: document.querySelector('#sessionResultSummary').textContent,
-  }))()`);
-  assert(semanticContracts.navControls && semanticContracts.providerControls && semanticContracts.workspaceControls && semanticContracts.filterToolbar && semanticContracts.filterTabStops === 1 && semanticContracts.overviewTabStops === 1 && semanticContracts.resultSummary, `전역·필터 의미 계약 실패: ${JSON.stringify(semanticContracts)}`);
+  const semanticContracts = await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const resultSummary = document.querySelector('#sessionResultSummary').textContent;
+    const historyResultCount = app.filteredSessions().filter(session => !app.isControlRoomSession(session)).length;
+    return {
+      navControls: [...document.querySelectorAll('.nav-item[data-view]')].every(button => button.hasAttribute('aria-controls')),
+      providerControls: document.querySelector('#probeBtn').getAttribute('aria-controls') === 'providerRail',
+      workspaceControls: document.querySelector('#addWorkspaceBtn').getAttribute('aria-controls') === 'workspaceList',
+      filterToolbar: document.querySelector('#providerFilter').getAttribute('role') === 'toolbar',
+      filterTabStops: document.querySelectorAll('#providerFilter [tabindex="0"]').length,
+      overviewTabStops: document.querySelectorAll('#providerOverview [tabindex="0"]').length,
+      resultSummary,
+      resultSummaryCount: Number(resultSummary.match(/\\d+/)?.[0] || -1),
+      historyResultCount,
+      historyCardCount: document.querySelectorAll('#sessionGrid [data-session-id]').length,
+      visibleLimit: app.state.visibleLimit,
+    };
+  })()`);
+  assert(semanticContracts.navControls && semanticContracts.providerControls && semanticContracts.workspaceControls && semanticContracts.filterToolbar
+    && semanticContracts.filterTabStops === 1 && semanticContracts.overviewTabStops === 1 && semanticContracts.resultSummary
+    && semanticContracts.resultSummaryCount === semanticContracts.historyResultCount
+    && semanticContracts.historyCardCount === Math.min(semanticContracts.historyResultCount, semanticContracts.visibleLimit),
+  `전역·필터 의미 계약 실패 또는 다른 세션 개수 불일치: ${JSON.stringify(semanticContracts)}`);
   round.observed.quality = { quickCommands: quickContract.before, persistence: true, semanticContracts: true };
 }
 
@@ -352,6 +365,9 @@ async function exerciseTabDataRouting(win, round) {
         attentionInboxVisible: !document.querySelector('#attentionInbox')?.classList.contains('hidden'),
         activeEmptyVisible: !document.querySelector('#activeEmptyState')?.classList.contains('hidden'),
         liveTmuxCards: document.querySelectorAll('.live-tmux-card').length,
+        tmuxProjectChip: Boolean([...document.querySelectorAll('#workspaceList [data-workspace]')]
+          .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project')),
+        tmuxProjectGroup: Boolean(document.querySelector('[data-control-project="tmux-only-project"] .live-tmux-card')),
         tmuxCommandsOutsideTmux: [...document.querySelectorAll('[data-tmux-manage], [data-control-tmux]')].some(node => !node.closest('#tmuxSection') && !node.closest('#terminalSection')),
       };
     })()`);
@@ -362,7 +378,9 @@ async function exerciseTabDataRouting(win, round) {
     if (view === 'active') assert(!actual.historySectionVisible && !actual.activeEmptyVisible, '진행 중 탭 하단에 지난 기록 영역이 남았습니다.');
     if (view === 'all') assert(actual.historySectionVisible && !actual.attentionInboxVisible, '홈에서 지난 기록 영역이 숨겨졌거나 확인함이 섞였습니다.');
     if (view === 'waiting') assert(!actual.historySectionVisible && actual.attentionInboxVisible, '내 확인 필요 탭이 전용 확인함을 표시하지 못했습니다.');
-    if (view === 'all' || view === 'active') assert(actual.liveTmuxCards === 0 && !actual.tmuxCommandsOutsideTmux, `${view} 탭에 tmux 자원이나 명령이 노출됩니다: ${JSON.stringify(actual)}`);
+    if (view === 'all' || view === 'active') assert(actual.liveTmuxCards === 1 && actual.tmuxProjectChip
+      && actual.tmuxProjectGroup && !actual.tmuxCommandsOutsideTmux,
+    `${view} 탭의 프로젝트에 연결되지 않은 AI tmux 세션을 읽기 좋게 투영하지 못했습니다: ${JSON.stringify(actual)}`);
   }
   await click(win, '[data-view="active"]', 'nav:active');
   await win.webContents.executeJavaScript(`(() => {
@@ -999,9 +1017,49 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'addWorkspaces')`, 'workspace 추가가 호출되지 않았습니다.');
   await waitFor(win, `Boolean(document.querySelector('[data-workspace="__projectless__"]')) && document.querySelector('[data-workspace="__projectless__"] small')?.textContent === '1'`, '프로젝트 없는 세션 필터와 개수가 표시되지 않았습니다.');
   await waitFor(win, `(() => { const item = [...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin'); return item?.querySelector('small')?.textContent === '1'; })()`, '등록하지 않은 관측 프로젝트가 세션 개수와 함께 자동 표시되지 않았습니다.');
+  await waitFor(win, `(() => {
+    const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
+      .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project');
+    return item?.querySelector('small')?.textContent === '1' && item?.dataset.liveSessionCount === '1';
+  })()`, '대화 기록에 연결되지 않은 tmux AI 세션을 pane 경로의 프로젝트로 가져오지 못했습니다.');
+  const standaloneTmuxIds = await win.webContents.executeJavaScript(
+    `window.LoadToAgentApp.unlinkedLiveTmuxSessions().map(session => session.id)`,
+  );
+  assert(
+    JSON.stringify(standaloneTmuxIds) === JSON.stringify(['tmux:tmux-pane-unlinked']),
+    `오래전에 idle이 된 연결 tmux를 새 실행으로 중복 집계했습니다: ${JSON.stringify(standaloneTmuxIds)}`,
+  );
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')]
+    .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project')?.click()`);
+  mark('workspace:select');
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === '/mnt/c/Users/fixture/tmux-only-project'
+    && document.querySelector('[data-control-project="tmux-only-project"] .live-tmux-card')
+    && document.querySelector('.live-tmux-card-head b')?.textContent === 'fixture-session'
+    && document.querySelector('.live-tmux-title')?.textContent === 'tmux 전용 마이그레이션 작업'
+    && !document.querySelector('#emptyState:not(.hidden)')`,
+  'tmux 전용 프로젝트를 선택했을 때 세션명·작업명·경로 카드가 홈에서 사라졌습니다.');
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')]
+    .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project')?.click()`);
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === 'all'`, 'tmux 전용 프로젝트 필터를 다시 눌러 전체 보기로 돌아오지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspaces.push({ name: 'empty-live-project', path: 'D:\\\\empty-live-project' });
+    app.render('empty-live-project');
+  })()`);
+  await waitFor(win, `![...document.querySelectorAll('#workspaceList [data-workspace]')]
+    .some(node => node.dataset.workspace === 'D:\\\\empty-live-project')`,
+  '진행 중인 세션이 0개인 저장 프로젝트가 홈 관제 필터에 노출됐습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspaces = app.state.workspaces.filter(item => item.path !== 'D:\\\\empty-live-project');
+    app.render('empty-live-project-restore');
+  })()`);
   await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin')?.click()`);
   mark('workspace:select-observed-project');
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'D:\\\\unregistered-origin' && window.LoadToAgentApp.filteredSessions().length === 1 && window.LoadToAgentApp.filteredSessions()[0].id === 'fixture-origin' && Boolean(document.querySelector('[data-control-session="fixture-origin"]'))`, '감지된 폴더별 세션 필터가 홈 관제 구조에 적용되지 않았습니다.');
+  await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin')?.click()`);
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === 'all' && Boolean(document.querySelector('[data-control-session="fixture-live-0"]'))`,
+  '선택한 프로젝트 필터를 다시 눌렀을 때 전체 진행 세션으로 돌아오지 못했습니다.');
   await click(win, '[data-workspace="all"]', 'workspace:select');
   await waitFor(win, `document.querySelector('#sessionGrid .origin-project small')?.textContent === '작업 시작 폴더'`, '세션 카드에 작업 시작 폴더가 명시되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
@@ -1839,7 +1897,8 @@ async function exerciseAgentControls(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-live-0' && document.querySelector('.agent-command-panel.control-handoff textarea:not([disabled])')`, '외부 CLI 세션 이어받기 UI가 표시되지 않았습니다.');
   await click(win, '[data-open-session="fixture-live-0"]', 'drawer:open-session');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
-    && document.querySelector('#drawerComposer .agent-command-panel.control-handoff[data-agent-command-routing="conversation"] textarea:not([disabled])')`,
+    && document.querySelector('#drawerComposer .agent-command-panel.control-handoff[data-agent-command-routing="conversation"] textarea:not([disabled])')
+    && document.querySelectorAll('#drawerContent .chat-answer-kind.is-live .chat-working-dots i').length === 3`,
   '외부 CLI 세션의 대화 입력창이 열리지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
@@ -2276,7 +2335,7 @@ async function exerciseTmux(win, round) {
     paneIds: window.LoadToAgentApp.visibleTmux().distros.flatMap(distro => distro.sessions.flatMap(session => session.windows.flatMap(item => item.panes.map(pane => pane.id)))),
     summary: window.LoadToAgentApp.visibleTmux().summary,
   }))()`);
-  assert(!tmuxProjection.paneIds.includes('tmux-pane-dead') && tmuxProjection.summary.panes === 2 && tmuxProjection.summary.aiPanes === 2 && tmuxProjection.summary.linked === 1, `종료된 tmux AI 칸이 현재 자원이나 배지에 포함됩니다: ${JSON.stringify(tmuxProjection)}`);
+  assert(!tmuxProjection.paneIds.includes('tmux-pane-dead') && tmuxProjection.summary.panes === 3 && tmuxProjection.summary.aiPanes === 3 && tmuxProjection.summary.linked === 2, `종료된 tmux AI 칸이 현재 자원이나 배지에 포함됩니다: ${JSON.stringify(tmuxProjection)}`);
   const nativeEnvironment = await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     const previous = app.state.platform;

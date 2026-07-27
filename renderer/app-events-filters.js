@@ -61,7 +61,9 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       const item = event.target.closest("[data-workspace]");
       if (item) {
         const label = item.querySelector("strong")?.textContent.trim() || t("project.all");
-        state.workspace = item.dataset.workspace;
+        state.workspace = item.dataset.workspace !== "all" && state.workspace === item.dataset.workspace
+          ? "all"
+          : item.dataset.workspace;
         state.visibleLimit = 30;
         renderWorkspaces();
         renderSessions("filter");

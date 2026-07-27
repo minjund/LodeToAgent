@@ -278,11 +278,10 @@ function reconcileExecutionActivities(activities = [], options = {}) {
     if (!activity || activity.status !== 'running') return activity;
     const observedAt = Date.parse(activity.updatedAt || activity.startedAt || 0);
     const observationAge = Number.isFinite(observedAt) ? Math.max(0, now - observedAt) : Number.POSITIVE_INFINITY;
+    const observationStale = staleAfterMs > 0 && observationAge >= staleAfterMs;
     const foregroundEnded = activity.mode !== 'background' && turnSettled;
-    const backgroundUnobserved = activity.mode === 'background'
-      && staleAfterMs > 0
-      && observationAge >= staleAfterMs;
-    if (!foregroundEnded && !backgroundUnobserved) return activity;
+    const executionUnobserved = observationStale;
+    if (!foregroundEnded && !executionUnobserved) return activity;
     return {
       ...activity,
       status: 'unverified',
