@@ -317,7 +317,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="${options.conversation ? "2" : "3"}"
           placeholder="${esc(placeholder)}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
       </label>
-      <div class="agent-command-actions"><small aria-live="polite">${esc(help)}</small>${terminalToggle}${interruptAction}${actions}</div>
+      <div class="agent-command-actions"><small aria-live="polite">${esc(options.conversation ? t("agent.command_and_prompt_help", { help }) : help)}</small>${terminalToggle}${interruptAction}${actions}</div>
     </form>`;
     return options.conversation
       ? `<div class="conversation-composer-shell mode-${esc(inputMode)}">${terminalExpanded}${form}</div>`
@@ -370,7 +370,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
     const drawerSubmission = form?.dataset.agentCommandRouting === "conversation";
     const inputMode = drawerSubmission ? form?.dataset.agentCommandInputModeSelected || "conversation" : "terminal";
-    const conversationSubmission = drawerSubmission && inputMode === "conversation";
+    let conversationSubmission = drawerSubmission && inputMode === "conversation";
     const routingEnabled = drawerSubmission && Boolean(session.parentId);
     const requestedRoute = routingEnabled ? form?.dataset.agentCommandRouteSelected || selectedAgentCommandRoute(session) : "direct";
     const routeContext = routingEnabled
@@ -381,10 +381,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (routingEnabled && !["direct", "resume", "handoff", "origin-resume"].includes(mode)) return context.toast(t("agent.route_unavailable"));
     const input = form.querySelector("[data-agent-command-draft]");
     const command = String((input && input.value) || "").trim();
+    const nativeCommand = /^(?:\/|!)(?:\S|$)/.test(command);
+    if (nativeCommand) conversationSubmission = false;
     if (conversationSubmission && command && matchingPendingConversation(sessionId, command)) {
       return context.toast(t("agent.command_already_pending"));
     }
-    const routedCommand = conversationSubmission && routingEnabled && routeContext.route === "parent"
+    const routedCommand = conversationSubmission && routingEnabled && routeContext.route === "parent" && !nativeCommand
       ? t("agent.route_via_parent_prompt", {
           task: session.delegation?.taskName || session.taskName || session.agentName || session.title,
           message: command,
@@ -402,6 +404,17 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
+          if (nativeCommand) {
+            if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
+            selectView("terminal");
+            try {
+              await window.LoadToAgentTerminal.openForAgent(targetSession, resumedTarget.id);
+            } catch (error) {
+              window.LoadToAgentRendererUtils.reportRecoverableError("native-command-terminal-focus", error);
+            }
+            context.toast(t("agent.native_command_sent"));
+            return;
+          }
           context.toast(t(routingEnabled && routeContext.route === "parent"
             ? "agent.command_routed_via_parent"
             : inputMode === "terminal" ? "agent.terminal_command_sent_background" : "agent.command_sent_background"));
@@ -437,6 +450,17 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       state.agentCommandDrafts.delete(sessionId);
       if (input) input.value = "";
       updateConversationMessage(sessionId, pendingMessage, "awaiting");
+      if (nativeCommand) {
+        if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
+        selectView("terminal");
+        try {
+          await window.LoadToAgentTerminal.openForAgent(targetSession, dispatched?.target?.id || target.id);
+        } catch (error) {
+          window.LoadToAgentRendererUtils.reportRecoverableError("native-command-terminal-focus", error);
+        }
+        context.toast(t("agent.native_command_sent"));
+        return;
+      }
       context.toast(t(routingEnabled && routeContext.route === "parent"
         ? "agent.command_routed_via_parent"
         : inputMode === "terminal" ? "agent.terminal_command_sent" : "agent.command_sent", { target: target.label }));
@@ -505,14 +529,17 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     state.agentCommandSending.add(sessionId);
     try {
       const result = await window.LoadToAgentTerminal.changeModelForAgent(session, model);
-      if (result?.mode === "new-session") {
-        if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
-        selectView("terminal");
-        document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
-        context.toast(t("session.model_changed_new_session", { model }));
-      } else {
-        context.toast(t("session.model_changed_now", { model }));
+      if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
+      selectView("terminal");
+      if (result?.id) {
+        try {
+          await window.LoadToAgentTerminal.openForAgent(session, result.id);
+        } catch (error) {
+          window.LoadToAgentRendererUtils.reportRecoverableError("model-change-terminal-focus", error);
+        }
       }
+      document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+      context.toast(t(result?.mode === "resumed" ? "session.model_changed_resumed" : "session.model_changed_now", { model }));
     } catch (error) {
       context.toast(errorText(error, "session.model_change_failed"));
     } finally {

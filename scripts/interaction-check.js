@@ -1710,10 +1710,65 @@ async function exerciseDrawer(win, round) {
   })()`);
   mark('session:model-change');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
-    && item.args[0] === 'terminal-main' && item.args[1] === '/model sonnet')`,
+    && item.args[0] === 'terminal-main' && item.args[1] === '/model sonnet')
+    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+    && window.LoadToAgentApp.state.view === 'terminal'`,
   '연결된 Claude 세션의 모델 변경이 즉시 전달되지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, 'CLI 명령 검증을 위해 현재 세션을 다시 열지 못했습니다.');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const form = document.querySelector('[data-agent-command-form="fixture-root"]');
+    const input = form.querySelector('[data-agent-command-draft]');
+    input.value = '/status';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    form.requestSubmit();
+  })()`);
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
+    && item.args[0] === 'terminal-main' && item.args[1] === '/status')
+    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-root')
+    && window.LoadToAgentApp.state.view === 'terminal'`,
+  'CLI 내장·등록 명령이 대화 프롬프트로 변환되지 않고 현재 세션에 전달되지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '배경 닫기 검증을 위해 현재 세션을 다시 열지 못했습니다.');
   await click(win, '#drawerBackdrop', 'drawer:backdrop');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, 'drawer backdrop 닫기 실패');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-failed')`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-model-form="fixture-failed"]'))`, '종료된 Codex 세션 모델 변경 UI를 열지 못했습니다.');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const form = document.querySelector('[data-agent-command-form="fixture-failed"]');
+    const input = form.querySelector('[data-agent-command-draft]');
+    input.value = '/status';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    form.requestSubmit();
+  })()`);
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
+    && item.args[0]?.provider === 'codex'
+    && item.args[0]?.bridgeId === 'fixture-failed'
+    && item.args[0]?.args?.join(' ') === 'resume fixture-failed-external')
+    && window.interactionTest.getCalls().some(item => item.name === 'terminalCommand' && item.args[1] === '/status')
+    && window.LoadToAgentApp.state.view === 'terminal'`,
+  '종료된 세션의 CLI 명령이 새 프롬프트가 아니라 기존 세션 resume 후 원문으로 전달되지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-projectless')`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-model-form="fixture-projectless"]'))`, '종료된 Codex 세션 모델 변경 UI를 열지 못했습니다.');
+  await clearCalls(win);
+  await win.webContents.executeJavaScript(`(() => {
+    const form = document.querySelector('[data-session-model-form="fixture-projectless"]');
+    form.querySelector('input[name="model"]').value = 'gpt-5.6-terra';
+    form.requestSubmit();
+  })()`);
+  mark('session:model-change');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
+    && item.args[0]?.provider === 'codex'
+    && item.args[0]?.bridgeId === 'fixture-projectless'
+    && item.args[0]?.args?.join(' ') === 'resume fixture-projectless-external --model gpt-5.6-terra')
+    && window.LoadToAgentApp.state.view === 'terminal'`,
+  '종료된 Codex 모델 변경이 새 대화가 아니라 기존 세션 resume으로 이어지지 않았습니다.');
+  await click(win, '[data-view="all"]', 'nav:all');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-reset="fixture-root"]'))`, '세션 초기화 버튼을 다시 열지 못했습니다.');
   await clearCalls(win);

@@ -161,6 +161,8 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       : '';
     if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
     const prompt = String(draft || '').trim();
+    const nativeCommand = sendDraft && /^(?:\/|!)(?:\S|$)/.test(prompt);
+    const requestedModel = String(options.model || '').trim();
     const title = t('terminal.agent.resume_title', {
       provider: providerLabel(agentSession.provider),
       session: agentSession.taskName || agentSession.agentName || t('terminal.type.session'),
@@ -177,6 +179,10 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       && session.bridgeId === agentSession.id
       && session.status === 'running') || null;
     if (reusable) {
+      if (requestedModel) {
+        const modelResult = await window.loadtoagent.terminalCommand(reusable.id, `/model ${requestedModel}`);
+        if (!modelResult || modelResult.ok === false) throw new Error(modelResult?.error || t('session.model_change_failed'));
+      }
       if (sendDraft && prompt) {
         const result = await window.loadtoagent.terminalCommand(reusable.id, prompt);
         if (!result || result.ok === false) throw new Error(result?.error || t('terminal.agent.send_failed'));
@@ -206,10 +212,13 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
       return { ...target, promptSent: Boolean(sendDraft && prompt), reused: true };
     }
+    const launchArgs = requestedModel
+      ? resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '', { model: requestedModel })
+      : resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '');
     const created = await window.loadtoagent.terminalCreate({
       type: 'agent',
       provider: support.provider,
-      args: resumeLaunchArgs(support, sendDraft ? prompt : ''),
+      args: launchArgs,
       cwd,
       distro,
       bridgeId: agentSession.id,
@@ -223,6 +232,10 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     });
     if (!created || !created.id) throw new Error(t('terminal.agent.resume_terminal_failed'));
     await refreshSessions();
+    if (nativeCommand) {
+      const commandResult = await window.loadtoagent.terminalCommand(created.id, prompt);
+      if (!commandResult || commandResult.ok === false) throw new Error(commandResult?.error || t('terminal.agent.send_failed'));
+    }
     const target = {
       id: created.id,
       kind: 'terminal',
@@ -313,22 +326,28 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   async function changeModelForAgent(agentSession, model) {
     await init();
     const provider = String(agentSession?.provider || '').toLowerCase();
+    if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
+      throw new Error(t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }));
+    }
     const value = String(model || '').trim();
     if (!value) throw new Error(t('session.model_required'));
     if (value.length > 120 || !/^[a-z0-9._:/-]+$/i.test(value)) throw new Error(t('session.model_invalid'));
-    // Claude documents /model as an in-session switch. Other providers are
-    // launched with their model flag so the previous transcript stays intact
-    // and the CLI remains the authority on account/model access.
-    if (provider === 'claude') {
-      await refreshSessions();
-      const live = agentTargets(agentSession).find(target => target.kind === 'terminal');
-      if (live?.terminalId) {
-        const result = await window.loadtoagent.terminalCommand(live.terminalId, `/model ${value}`);
-        if (!result || result.ok === false) throw new Error(result?.error || t('session.model_change_failed'));
-        return { ...live, mode: 'immediate', model: value };
-      }
+    await refreshSessions();
+    const targets = agentTargets(agentSession);
+    const presenceTerminalId = String((agentSession.runtimePresence || [])
+      .find(item => item.kind === 'terminal' && item.terminalId)?.terminalId || '');
+    const bridgeTerminalId = String(state.sessions
+      .find(item => item.status === 'running' && item.bridgeId === agentSession.id)?.id || '');
+    const preferredTerminalId = presenceTerminalId || bridgeTerminalId;
+    const live = targets.find(target => target.kind === 'terminal' && target.terminalId === preferredTerminalId)
+      || targets[0]
+      || null;
+    if (live) {
+      const dispatched = await dispatchAgentCommand(agentSession, `/model ${value}`, live.id);
+      return { ...(dispatched.target || live), mode: 'continued', model: value };
     }
-    return resetForAgent(agentSession, value);
+    const resumed = await resumeForAgent(agentSession, '', false, { model: value });
+    return { ...resumed, mode: 'resumed', model: value };
   }
 
   return {

@@ -181,8 +181,10 @@
     return { supported: true, provider, sessionId, args };
   }
 
-  function resumeLaunchArgs(support, prompt = '') {
+  function resumeLaunchArgs(support, prompt = '', options = {}) {
     const args = [...support.args];
+    const model = String(options.model || '').trim();
+    if (model) args.push('--model', model);
     const text = String(prompt || '').trim();
     if (text) args.push(text);
     return args;

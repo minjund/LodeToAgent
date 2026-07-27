@@ -186,7 +186,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
         <button type="submit">${esc(t("session.apply_model"))}</button>
       </form>
       <button type="button" class="session-reset-button" data-session-reset="${esc(session.id)}">${esc(t("session.reset"))}</button>
-      <small>${esc(session.provider === "claude" ? t("session.model_policy_claude") : t("session.model_policy_new"))}</small>
+      <small>${esc(t("session.model_policy_continue"))}</small>
     </div>`;
   }
 

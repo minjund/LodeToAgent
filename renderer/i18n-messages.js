@@ -1585,9 +1585,10 @@
     "session.change_model": {"ko":"모델 변경","en":"Change model","zh-CN":"更改模型"},
     "session.model_placeholder": {"ko":"모델 ID 또는 별칭","en":"Model ID or alias","zh-CN":"模型 ID 或别名"},
     "session.apply_model": {"ko":"적용","en":"Apply","zh-CN":"应用"},
-    "session.reset": {"ko":"새 세션","en":"New session","zh-CN":"新会话"},
+    "session.reset": {"ko":"세션 초기화","en":"Reset session","zh-CN":"重置会话"},
     "session.model_policy_claude": {"ko":"연결된 Claude는 즉시 변경, 그 외에는 기록을 보존하고 새 세션으로 시작합니다.","en":"Connected Claude sessions switch immediately; otherwise a new session starts and history is kept.","zh-CN":"已连接的 Claude 会立即切换；否则保留历史并启动新会话。"},
     "session.model_policy_new": {"ko":"모델 변경 시 기존 기록을 보존하고 선택한 모델로 새 세션을 시작합니다.","en":"Changing model keeps existing history and starts a new session with the selected model.","zh-CN":"更改模型会保留现有历史，并使用所选模型启动新会话。"},
+    "session.model_policy_continue": {"ko":"모델 변경은 현재 세션을 그대로 이어갑니다. 초기화는 ‘세션 초기화’를 눌렀을 때만 실행됩니다.","en":"Model changes continue the current session. A reset happens only when you press Reset session.","zh-CN":"更改模型会继续当前会话。仅在按下“重置会话”时才会重置。"},
     "session.model_required": {"ko":"변경할 모델을 입력하세요.","en":"Enter a model to use.","zh-CN":"请输入要使用的模型。"},
     "session.model_invalid": {"ko":"모델 이름 형식이 올바르지 않습니다.","en":"The model name format is invalid.","zh-CN":"模型名称格式无效。"},
     "session.fresh_session_title": {"ko":"{provider} · 새 세션","en":"{provider} · New session","zh-CN":"{provider} · 新会话"},
@@ -1596,5 +1597,8 @@
     "session.model_change_failed": {"ko":"모델을 변경하지 못했습니다. 계정 정책과 모델 접근 권한을 확인하세요.","en":"Could not change the model. Check account policy and model access.","zh-CN":"无法更改模型，请检查账户策略和模型访问权限。"},
     "session.model_changed_new_session": {"ko":"{model} 모델로 새 세션을 열었습니다.","en":"Opened a new session with {model}.","zh-CN":"已使用 {model} 打开新会话。"},
     "session.model_changed_now": {"ko":"현재 세션에 {model} 모델 변경을 요청했습니다.","en":"Requested {model} for the current session.","zh-CN":"已请求当前会话切换到 {model}。"},
+    "session.model_changed_resumed": {"ko":"현재 세션을 이어서 {model} 모델로 다시 연결했습니다.","en":"Resumed the current session with {model}.","zh-CN":"已继续当前会话并使用 {model} 重新连接。"},
+    "agent.command_and_prompt_help": {"ko":"{help} · / 또는 !로 시작하면 CLI 내장·등록 명령을 현재 세션에 그대로 전달합니다.","en":"{help} · Start with / or ! to send built-in or registered CLI commands directly to the current session.","zh-CN":"{help} · 以 / 或 ! 开头可将内置或已注册的 CLI 命令直接发送到当前会话。"},
+    "agent.native_command_sent": {"ko":"현재 세션의 CLI에 명령을 그대로 전달했습니다.","en":"Sent the command directly to the current session CLI.","zh-CN":"已将命令直接发送到当前会话的 CLI。"},
   });
 })();
