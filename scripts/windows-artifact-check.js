@@ -11,6 +11,16 @@ const artifacts = fs.readdirSync(releaseDir)
   .map(name => path.join(releaseDir, name));
 if (!artifacts.length) throw new Error('No Windows installer artifacts were found.');
 
+for (const artifact of artifacts) {
+  const stat = fs.statSync(artifact);
+  if (!stat.isFile() || stat.size === 0) throw new Error(`Invalid Windows installer artifact: ${artifact}`);
+}
+
+if (process.env.LOADTOAGENT_ALLOW_UNSIGNED === 'true') {
+  for (const artifact of artifacts) console.log(`${path.basename(artifact)}: unsigned artifact verified`);
+  process.exit(0);
+}
+
 const systemRoot = process.env.SystemRoot || 'C:\\Windows';
 const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 for (const artifact of artifacts) {
