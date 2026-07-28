@@ -261,6 +261,42 @@ function registerClaudeParserTests(context) {
     assert.equal(managed.messages.some(message => message.id === 'managed-final'), true);
   });
 
+  test('완료 알림 없이 끊긴 오래된 Claude 서브에이전트를 실행 중으로 남기지 않는다', () => {
+    const staleAt = new Date(Date.now() - 10 * 60_000);
+    const parentFile = path.join(temp, 'claude', 'project', 'claude-stale-subagent.jsonl');
+    const parentInfo = jsonl(parentFile, [
+      { type: 'user', timestamp: '2026-07-14T02:30:00Z', message: { role: 'user', content: '세 검사를 병렬로 진행해줘' } },
+      { type: 'assistant', timestamp: '2026-07-14T02:30:01Z', message: { role: 'assistant', stop_reason: 'tool_use', content: [
+        { type: 'tool_use', id: 'toolu-stale-agent', name: 'Agent', input: { description: '유령 상태 검사', prompt: '상태를 검사해줘' } },
+      ] } },
+      { type: 'user', timestamp: '2026-07-14T02:30:02Z', message: { role: 'user', content: [
+        { type: 'tool_result', tool_use_id: 'toolu-stale-agent', content: 'Async agent launched successfully.\nagentId: stale-child' },
+      ] } },
+    ]);
+    fs.utimesSync(parentFile, staleAt, staleAt);
+    parentInfo.mtimeMs = fs.statSync(parentFile).mtimeMs;
+
+    const childFile = path.join(temp, 'claude', 'project', 'claude-stale-subagent', 'subagents', 'agent-stale-child.jsonl');
+    const childInfo = jsonl(childFile, [
+      { type: 'user', timestamp: '2026-07-14T02:30:02Z', message: { role: 'user', content: '상태를 검사해줘' } },
+      { type: 'assistant', timestamp: '2026-07-14T02:30:03Z', message: { role: 'assistant', stop_reason: 'tool_use', content: [
+        { type: 'tool_use', id: 'stale-read', name: 'Read', input: { file_path: 'status.js' } },
+      ] } },
+    ]);
+    fs.utimesSync(childFile, staleAt, staleAt);
+    childInfo.mtimeMs = fs.statSync(childFile).mtimeMs;
+
+    const parent = parseClaude(parentInfo);
+    const child = parseClaude(childInfo);
+    const sessions = [parent, child];
+    attachHierarchy(sessions);
+
+    assert.equal(parent.status, 'idle');
+    assert.equal(parent.collaboration.spawns[0].status, 'unverified');
+    assert.equal(parent.collaboration.metrics.currentlyRunning, 0);
+    assert.equal(child.status, 'idle');
+  });
+
   test('Claude 서브에이전트의 end_turn만 작업 완료로 판정한다', () => {
     const completed = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'completed-parent', 'subagents', 'agent-completed.jsonl'), [
       { type: 'user', timestamp: '2026-07-14T01:00:00Z', message: { role: 'user', content: '주문 관리 이관을 점검해줘' } },

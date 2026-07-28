@@ -507,6 +507,11 @@ function createClaudeParser(dependencies) {
         confidence: 'high', source: 'input-tool',
       }
       : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
+    if (age >= STALE_TURN_THRESHOLD_MS) {
+      for (const record of session.collaboration.spawns) {
+        if (record.status === 'running') record.status = 'unverified';
+      }
+    }
     const activeSubagents = session.collaboration.spawns.filter(record => record.status === 'running');
     const conversationalInput = state.lastConversationRole === 'assistant'
       && responseIntent.required

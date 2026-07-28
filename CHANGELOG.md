@@ -5,6 +5,13 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.4.2 - 2026-07-28
+
+- Stop stale Claude subagent launch records from keeping finished dashboard
+  sessions and helper agents in the active "working" state.
+- Preserve interrupted collaboration history as unverified records while
+  excluding it from current-running counts.
+
 ## 1.4.1 - 2026-07-28
 
 - Simplify conversation intervention into a focused chat composer with clear
