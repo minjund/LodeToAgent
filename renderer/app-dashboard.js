@@ -329,9 +329,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       </div>`,
       )
       .join("");
-    $("#navAllCount").textContent = rootCount;
     const activeRootCount = sessions.filter((session) => !session.parentId && isControlRoomSession(session)).length;
-    $("#navActiveCount").textContent = activeRootCount;
+    const memoryRootCount = sessions.filter((session) => (
+      !session.parentId && ["completed", "cancelled", "failed", "idle"].includes(session.status)
+    )).length;
+    $("#navAllCount").textContent = activeRootCount;
+    $("#navActiveCount").textContent = memoryRootCount;
     const reviewCount = sessions.filter((session) => context.needsManagementInbox?.(session)).length;
     $("#navWaitingCount").textContent = reviewCount;
     const scheduledCount = (state.snapshot?.automations || [])
@@ -342,8 +345,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#navTmuxCount").textContent = tmuxSessionCount;
     $("#advancedToolsCount").textContent = scheduledCount + loopCount + Number($("#navTerminalCount").textContent || 0) + tmuxSessionCount;
     const navCounts = {
-      all: rootCount,
-      active: activeRootCount,
+      all: activeRootCount,
+      active: memoryRootCount,
       waiting: reviewCount,
       runtime: scheduledCount + loopCount,
       terminal: Number($("#navTerminalCount").textContent || 0),
@@ -356,7 +359,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       }[button.dataset.view];
       const label = t(key);
       const count = navCounts[button.dataset.view];
-      const unitKey = { all: "tasks", active: "tasks", waiting: "items", runtime: "runs", terminal: "sessions", tmux: "sessions" }[button.dataset.view];
+      const unitKey = { all: "tasks", active: "records", waiting: "items", runtime: "runs", terminal: "sessions", tmux: "sessions" }[button.dataset.view];
       const unit = unitKey ? t(`quality.unit.${unitKey}`) : "";
       const accessibleLabel = Number.isFinite(count) ? t("quality.nav_count_detailed", { label, count, unit }) : label;
       button.setAttribute("aria-label", accessibleLabel);
@@ -575,7 +578,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   function filteredSessions() {
     const allSessions = displaySessions();
     let sessions = state.view === "waiting" ? allSessions : allSessions.filter((session) => !session.parentId);
-    if (state.view === "active") sessions = sessions.filter(isControlRoomSession);
+    if (state.view === "active") sessions = sessions.filter((session) => ["completed", "cancelled", "failed", "idle"].includes(session.status));
     if (state.view === "waiting") sessions = sessions.filter((session) => context.needsManagementInbox?.(session));
     if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);

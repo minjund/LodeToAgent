@@ -207,7 +207,7 @@ async function checkSubagentDisclosure(win) {
   return states;
 }
 
-async function checkEveryRecentConversation(win) {
+async function checkEveryMemoryRecord(win) {
   const ids = await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     app.state.graphFocusId = null;
@@ -217,24 +217,24 @@ async function checkEveryRecentConversation(win) {
     app.state.sort = 'recent';
     app.state.visibleLimit = 999;
     app.state.guideExpanded = false;
-    app.selectView('all');
+    app.selectView('active');
     app.state.visibleLimit = 999;
     app.renderSessions('audit');
     return [...document.querySelectorAll('#sessionGrid [data-session-id]')].map(element => element.dataset.sessionId);
   })()`);
-  if (ids.length < 30) throw new Error(`최근 대화 전수 검사용 카드 수가 부족합니다: ${ids.length}`);
+  if (ids.length < 30) throw new Error(`기억 기록 전수 검사용 카드 수가 부족합니다: ${ids.length}`);
   for (const id of ids) {
     await win.webContents.executeJavaScript(`document.querySelector('[data-session-id=${JSON.stringify(id)}]').click()`);
-    await waitFor(win, `window.LoadToAgentApp.state.selectedId === ${JSON.stringify(id)} && document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, `최근 대화 ${id} 상세를 열지 못했습니다.`);
+    await waitFor(win, `window.LoadToAgentApp.state.selectedId === ${JSON.stringify(id)} && document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, `기억 기록 ${id} 상세를 열지 못했습니다.`);
     const stayedOpen = await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
       drawer.dispatchEvent(new WheelEvent('wheel', { deltaY: 220, bubbles: true, cancelable: true }));
       return drawer.classList.contains('open');
     })()`);
-    if (!stayedOpen) throw new Error(`최근 대화 ${id}에서 휠 후 상세가 닫혔습니다.`);
-    await auditWheelControls(win, `recent:${id}`);
+    if (!stayedOpen) throw new Error(`기억 기록 ${id}에서 휠 후 상세가 닫혔습니다.`);
+    await auditWheelControls(win, `memory:${id}`);
     await win.webContents.executeJavaScript(`document.querySelector('#closeDrawerBtn').click()`);
-    await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, `최근 대화 ${id} 상세 닫기 버튼이 동작하지 않았습니다.`);
+    await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, `기억 기록 ${id} 상세 닫기 버튼이 동작하지 않았습니다.`);
   }
   await wait(300);
   return { count: ids.length, ids };
@@ -586,7 +586,7 @@ app.whenReady().then(async () => {
       disclosures: await checkDisclosureStates(win),
       drawer: await checkDrawer(win),
       subagentDisclosure: await checkSubagentDisclosure(win),
-      recentConversations: await checkEveryRecentConversation(win),
+      memoryRecords: await checkEveryMemoryRecord(win),
       mobileControls: await checkMobileControls(win),
       terminal: await checkTerminalOutput(win),
       terminalSubagents: await checkTerminalSubagentProgress(win),

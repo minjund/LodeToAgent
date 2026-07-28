@@ -5,6 +5,18 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.5.0 - 2026-07-28
+
+- Reframe the dashboard around a five-stage causal spine from intent and
+  delegation through action, evidence, and judgment.
+- Add a dedicated memory experience that preserves completed work as causal
+  records while separating pending judgment from retained decisions.
+- Unify desktop and mobile navigation, typography, themes, responsive layouts,
+  and interaction language without removing terminal, tmux, automation, or
+  session-management capabilities.
+- Expand philosophical, readability, responsive, scroll-retention, and
+  full-interaction coverage, including deterministic Electron fixture cleanup.
+
 ## 1.4.2 - 2026-07-28
 
 - Stop stale Claude subagent launch records from keeping finished dashboard

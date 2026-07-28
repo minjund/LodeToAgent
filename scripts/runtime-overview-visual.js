@@ -7,7 +7,19 @@ const { app, BrowserWindow } = require('electron');
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-runtime-overview-'));
 app.setPath('userData', userData);
-app.once('quit', () => fs.rmSync(userData, { recursive: true, force: true }));
+app.once('quit', () => {
+  try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
+});
+
+function exitHarness(code) {
+  const exitCode = Number(code) || 0;
+  const hardExit = setTimeout(() => {
+    try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
+    process.exit(exitCode);
+  }, 1_500);
+  hardExit.unref?.();
+  app.exit(exitCode);
+}
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -89,6 +101,6 @@ app.whenReady().then(async () => {
     process.exitCode = 1;
   } finally {
     win.destroy();
-    app.quit();
+    exitHarness(process.exitCode || 0);
   }
 });

@@ -131,6 +131,16 @@ async function layoutMetrics(win) {
       compactNavAtBottom: !compact || Boolean(sidebarRect && sidebarRect.top > window.innerHeight / 2 && Math.abs(sidebarRect.bottom - window.innerHeight) <= 1),
       navCount: navItems.length,
       visibleNavItems: visibleNavItems.map(item => item.dataset.view || item.id),
+      visibleNavItemRects: visibleNavItems.map(item => {
+        const rect = item.getBoundingClientRect();
+        return {
+          id: item.dataset.view || item.id,
+          left: Math.round(rect.left * 10) / 10,
+          right: Math.round(rect.right * 10) / 10,
+          top: Math.round(rect.top * 10) / 10,
+          bottom: Math.round(rect.bottom * 10) / 10,
+        };
+      }),
       navItemsInsideViewport: visibleNavItems.every(item => {
         const rect = item.getBoundingClientRect();
         return rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1 && rect.bottom <= window.innerHeight + 1;
@@ -157,7 +167,7 @@ async function layoutMetrics(win) {
       clippedOpenProjectBodies,
       inaccessibleProjectBodies,
       projectLayoutValid: !liveSectionVisible || projectGroups.length === 0
-        || (projectGroups.every(group => !group.open) && clippedOpenProjectBodies === 0 && inaccessibleProjectBodies === 0),
+        || (projectGroups.filter(group => group.open).length <= 1 && clippedOpenProjectBodies === 0 && inaccessibleProjectBodies === 0),
     };
   })()`);
 }
@@ -466,8 +476,9 @@ function assertManagementDetail(metrics) {
 
 app.whenReady().then(async () => {
   let exitCode = 0;
+  let win = null;
   try {
-    const win = await waitForWindow();
+    win = await waitForWindow();
     await waitForRenderer(win);
     const sizes = [
       [1600, 980],
@@ -633,6 +644,7 @@ app.whenReady().then(async () => {
     exitCode = 1;
     console.error(error && error.stack || error);
   } finally {
+    if (win && !win.isDestroyed()) win.destroy();
     app.exit(exitCode);
   }
 });

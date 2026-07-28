@@ -230,11 +230,11 @@ app.whenReady().then(async () => {
       || !overviewMetrics.mainSummary || overviewMetrics.helperSummaries.some(summary => !summary)
       || overviewMetrics.executionSummaries.some(summary => !summary) || !overviewMetrics.rawBackgroundLabelsHidden
       || overviewMetrics.executionTargets.some(target => !target.owner || !target.execution || target.opensSession)
-      || !overviewMetrics.humanColumnLabels.some(label => label.includes('지금 실행 중인 작업'))
+      || !overviewMetrics.humanColumnLabels.some(label => label.includes('위임과 실제 행위'))
       || overviewMetrics.semanticSamples.copy !== '에이전트·실행 작업의 요약 문구 개선'
       || overviewMetrics.semanticSamples.loop !== 'v18-seo-blog 자동 작업 실행'
       || overviewMetrics.semanticSamples.phase !== '요구사항과 단계 완료 조건 확인'
-      || !overviewMetrics.noSectionOverflow || !overviewMetrics.noStageOverflow || overviewMetrics.sessionRecords < 1
+      || !overviewMetrics.noSectionOverflow || !overviewMetrics.noStageOverflow || overviewMetrics.sessionRecords !== 0
       || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.projectToolbarVisible || !overviewMetrics.stateTabsRemoved
       || overviewMetrics.projectHeaderHeight < 43.5
       || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타', 'nested-active-project', 'tmux-only-project']
@@ -244,10 +244,10 @@ app.whenReady().then(async () => {
         .every(name => overviewMetrics.projectGroups.includes(name))
       || overviewMetrics.projectGroups.length < 4
       || overviewMetrics.projectGroupCounts.some(count => count < 1)
-      || overviewMetrics.openProjectGroups !== 0 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
+      || overviewMetrics.openProjectGroups !== 1 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
       || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
       || !overviewMetrics.addProjectAtRight || !overviewMetrics.bulkActionsAtTop
-      || !overviewMetrics.expandEnabled || !overviewMetrics.collapseDisabled || !overviewMetrics.pagerRemoved) {
+      || !overviewMetrics.expandEnabled || overviewMetrics.collapseDisabled || !overviewMetrics.pagerRemoved) {
       throw new Error(`세션 관제 홈 검증 실패: ${JSON.stringify(overviewMetrics)}`);
     }
 
@@ -276,7 +276,8 @@ app.whenReady().then(async () => {
     const projectControlMetrics = await win.webContents.executeJavaScript(`(() => {
       const control = window.LoadToAgentApp;
       const firstGroup = document.querySelector('.control-room-project-group');
-      const initiallyCollapsed = [...document.querySelectorAll('.control-room-project-group')].every(group => !group.open);
+      const initiallyFocused = Boolean(firstGroup?.open)
+        && [...document.querySelectorAll('.control-room-project-group')].slice(1).every(group => !group.open);
       document.querySelector('#controlRoomExpandAll')?.click();
       const allExpanded = [...document.querySelectorAll('.control-room-project-group')].every(group => group.open);
       control.renderSessions('refresh');
@@ -302,7 +303,7 @@ app.whenReady().then(async () => {
         && !document.querySelector('#agentMapToolbar')?.classList.contains('hidden');
       document.querySelector('#graphResetBtn')?.click();
       return {
-        initiallyCollapsed,
+        initiallyFocused,
         allExpanded,
         persistedExpanded,
         allCollapsed,
@@ -314,7 +315,7 @@ app.whenReady().then(async () => {
         restoredAll: control.state.workspace === 'all',
       };
     })()`);
-    if (!projectControlMetrics.initiallyCollapsed || !projectControlMetrics.allExpanded || !projectControlMetrics.persistedExpanded
+    if (!projectControlMetrics.initiallyFocused || !projectControlMetrics.allExpanded || !projectControlMetrics.persistedExpanded
       || !projectControlMetrics.allCollapsed || !projectControlMetrics.persistedCollapsed
       || !projectControlMetrics.individualExpanded || !projectControlMetrics.individualCollapsed || !projectControlMetrics.projectFiltered
       || !projectControlMetrics.fullStructureOpened || !projectControlMetrics.restoredAll) {
@@ -495,6 +496,12 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`(() => {
       document.querySelector('#closeDrawerBtn')?.click();
       document.querySelector('#toast')?.classList.add('hidden');
+      const firstProject = document.querySelector('.control-room-project-group');
+      if (firstProject) {
+        firstProject.open = true;
+        const key = firstProject.dataset.disclosureKey;
+        if (key) window.LoadToAgentApp.state.disclosureStates.set(key, true);
+      }
       document.querySelector('.main-stage')?.scrollTo(0, 0);
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     })()`);
@@ -504,31 +511,44 @@ app.whenReady().then(async () => {
       const projectList = document.querySelector('#workspaceList');
       const projectToolbar = document.querySelector('#controlRoomProjectToolbar');
       const listToolbar = document.querySelector('#controlRoomListToolbar');
+      const firstProject = document.querySelector('.control-room-project-group');
+      const firstAgent = firstProject?.querySelector('.control-room-main');
+      const firstAgentRect = firstAgent?.getBoundingClientRect();
+      const stageRect = stage?.getBoundingClientRect();
+      const usageDisclosure = document.querySelector('.provider-usage-disclosure');
       return {
         width: innerWidth,
         overviewVisible: Boolean(overview),
         flowColumns: getComputedStyle(document.querySelector('.control-room-flow')).gridTemplateColumns,
-        projectToolbarGap: Number.parseFloat(getComputedStyle(projectToolbar).columnGap),
-        listToolbarGap: Number.parseFloat(getComputedStyle(listToolbar).columnGap),
-        projectChipHeights: [...projectList.querySelectorAll('button')].map(control => control.getBoundingClientRect().height),
-        listControlHeights: [...listToolbar.querySelectorAll('button, select')]
-          .map(control => control.getBoundingClientRect())
-          .filter(rect => rect.width >= 2 && rect.height >= 2)
-          .map(rect => rect.height),
-        projectOverflowAffordance: projectList.scrollWidth <= projectList.clientWidth + 2
-          || projectList.classList.contains('is-overflowing'),
+        projectToolbarHidden: getComputedStyle(projectToolbar).display === 'none',
+        listToolbarHidden: getComputedStyle(listToolbar).display === 'none',
+        mobileProjectPickerAvailable: Boolean(document.querySelector('#mobileWorkspaceList')),
+        firstProjectOpen: Boolean(firstProject?.open),
+        firstAgentAboveFold: Boolean(firstAgentRect && stageRect
+          && firstAgentRect.width > 0 && firstAgentRect.height > 0
+          && firstAgentRect.top < stageRect.bottom && firstAgentRect.bottom > stageRect.top),
+        firstAgentFullyVisible: Boolean(firstAgentRect && stageRect
+          && firstAgentRect.top >= stageRect.top && firstAgentRect.bottom <= stageRect.bottom + 2),
+        firstAgentRect: firstAgentRect ? {
+          top: Math.round(firstAgentRect.top),
+          bottom: Math.round(firstAgentRect.bottom),
+          height: Math.round(firstAgentRect.height),
+        } : null,
+        stageBottom: Math.round(stageRect?.bottom || 0),
+        stageScrollTop: Math.round(stage?.scrollTop || 0),
         noOverviewOverflow: overview.scrollWidth <= overview.clientWidth + 2,
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
+        usageDisclosureClosed: Boolean(usageDisclosure && !usageDisclosure.open),
         usageOverviewVisible: Boolean(document.querySelector('#operationsOverview .provider-usage-overview')),
         usageProviderCards: document.querySelectorAll('#operationsOverview [data-provider-usage]').length,
         usageGauges: document.querySelectorAll('#operationsOverview [role="progressbar"]').length,
       };
     })()`);
-    if (!mobileMetrics.overviewVisible || mobileMetrics.projectToolbarGap < 10 || mobileMetrics.listToolbarGap < 10
-      || mobileMetrics.projectChipHeights.some(height => height < 43.5)
-      || mobileMetrics.listControlHeights.some(height => height < 43.5)
-      || !mobileMetrics.projectOverflowAffordance
+    if (!mobileMetrics.overviewVisible || !mobileMetrics.projectToolbarHidden || !mobileMetrics.listToolbarHidden
+      || !mobileMetrics.mobileProjectPickerAvailable || !mobileMetrics.firstProjectOpen
+      || !mobileMetrics.firstAgentAboveFold || !mobileMetrics.firstAgentFullyVisible || mobileMetrics.stageScrollTop > 1
       || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow
+      || !mobileMetrics.usageDisclosureClosed
       || !mobileMetrics.usageOverviewVisible || mobileMetrics.usageProviderCards < 1 || mobileMetrics.usageGauges < 1) {
       throw new Error(`모바일 세션 관제 검증 실패: ${JSON.stringify(mobileMetrics)}`);
     }

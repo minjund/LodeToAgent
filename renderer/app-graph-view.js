@@ -508,6 +508,17 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     </button>`;
   }
 
+  function controlRoomRetainedDecision(session) {
+    const outcome = session.outcome || {};
+    if (outcome.decision || outcome.approval?.status === "approved" || outcome.approval?.status === "denied") return true;
+    return (session.lifecycle || []).some((row) => {
+      const copy = `${row?.type || ""} ${row?.label || ""} ${row?.detail || ""}`;
+      const decisionEvent = /(?:user[-_ ]?decision|decision[-_ ]?(?:made|recorded)|approval[-_ ]?(?:approved|denied)|사용자\s*(?:판단|결정)|승인\s*(?:완료|거절)|결정\s*(?:완료|기록))/i.test(copy);
+      const pending = /(?:필요|대기|요청|pending|required|request|await)/i.test(copy);
+      return decisionEvent && !pending && ["completed", "done", "approved", "denied", "resolved"].includes(String(row?.status || "").toLowerCase());
+    });
+  }
+
   function controlRoomSession(root, model) {
     const provider = providerInfo(root.provider);
     const presentationStatus = controlRoomStatus(root);
@@ -558,10 +569,29 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         : (waiting ? "control.waiting_session" : (retained ? "control.recently_completed" : "control.live_session"));
     const retention = retained ? `<small class="control-session-retention">${esc(t("control.auto_history_in_minutes", { minutes: sessionRetentionMinutes(root) }))}</small>` : "";
     const archive = retained ? `<button type="button" class="control-session-archive" data-session-archive="${esc(root.id)}">${esc(t("control.move_to_history"))}</button>` : "";
+    const explicitEvidenceCount = actors.reduce((sum, session) => (
+      sum
+      + (session.outcome?.artifacts?.length || 0)
+      + (session.outcome?.checks?.length || 0)
+      + (session.evidence?.sources?.length || 0)
+    ), 0);
+    const evidenceObserved = explicitEvidenceCount > 0 || actors.some(session => (
+      session.outcome?.verified === true || session.evidence?.completion === "observed"
+    ));
+    const judgementRetained = actors.some(controlRoomRetainedDecision);
+    const causalStep = (index, label, value, tone) => `<li class="${tone}"><span>${index}</span><b>${esc(label)}</b><em>${esc(value)}</em></li>`;
+    const causalSpine = `<ol class="control-causal-spine" aria-label="${esc(t("control.causal_spine_label"))}">
+      ${causalStep("01", t("control.causal_intent"), t("control.causal_observed"), "complete")}
+      ${causalStep("02", t("control.causal_delegation"), descendants.length ? t("control.causal_count", { count: descendants.length }) : t("control.causal_direct"), "complete")}
+      ${causalStep("03", t("control.causal_action"), executionItems.length ? t("control.causal_count", { count: executionItems.length }) : t("control.causal_in_motion"), executionItems.length ? "complete" : "current")}
+      ${causalStep("04", t("control.causal_evidence"), evidenceObserved ? t("control.causal_count", { count: Math.max(1, explicitEvidenceCount) }) : t("control.causal_pending"), evidenceObserved ? "complete" : "pending")}
+      ${causalStep("05", t("control.causal_judgement"), hasAttention ? t("control.causal_needs_judgement") : judgementRetained ? t("control.causal_settled") : t("control.causal_pending"), hasAttention ? "current" : judgementRetained ? "complete" : "pending")}
+    </ol>`;
     return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
       <header><div><span class="control-session-live"><i></i>${esc(t(sessionStateKey))}</span><b>${esc(title.text)}</b>${hasAttention ? `<span class="control-session-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow"))} ↗</button></header>
+      ${causalSpine}
       <div class="control-room-flow">
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
@@ -625,7 +655,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="live-tmux-grid">${projectTmuxEntries.map((entry) => liveTmuxPaneCard(entry)).join("")}</div>
         </section>`
         : "";
-      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
+      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" ${index === 0 ? "open" : ""} data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
           <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small>${attentionCount ? `<span class="control-project-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}<em>${totalCount}</em></span>

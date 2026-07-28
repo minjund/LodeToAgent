@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'" />
   <title data-i18n="app.document.title">LoadToAgent · AI 작업 도우미</title>
+  <script src="theme.js"></script>
   <link rel="stylesheet" href="styles-bundle.css" />
 </head>
 <body>
@@ -17,11 +18,11 @@
       </div>
 
       <nav class="view-nav" aria-label="화면 선택" data-i18n-aria-label="app.nav.label">
-        <button class="nav-item active" type="button" data-view="all" aria-label="홈" data-i18n-aria-label="app.nav.home" aria-keyshortcuts="Meta+1 Control+1" aria-controls="operationsOverview liveSection globalStats sessionSection beginnerGuide providerOverview" title="홈" data-i18n-title="app.nav.home"><span class="nav-icon">⌂</span><span data-i18n="app.nav.home">홈</span><b><span id="navAllCount">0</span><small data-i18n="quality.unit.tasks">작업</small></b></button>
-        <button class="nav-item" type="button" data-view="active" aria-label="진행 중" data-i18n-aria-label="app.nav.active" aria-keyshortcuts="Meta+2 Control+2" aria-controls="operationsOverview liveSection activeEmptyState" title="진행 중" data-i18n-title="app.nav.active"><span class="nav-icon live-dot"></span><span data-i18n="app.nav.active">진행 중</span><b><span id="navActiveCount">0</span><small data-i18n="quality.unit.tasks">작업</small></b></button>
-        <button class="nav-item" type="button" data-view="waiting" aria-label="확인할 일" data-i18n-aria-label="app.nav.needs_review" aria-keyshortcuts="Meta+3 Control+3" aria-controls="attentionInbox" title="확인할 일" data-i18n-title="app.nav.needs_review"><span class="nav-icon">!</span><span data-i18n="app.nav.needs_review">확인할 일</span><b><span id="navWaitingCount">0</span><small data-i18n="quality.unit.items">항목</small></b></button>
+        <button class="nav-item active" type="button" data-view="all" aria-label="지금" data-i18n-aria-label="app.nav.home" aria-keyshortcuts="Meta+1 Control+1" aria-controls="operationsOverview liveSection activeEmptyState beginnerGuide" title="지금" data-i18n-title="app.nav.home"><span class="nav-icon">◆</span><span data-i18n="app.nav.home">지금</span><b><span id="navAllCount">0</span><small data-i18n="quality.unit.tasks">작업</small></b></button>
+        <button class="nav-item" type="button" data-view="active" aria-label="기억" data-i18n-aria-label="app.nav.active" aria-keyshortcuts="Meta+2 Control+2" aria-controls="sessionSection memoryHero" title="기억" data-i18n-title="app.nav.active"><span class="nav-icon">○</span><span data-i18n="app.nav.active">기억</span><b><span id="navActiveCount">0</span><small data-i18n="memory.unit.records">기록</small></b></button>
+        <button class="nav-item" type="button" data-view="waiting" aria-label="판단" data-i18n-aria-label="app.nav.needs_review" aria-keyshortcuts="Meta+3 Control+3" aria-controls="attentionInbox" title="판단" data-i18n-title="app.nav.needs_review"><span class="nav-icon">!</span><span data-i18n="app.nav.needs_review">판단</span><b><span id="navWaitingCount">0</span><small data-i18n="quality.unit.items">항목</small></b></button>
         <details id="advancedToolsNav" class="advanced-tools-nav">
-          <summary><span class="nav-icon">⌁</span><span data-i18n="management.advanced_tools">고급 도구</span><b><span id="advancedToolsCount">0</span><small data-i18n="quality.unit.items">항목</small></b><i aria-hidden="true">⌄</i></summary>
+          <summary><span class="nav-icon">›_</span><span data-i18n="management.advanced_tools">도구</span><b><span id="advancedToolsCount">0</span><small data-i18n="quality.unit.items">항목</small></b><i aria-hidden="true">⌄</i></summary>
           <div class="advanced-tools-list">
             <button class="nav-item runtime-nav-item" type="button" data-view="runtime" aria-label="예약·실행 단계" data-i18n-aria-label="app.nav.runtime" aria-keyshortcuts="Meta+4 Control+4" aria-controls="automationOverview" title="예약·실행 단계" data-i18n-title="app.nav.runtime"><span class="nav-icon runtime-nav-icon">↻</span><span data-i18n="app.nav.runtime">예약·실행 단계</span><b><span id="navRuntimeCount">0</span><small data-i18n="quality.unit.runs">실행</small></b></button>
             <button class="nav-item" type="button" data-view="terminal" aria-label="AI 세션 터미널" data-i18n-aria-label="app.nav.session_terminal" aria-keyshortcuts="Meta+5 Control+5" aria-controls="terminalSection" title="AI 세션 터미널" data-i18n-title="app.nav.session_terminal"><span class="nav-icon">›_</span><span data-i18n="app.nav.session_terminal">AI 세션 터미널</span><b><span id="navTerminalCount">0</span><small data-i18n="quality.unit.sessions">세션</small></b></button>
@@ -38,6 +39,8 @@
         <div id="providerRail" class="provider-rail"></div>
       </section>
 
+      <blockquote class="sidebar-credo"><span>모든 행위는</span><strong>하나의 의도로<br />돌아가야 한다.</strong><small>Every action returns to one intent.</small></blockquote>
+
       <div class="sidebar-footer">
         <span class="privacy-light"></span>
         <div><strong data-i18n="ui.secure_on_this_computer">내 컴퓨터에서 안전하게</strong><small data-i18n="ui.conversation_history_is_read_only_on_this_pc">대화 기록은 이 PC에서만 읽습니다</small></div>
@@ -48,15 +51,20 @@
     <main id="mainContent" class="main-stage" tabindex="-1">
       <header class="topbar">
         <div>
-          <p id="pageEyebrow" class="eyebrow" data-i18n="ui.ai_work_overview">세션 관제</p>
-          <h1 id="pageTitle" data-i18n="ui.see_all_ai_work_at_a_glance">에이전트가 일하는 흐름을 실시간으로 확인하세요.</h1>
-          <p id="pageSubtitle" class="subtitle" data-i18n="ui.active_work_and_items_needing_your_review_appear_first_find">실행 구조는 항상 보이고, 세션을 누르면 대화를 확인하거나 바로 참여할 수 있습니다.</p>
+          <p id="pageEyebrow" class="eyebrow" data-i18n="ui.ai_work_overview">살아 있는 의도 · 지금</p>
+          <h1 id="pageTitle" data-i18n="ui.see_all_ai_work_at_a_glance">무엇이 실행되는가보다, 왜 움직이는가를 먼저 봅니다.</h1>
+          <p id="pageSubtitle" class="subtitle" data-i18n="ui.active_work_and_items_needing_your_review_appear_first_find">의도에서 출발해 위임과 실제 행위를 지나, 검증 가능한 증거로 돌아오는 흐름입니다.</p>
         </div>
         <div class="top-actions">
+          <button id="themeToggleBtn" class="theme-toggle-button" type="button" aria-label="라이트 모드로 전환" data-theme-toggle aria-pressed="false">
+            <span class="theme-toggle-sun" aria-hidden="true">☀</span>
+            <span class="theme-toggle-moon" aria-hidden="true">☾</span>
+            <b class="theme-toggle-label" data-theme-toggle-label>라이트</b>
+          </button>
           <button id="shortcutHelpBtn" class="top-icon-action" type="button" aria-label="키보드 단축키 보기" data-i18n-aria-label="quality.shortcuts.open" aria-keyshortcuts="?" aria-controls="shortcutHelpModal"><span aria-hidden="true">⌘</span><b class="top-icon-label" data-i18n="quality.shortcuts.title">앱 단축키</b></button>
           <button id="guideBtn" class="guide-toggle" type="button" aria-controls="beginnerGuide" aria-expanded="false"><span aria-hidden="true">?</span><span><b data-i18n="ui.10_minute_quick_start">10분 시작 가이드</b><small id="guideButtonProgress" data-i18n="common.progress" data-i18n-params='{"current":0,"total":4}'>0 / 4 완료</small></span></button>
           <div id="appConnectionState" class="sync-state" role="status" aria-live="polite"><span aria-hidden="true"></span><div><b data-i18n="ui.app_connection">앱 연결</b><small id="lastSync" data-i18n="ui.connecting">연결 중</small></div></div>
-          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="AI에게 새 일 맡기기" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업</b><small><kbd>⌘N</kbd></small></span></button>
+          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="새 의도 시작하기" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 의도</b><small><kbd>⌘N</kbd></small></span></button>
         </div>
       </header>
 
@@ -75,7 +83,7 @@
         </div>
         <ol>
           <li data-guide-step="create"><button type="button" data-guide-action="create"><i>1</i><span><b data-i18n="ui.assign_work_to_ai">AI에게 일 맡기기</b><small data-i18n="ui.choose_a_task_and_workspace_to_get_started">할 일과 작업 폴더를 고르면 바로 시작돼요.</small><em data-i18n="ui.try_it">직접 해보기 →</em></span></button></li>
-          <li data-guide-step="active"><button type="button" data-guide-action="active"><i>2</i><span><b data-i18n="ui.check_progress">진행 상황 확인</b><small data-i18n="ui.ai_with_a_green_indicator_is_working_now">초록 표시가 있는 AI는 지금 일하고 있어요.</small><em data-i18n="ui.view_active_work">진행 중 보기 →</em></span></button></li>
+          <li data-guide-step="active"><button type="button" data-guide-action="active"><i>2</i><span><b data-i18n="ui.check_progress">기억에서 증거 찾기</b><small data-i18n="ui.ai_with_a_green_indicator_is_working_now">끝난 의도와 남은 증거를 인과 순서로 되짚어보세요.</small><em data-i18n="ui.view_active_work">기억 열기 →</em></span></button></li>
           <li data-guide-step="waiting"><button type="button" data-guide-action="waiting"><i>3</i><span><b data-i18n="ui.find_items_to_review">내 응답과 상태 신호 확인</b><small data-i18n="ui.items_marked_needs_review_need_a_response_or_choice">내가 답할 요청과 AI 상태 위험 신호를 구분해서 확인해요.</small><em data-i18n="ui.view_review_items">확인할 일 보기 →</em></span></button></li>
           <li data-guide-step="detail"><button type="button" data-guide-action="detail"><i>4</i><span><b data-i18n="drawer.title">작업 자세히 보기</b><small data-i18n="ui.see_conversation_progress_and_usage_in_one_place">대화, 진행 과정, 사용량을 한곳에서 확인해요.</small><em data-i18n="ui.open_a_task">작업 열어보기 →</em></span></button></li>
         </ol>
@@ -117,6 +125,19 @@
               <option value="zh-CN">简体中文</option>
             </select>
           </label>
+        </section>
+
+        <section class="theme-settings-card" aria-labelledby="themeSettingsTitle">
+          <div class="theme-settings-mark" aria-hidden="true">◐</div>
+          <div class="theme-settings-copy">
+            <span data-i18n="settings.theme.eyebrow">화면 테마</span>
+            <h3 id="themeSettingsTitle" data-i18n="settings.theme.title">화면 밝기</h3>
+            <p data-i18n="settings.theme.description">밝은 화면과 어두운 화면 중 편한 테마를 선택하세요. 다음 실행에도 그대로 유지됩니다.</p>
+          </div>
+          <div class="theme-choice" role="radiogroup" aria-labelledby="themeSettingsTitle">
+            <button type="button" role="radio" data-theme-choice="light" aria-checked="false"><span aria-hidden="true">☀</span><b data-i18n="settings.theme.light">라이트</b></button>
+            <button type="button" role="radio" data-theme-choice="dark" aria-checked="true"><span aria-hidden="true">☾</span><b data-i18n="settings.theme.dark">다크</b></button>
+          </div>
         </section>
 
         <section class="provider-visibility-card" aria-labelledby="providerVisibilityTitle">
@@ -351,8 +372,23 @@
       <section id="globalStats" class="global-stats" aria-label="전체 통계" data-i18n-aria-label="ui.overall_statistics"></section>
 
       <section id="sessionSection" class="sessions-section">
+        <header id="memoryHero" class="memory-hero">
+          <div>
+            <p class="eyebrow" data-i18n="memory.eyebrow">인과 기억 · 끝난 의도</p>
+            <h2><span data-i18n="memory.title_line1">끝난 일은 사라지지 않고,</span><br><em data-i18n="memory.title_line2">다음 판단의 근거가 됩니다.</em></h2>
+          </div>
+          <p data-i18n="memory.description">기억은 과거 세션의 창고가 아닙니다. 어떤 의도가 어떤 행위를 낳았고 무엇이 증명되었는지 보존하여, 다음 선택을 더 나은 방향으로 바꿉니다.</p>
+        </header>
+        <div class="memory-metrics" aria-label="기억 요약" data-i18n-aria-label="memory.metrics_label">
+          <span><small data-i18n="memory.records">인과 기억</small><b id="memoryRecordCount">0</b></span>
+          <span><small data-i18n="memory.evidence">남은 증거</small><b id="memoryEvidenceCount">0</b></span>
+          <span><small data-i18n="memory.decisions">보존된 판단</small><b id="memoryDecisionCount">0</b></span>
+          <p data-i18n="memory.principle">완료는 사라지는 것이 아니라 조용해지는 것입니다.</p>
+        </div>
+        <div class="memory-layout">
+          <div class="memory-records">
         <div class="sessions-heading">
-          <div><p class="eyebrow" data-i18n="ui.history">지난 기록</p><h2 id="viewTitle" data-i18n="ui.recent_conversations_and_tasks">최근 대화와 작업</h2></div>
+          <div><p class="eyebrow" data-i18n="memory.archive_eyebrow">보존된 계보</p><h2 id="viewTitle" data-i18n="memory.archive_title">의도에서 판단까지</h2></div>
           <div class="session-tools">
             <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" maxlength="240" aria-label="작업 검색" data-i18n-aria-label="ui.search_tasks" aria-keyshortcuts="/" placeholder="작업 이름, AI, 폴더 찾기" data-i18n-placeholder="ui.find_task_ai_or_folder" autocomplete="off" /><button id="searchClearBtn" class="search-clear hidden" type="button" aria-label="검색어 지우기" data-i18n-aria-label="filter.clear_search" title="검색어 지우기" data-i18n-title="filter.clear_search">×</button></label>
             <div id="providerFilter" class="provider-filter" role="toolbar" aria-label="AI 제공사 필터" data-i18n-aria-label="ui.ai_provider_filter"></div>
@@ -370,6 +406,14 @@
           <p data-i18n="ui.change_the_search_filters_or_assign_a_new_task_to">검색 조건을 바꾸거나 AI에게 새 일을 맡겨보세요.</p>
           <button id="emptyClearFiltersBtn" class="ghost-button hidden" type="button" data-i18n="quality.clear_conditions">조건 지우기</button>
           <button class="primary-button" type="button" data-open-run data-i18n="ui.assign_a_new_task_to_ai">AI에게 새 일 맡기기</button>
+        </div>
+          </div>
+          <aside class="memory-wisdom" aria-labelledby="memoryWisdomTitle">
+            <header><p class="eyebrow" data-i18n="memory.wisdom_eyebrow">반복해 쓸 원칙</p><h2 id="memoryWisdomTitle"><span data-i18n="memory.wisdom_title_line1">이 제품이 지키는</span><br /><span data-i18n="memory.wisdom_title_line2">세 가지 원칙</span></h2><p data-i18n="memory.wisdom_description">기억에서 자동 추출한 결론이 아니라, 모든 에이전트가 지켜야 할 제품 원칙입니다.</p></header>
+            <article><small data-i18n="memory.wisdom_visual_label">시각 검증</small><blockquote data-i18n="memory.wisdom_visual">첫 에이전트와 위험 신호가 보이면 작은 화면도 이해 가능하다.</blockquote><p data-i18n="memory.wisdom_visual_detail">전체를 축소하지 말고 첫 인과와 판단 지점을 우선합니다.</p></article>
+            <article><small data-i18n="memory.wisdom_failure_label">실패 처리</small><blockquote data-i18n="memory.wisdom_failure">실패는 증거가 없을 때만 조용해진다.</blockquote><p data-i18n="memory.wisdom_failure_detail">실패한 명령·출력·다음 선택을 하나의 인과로 남깁니다.</p></article>
+            <article><small data-i18n="memory.wisdom_boundary_label">인간의 경계</small><blockquote data-i18n="memory.wisdom_boundary">되돌리기 어려운 변화는 속도보다 이유를 요구한다.</blockquote><p data-i18n="memory.wisdom_boundary_detail">파괴적 실행 전에는 선택 이유도 함께 보존합니다.</p></article>
+          </aside>
         </div>
       </section>
     </main>

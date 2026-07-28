@@ -104,6 +104,88 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     </article>`;
   }
 
+  function memoryCard(session) {
+    const provider = providerInfo(session.provider);
+    const titlePreview = readablePreview(session.title, 112);
+    const outcome = session.outcome || {};
+    const outcomePreview = readablePreview(
+      outcome.summary || session.result || session.statusDetail || latestWorkCopy(session) || t("memory.recorded"),
+      118,
+    );
+    const executions = (session.executions || []).filter(Boolean);
+    const delegationCount = (session.childIds || []).length;
+    const executionCount = executions.length;
+    const verified = outcome.verified === true || session.evidence?.completion === "observed";
+    const explicitEvidenceCount = (outcome.artifacts || []).length + (outcome.checks || []).length;
+    const evidenceState = verified
+      ? "verified"
+      : explicitEvidenceCount > 0
+        ? "unverified"
+        : "missing";
+    const decisionRequested = Boolean(
+      session.responseIntent?.category && session.responseIntent.category !== "none"
+      || ["approval", "decision"].includes(session.attention?.kind),
+    );
+    const decisionRetained = hasRetainedDecision(session);
+    const decisionState = decisionRetained ? "retained" : decisionRequested ? "pending" : "absent";
+    const accessibleId = `memory-${String(session.id || "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+    const stage = (index, label, value, tone = "") => `<span class="${tone}" title="${index} · ${esc(label)} · ${esc(value)}"><small>${esc(label)}</small><b>${esc(value)}</b></span>`;
+    const chain = [
+      stage("01", t("memory.intent"), t("memory.retained")),
+      `<i aria-hidden="true"></i>${stage("02", t("memory.delegation"), delegationCount ? t("memory.count_short", { count: delegationCount }) : t("memory.direct"))}`,
+      `<i aria-hidden="true"></i>${stage("03", t("memory.action"), executionCount ? t("memory.count_short", { count: executionCount }) : provider.label)}`,
+      `<i aria-hidden="true"></i>${stage("04", t("memory.proof"), t(`memory.evidence_${evidenceState}`), evidenceState)}`,
+      `<i aria-hidden="true"></i>${stage("05", t("memory.judgement"), t(`memory.decision_${decisionState}`), decisionRetained ? "decision" : decisionRequested ? "unverified" : "pending")}`,
+    ].join("");
+    return `<article class="session-card memory-record ${statusClass(session.status)}"
+      data-session-id="${esc(session.id)}"
+      data-session-sortable="${esc(session.id)}"
+      data-motion-key="memory:${esc(session.id)}"
+      data-motion-value="${esc(session.updatedAt || "")}:${esc(session.status || "")}"
+      style="${providerStyle(session.provider)}"
+      role="button" tabindex="0" draggable="true" aria-grabbed="false"
+      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+      aria-labelledby="${accessibleId}-title" aria-describedby="${accessibleId}-proof sessionReorderHelp">
+      <span class="memory-record-mark" aria-hidden="true">${verified ? "✓" : "○"}</span>
+      <span class="memory-record-intent">
+        <small>${esc(t("memory.intent"))} · ${esc(sessionWorkspaceLabel(session))} · ${esc(timeAgo(session.updatedAt))}</small>
+        <b id="${accessibleId}-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</b>
+        <em>${esc(provider.label)}${decisionRetained ? ` · ${esc(t("memory.decisions"))}` : ""}</em>
+      </span>
+      <span class="memory-record-lineage"><small>${esc(t("memory.lineage"))}</small><span class="memory-record-chain">${chain}</span></span>
+      <span id="${accessibleId}-proof" class="memory-record-proof">
+        <small>${esc(t("memory.proof"))}</small>
+        <b>${esc(t(`memory.evidence_${evidenceState}`))}</b>
+        <em title="${esc(outcomePreview.full)}">${esc(outcomePreview.text)}</em>
+      </span>
+      <span class="memory-record-open"><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${esc(t("memory.open_record"))}<i aria-hidden="true">→</i></span>
+    </article>`;
+  }
+
+  function hasRetainedDecision(session) {
+    const outcome = session.outcome || {};
+    if (outcome.decision || outcome.approval?.status === "approved" || outcome.approval?.status === "denied") return true;
+    return (session.lifecycle || []).some((row) => {
+      const copy = `${row?.type || ""} ${row?.label || ""} ${row?.detail || ""}`;
+      const decisionEvent = /(?:user[-_ ]?decision|decision[-_ ]?(?:made|recorded)|approval[-_ ]?(?:approved|denied)|사용자\s*(?:판단|결정)|승인\s*(?:완료|거절)|결정\s*(?:완료|기록))/i.test(copy);
+      const pending = /(?:필요|대기|요청|pending|required|request|await)/i.test(copy);
+      return decisionEvent && !pending && ["completed", "done", "approved", "denied", "resolved"].includes(String(row?.status || "").toLowerCase());
+    });
+  }
+
+  function renderMemoryMetrics(sessions) {
+    const evidenceCount = sessions.reduce((sum, session) => {
+      const artifacts = session.outcome?.artifacts?.length || 0;
+      const checks = session.outcome?.checks?.length || 0;
+      const completion = session.outcome?.verified || session.evidence?.completion === "observed" ? 1 : 0;
+      return sum + artifacts + checks + completion;
+    }, 0);
+    const decisionCount = sessions.filter(hasRetainedDecision).length;
+    $("#memoryRecordCount").textContent = fullNumber(sessions.length);
+    $("#memoryEvidenceCount").textContent = fullNumber(evidenceCount);
+    $("#memoryDecisionCount").textContent = fullNumber(decisionCount);
+  }
+
   function renderSessionsContent(motionKind = "refresh", deferMotion = false) {
     const previousLayout = deferMotion ? null : captureMotionLayout();
     syncViewChrome();
@@ -113,15 +195,16 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const settingsView = state.view === "settings";
     const runtimeView = state.view === "runtime";
     const attentionView = state.view === "waiting";
+    const memoryView = state.view === "active";
     const homeView = state.view === "all";
     const operationsView = homeView;
     const focusedToolView = tmuxView || terminalView || settingsView || runtimeView;
     $("#terminalSection").classList.toggle("hidden", !terminalView);
     $("#tmuxSection").classList.toggle("hidden", !tmuxView);
     $("#settingsSection").classList.toggle("hidden", !settingsView);
-    $("#globalStats").classList.toggle("hidden", focusedToolView || homeView || state.view === "active" || attentionView);
+    $("#globalStats").classList.toggle("hidden", focusedToolView || homeView || memoryView || attentionView);
     $("#providerOverview").classList.add("hidden");
-    $("#sessionSection").classList.toggle("hidden", focusedToolView || state.view === "active" || attentionView);
+    $("#sessionSection").classList.toggle("hidden", !memoryView);
     $("#operationsOverview").classList.toggle("hidden", !operationsView);
     $("#attentionInbox").classList.toggle("hidden", !attentionView);
     if (runtimeView) renderRuntimeOverview();
@@ -164,21 +247,22 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const sessions = filteredSessions();
     if (operationsView) renderOperationsOverview();
     const attentionCount = attentionView ? renderAttentionInbox() : 0;
-    const showMap = ["all", "active"].includes(state.view);
+    const showMap = homeView;
     const graphLiveCount = showMap ? renderAgentMap(graphFilteredSessions(), motionKind) : 0;
-    const regular = state.view === "all" ? sessions.filter((session) => !isControlRoomSession(session)) : state.view === "active" ? [] : sessions;
+    const regular = memoryView ? sessions : [];
     const visible = regular.slice(0, state.visibleLimit);
     const resultCount = attentionView
       ? attentionCount
-      : state.view === "active"
-        ? graphLiveCount
+      : memoryView
+        ? regular.length
         : regular.length;
     $("#sessionResultSummary").textContent = window.LoadToAgentI18n.t("quality.results_summary", { count: resultCount });
-    const activeEmpty = state.view === "active" && graphLiveCount === 0;
+    const activeEmpty = homeView && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
-    $("#liveSection").classList.toggle("hidden", attentionView || (graphLiveCount === 0 && state.view !== "active"));
-    $("#viewTitle").textContent = homeView ? t("control.other_sessions") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
-    $("#sessionGrid").innerHTML = visible.map((session) => sessionCard(session)).join("");
+    $("#liveSection").classList.toggle("hidden", !homeView || graphLiveCount === 0);
+    $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
+    $("#sessionGrid").innerHTML = visible.map((session) => memoryView ? memoryCard(session) : sessionCard(session)).join("");
+    if (memoryView) renderMemoryMetrics(regular);
     $("#sessionGrid").classList.toggle("hidden", visible.length === 0);
     $("#loadMoreBtn").classList.toggle("hidden", regular.length <= state.visibleLimit);
     $("#loadMoreBtn").textContent = window.LoadToAgentI18n.t("common.remaining", { count: regular.length - state.visibleLimit });
@@ -188,8 +272,8 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     if (graphLiveCount + regular.length === 0) {
       const emptyCopy = state.search
         ? [window.LoadToAgentI18n.t("ui.no_search_results"), window.LoadToAgentI18n.t("ui.clear_the_search_or_change_the_ai_and_workspace_filters")]
-        : state.view === "active"
-          ? [window.LoadToAgentI18n.t("ui.no_tasks_are_currently_active"), window.LoadToAgentI18n.t("ui.new_tasks_will_show_their_progress_here_immediately")]
+        : memoryView
+          ? [window.LoadToAgentI18n.t("memory.empty_title"), window.LoadToAgentI18n.t("memory.empty_description")]
           : state.view === "waiting"
             ? [window.LoadToAgentI18n.t("ui.all_caught_up"), window.LoadToAgentI18n.t("ui.no_tasks_are_waiting_for_your_response_or_choice")]
             : [window.LoadToAgentI18n.t("ui.no_tasks_to_show_yet"), window.LoadToAgentI18n.t("ui.check_ai_readiness_then_start_your_first_task")];

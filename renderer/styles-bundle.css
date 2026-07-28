@@ -1,4 +1,4 @@
-@layer vendor, foundation, components, cards, overlays, features, product, management, quality, responsive, readability, control-room;
+@layer vendor, foundation, components, cards, overlays, features, product, management, quality, responsive, readability, control-room, theme, philosophical;
 
 @import url("../node_modules/@xterm/xterm/css/xterm.css") layer(vendor);
 @import url("styles.css") layer(foundation);
@@ -24,6 +24,8 @@
 @import url("styles-responsive-product.css") layer(responsive);
 @import url("styles-readability.css") layer(readability);
 @import url("styles-control-room.css") layer(control-room);
+@import url("styles-theme.css") layer(theme);
+@import url("styles-philosophical.css") layer(philosophical);
 
 @layer control-room {
   .downstream-stack .child-session .agent-flow-session-title,

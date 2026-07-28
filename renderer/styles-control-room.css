@@ -3531,9 +3531,9 @@ body.conversation-panel-resizing .detail-drawer {
   margin: 0 0 16px;
 }
 
-/* The drawer composer is intentionally just a chat field and its send controls. */
+/* Keep writing and sending in one continuous surface. */
 .drawer-composer {
-  padding: 10px 14px 14px;
+  padding: 8px 14px 14px;
 }
 
 .drawer-composer .conversation-composer-shell {
@@ -3545,55 +3545,57 @@ body.conversation-panel-resizing .detail-drawer {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0,1fr);
-  gap: 8px;
-  padding: 6px;
-  border: 1px solid rgba(205,218,232,.14);
-  border-radius: 18px;
-  background: rgba(5,9,14,.97);
+  gap: 0;
+  padding: 0;
+  border: 1px solid rgba(205,218,232,.16);
+  border-radius: 16px;
+  background: #080d14;
   box-shadow:
     0 1px 1px rgba(255,255,255,.03) inset,
-    0 12px 30px rgba(0,0,0,.24);
+    0 10px 28px rgba(0,0,0,.2);
+  transition:
+    border-color 160ms ease,
+    background-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.drawer-composer .conversation-composer:focus-within {
+  border-color: rgba(141,218,193,.4);
+  background: #091018;
+  box-shadow:
+    0 0 0 3px rgba(87,190,157,.08),
+    0 1px 1px rgba(255,255,255,.035) inset,
+    0 12px 30px rgba(0,0,0,.22);
 }
 
 body.conversation-context-open .drawer-composer .conversation-composer {
-  padding: 6px;
-  border: 1px solid rgba(205,218,232,.14);
-  border-radius: 18px;
-  background: rgba(5,9,14,.97);
-  box-shadow:
-    0 1px 1px rgba(255,255,255,.03) inset,
-    0 12px 30px rgba(0,0,0,.24);
+  padding: 0;
+  border-radius: 16px;
+  background: #080d14;
 }
 
 .drawer-composer .conversation-composer .agent-command-input {
   display: block;
   min-width: 0;
   overflow: hidden;
-  border-radius: 12px;
-  background: #080d14;
-  box-shadow:
-    0 0 0 1px rgba(205,218,232,.11),
-    inset 0 1px rgba(255,255,255,.025);
-  transition:
-    background-color 160ms ease,
-    box-shadow 160ms ease;
+  border-radius: 15px 15px 0 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .drawer-composer .conversation-composer .agent-command-input:focus-within {
-  background: #0a1018;
-  box-shadow:
-    0 0 0 1px rgba(217,228,239,.2),
-    inset 0 1px rgba(255,255,255,.035);
+  background: transparent;
+  box-shadow: none;
 }
 
 .drawer-composer .conversation-composer .agent-command-input textarea {
   width: 100%;
-  min-height: 58px;
+  min-height: 64px;
   max-height: 180px;
-  padding: 12px 14px;
+  padding: 13px 15px 8px;
   resize: none;
   border: 0;
-  border-radius: 12px;
+  border-radius: 15px 15px 0 0;
   background: transparent;
   box-shadow: none;
   color: #eef3f7;
@@ -3602,11 +3604,11 @@ body.conversation-context-open .drawer-composer .conversation-composer {
 }
 
 .drawer-composer .conversation-composer .agent-command-input textarea:placeholder-shown {
-  min-height: 48px;
+  min-height: 56px;
 }
 
 body.conversation-context-open .drawer-composer .conversation-composer .agent-command-input textarea {
-  min-height: 58px;
+  min-height: 64px;
 }
 
 .drawer-composer .conversation-composer .agent-command-input textarea::placeholder {
@@ -3625,13 +3627,11 @@ body.conversation-context-open .drawer-composer .conversation-composer .agent-co
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  min-height: 52px;
-  padding: 6px 8px;
-  border-radius: 12px;
-  background: #111922;
-  box-shadow:
-    0 0 0 1px rgba(205,218,232,.1),
-    inset 0 1px rgba(255,255,255,.03);
+  min-height: 46px;
+  padding: 3px 7px 7px 12px;
+  border-radius: 0 0 15px 15px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .drawer-composer .conversation-composer .conversation-draft-count {
@@ -3649,34 +3649,34 @@ body.conversation-context-open .drawer-composer .conversation-composer .agent-co
 
 .drawer-composer .conversation-composer .agent-command-actions button {
   flex: 0 0 auto;
-  min-width: 44px;
+  min-width: 38px;
   width: auto;
-  min-height: 44px;
-  height: 44px;
-  padding: 0 13px;
+  min-height: 38px;
+  height: 38px;
+  padding: 0 12px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 13px;
-  background: #18212c;
+  border-radius: 10px;
+  background: transparent;
   box-shadow: none;
-  color: #b9c5d1;
+  color: #9cabb8;
 }
 
 .drawer-composer .conversation-composer .agent-command-actions .conversation-interrupt {
   flex: 0 0 auto;
   width: auto;
-  min-width: 76px;
-  padding: 0 13px;
+  min-width: 68px;
+  padding: 0 11px;
   display: inline-flex;
   grid-auto-flow: column;
-  gap: 8px;
-  border-radius: 12px;
+  gap: 7px;
+  border-radius: 10px;
 }
 
 .drawer-composer .conversation-composer .agent-command-actions button:hover:not(:disabled) {
   transform: none;
-  background: #222d39;
+  background: rgba(255,255,255,.055);
   box-shadow: none;
   color: #f2f6f9;
 }
@@ -3688,28 +3688,30 @@ body.conversation-context-open .drawer-composer .conversation-composer .agent-co
 .drawer-composer .conversation-composer .agent-command-actions button[type="submit"] {
   flex: 0 0 auto;
   width: auto;
-  min-width: 92px;
-  padding: 0 13px 0 16px;
+  min-width: 86px;
+  min-height: 38px;
+  height: 38px;
+  padding: 0 11px 0 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  border-radius: 12px;
-  background: #edf2f6;
+  gap: 6px;
+  border-radius: 10px;
+  background: #a8e6cf;
   box-shadow:
-    0 0 0 1px rgba(255,255,255,.36),
-    0 2px 8px rgba(0,0,0,.2);
-  color: #10171f;
-  font-size: 14px;
-  font-weight: 760;
+    0 0 0 1px rgba(210,255,239,.2) inset,
+    0 3px 10px rgba(0,0,0,.2);
+  color: #091713;
+  font-size: 13px;
+  font-weight: 780;
   letter-spacing: -.01em;
   white-space: nowrap;
 }
 
 .drawer-composer .conversation-composer .conversation-send-icon {
-  width: 17px;
-  height: 17px;
-  flex: 0 0 17px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   fill: none;
   stroke: currentColor;
   stroke-width: 2.2;
@@ -3719,22 +3721,29 @@ body.conversation-context-open .drawer-composer .conversation-composer .agent-co
 }
 
 .drawer-composer .conversation-composer .agent-command-actions button[type="submit"]:hover:not(:disabled) {
-  background: #fff;
+  background: #baf2dd;
   box-shadow:
-    0 0 0 1px rgba(255,255,255,.5),
-    0 3px 10px rgba(0,0,0,.24);
+    0 0 0 1px rgba(226,255,245,.28) inset,
+    0 4px 12px rgba(0,0,0,.24);
+}
+
+.drawer-composer .conversation-composer .agent-command-actions button[type="submit"]:disabled:not([aria-busy="true"]) {
+  opacity: 1;
+  background: #1a232d;
+  box-shadow: inset 0 0 0 1px rgba(205,218,232,.08);
+  color: #697887;
 }
 
 .drawer-composer .conversation-composer .agent-command-actions .conversation-interrupt {
-  background: rgba(91,31,43,.26);
-  box-shadow: inset 0 0 0 1px rgba(255,137,154,.3);
-  color: #f0a4af;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255,137,154,.2);
+  color: #c9828d;
 }
 
 .drawer-composer .conversation-composer .agent-command-actions .conversation-interrupt:hover:not(:disabled) {
-  background: rgba(133,39,55,.2);
-  box-shadow: inset 0 0 0 1px rgba(255,140,157,.3);
-  color: #ffb1bd;
+  background: rgba(133,39,55,.14);
+  box-shadow: inset 0 0 0 1px rgba(255,140,157,.28);
+  color: #efa0ad;
 }
 
 .drawer-composer .conversation-interrupt-icon {
@@ -3749,8 +3758,8 @@ body.conversation-context-open .drawer-composer .conversation-composer .agent-co
 
 .drawer-composer .conversation-interrupt-label {
   color: currentColor;
-  font-size: 13px;
-  font-weight: 740;
+  font-size: 12px;
+  font-weight: 720;
   white-space: nowrap;
 }
 

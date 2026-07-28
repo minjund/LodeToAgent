@@ -108,7 +108,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('홈') || !beginnerMetrics.navLabels.includes('확인할 일') || beginnerMetrics.waitingUnit !== '항목' || !beginnerMetrics.navLabels.includes('예약·실행 단계') || !beginnerMetrics.navLabels.includes('AI 세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 터미널 관리') || beginnerMetrics.primaryAction !== '＋새 AI 작업⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('지금') || !beginnerMetrics.navLabels.includes('기억') || !beginnerMetrics.navLabels.includes('판단') || beginnerMetrics.waitingUnit !== '항목' || !beginnerMetrics.navLabels.includes('예약·실행 단계') || !beginnerMetrics.navLabels.includes('AI 세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 터미널 관리') || beginnerMetrics.primaryAction !== '＋새 의도⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -588,6 +588,10 @@ app.whenReady().then(() => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = null;
         window.LoadToAgentApp.state.graphExpandedProviders.clear();
+        window.LoadToAgentApp.state.disclosureStates.clear();
+        document.querySelectorAll('.control-room-project-group').forEach((group, index) => {
+          group.open = index === 0;
+        });
         window.LoadToAgentApp.renderSessions();
         const defaultRooms = document.querySelectorAll('[data-control-session]').length;
         const grid = document.querySelector('#liveSessionGrid');
@@ -602,8 +606,11 @@ app.whenReady().then(() => {
           mainWorkColumn: Boolean(densityRoom?.querySelector('.main-column .control-room-main')),
           legends: document.querySelectorAll('#graphBreadcrumbs .control-room-legend > span').length,
           projectGroups: document.querySelectorAll('.control-room-project-group').length,
-          allCollapsedByDefault: groups.every(group => !group.open),
-          expandEnabled: !document.querySelector('#controlRoomExpandAll')?.disabled,
+          primaryExpandedByDefault: Boolean(groups[0]?.open) && groups.slice(1).every(group => !group.open),
+          openProjectGroups: groups.filter(group => group.open).length,
+          expandStateValid: groups.length === groups.filter(group => group.open).length
+            ? Boolean(document.querySelector('#controlRoomExpandAll')?.disabled)
+            : !document.querySelector('#controlRoomExpandAll')?.disabled,
           collapseDisabled: Boolean(document.querySelector('#controlRoomCollapseAll')?.disabled),
           pagerRemoved: !document.querySelector('#controlRoomPageSummary, #controlRoomPagePrev, #controlRoomPageNext'),
           structureVisibleWithoutFocus: Boolean(document.querySelector('[data-control-room-overview]')),
@@ -616,7 +623,7 @@ app.whenReady().then(() => {
         || densityMetrics.rooms < 32 || densityMetrics.mains !== densityMetrics.rooms
         || !densityMetrics.densityRoom || densityMetrics.completedPreview !== 3 || !densityMetrics.mainWorkColumn
         || densityMetrics.legends !== 0 || densityMetrics.projectGroups < 1
-        || !densityMetrics.allCollapsedByDefault || !densityMetrics.expandEnabled || !densityMetrics.collapseDisabled || !densityMetrics.pagerRemoved
+        || !densityMetrics.primaryExpandedByDefault || !densityMetrics.expandStateValid || densityMetrics.collapseDisabled || !densityMetrics.pagerRemoved
         || !densityMetrics.structureVisibleWithoutFocus || !densityMetrics.noHorizontalOverflow) {
         throw new Error(`대규모 세션 관제 밀도 조절이 올바르지 않습니다: ${JSON.stringify(densityMetrics)}`);
       }
@@ -1174,7 +1181,8 @@ app.whenReady().then(() => {
       const drawerImage = await win.webContents.capturePage();
       const drawerOutput = path.join(outputDir, 'loadtoagent-session-detail.png');
       fs.writeFileSync(drawerOutput, drawerImage.toPNG());
-      await win.webContents.executeJavaScript(`Promise.all([${JSON.stringify(commandTerminalId)}, ${JSON.stringify(alternateCommandTerminalId)}].map(id => window.loadtoagent.terminalClose(id).catch(() => null)))`);
+      await win.webContents.executeJavaScript(`window.loadtoagent.terminalList().then(items => Promise.all(items.map(item => window.loadtoagent.terminalClose(item.id).catch(() => null))))`);
+      await new Promise(resolve => setTimeout(resolve, 250));
       process.stdout.write(`${output}\n${compactOutput}\n${settingsOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${deliveryOutput}\n${treeOutput}\n${managementOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, settings: settingsMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, terminalCommand: commandUiMetrics, controlStates: controlStateMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, management: managementMetrics, motion: { ...motionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics, deliveryStatus: deliveryMetrics })}\n`);
     } catch (error) {
       process.stderr.write(`${error.stack || error.message}\n`);

@@ -259,7 +259,11 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const health = session.health || { level: "unknown", signals: [] };
     const evidence = session.evidence || {};
     const bucket = managementBucket(session);
-    const category = attention.category || (needsUserResponse(session) ? "required" : "risk");
+    const category = ["required", "optional", "risk"].includes(attention.category)
+      ? attention.category
+      : needsUserResponse(session)
+        ? "required"
+        : "risk";
     const cardLabel = category === "required" || category === "optional"
       ? attentionLabel(attention.kind)
       : healthLabel(bucket === "critical" || bucket === "warning" ? bucket : health.level);
@@ -433,13 +437,12 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   async function refreshProviderUsage(force = false) {
     if (!window.loadtoagent?.providerUsage || state.providerUsageLoading) return state.providerUsage;
     state.providerUsageLoading = true;
-    const section = $("#operationsOverview");
-    if (section) renderProviderUsage(section);
+    if (state.view === "all") renderOperationsOverview();
     try {
       state.providerUsage = await window.loadtoagent.providerUsage({ force: Boolean(force) });
     } finally {
       state.providerUsageLoading = false;
-      if (section && state.view === "all") renderProviderUsage(section);
+      if (state.view === "all") renderOperationsOverview();
     }
     return state.providerUsage;
   }
@@ -447,7 +450,28 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   function renderOperationsOverview() {
     const section = $("#operationsOverview");
     if (!section) return;
-    renderProviderUsage(section);
+    section.classList.remove("hidden");
+    section.removeAttribute("aria-hidden");
+    section.innerHTML = `<div class="home-intent-stack">
+      <div id="homeAttentionMount" class="home-attention-mount"></div>
+      <details class="provider-usage-disclosure" data-disclosure-key="home:provider-usage">
+        <summary>
+          <span class="provider-usage-summary-mark" aria-hidden="true">◔</span>
+          <span><small>${esc(t("usage.eyebrow"))}</small><b>${esc(t("usage.title"))}</b></span>
+          <em>${esc(t("usage.home_hint"))}</em>
+          <i aria-hidden="true">⌄</i>
+        </summary>
+        <div id="homeProviderUsageMount"></div>
+      </details>
+    </div>`;
+    const attentionCount = renderHomeAttention($("#homeAttentionMount"));
+    renderProviderUsage($("#homeProviderUsageMount"));
+    document.body.dataset.homeAttentionCount = String(attentionCount);
+    if (state.view === "all") {
+      $("#pageEyebrow").textContent = t("control.home_eyebrow");
+      $("#pageTitle").textContent = t(attentionCount ? "control.home_title_attention" : "control.home_title_clear", { count: attentionCount });
+      $("#pageSubtitle").textContent = t("control.home_subtitle");
+    }
     return;
     const sessions = typeof context.graphFilteredSessions === "function"
       ? context.graphFilteredSessions()

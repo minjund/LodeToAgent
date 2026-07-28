@@ -26,8 +26,32 @@ async function waitFor(win, expression, attempts = 80) {
   throw new Error(`화면 준비를 기다리는 중 시간 초과: ${expression}`);
 }
 
+async function capturePageWithRetry(win, label) {
+  let lastError = null;
+  const stableContentSize = win.getContentSize();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      win.webContents.invalidate();
+      await wait(180 + attempt * 80);
+      return await win.webContents.capturePage();
+    } catch (error) {
+      lastError = error;
+      win.hide();
+      await wait(100);
+      win.show();
+      if (stableContentSize[0] > 0 && stableContentSize[1] > 0) {
+        win.setContentSize(stableContentSize[0], stableContentSize[1]);
+      }
+      win.focus();
+      await forceRepaint(win);
+    }
+  }
+  throw new Error(`${label} 캡처 실패: ${lastError?.stack || lastError?.message || lastError}`);
+}
+
 async function capture(win, outputDir, name, repaint = false) {
   if (repaint) await forceRepaint(win);
+  const [contentWidth, contentHeight] = win.getContentSize();
   let settled = false;
   let settleError = null;
   for (let attempt = 0; attempt < 2 && !settled; attempt += 1) {
@@ -40,10 +64,19 @@ async function capture(win, outputDir, name, repaint = false) {
     }
   }
   if (!settled) throw settleError;
-  win.webContents.invalidate();
-  await wait(300);
-  const image = await win.webContents.capturePage();
-  const [contentWidth, contentHeight] = win.getContentSize();
+  let image = null;
+  let png = null;
+  let encodeError = null;
+  for (let attempt = 0; attempt < 3 && !png; attempt += 1) {
+    image = await capturePageWithRetry(win, name);
+    try {
+      png = image.toPNG();
+    } catch (error) {
+      encodeError = error;
+      await forceRepaint(win);
+    }
+  }
+  if (!png) throw new Error(`${name} PNG 인코딩 실패: ${encodeError?.stack || encodeError?.message || encodeError}`);
   const deviceScaleFactor = await win.webContents.executeJavaScript('window.devicePixelRatio || 1');
   const captured = image.getSize();
   const expectedWidth = Math.round(contentWidth * deviceScaleFactor);
@@ -51,7 +84,7 @@ async function capture(win, outputDir, name, repaint = false) {
   if (Math.abs(captured.width - expectedWidth) > 2 || Math.abs(captured.height - expectedHeight) > 2) {
     throw new Error(`캡처 크기가 현재 창과 다릅니다: ${name} ${captured.width}×${captured.height} / ${expectedWidth}×${expectedHeight} (DPR ${deviceScaleFactor})`);
   }
-  fs.writeFileSync(path.join(outputDir, name), image.toPNG());
+  fs.writeFileSync(path.join(outputDir, name), png);
 }
 
 async function auditVisibleText(win, view) {
@@ -249,7 +282,7 @@ app.whenReady().then(async () => {
       && Boolean(document.querySelector('[data-control-room-overview]'))`);
     // Chromium can return a stale first frame for a newly shown BrowserWindow.
     // Prime the compositor once so the checked artifact always reflects the DOM.
-    await win.webContents.capturePage();
+    await capturePageWithRetry(win, 'compositor-prime');
     await wait(300);
     await capture(win, outputDir, 'loadtoagent-readability-overview.png', true);
 
@@ -550,7 +583,7 @@ app.whenReady().then(async () => {
 
     await win.webContents.executeJavaScript(`(() => {
       const app = window.LoadToAgentApp;
-      app.state.view = 'all';
+      app.state.view = 'active';
       app.syncViewChrome();
       app.render('view');
       document.querySelector('#sessionGrid [data-session-id]')?.click();
@@ -686,7 +719,15 @@ app.whenReady().then(async () => {
       || conversationMetrics.tabLabels.join('|') !== '요약|대화|과정|사용량') {
       throw new Error(`대화창 긴 요청·입력 가독성 기준 미달: ${JSON.stringify(conversationMetrics)}`);
     }
-    await win.webContents.executeJavaScript(`document.querySelector('[data-session-reset="fixture-root"]')?.click()`);
+    win.show();
+    win.focus();
+    await wait(120);
+    await win.webContents.executeJavaScript(`(() => {
+      const button = document.querySelector('[data-session-reset="fixture-root"]');
+      button?.focus({ preventScroll: true });
+      button?.click();
+      return Boolean(button);
+    })()`);
     await waitFor(win, `!document.querySelector('#sessionResetModal')?.classList.contains('hidden')
       && document.activeElement === document.querySelector('#cancelSessionResetBtn')`);
     const resetDialogMetrics = await win.webContents.executeJavaScript(`(() => {

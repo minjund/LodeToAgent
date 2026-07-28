@@ -564,7 +564,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       }
       if (!editable && !dialogOpen && event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
-        if (state.view !== "all") selectView("all");
+        if (state.view !== "active") selectView("active");
         $("#searchInput").focus();
         return;
       }

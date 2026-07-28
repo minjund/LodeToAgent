@@ -1,6 +1,6 @@
 {
   "name": "loadtoagent",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",
@@ -65,6 +65,8 @@
     "audit:ui": "electron scripts/browser-audit-host.js",
     "test:runtime-overview": "electron scripts/runtime-overview-visual.js",
     "test:control-room": "electron scripts/control-room-visual.js",
+    "test:philosophy": "electron scripts/philosophical-ui-check.js",
+    "test:theme": "electron scripts/theme-visual-check.js",
     "test:readability": "electron scripts/readability-visual-check.js",
     "test:update:mac": "node scripts/mac-update-integration-test.js",
     "test:artifacts:mac": "node scripts/mac-artifact-check.js",
