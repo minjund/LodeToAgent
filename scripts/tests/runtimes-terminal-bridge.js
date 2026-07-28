@@ -8,7 +8,7 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { parseArguments } = require('../../bin/loadtoagent');
 const { parseGeneric, buildSummary } = require('../../src/agentMonitor');
-const { AgentRunner, commandSpec } = require('../../src/agentRunner');
+const { AgentRunner, commandSpec, handleClaude } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
 const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, bridgeLinkScore, applyRuntimePresence } = require('../../src/processMonitor');
 const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell } = require('../../src/terminalManager');
@@ -348,6 +348,84 @@ function registerGenericAgentTests(context) {
     assert.ok(commandSpec('codex', base, 'codex').args.includes('--json'));
     assert.ok(commandSpec('gemini', base, 'gemini').args.includes('stream-json'));
     assert.ok(commandSpec('grok', base, 'grok').args.includes('streaming-json'));
+  });
+
+  test('Claude 구조화 스트림은 부분·완료·result 이벤트를 하나의 답변으로 합친다', () => {
+    const state = {
+      externalId: 'runner-fixture',
+      model: '',
+      status: 'running',
+      statusDetail: '',
+      endedAt: null,
+      messages: [],
+      lifecycle: [],
+      usage: {},
+      turnUsage: {},
+    };
+    handleClaude(state, {
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'claude-message-1' } },
+    });
+    handleClaude(state, {
+      type: 'stream_event',
+      event: { type: 'content_block_delta', delta: { type: 'text_delta', text: '첫 번째' } },
+    });
+    handleClaude(state, {
+      type: 'assistant',
+      message: {
+        id: 'claude-message-1',
+        model: 'claude-haiku-fixture',
+        content: [
+          { type: 'text', text: '첫 번째 답변' },
+          { type: 'text', text: '두 번째 문단' },
+        ],
+      },
+    });
+    handleClaude(state, {
+      type: 'result',
+      is_error: false,
+      result: '첫 번째 답변\n두 번째 문단',
+      usage: { input_tokens: 10, output_tokens: 4 },
+    });
+
+    assert.deepStrictEqual(
+      state.messages.filter(message => message.role === 'assistant').map(message => [message.id, message.text, message.status]),
+      [['claude-message-1', '첫 번째 답변\n두 번째 문단', 'done']],
+    );
+    assert.equal(state.status, 'completed');
+    assert.equal(state.usage.total, 14);
+
+    const errorState = {
+      externalId: 'runner-error-fixture',
+      model: '',
+      status: 'running',
+      statusDetail: '',
+      endedAt: null,
+      messages: [],
+      lifecycle: [],
+      usage: {},
+      turnUsage: {},
+    };
+    const errorText = 'Failed to authenticate. API Error: 401 OAuth access token has been revoked.';
+    handleClaude(errorState, {
+      type: 'assistant',
+      message: {
+        id: 'claude-error-message',
+        model: '<synthetic>',
+        content: [{ type: 'text', text: errorText }],
+      },
+    });
+    handleClaude(errorState, {
+      type: 'result',
+      is_error: true,
+      result: errorText,
+      usage: { input_tokens: 0, output_tokens: 0 },
+    });
+    assert.deepStrictEqual(
+      errorState.messages.filter(message => message.role === 'assistant').map(message => message.text),
+      [errorText],
+    );
+    assert.equal(errorState.status, 'failed');
   });
 
   test('실패한 관리 실행은 저장된 안전 설정으로 새 실행을 만든다', () => {

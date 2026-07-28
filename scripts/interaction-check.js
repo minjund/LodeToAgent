@@ -1773,13 +1773,19 @@ async function exerciseRunModal(win, round) {
     const prompt = document.querySelector('#runPrompt');
     const providers = document.querySelector('#runProviderPicker');
     const suggestion = document.querySelector('[data-run-workspace]');
+    const providerOptions = [...providers.querySelectorAll('[data-run-provider]')];
+    const providerBounds = providers.getBoundingClientRect();
+    const lastProviderBounds = providerOptions.at(-1)?.getBoundingClientRect();
     return {
       promptFirst: Boolean(prompt && providers && (prompt.compareDocumentPosition(providers) & Node.DOCUMENT_POSITION_FOLLOWING)),
       promptCount: document.querySelector('#runPromptCount')?.textContent.trim(),
       workspaceSelected: suggestion?.classList.contains('selected') || false,
+      providerBalance: providerOptions.length % 4 !== 1 || !lastProviderBounds
+        || Math.abs((lastProviderBounds.left - providerBounds.left) - (providerBounds.right - lastProviderBounds.right)) <= 1,
     };
   })()`);
-  assert(composer.promptFirst && composer.promptCount === '0 / 8,000' && composer.workspaceSelected, `새 작업 입력 흐름의 기본 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
+  assert(composer.promptFirst && composer.promptCount === '0 / 8,000' && composer.workspaceSelected && composer.providerBalance, `새 작업 입력 흐름의 기본 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
+  mark('quality:run-provider-balance');
   const runAdvancedInitiallyOpen = await win.webContents.executeJavaScript(`document.querySelector('.run-advanced').open`);
   await click(win, '.run-advanced > summary', 'run:advanced-settings');
   await waitFor(win, `document.querySelector('.run-advanced').open !== ${JSON.stringify(runAdvancedInitiallyOpen)}`, '새 작업 고급 설정 summary가 열림 상태를 전환하지 않았습니다.');
@@ -1903,6 +1909,34 @@ async function exerciseRunModal(win, round) {
   assert(payload.cwd === 'D:\\fixture' && payload.model === 'gpt-fixture' && payload.prompt === '실제 DOM submit 검증' && payload.allowWrites === true, `run field payload가 다릅니다: ${JSON.stringify(payload)}`);
 
   await click(win, '#newRunBtn', 'run:open');
+  await click(win, '[data-run-provider="claude"]', 'run:provider');
+  await waitFor(win, `document.querySelector('[data-run-provider="claude"]').getAttribute('aria-checked') === 'true'
+    && document.querySelector('#runSubmitLabel').textContent.includes('Claude')`,
+  'Claude 새 작업 선택이 실행 버튼에 반영되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('#runCwd').value = 'D:\\\\fixture';
+    document.querySelector('#runModel').value = 'sonnet';
+    document.querySelector('#runPrompt').value = 'Claude 실제 DOM submit 검증';
+    document.querySelector('#allowWrites').checked = false;
+    document.querySelector('#allowWrites').dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await clearCalls(win);
+  await click(win, '#runForm button[type="submit"]', 'run:submit');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'runAgent')
+    && document.querySelector('#runModal').classList.contains('hidden')`,
+  'Claude 새 작업 submit이 실행 호출 후 모달을 닫지 못했습니다.');
+  const claudePayload = await win.webContents.executeJavaScript(`window.interactionTest.getCalls().find(item => item.name === 'runAgent').args[0]`);
+  assert(
+    claudePayload.provider === 'claude'
+      && claudePayload.cwd === 'D:\\fixture'
+      && claudePayload.model === 'sonnet'
+      && claudePayload.prompt === 'Claude 실제 DOM submit 검증'
+      && claudePayload.allowWrites === false,
+    `Claude run field payload가 다릅니다: ${JSON.stringify(claudePayload)}`,
+  );
+  mark('quality:claude-run-submit');
+
+  await click(win, '#newRunBtn', 'run:open');
   await click(win, '#closeRunModalBtn', 'run:close-x');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, 'X 버튼으로 모달이 닫히지 않았습니다.');
   await click(win, '#newRunBtn', 'run:open');
@@ -1924,7 +1958,7 @@ async function exerciseRunModal(win, round) {
   await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden') && document.activeElement === document.querySelector('#runPrompt')`, '새 작업 단축키가 입력창을 열고 포커스하지 않았습니다.');
   await click(win, '#cancelRunBtn', 'run:cancel-shortcut');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '단축키로 연 새 작업 창이 닫히지 않았습니다.');
-  round.observed.runAgentCalls = 1;
+  round.observed.runAgentCalls = 2;
   round.observed.runComposer = true;
 }
 
@@ -2877,6 +2911,17 @@ async function exerciseTerminal(win, round) {
     await click(win, '#closeDrawerBtn', 'drawer:close');
     await waitFor(win, `document.querySelector('#drawerBackdrop')?.classList.contains('hidden')`, '터미널 검증 전에 열린 상세 창을 닫지 못했습니다.');
   }
+  await win.webContents.executeJavaScript(`window.interactionTest.addTerminal({
+    id: 'terminal-resumed-failed-agent',
+    type: 'agent',
+    title: 'Fixture Resumed Failed Agent',
+    status: 'running',
+    pid: 41006,
+    cwd: 'D:\\\\fixture',
+    provider: 'codex',
+    bridgeId: 'fixture-failed',
+    background: true,
+  })`);
   await click(win, '[data-view="terminal"]', 'nav:terminal');
   await waitFor(win, `Boolean(document.querySelector('[data-terminal-id="terminal-main"]'))`, '터미널 목록 로드 실패');
   await waitFor(win, `Boolean(document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea'))`, '터미널 직접 입력 요소가 준비되지 않았습니다.');
@@ -2911,6 +2956,13 @@ async function exerciseTerminal(win, round) {
   }))()`);
   assert(terminalListSemantics.role === 'listbox' && terminalListSemantics.options > 1 && terminalListSemantics.handles === terminalListSemantics.options && terminalListSemantics.tabStops === 1 && terminalListSemantics.selected <= 1 && terminalListSemantics.noHorizontalOverflow, `터미널 세션 목록 ARIA·드래그 레이아웃 계약 실패: ${JSON.stringify(terminalListSemantics)}`);
   assert(await win.webContents.executeJavaScript(`Boolean(document.querySelector('[data-terminal-id="terminal-ended"]') && document.querySelector('[data-terminal-id="terminal-failed"]'))`), '직접 닫지 않은 종료·실패 터미널이 세션 터미널 목록에서 사라졌습니다.');
+  const resumedFailedAgentPresentation = await win.webContents.executeJavaScript(`(() => {
+    const item = document.querySelector('[data-terminal-id="terminal-resumed-failed-agent"]');
+    return { status: item?.dataset.status || '', text: item?.innerText || '' };
+  })()`);
+  assert(resumedFailedAgentPresentation.status === 'attention'
+    && !resumedFailedAgentPresentation.text.includes('열지 못함'),
+  `실패 이력을 재개한 실행 중 터미널을 열기 실패로 표시했습니다: ${JSON.stringify(resumedFailedAgentPresentation)}`);
   const initialOrder = await win.webContents.executeJavaScript(`[...document.querySelectorAll('#terminalSessionList [data-terminal-id]')].map(item => item.dataset.terminalId)`);
   if (round.index > 1) assert(initialOrder[0] === expectedTerminalFirstAfterReload, `저장된 터미널 순서가 재로드 후 복원되지 않았습니다: ${JSON.stringify(initialOrder)}`);
   const terminalEndKey = await win.webContents.executeJavaScript(`(() => {
@@ -3342,6 +3394,23 @@ async function exerciseTmux(win, round) {
   await click(win, '#newTmuxSessionBtn', 'tmux:modal-open');
   await waitFor(win, `!document.querySelector('#tmuxCreateModal').classList.contains('hidden')`, 'tmux 생성 모달 열기 실패');
   assert(await win.webContents.executeJavaScript(`document.querySelector('#appShell').inert && !document.querySelector('#tmuxCreateModal').inert && document.querySelector('#tmuxCreateModal').getAttribute('aria-hidden') === 'false'`), 'tmux 생성 모달이 배경을 보조 기술에서 격리하지 못했습니다.');
+  const tmuxPathLayout = await win.webContents.executeJavaScript(`(() => {
+    const field = document.querySelector('#tmuxCreateCwd').parentElement;
+    const input = document.querySelector('#tmuxCreateCwd').getBoundingClientRect();
+    const button = document.querySelector('#pickTmuxCwdBtn').getBoundingClientRect();
+    return {
+      display: getComputedStyle(field).display,
+      rowAligned: Math.abs(input.top - button.top) <= 1 && Math.abs(input.bottom - button.bottom) <= 1,
+      gap: Math.round(button.left - input.right),
+      buttonWidth: Math.round(button.width),
+    };
+  })()`);
+  assert(
+    tmuxPathLayout.display === 'grid' && tmuxPathLayout.rowAligned
+      && tmuxPathLayout.gap >= 8 && tmuxPathLayout.buttonWidth >= 88,
+    `tmux 시작 폴더 버튼 간격이 올바르지 않습니다: ${JSON.stringify(tmuxPathLayout)}`,
+  );
+  mark('quality:tmux-path-spacing');
   mark('tmux:background-inert');
   await click(win, '#closeTmuxCreateBtn', 'tmux:modal-close-x');
   await waitFor(win, `document.querySelector('#tmuxCreateModal').classList.contains('hidden')`, 'tmux 생성 X 닫기 실패');

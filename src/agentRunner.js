@@ -160,6 +160,15 @@ function updateContext(state, observedWindow = 0) {
   };
 }
 
+function setClaudeStreamMessageId(state, id) {
+  Object.defineProperty(state, '__claudeStreamMessageId', {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value: String(id || '').trim(),
+  });
+}
+
 function handleClaude(state, event) {
   if (event.type === 'system' && event.subtype === 'init') {
     state.externalId = event.session_id || state.externalId;
@@ -170,8 +179,15 @@ function handleClaude(state, event) {
   }
   if (event.type === 'stream_event') {
     const inner = event.event || {};
+    if (inner.type === 'message_start' && inner.message?.id) {
+      setClaudeStreamMessageId(state, inner.message.id);
+    }
     if (inner.type === 'content_block_delta' && inner.delta && inner.delta.type === 'text_delta') {
-      addMessage(state, 'assistant', inner.delta.text, { id: 'live-answer', append: true, status: 'streaming' });
+      addMessage(state, 'assistant', inner.delta.text, {
+        id: state.__claudeStreamMessageId || 'live-answer',
+        append: true,
+        status: 'streaming',
+      });
       state.statusDetail = '응답 스트리밍 중';
     }
     if (inner.type === 'message_delta' && inner.usage) state.turnUsage = usageFrom(inner.usage);
@@ -179,8 +195,10 @@ function handleClaude(state, event) {
   if (event.type === 'assistant' && event.message) {
     state.model = event.message.model || state.model;
     const blocks = Array.isArray(event.message.content) ? event.message.content : [];
+    const messageId = event.message.id || event.uuid || state.__claudeStreamMessageId || 'live-answer';
+    const text = blocks.filter(block => block.type === 'text').map(block => block.text).filter(Boolean).join('\n');
+    if (text) addMessage(state, 'assistant', text, { id: messageId, status: 'done' });
     for (const block of blocks) {
-      if (block.type === 'text') addMessage(state, 'assistant', block.text, { id: event.uuid || event.message.id, status: 'done' });
       if (block.type === 'tool_use') {
         addMessage(state, 'tool', block.input, { id: block.id, type: 'tool', title: block.name, status: 'running' });
         addLifecycle(state, 'tool', block.name || '도구 실행', { id: block.id, status: 'running' });
@@ -193,7 +211,12 @@ function handleClaude(state, event) {
     state.statusDetail = event.is_error ? (event.result || '실행 실패') : '작업 완료';
     state.endedAt = new Date().toISOString();
     state.usage = usageFrom(event.usage || event);
-    if (event.result) addMessage(state, 'assistant', event.result, { id: 'final-result', status: 'done' });
+    if (event.result) {
+      const resultText = clip(event.result, 8000);
+      const existing = state.messages.find(message => message.role === 'assistant' && clip(message.text, 8000) === resultText);
+      if (existing) existing.status = 'done';
+      else addMessage(state, 'assistant', resultText, { id: 'final-result', status: 'done' });
+    }
     addLifecycle(state, state.status === 'failed' ? 'error' : 'session-end', state.status === 'failed' ? '실행 실패' : '세션 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
   }
 }
@@ -533,5 +556,6 @@ module.exports = {
   probeProviders,
   findExecutable,
   commandSpec,
+  handleClaude,
   usageFrom,
 };

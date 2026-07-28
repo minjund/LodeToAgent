@@ -609,6 +609,11 @@ const testApi = {
     snapshot.generatedAt = new Date(Date.now() + 1000).toISOString();
     return true;
   },
+  addTerminal: terminal => {
+    if (!terminal || !terminal.id || terminals.some(item => item.id === terminal.id)) return false;
+    terminals.push(clone(terminal));
+    return true;
+  },
   clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); detailResponses = new Map(); },
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },

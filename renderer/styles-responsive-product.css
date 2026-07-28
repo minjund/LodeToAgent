@@ -285,6 +285,12 @@
     grid-template-columns: repeat(2,minmax(0,1fr));
   }
 
+  .run-composer .run-provider-option:last-child:nth-child(2n + 1) {
+    grid-column: 1 / -1;
+    width: calc(50% - 4px);
+    justify-self: center;
+  }
+
   .run-advanced {
     margin-inline: 16px;
   }

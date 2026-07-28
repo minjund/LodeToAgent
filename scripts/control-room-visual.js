@@ -516,6 +516,14 @@ app.whenReady().then(async () => {
       const firstAgentRect = firstAgent?.getBoundingClientRect();
       const stageRect = stage?.getBoundingClientRect();
       const usageDisclosure = document.querySelector('.provider-usage-disclosure');
+      const rect = selector => {
+        const bounds = document.querySelector(selector)?.getBoundingClientRect();
+        return bounds ? {
+          top: Math.round(bounds.top),
+          bottom: Math.round(bounds.bottom),
+          height: Math.round(bounds.height),
+        } : null;
+      };
       return {
         width: innerWidth,
         overviewVisible: Boolean(overview),
@@ -534,6 +542,22 @@ app.whenReady().then(async () => {
           bottom: Math.round(firstAgentRect.bottom),
           height: Math.round(firstAgentRect.height),
         } : null,
+        verticalLayout: {
+          topbar: rect('.topbar'),
+          headline: rect('.topbar h1'),
+          topActions: rect('.top-actions'),
+          newRun: rect('#newRunBtn'),
+          attention: rect('.home-attention-mount'),
+          usage: rect('.provider-usage-disclosure'),
+          liveSection: rect('.live-section'),
+          liveHeader: rect('.live-section-head'),
+          overview: rect('[data-control-room-overview]'),
+          firstProject: rect('.control-room-project-group'),
+          projectHeader: rect('.control-room-project-group > summary'),
+          agentTop: rect('.control-room-main .control-main-top'),
+          agentTitle: rect('.control-room-main > strong'),
+          agentNow: rect('.control-room-main .control-main-now'),
+        },
         stageBottom: Math.round(stageRect?.bottom || 0),
         stageScrollTop: Math.round(stage?.scrollTop || 0),
         noOverviewOverflow: overview.scrollWidth <= overview.clientWidth + 2,

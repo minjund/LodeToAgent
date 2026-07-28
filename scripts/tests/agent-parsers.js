@@ -81,6 +81,37 @@ function registerClaudeParserTests(context) {
     assert.equal(staleBackground.executions[0].statusDetail, '최근 실행 신호 없음');
   });
 
+  test('Claude 구조화 오류는 실패로 표시하고 다음 정상 턴에서 해제한다', () => {
+    const failed = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'structured-failure.jsonl'), [
+      { type: 'user', uuid: 'failure-user', timestamp: '2026-07-14T01:00:00Z', message: { role: 'user', content: '인증 상태를 확인해줘' } },
+      {
+        type: 'assistant',
+        uuid: 'failure-assistant',
+        error: 'authentication_failed',
+        timestamp: '2026-07-14T01:00:01Z',
+        message: {
+          role: 'assistant',
+          stop_reason: 'stop_sequence',
+          content: [{ type: 'text', text: 'Failed to authenticate. API Error: 401 OAuth access token has been revoked.' }],
+        },
+      },
+    ]));
+    assert.equal(failed.status, 'failed');
+    assert.match(failed.statusDetail, /Failed to authenticate/);
+    assert.equal(failed.statusObserved, true);
+    assert.ok(failed.lifecycle.some(item => item.type === 'error' && item.status === 'failed'));
+
+    const recovered = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'recovered-after-failure.jsonl'), [
+      { type: 'user', uuid: 'first-user', timestamp: '2026-07-14T01:00:00Z', message: { role: 'user', content: '첫 시도' } },
+      { type: 'assistant', uuid: 'first-error', error: 'overloaded_error', timestamp: '2026-07-14T01:00:01Z', message: { role: 'assistant', content: [{ type: 'text', text: 'Service overloaded' }] } },
+      { type: 'user', uuid: 'retry-user', timestamp: '2026-07-14T01:00:02Z', message: { role: 'user', content: '다시 시도해줘' } },
+      { type: 'assistant', uuid: 'retry-answer', timestamp: '2026-07-14T01:00:03Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '재시도에 성공했습니다.' }] } },
+    ]));
+    assert.equal(recovered.status, 'idle');
+    assert.equal(recovered.title, '다시 시도해줘');
+    assert.equal(recovered.statusDetail, '다음 요청 대기');
+  });
+
   test('세션 상세 조회는 카드 제한과 달리 Claude 전체 대화를 다시 읽는다', () => {
     const home = path.join(temp, 'full-history-home');
     const file = path.join(home, '.claude', 'projects', 'full-history-project', 'full-history-session.jsonl');

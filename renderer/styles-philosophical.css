@@ -752,6 +752,17 @@ html[data-theme="light"] .home-attention-more {
   }
 }
 
+@media (min-width: 721px) and (max-height: 680px) {
+  .brand {
+    padding-bottom: 24px;
+  }
+
+  .nav-group-label {
+    margin-top: 12px;
+    margin-bottom: 4px;
+  }
+}
+
 @media (max-width: 720px) {
   .sidebar {
     height: calc(66px + env(safe-area-inset-bottom));
@@ -768,9 +779,13 @@ html[data-theme="light"] .home-attention-more {
     padding: 30px 0 14px;
   }
 
+  body[data-current-view="all"] .topbar {
+    padding: 10px 0 6px;
+  }
+
   body[data-current-view="all"] .topbar h1 {
-    font-size: clamp(29px, 8.5vw, 36px);
-    line-height: 1.09;
+    font-size: 22px;
+    line-height: 1.12;
   }
 
   .topbar h1 {
@@ -787,6 +802,10 @@ html[data-theme="light"] .home-attention-more {
     display: flex;
     gap: 8px;
     margin-top: 12px;
+  }
+
+  body[data-current-view="all"] .top-actions {
+    margin-top: 6px;
   }
 
   #themeToggleBtn,

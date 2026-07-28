@@ -988,6 +988,25 @@ body :is(
   line-height: 1.5 !important;
 }
 
+.run-modal.terminal-modal .path-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.run-modal.terminal-modal .path-field input {
+  min-width: 0;
+  border-radius: 9px;
+}
+
+.run-modal.terminal-modal .path-field button {
+  width: auto;
+  min-width: 96px;
+  padding-inline: 14px;
+  border-left: 1px solid var(--line);
+  border-radius: 9px;
+}
+
 .run-modal.terminal-modal :is(input, select, textarea, button) {
   min-height: 44px !important;
 }

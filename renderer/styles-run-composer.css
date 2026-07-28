@@ -274,6 +274,12 @@
   margin: 0 0 14px;
 }
 
+.run-composer .run-provider-option:last-child:nth-child(4n + 1) {
+  grid-column: 2 / span 2;
+  width: calc(50% - 4px);
+  justify-self: center;
+}
+
 .run-composer .run-provider-option {
   height: 62px;
   display: grid;

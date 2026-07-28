@@ -22,6 +22,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     terminal.open(host);
     const entry = {
       terminal, fit, host, readOnly, userScrollRevision: 0, outputWritePending: 0,
+      outputRestoreGeneration: 0,
       writeQueue: Promise.resolve(), pendingResize: null, resizePromise: null,
     };
     const syncScrollState = viewportY => {
@@ -124,8 +125,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   function terminalPresentation(session) {
     const agent = linkedAgentSession(session);
     if (agent?.attention?.category === 'required' || agent?.status === 'waiting') return { tone: 'attention', label: t('ui.waiting_for_review') };
-    if (agent?.status === 'failed' || session?.status === 'failed') return { tone: 'failed', label: t('terminal.status.failed') };
+    if (session?.status === 'failed') return { tone: 'failed', label: t('terminal.status.failed') };
     if (agent?.attention?.category === 'risk') return { tone: 'attention', label: t('ui.needs_attention') };
+    if (agent?.status === 'failed') return { tone: 'attention', label: t('ui.needs_attention') };
     if (agent?.attention?.category === 'optional') return { tone: 'idle', label: t('management.attention.optional') };
     if (agent?.status === 'completed') return { tone: 'completed', label: t('ui.completed') };
     if (agent && ['running', 'starting'].includes(agent.status)) return { tone: 'running', label: t('ui.working') };

@@ -523,6 +523,12 @@
   color: #e1f8ff;
 }
 
+@media (min-width: 701px) {
+  .detail-drawer .drawer-meta > .session-reset-button {
+    margin-inline-start: auto;
+  }
+}
+
 @media (max-width: 760px) {
   .provider-usage-overview { padding: 14px; }
   .provider-usage-head { align-items: stretch; flex-direction: column; }

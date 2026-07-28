@@ -528,6 +528,32 @@ app.whenReady().then(async () => {
       }
       if (width === 360) {
         const mobileProjects = await win.webContents.executeJavaScript(`(() => {
+          const app = window.LoadToAgentApp;
+          const liveFixtureId = 'responsive-mobile-live-project';
+          const liveFixture = {
+            id: liveFixtureId,
+            externalId: liveFixtureId,
+            parentId: null,
+            childIds: [],
+            provider: 'codex',
+            model: 'gpt-5.6',
+            cwd: '/responsive/mobile-project',
+            originCwd: '/responsive/mobile-project',
+            workspace: 'mobile-project',
+            title: '모바일 프로젝트 실행 상태 표시 검증',
+            status: 'running',
+            statusDetail: '작업 진행 중',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            messages: [],
+            lifecycle: [],
+            usage: {},
+            context: {},
+            runtimePresence: [],
+          };
+          const sessions = app.state.snapshot?.sessions || [];
+          app.state.snapshot.sessions = [...sessions.filter(session => session.id !== liveFixtureId), liveFixture];
+          app.renderWorkspaces();
           document.querySelector('#appShell')?.removeAttribute('inert');
           document.body.classList.remove('dialog-open');
           document.querySelector('#mobileMoreBtn')?.click();
@@ -574,7 +600,14 @@ app.whenReady().then(async () => {
           : (!projectSelectionResult.activeElement.hasFocus || projectSelectionResult.activeElement.id === 'mobileMoreBtn');
         const workspaceCorrect = !projectSelection || projectSelectionResult.workspace === projectSelection;
         if (!projectSelectionResult.menuClosed || projectSelectionResult.expanded !== 'false' || !focusCorrect || !workspaceCorrect) throw new Error(`360×520 모바일 프로젝트 선택 후 닫기·포커스 복귀가 올바르지 않습니다: ${JSON.stringify({ projectSelection, ...projectSelectionResult })}`);
-        await win.webContents.executeJavaScript(`(() => { window.LoadToAgentApp.state.workspace = 'all'; window.LoadToAgentApp.renderWorkspaces(); window.LoadToAgentApp.renderSessions('filter'); })()`);
+        await win.webContents.executeJavaScript(`(() => {
+          const app = window.LoadToAgentApp;
+          app.state.snapshot.sessions = (app.state.snapshot?.sessions || [])
+            .filter(session => session.id !== 'responsive-mobile-live-project');
+          app.state.workspace = 'all';
+          app.renderWorkspaces();
+          app.renderSessions('filter');
+        })()`);
       }
 
       const overlays = await overlayMetrics(win, width === 720 || width === 360 ? path.join(outputDir, `loadtoagent-responsive-new-run-${width}.png`) : '');

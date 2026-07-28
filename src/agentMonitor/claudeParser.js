@@ -81,6 +81,38 @@ function createClaudeParser(dependencies) {
     return raw;
   }
 
+  function structuredFailure(row) {
+    const explicitError = row && (row.error || row.message && row.message.error);
+    if (!explicitError && row && row.is_error !== true) return '';
+    const message = row && row.message || {};
+    const content = Array.isArray(message.content)
+      ? message.content
+        .filter(item => item && (!item.type || item.type === 'text'))
+        .map(item => typeof item === 'string' ? item : item.text)
+        .filter(Boolean)
+        .join('\n')
+      : message.content;
+    return compactText(content || row.result || explicitError || 'Claude 실행 실패', 600);
+  }
+
+  function recordStructuredFailure(session, state, row) {
+    const detail = structuredFailure(row);
+    if (!detail) return false;
+    state.failure = {
+      detail,
+      at: timestamp(row.timestamp, state.latestTs),
+    };
+    addLifecycle(session, {
+      id: `error:${row.uuid || row.requestId || row.timestamp || session.externalId}`,
+      type: 'error',
+      label: '실행 실패',
+      detail,
+      status: 'failed',
+      timestamp: row.timestamp,
+    });
+    return true;
+  }
+
   function isClaudeAgentTool(name) {
     return /^(?:Agent|Task)$/i.test(String(name || ''));
   }
@@ -381,8 +413,10 @@ function createClaudeParser(dependencies) {
       recordContent(session, state, row, item, index);
     });
     if (role === 'user') {
-      content.filter(item => item && item.type === 'tool_result')
+      const toolResults = content.filter(item => item && item.type === 'tool_result');
+      toolResults
         .forEach(item => state.pendingUserInputCalls.delete(String(item.tool_use_id || '')));
+      if (!internalUserRow && toolResults.length === 0) state.failure = null;
       const rawUser = content
         .filter(item => !item.type || item.type === 'text')
         .map(item => typeof item === 'string' ? item : item.text)
@@ -413,6 +447,7 @@ function createClaudeParser(dependencies) {
         .forEach(item => state.pendingUserInputCalls.add(String(item.id || item.name)));
       if (String(row.message.stop_reason || '').toLowerCase() === 'end_turn') {
         state.lastTurnFinished = true;
+        if (!structuredFailure(row)) state.failure = null;
         if (session.depth) state.subagentCompletedAt = timestamp(row.timestamp, state.latestTs);
       }
     }
@@ -439,6 +474,7 @@ function createClaudeParser(dependencies) {
       latestTs: session.updatedAt,
       lastTurnFinished: false,
       subagentCompletedAt: null,
+      failure: null,
     };
     for (const row of rows) {
       state.latestTs = timestamp(row.timestamp, state.latestTs);
@@ -460,6 +496,7 @@ function createClaudeParser(dependencies) {
           state.latestUser = queueTitle;
           state.lastRole = 'user';
           state.lastConversationRole = 'user';
+          state.failure = null;
         }
       }
       if (row.type === 'last-prompt' && !state.latestUser && row.lastPrompt) {
@@ -480,6 +517,7 @@ function createClaudeParser(dependencies) {
         state.lastTurnFinished = true;
       }
       if (row.message && row.message.role) processMessageRow(session, state, row);
+      recordStructuredFailure(session, state, row);
     }
     return state;
   }
@@ -516,7 +554,12 @@ function createClaudeParser(dependencies) {
     const conversationalInput = state.lastConversationRole === 'assistant'
       && responseIntent.required
       && (state.lastTurnFinished || age >= ACTIVE_THRESHOLD_MS);
-    if (session.depth && state.subagentCompletedAt) {
+    if (state.failure) {
+      session.status = 'failed';
+      session.statusDetail = state.failure.detail;
+      session.completedAt = state.failure.at;
+      session.statusObserved = true;
+    } else if (session.depth && state.subagentCompletedAt) {
       session.status = 'completed';
       session.statusDetail = '작업 완료';
       session.completedAt = state.subagentCompletedAt;
@@ -548,7 +591,7 @@ function createClaudeParser(dependencies) {
       turnFinished: state.lastTurnFinished,
       waitingForUser: session.status === 'waiting',
     });
-    session.statusObserved = age < ACTIVE_THRESHOLD_MS;
+    session.statusObserved = session.status === 'failed' || age < ACTIVE_THRESHOLD_MS;
     trimSession(session);
     return session;
   }

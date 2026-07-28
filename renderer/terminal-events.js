@@ -34,6 +34,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     if (!entry || !data) return;
     const buffer = entry.terminal.buffer.active;
     if (entry.outputWritePending === 0) {
+      entry.outputRestoreGeneration += 1;
       entry.outputViewportAnchor = Number(buffer.viewportY) || 0;
       entry.outputShouldFollow = entry.outputViewportAnchor >= Number(buffer.baseY || 0);
       entry.outputUserScrollRevision = entry.userScrollRevision;
@@ -42,9 +43,19 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     entry.terminal.write(data, () => {
       entry.outputWritePending = Math.max(0, entry.outputWritePending - 1);
       if (entry.outputWritePending > 0) return;
-      if (!entry.outputShouldFollow && entry.outputUserScrollRevision === entry.userScrollRevision) {
-        entry.terminal.scrollToLine(entry.outputViewportAnchor);
-      }
+      const restoreGeneration = entry.outputRestoreGeneration;
+      const restoreViewport = () => {
+        if (
+          entry.outputShouldFollow
+          || entry.outputWritePending > 0
+          || restoreGeneration !== entry.outputRestoreGeneration
+          || entry.outputUserScrollRevision !== entry.userScrollRevision
+        ) return;
+        const latestBaseY = Number(entry.terminal.buffer.active.baseY) || 0;
+        entry.terminal.scrollToLine(Math.min(entry.outputViewportAnchor, latestBaseY));
+      };
+      restoreViewport();
+      requestAnimationFrame(() => requestAnimationFrame(restoreViewport));
     });
   };
 
