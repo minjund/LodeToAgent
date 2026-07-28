@@ -6,6 +6,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   const {
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
+    syncComposer,
   } = context;
 
   function tmuxRows(snapshot = state.snapshot) {
@@ -136,6 +137,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const input = $('#terminalCommandInput');
     input.value = String(draft || '');
     state.commandDrafts.set(target.id, input.value);
+    syncComposer?.();
     input.focus({ preventScroll: true });
     notice(t('terminal.agent.session_kept', { target: target.label }), 'success');
     return target;
@@ -200,6 +202,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       if (input) {
         input.value = sendDraft ? '' : String(draft || '');
         state.commandDrafts.set(target.id, input.value);
+        syncComposer?.();
         input.focus({ preventScroll: true });
       }
       notice(sendDraft && prompt
@@ -247,6 +250,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     if (input) {
       input.value = sendDraft ? '' : String(draft || '');
       state.commandDrafts.set(target.id, input.value);
+      syncComposer?.();
       input.focus({ preventScroll: true });
     }
     notice(sendDraft && prompt

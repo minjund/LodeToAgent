@@ -5,6 +5,20 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.4.1 - 2026-07-28
+
+- Simplify conversation intervention into a focused chat composer with clear
+  input and action regions, readable Send and Stop controls, and slash-command
+  suggestions.
+- Disable conversation and terminal Send actions for empty or whitespace-only
+  drafts while preserving Enter, Shift+Enter, composition, and command routing
+  behavior.
+- Improve long-request reading, session-reset wording, mobile action spacing,
+  status indicators, and contrast across dashboard, terminal, tmux, and
+  conversation surfaces.
+- Expand interaction, readability, responsive, visual, and scroll-retention
+  coverage for every user-reachable required control.
+
 ## 1.4.0 - 2026-07-27
 
 - Keep each Claude or Codex conversation on its existing external session

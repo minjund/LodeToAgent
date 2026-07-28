@@ -341,7 +341,13 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       interruptButton.hidden = !interruptible && !interrupting;
       interruptButton.disabled = !interruptible || interrupting;
       interruptButton.toggleAttribute("aria-busy", interrupting);
-      interruptButton.textContent = t(interrupting ? "agent.stopping_response" : "agent.stop_response");
+      const interruptLabel = t(interrupting ? "agent.stopping_response" : "agent.stop_response");
+      interruptButton.setAttribute("aria-label", interruptLabel);
+      interruptButton.setAttribute("title", interruptLabel);
+      const interruptIcon = interruptButton.querySelector(".conversation-interrupt-icon");
+      const interruptVisibleLabel = interruptButton.querySelector(".conversation-interrupt-label");
+      if (interruptIcon) interruptIcon.textContent = interrupting ? "…" : "";
+      if (interruptVisibleLabel) interruptVisibleLabel.textContent = t(interrupting ? "agent.stopping_short" : "agent.stop_short");
     }
     restoreDisclosureStates(content);
     content.classList.toggle("motion-content-in", shouldAnimateContent && !motionPreference.matches);

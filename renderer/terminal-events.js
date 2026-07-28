@@ -10,6 +10,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     closeTmuxModal, errorMessage, notice, reorderSession, moveSessionByOffset,
     setTerminalFontSize, toggleTerminalFocusMode,
     isAiTerminalSession,
+    composer,
   } = context;
 
   const runBusy = async (button, action) => {
@@ -52,6 +53,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
   bindTerminalWindowAndPreloadEvents();
 
   function bindTerminalSessionEvents() {
+    composer?.bind();
     $('#newPowerShellBtn').addEventListener('click', event => runBusy(event.currentTarget, () => createTerminal(state.platform.localShell)));
     $('#newWslBtn').addEventListener('click', event => runBusy(event.currentTarget, () => createTerminal('wsl')));
     $('#newTmuxSessionBtn').addEventListener('click', openTmuxModal);
@@ -195,8 +197,11 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       input.value = '';
       state.commandDrafts.delete(targetId);
       state.commandHistoryNavigation = { targetId, index: -1, draft: '' };
+      $('#terminalCommandForm button[type="submit"]').disabled = true;
       $('#terminalCommandClearBtn').classList.add('hidden');
       $('#terminalCommandCount').classList.remove('warning');
+      $('#terminalCommandCount').textContent = '0 / 8,000';
+      composer?.sync();
       input.focus({ preventScroll: true });
     });
     $('#terminalCommandInput').addEventListener('input', event => {
@@ -209,10 +214,15 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       const warning = event.target.value.length >= 7_200;
       count.classList.toggle('warning', warning);
       count.dataset.warning = warning ? 'true' : 'false';
+      $('#terminalCommandForm button[type="submit"]').disabled = state.commandSending
+        || event.target.disabled
+        || !event.target.value.trim();
       if (warning && !wasWarning) window.LoadToAgentA11y?.announce(t('quality.command_near_limit', { count: 8_000 - event.target.value.length }));
       state.commandHistoryNavigation = { targetId, index: -1, draft: event.target.value };
+      composer?.sync();
     });
     $('#terminalCommandInput').addEventListener('keydown', event => {
+      if (composer?.handleKeydown(event)) return;
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
         event.preventDefault();
         $('#terminalCommandForm').requestSubmit();
@@ -237,6 +247,10 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       state.commandDrafts.set(targetId, event.currentTarget.value);
       $('#terminalCommandClearBtn').classList.toggle('hidden', !event.currentTarget.value);
       $('#terminalCommandCount').textContent = `${event.currentTarget.value.length.toLocaleString()} / 8,000`;
+      $('#terminalCommandForm button[type="submit"]').disabled = state.commandSending
+        || event.currentTarget.disabled
+        || !event.currentTarget.value.trim();
+      composer?.sync();
       const input = event.currentTarget;
       requestAnimationFrame(() => {
         if (input.isConnected) input.setSelectionRange(input.value.length, input.value.length);
@@ -248,9 +262,11 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       const targetId = currentTargetId();
       if (targetId) state.commandDrafts.delete(targetId);
       state.commandHistoryNavigation = { targetId, index: -1, draft: '' };
+      $('#terminalCommandForm button[type="submit"]').disabled = true;
       $('#terminalCommandClearBtn').classList.add('hidden');
       $('#terminalCommandCount').textContent = '0 / 8,000';
       $('#terminalCommandCount').classList.remove('warning');
+      composer?.sync();
       input.focus({ preventScroll: true });
       window.LoadToAgentA11y?.announce(t('quality.terminal_draft_cleared'));
     });

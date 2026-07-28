@@ -7,6 +7,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench, tmuxRows, updateSnapshot,
+    syncComposer,
   } = context;
 
   function createXtermHost(key, readOnly = false) {
@@ -237,10 +238,11 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     restartButton.classList.toggle('hidden', !showRestart);
     restartButton.disabled = !showRestart;
     restartButton.textContent = reconnectable ? t('terminal.reconnect') : t('ui.restart');
-    $('#terminalCommandInput').disabled = !canInput;
+    const terminalCommandInput = $('#terminalCommandInput');
+    terminalCommandInput.disabled = !canInput;
     const commandForm = $('#terminalCommandForm');
     const commandButton = commandForm.querySelector('button[type="submit"]');
-    commandButton.disabled = !canInput || state.commandSending;
+    commandButton.disabled = !canInput || state.commandSending || !terminalCommandInput.value.trim();
     commandButton.toggleAttribute('aria-busy', state.commandSending);
     commandForm.toggleAttribute('aria-busy', state.commandSending);
     const commandButtonLabel = commandButton.querySelector('span');
@@ -289,6 +291,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       $('#terminalCommandCount').textContent = `${commandInput.value.length.toLocaleString()} / 8,000`;
       $('#terminalCommandClearBtn')?.classList.toggle('hidden', !commandInput.value);
     }
+    syncComposer?.();
     renderHistoryPanel();
   }
 

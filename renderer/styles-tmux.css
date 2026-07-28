@@ -772,7 +772,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-top: 4px;
-  color: #68798b;
+  color: #8495a7;
   font-size: 12px;
 }
 
@@ -1147,7 +1147,7 @@
   display: block;
   margin-top: 6px;
   overflow: hidden;
-  color: #5b6d7e;
+  color: #8193a4;
   font-family: "Cascadia Code",Consolas,monospace;
   font-size: 12px;
   text-overflow: ellipsis;

@@ -103,9 +103,12 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const expanded = truncated && state.expandedConversationPrompts.has(promptKey);
     const visibleText = expanded ? text : truncated ? `${characters.slice(0, 200).join("").trimEnd()}…` : text;
     const actions = position => `<div class="chat-prompt-actions ${position}">
-      <span>${esc(t("drawer.prompt_length", { count: characters.length.toLocaleString(uiLocale()) }))}</span>
-      ${truncated ? `<button type="button" data-prompt-toggle="${esc(promptKey)}" aria-controls="${esc(contentId)}" aria-expanded="${expanded ? "true" : "false"}">${esc(t(expanded ? "drawer.prompt_close" : "drawer.prompt_show_full"))}</button>` : ""}
-      <button type="button" data-copy-text="${esc(text)}" data-user-prompt-copy="${esc(promptKey)}">${esc(t("drawer.prompt_copy"))}</button>
+      <span class="chat-prompt-length">${esc(t("drawer.prompt_length", { count: characters.length.toLocaleString(uiLocale()) }))}</span>
+      <div class="chat-prompt-action-buttons">
+        ${truncated ? `<button type="button" data-prompt-toggle="${esc(promptKey)}" data-short-label="${esc(t(expanded ? "drawer.prompt_close_short" : "drawer.prompt_show_full_short"))}" aria-controls="${esc(contentId)}" aria-expanded="${expanded ? "true" : "false"}"><span class="prompt-action-long-label">${esc(t(expanded ? "drawer.prompt_close" : "drawer.prompt_show_full"))}</span></button>` : ""}
+        <button type="button" data-copy-text="${esc(text)}" data-user-prompt-copy="${esc(promptKey)}" data-short-label="${esc(t("drawer.prompt_copy_short"))}"><span class="prompt-action-long-label">${esc(t("drawer.prompt_copy"))}</span></button>
+        ${position === "is-top" ? `<button type="button" class="expanded-reader-close" data-close-expanded-reader aria-label="${esc(t("common.close"))}">× <span>${esc(t("common.close"))}</span></button>` : ""}
+      </div>
     </div>`;
     return `<div class="chat-user-prompt" data-user-prompt="${esc(promptKey)}"
       data-prompt-truncated="${truncated ? "true" : "false"}" data-prompt-expanded="${expanded ? "true" : "false"}">
@@ -147,13 +150,6 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         clearTimeout(entry.confirmationTimer);
         continue;
       }
-      const tracking = {
-        phase: delivery.phase,
-        elapsedMs: delivery.elapsedMs,
-        error: entry.error || "",
-        receivedAt: delivery.receivedAt,
-        responseObservedAt: delivery.responseObservedAt,
-      };
       if (!delivery.userMessage) {
         messages.push({
           id: entry.id,
@@ -163,7 +159,6 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
           optimistic: true,
           animate: !entry.presented,
           deliveryStatus: delivery.phase,
-          deliveryTracking: tracking,
         });
         entry.presented = true;
       } else {
@@ -172,7 +167,6 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
           messages[actualIndex] = {
             ...delivery.userMessage,
             deliveryStatus: delivery.phase,
-            deliveryTracking: tracking,
           };
         }
       }
@@ -325,63 +319,6 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     }).join("");
   }
 
-  function deliveryProgressHtml(tracking) {
-    if (!tracking) {
-      return `<div class="chat-delivery-progress phase-observed" data-delivery-phase="observed" role="status" aria-live="polite">
-        <header><span aria-hidden="true"></span><div><b>${esc(t("drawer.delivery_observed_title"))}</b><small>${esc(t("drawer.delivery_observed_detail"))}</small></div></header>
-        <ol>
-          <li class="done"><i aria-hidden="true">✓</i><span><b>${esc(t("drawer.delivery_observed_message"))}</b><small>${esc(t("drawer.delivery_observed_message_help"))}</small></span></li>
-          <li class="active"><i aria-hidden="true">2</i><span><b>${esc(t("drawer.delivery_observed_session"))}</b><small>${esc(t("drawer.delivery_observed_session_help"))}</small></span></li>
-        </ol>
-        <footer><i aria-hidden="true">◎</i><span>${esc(t("drawer.delivery_evidence_observed"))}</span></footer>
-      </div>`;
-    }
-    const phase = tracking.phase || "confirming";
-    const copy = {
-      sending: ["drawer.delivery_sending_title", "drawer.delivery_sending_detail", "drawer.delivery_evidence_sending"],
-      confirming: ["drawer.delivery_confirming_title", "drawer.delivery_confirming_detail", "drawer.delivery_evidence_confirming"],
-      delayed: ["drawer.delivery_delayed_title", "drawer.delivery_delayed_detail", "drawer.delivery_evidence_delayed"],
-      received: ["drawer.delivery_received_title", "drawer.delivery_received_detail", "drawer.delivery_evidence_received"],
-      responding: ["drawer.delivery_responding_title", "drawer.delivery_responding_detail", "drawer.delivery_evidence_responding"],
-      interrupted: ["drawer.delivery_interrupted_title", "drawer.delivery_interrupted_detail", "drawer.delivery_evidence_interrupted"],
-      failed: ["drawer.delivery_failed_title", "drawer.delivery_failed_detail", "drawer.delivery_evidence_failed"],
-    }[phase] || ["drawer.delivery_confirming_title", "drawer.delivery_confirming_detail", "drawer.delivery_evidence_confirming"];
-    const stepState = (step) => {
-      if (phase === "failed") return step === 0 ? "error" : "pending";
-      if (phase === "interrupted") {
-        if (step === 0) return "done";
-        if (step === 1) return tracking.userMessage ? "done" : "pending";
-        return "error";
-      }
-      if (phase === "sending") return step === 0 ? "active" : "pending";
-      if (phase === "confirming" || phase === "delayed") {
-        if (step === 0) return "done";
-        if (step === 1) return phase === "delayed" ? "warning" : "active";
-        return "pending";
-      }
-      if (phase === "received") return step < 2 ? "done" : "active";
-      if (phase === "responding") return step < 2 ? "done" : "active";
-      return "pending";
-    };
-    const steps = [
-      ["drawer.delivery_step_dispatch", "drawer.delivery_step_dispatch_help"],
-      ["drawer.delivery_step_received", "drawer.delivery_step_received_help"],
-      ["drawer.delivery_step_response", "drawer.delivery_step_response_help"],
-    ].map(([label, detail], index) => {
-      const status = stepState(index);
-      const marker = status === "done" ? "✓" : status === "error" ? "!" : String(index + 1);
-      return `<li class="${status}"><i aria-hidden="true">${marker}</i><span><b>${esc(t(label))}</b><small>${esc(t(detail))}</small></span></li>`;
-    }).join("");
-    const detail = phase === "failed" && tracking.error
-      ? t("drawer.delivery_failed_with_reason", { reason: tracking.error })
-      : t(copy[1]);
-    return `<div class="chat-delivery-progress phase-${esc(phase)}" data-delivery-phase="${esc(phase)}" role="status" aria-live="polite">
-      <header><span aria-hidden="true"></span><div><b>${esc(t(copy[0]))}</b><small>${esc(detail)}</small></div></header>
-      <ol>${steps}</ol>
-      <footer><i aria-hidden="true">◎</i><span>${esc(t(copy[2]))}</span></footer>
-    </div>`;
-  }
-
   function chatHtml(session, options = {}) {
     const overlay = conversationOverlay(session);
     session = overlay.session;
@@ -409,9 +346,6 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         : "";
     const rows = turns.map((turn, turnIndex) => {
       const user = conversationRowHtml(turn.user, session, { userLabel, assistantLabel });
-      const waiting = turn.live && !turn.representative
-        ? deliveryProgressHtml(turn.user?.deliveryTracking)
-        : "";
       const turnStartedAt = Date.parse(turn.user?.timestamp || turn.representative?.timestamp || 0);
       const nextTurnTimestamp = turns[turnIndex + 1]?.user?.timestamp;
       const nextTurnStartedAt = nextTurnTimestamp ? Date.parse(nextTurnTimestamp) : Number.NaN;
@@ -422,7 +356,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       });
       const timeline = turnWithSubagentCallsHtml(turn, session, turnCalls, { userLabel, assistantLabel });
       return `<section class="chat-turn${turn.live ? " is-live" : ""}" data-conversation-turn="${esc(turn.id)}">
-        ${user}${timeline}${waiting}
+        ${user}${timeline}
       </section>`;
     }).join("");
     const unmatchedCalls = calls.filter(call => !turns.some((turn, turnIndex) => {

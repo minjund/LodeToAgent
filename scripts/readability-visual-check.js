@@ -28,7 +28,18 @@ async function waitFor(win, expression, attempts = 80) {
 
 async function capture(win, outputDir, name, repaint = false) {
   if (repaint) await forceRepaint(win);
-  await win.webContents.executeJavaScript(`document.fonts.ready.then(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } return true; })`);
+  let settled = false;
+  let settleError = null;
+  for (let attempt = 0; attempt < 2 && !settled; attempt += 1) {
+    try {
+      await win.webContents.executeJavaScript(`document.fonts.ready.then(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } return true; })`);
+      settled = true;
+    } catch (error) {
+      settleError = error;
+      await wait(120);
+    }
+  }
+  if (!settled) throw settleError;
   win.webContents.invalidate();
   await wait(300);
   const image = await win.webContents.capturePage();
@@ -323,6 +334,26 @@ app.whenReady().then(async () => {
       return true;
     })()`);
     await waitFor(win, `!document.querySelector('#mobileToolsMenu')?.classList.contains('hidden') && document.querySelector('.mobile-project-picker')?.open && document.querySelector('#mobileWorkspaceList [aria-pressed="true"]')`);
+    const mobileProjectStatusMetrics = await win.webContents.executeJavaScript(`(() => {
+      const dot = [...document.querySelectorAll('#mobileWorkspaceList .workspace-live-state i')]
+        .find(candidate => candidate.getClientRects().length > 0);
+      const label = dot?.closest('.workspace-live-state')?.querySelector('b');
+      const rect = dot?.getBoundingClientRect();
+      return {
+        found: Boolean(dot),
+        width: rect?.width || 0,
+        height: rect?.height || 0,
+        round: dot ? getComputedStyle(dot).borderRadius : '',
+        labelHidden: label ? getComputedStyle(label).display === 'none' : true,
+        accessibleLabel: dot?.closest('.workspace-live-state')?.getAttribute('aria-label') || '',
+      };
+    })()`);
+    if (!mobileProjectStatusMetrics.found
+      || mobileProjectStatusMetrics.width > 9 || mobileProjectStatusMetrics.height > 9
+      || !mobileProjectStatusMetrics.round.includes('50')
+      || !mobileProjectStatusMetrics.labelHidden || !mobileProjectStatusMetrics.accessibleLabel) {
+      throw new Error(`모바일 프로젝트 상태 표시가 아이콘 CSS와 충돌합니다: ${JSON.stringify(mobileProjectStatusMetrics)}`);
+    }
     await capture(win, outputDir, 'loadtoagent-responsive-projects-360.png');
 
     win.setContentSize(1440, 900);
@@ -345,6 +376,170 @@ app.whenReady().then(async () => {
       viewReports.push(report);
       await capture(win, outputDir, `loadtoagent-readability-${view}.png`);
     }
+
+    await win.webContents.executeJavaScript(`(async () => {
+      const app = window.LoadToAgentApp;
+      app.state.view = 'terminal';
+      app.syncViewChrome();
+      app.render('view');
+      await window.LoadToAgentTerminal.activate(app.state.snapshot, app.state.workspaces, 'general');
+      document.querySelector('[data-terminal-id="terminal-managed"]')?.click();
+      document.querySelector('.main-stage')?.scrollTo(0, 0);
+      return true;
+    })()`);
+    await waitFor(win, `document.querySelector('.terminal-session-item.active')?.dataset.terminalId === 'terminal-managed'
+      && !document.querySelector('#terminalCommandInput')?.disabled`);
+    const emptyTerminalSubmitMetrics = await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#terminalCommandInput');
+      const submit = document.querySelector('#terminalCommandForm button[type="submit"]');
+      input.value = '   ';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const whitespaceDisabled = submit.disabled;
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { whitespaceDisabled, emptyDisabled: submit.disabled };
+    })()`);
+    if (!emptyTerminalSubmitMetrics.whitespaceDisabled || !emptyTerminalSubmitMetrics.emptyDisabled) {
+      throw new Error(`빈 터미널 입력의 전송 버튼이 활성화되어 있습니다: ${JSON.stringify(emptyTerminalSubmitMetrics)}`);
+    }
+    await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#terminalCommandInput');
+      input.value = '/';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus({ preventScroll: true });
+      return true;
+    })()`);
+    await waitFor(win, `!document.querySelector('#terminalSlashMenu')?.classList.contains('hidden')
+      && document.querySelectorAll('#terminalSlashMenuList [role="option"]').length === 6`);
+    const slashComposerMetrics = await win.webContents.executeJavaScript(`(() => {
+      const form = document.querySelector('#terminalCommandForm');
+      const menu = document.querySelector('#terminalSlashMenu');
+      const input = document.querySelector('#terminalCommandInput');
+      const options = [...document.querySelectorAll('#terminalSlashMenuList [role="option"]')];
+      const submitLabel = form.querySelector('.terminal-command-submit > span');
+      return {
+        aiTarget: form.dataset.aiTarget,
+        menuVisible: !menu.classList.contains('hidden'),
+        optionCount: options.length,
+        allOptionsReadable: options.every(option => option.getBoundingClientRect().height >= 48),
+        noOverflow: form.scrollWidth <= form.clientWidth + 2 && menu.scrollWidth <= menu.clientWidth + 2,
+        ariaExpanded: input.getAttribute('aria-expanded'),
+        activeDescendant: input.getAttribute('aria-activedescendant') || '',
+        sendLabelNoWrap: Boolean(submitLabel && getComputedStyle(submitLabel).whiteSpace === 'nowrap'
+          && submitLabel.getBoundingClientRect().height < 24),
+      };
+    })()`);
+    if (slashComposerMetrics.aiTarget !== 'true' || !slashComposerMetrics.menuVisible
+      || slashComposerMetrics.optionCount !== 6 || !slashComposerMetrics.allOptionsReadable
+      || !slashComposerMetrics.noOverflow || slashComposerMetrics.ariaExpanded !== 'true'
+      || !slashComposerMetrics.activeDescendant || !slashComposerMetrics.sendLabelNoWrap) {
+      throw new Error(`슬래시 composer 가독성 계약 미달: ${JSON.stringify(slashComposerMetrics)}`);
+    }
+    viewReports.push(await auditVisibleText(win, 'terminal-slash-composer'));
+    await capture(win, outputDir, 'loadtoagent-terminal-composer-slash.png', true);
+
+    const longDraftSetup = await win.webContents.executeJavaScript(`(() => {
+      try {
+        const input = document.querySelector('#terminalCommandInput');
+        if (!input) return { ok: false, error: 'terminalCommandInput missing' };
+        input.value = Array.from({ length: 22 }, (_, index) => \`요청 \${index + 1}. 긴 구현 지시도 문장과 줄바꿈을 유지하면서 화면을 과도하게 밀어내지 않게 정리해줘.\`).join('\\n');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus({ preventScroll: true });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: String(error?.stack || error) };
+      }
+    })()`);
+    if (!longDraftSetup.ok) throw new Error(`긴 입력 준비 실패: ${JSON.stringify(longDraftSetup)}`);
+    await waitFor(win, `document.querySelector('#terminalCommandForm')?.dataset.longDraft === 'true'
+      && document.querySelector('#terminalCommandForm')?.dataset.longDraftExpanded === 'false'
+      && document.querySelector('#terminalCommandInput')?.scrollHeight > document.querySelector('#terminalCommandInput')?.clientHeight`);
+    const longComposerMetrics = await win.webContents.executeJavaScript(`(() => {
+      try {
+        const form = document.querySelector('#terminalCommandForm');
+        const input = document.querySelector('#terminalCommandInput');
+        const footer = document.querySelector('.terminal-command-footer');
+        const toggle = document.querySelector('#terminalLongDraftToggle');
+        return {
+          ok: true,
+          height: input.clientHeight,
+          scrollHeight: input.scrollHeight,
+          formNoOverflow: form.scrollWidth <= form.clientWidth + 2,
+          inputNoHorizontalOverflow: input.scrollWidth <= input.clientWidth + 2,
+          footerNoOverflow: footer.scrollWidth <= footer.clientWidth + 2,
+          toggleHeight: toggle.getBoundingClientRect().height,
+          summary: document.querySelector('#terminalLongDraftSummary')?.textContent || '',
+        };
+      } catch (error) {
+        return { ok: false, error: String(error?.stack || error) };
+      }
+    })()`);
+    if (!longComposerMetrics.ok || longComposerMetrics.height > 114 || longComposerMetrics.scrollHeight <= longComposerMetrics.height
+      || !longComposerMetrics.formNoOverflow || !longComposerMetrics.inputNoHorizontalOverflow
+      || !longComposerMetrics.footerNoOverflow || longComposerMetrics.toggleHeight < 40
+      || !longComposerMetrics.summary.includes('긴 입력')) {
+      throw new Error(`긴 입력 composer 가독성 계약 미달: ${JSON.stringify(longComposerMetrics)}`);
+    }
+    viewReports.push(await auditVisibleText(win, 'terminal-long-composer'));
+    await capture(win, outputDir, 'loadtoagent-terminal-composer-long.png', true);
+
+    win.setContentSize(420, 760);
+    await wait(280);
+    await win.webContents.executeJavaScript(`(() => {
+      if (!document.querySelector('#mobileToolsMenu')?.classList.contains('hidden')) {
+        document.querySelector('#mobileToolsCloseBtn')?.click();
+      }
+      document.querySelector('#terminalCommandInput')?.focus({ preventScroll: true });
+      return true;
+    })()`);
+    await wait(180);
+    const compactComposerMetrics = await win.webContents.executeJavaScript(`(() => {
+      const form = document.querySelector('#terminalCommandForm');
+      const input = document.querySelector('#terminalCommandInput');
+      const footer = document.querySelector('.terminal-command-footer');
+      const submitLabel = form.querySelector('.terminal-command-submit > span');
+      const bounds = form.getBoundingClientRect();
+      const ancestors = [];
+      for (let node = form.parentElement; node && ancestors.length < 8; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        ancestors.push({
+          name: node.id || node.className || node.tagName,
+          transform: style.transform,
+          filter: style.filter,
+          contain: style.contain,
+        });
+      }
+      return {
+        formVisible: bounds.bottom <= innerHeight + 2,
+        formTop: Math.round(bounds.top),
+        formBottom: Math.round(bounds.bottom),
+        viewport: [innerWidth, innerHeight],
+        position: getComputedStyle(form).position,
+        currentView: document.body.dataset.currentView || '',
+        ancestors,
+        formNoOverflow: form.scrollWidth <= form.clientWidth + 2,
+        inputNoOverflow: input.scrollWidth <= input.clientWidth + 2,
+        footerNoOverflow: footer.scrollWidth <= footer.clientWidth + 2,
+        textareaHeight: input.clientHeight,
+        sendLabelNoWrap: Boolean(submitLabel && getComputedStyle(submitLabel).whiteSpace === 'nowrap'
+          && submitLabel.getBoundingClientRect().height < 24),
+      };
+    })()`);
+    if (!compactComposerMetrics.formVisible || !compactComposerMetrics.formNoOverflow
+      || !compactComposerMetrics.inputNoOverflow || !compactComposerMetrics.footerNoOverflow
+      || compactComposerMetrics.textareaHeight > 114 || !compactComposerMetrics.sendLabelNoWrap) {
+      throw new Error(`작은 화면 composer 가독성 계약 미달: ${JSON.stringify(compactComposerMetrics)}`);
+    }
+    await capture(win, outputDir, 'loadtoagent-terminal-composer-compact.png', true);
+    win.setContentSize(1440, 900);
+    await wait(250);
+    await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#terminalCommandInput');
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
+
     await win.webContents.executeJavaScript(`(() => { document.querySelector('#newRunBtn')?.click(); return true; })()`);
     await waitFor(win, `!document.querySelector('#runModal')?.classList.contains('hidden') && !document.querySelector('#runModal')?.inert`);
     await wait(400);
@@ -414,6 +609,13 @@ app.whenReady().then(async () => {
       && Boolean(document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]'))
       && Boolean(document.querySelector('#drawerComposer:not(.hidden) [data-agent-command-form="fixture-root"]'))
       && !document.querySelector('[data-session-model-form]')`);
+    await wait(400);
+    await win.webContents.executeJavaScript(`(() => {
+      for (const animation of document.getAnimations()) {
+        try { animation.finish(); } catch {}
+      }
+      return true;
+    })()`);
     await win.webContents.executeJavaScript(`(() => {
       const prompt = document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]');
       prompt?.scrollIntoView({ block: 'start', behavior: 'auto' });
@@ -442,12 +644,15 @@ app.whenReady().then(async () => {
       const probeY = Math.max(0, Math.min(innerHeight - 1, (promptRect?.top || 0) + 3));
       const topAtPrompt = document.elementsFromPoint(probeX, probeY)[0];
       const rect = element => element?.getBoundingClientRect();
+      const drawerRect = rect(drawer);
       const gap = element => {
         const style = getComputedStyle(element);
         return Math.min(Number.parseFloat(style.rowGap) || 0, Number.parseFloat(style.columnGap) || 0);
       };
       return {
-        drawerInsideViewport: Boolean(rect(drawer) && rect(drawer).left >= -1 && rect(drawer).right <= innerWidth + 1),
+        drawerInsideViewport: Boolean(drawerRect && drawerRect.left >= -1 && drawerRect.right <= innerWidth + 1),
+        drawerBounds: drawerRect ? [Math.round(drawerRect.left), Math.round(drawerRect.right)] : [],
+        viewport: [innerWidth, innerHeight],
         promptNoOverflow: Boolean(prompt && prompt.scrollWidth <= prompt.clientWidth + 2 && content.scrollWidth <= content.clientWidth + 2),
         promptFontSize: Number.parseFloat(getComputedStyle(content).fontSize),
         promptLineHeight: Number.parseFloat(getComputedStyle(content).lineHeight),
@@ -458,11 +663,12 @@ app.whenReady().then(async () => {
         composerPanelNoOverflow: Boolean(composerPanel && composerPanel.scrollWidth <= composerPanel.clientWidth + 2),
         promptActionGap: gap(promptActions),
         composerActionGap: gap(composerActions),
-        counterText: counter?.textContent.trim() || '',
+        counterRemoved: !counter,
         modelFormRemoved: !document.querySelector('[data-session-model-form]'),
         resetVisible: Boolean(reset && rect(reset).width > 0 && rect(reset).height > 0),
         resetHeight: rect(reset)?.height || 0,
-        modelCommandHelpVisible: Boolean(composerPanel?.textContent.includes('/model')),
+        commandHelpRemoved: !composerPanel?.querySelector('.agent-command-actions > small'),
+        slashMenuReady: Boolean(composerPanel?.querySelector('[data-conversation-slash-menu]')),
         promptNotCovered: Boolean(topAtPrompt && (prompt?.contains(topAtPrompt) || topAtPrompt.contains(prompt))),
         tabLabels: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(tab => tab.textContent.trim()),
       };
@@ -470,12 +676,12 @@ app.whenReady().then(async () => {
     if (!conversationMetrics.drawerInsideViewport || !conversationMetrics.promptNoOverflow
       || conversationMetrics.promptFontSize < 15 || conversationMetrics.promptLineHeight < 25
       || conversationMetrics.actionHeights.some(height => height < 43.5)
-      || !conversationMetrics.composerNoOverflow || conversationMetrics.composerMinHeight < 83
+      || !conversationMetrics.composerNoOverflow || conversationMetrics.composerMinHeight < 50
       || !conversationMetrics.composerScrollable || !conversationMetrics.composerPanelNoOverflow
       || conversationMetrics.promptActionGap < 9.5 || conversationMetrics.composerActionGap < 9.5
-      || !conversationMetrics.counterText.includes(longDraftLength.toLocaleString())
+      || !conversationMetrics.counterRemoved
       || !conversationMetrics.modelFormRemoved || !conversationMetrics.resetVisible
-      || conversationMetrics.resetHeight < 43.5 || !conversationMetrics.modelCommandHelpVisible
+      || conversationMetrics.resetHeight < 43.5 || !conversationMetrics.commandHelpRemoved || !conversationMetrics.slashMenuReady
       || !conversationMetrics.promptNotCovered
       || conversationMetrics.tabLabels.join('|') !== '요약|대화|과정|사용량') {
       throw new Error(`대화창 긴 요청·입력 가독성 기준 미달: ${JSON.stringify(conversationMetrics)}`);
@@ -505,6 +711,17 @@ app.whenReady().then(async () => {
     await capture(win, reviewOutputDir, 'conversation-desktop-collapsed.png', true);
     await win.webContents.executeJavaScript(`document.querySelector('[data-message-id="audit-long-user"] [data-prompt-toggle]')?.click()`);
     await waitFor(win, `document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]')?.dataset.promptExpanded === 'true'`);
+    const desktopExpandedMetrics = await win.webContents.executeJavaScript(`(() => {
+      const close = document.querySelector('[data-message-id="audit-long-user"] [data-close-expanded-reader]');
+      return {
+        readerCloseHidden: Boolean(close && getComputedStyle(close).display === 'none'
+          && close.getClientRects().length === 0),
+        headerCloseVisible: Boolean(document.querySelector('#closeDrawerBtn')?.getClientRects().length),
+      };
+    })()`);
+    if (!desktopExpandedMetrics.readerCloseHidden || !desktopExpandedMetrics.headerCloseVisible) {
+      throw new Error(`데스크톱 펼친 요청 닫기 동작이 중복됩니다: ${JSON.stringify(desktopExpandedMetrics)}`);
+    }
     await capture(win, reviewOutputDir, 'conversation-desktop-expanded.png', true);
     await win.webContents.executeJavaScript(`document.querySelector('[data-message-id="audit-long-user"] [data-prompt-toggle]')?.click()`);
 
@@ -556,7 +773,10 @@ app.whenReady().then(async () => {
       const prompt = document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]');
       const composer = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
       const help = document.querySelector('#drawerComposer .agent-command-actions > small');
+      const slashMenu = document.querySelector('#drawerComposer [data-conversation-slash-menu]');
       const actions = [...(prompt?.querySelectorAll('.chat-prompt-actions button') || [])];
+      const stop = document.querySelector('#drawerMeta .stop-run');
+      const reset = document.querySelector('#drawerMeta .session-reset-button');
       const promptRect = prompt.getBoundingClientRect();
       const contentRect = content.getBoundingClientRect();
       const probeX = Math.max(0, Math.min(innerWidth - 1, promptRect.left + Math.min(20, promptRect.width / 2)));
@@ -569,15 +789,20 @@ app.whenReady().then(async () => {
         composerNoOverflow: composer.scrollWidth <= composer.clientWidth + 2,
         transcriptVisibleHeight: contentRect.height,
         promptNotCovered: Boolean(topAtPrompt && (prompt.contains(topAtPrompt) || topAtPrompt.contains(prompt))),
-        modelCommandActuallyVisible: Boolean(help && help.textContent.includes('/model') && help.getBoundingClientRect().height >= 30),
+        chromeRemoved: !help && !document.querySelector('#drawerComposer [data-agent-command-count], #drawerComposer .conversation-terminal-toggle'),
+        slashMenuReady: Boolean(slashMenu),
         tabLabels: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(tab => tab.textContent.trim()),
         actionHeights: actions.map(button => button.getBoundingClientRect().height),
+        headerActionsDistinct: Boolean(stop && reset
+          && getComputedStyle(stop).backgroundColor !== getComputedStyle(reset).backgroundColor
+          && getComputedStyle(stop).borderColor !== getComputedStyle(reset).borderColor),
       };
     })()`);
     if (!mobileConversationMetrics.drawerInsideViewport || !mobileConversationMetrics.drawerNoOverflow
       || !mobileConversationMetrics.promptNoOverflow || !mobileConversationMetrics.composerNoOverflow
       || mobileConversationMetrics.transcriptVisibleHeight < 240 || !mobileConversationMetrics.promptNotCovered
-      || !mobileConversationMetrics.modelCommandActuallyVisible
+      || !mobileConversationMetrics.chromeRemoved || !mobileConversationMetrics.slashMenuReady
+      || !mobileConversationMetrics.headerActionsDistinct
       || mobileConversationMetrics.tabLabels.join('|') !== 'Summary|Chat|Steps|Usage'
       || mobileConversationMetrics.actionHeights.some(height => height < 43.5)) {
       throw new Error(`모바일 대화창 가독성 기준 미달: ${JSON.stringify(mobileConversationMetrics)}`);
@@ -590,6 +815,19 @@ app.whenReady().then(async () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
+    const emptyConversationSubmitMetrics = await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+      const submit = input?.closest('form')?.querySelector('button[type="submit"]');
+      input.value = '   ';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const whitespaceDisabled = submit?.disabled;
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { whitespaceDisabled, emptyDisabled: submit?.disabled };
+    })()`);
+    if (!emptyConversationSubmitMetrics.whitespaceDisabled || !emptyConversationSubmitMetrics.emptyDisabled) {
+      throw new Error(`빈 대화 입력의 전송 버튼이 활성화되어 있습니다: ${JSON.stringify(emptyConversationSubmitMetrics)}`);
+    }
     await capture(win, reviewOutputDir, 'conversation-mobile-en-empty-composer.png', true);
     await win.webContents.executeJavaScript(`(() => {
       const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
@@ -597,6 +835,22 @@ app.whenReady().then(async () => {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return true;
     })()`);
+    const nearLimitComposerMetrics = await win.webContents.executeJavaScript(`(() => {
+      const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+      const form = input?.closest('form');
+      const submit = form?.querySelector('button[type="submit"]');
+      const count = form?.querySelector('[data-conversation-draft-count]');
+      return {
+        submitEnabled: Boolean(submit && !submit.disabled),
+        countVisible: Boolean(count && !count.classList.contains('hidden')),
+        countWarning: Boolean(count && count.classList.contains('limit-near')),
+        countText: count?.textContent.trim() || '',
+      };
+    })()`);
+    if (!nearLimitComposerMetrics.submitEnabled || !nearLimitComposerMetrics.countVisible
+      || !nearLimitComposerMetrics.countWarning || !nearLimitComposerMetrics.countText.includes('7,900')) {
+      throw new Error(`대화 입력 한도 피드백이 명확하지 않습니다: ${JSON.stringify(nearLimitComposerMetrics)}`);
+    }
     await win.webContents.executeJavaScript(`document.querySelector('[data-message-id="audit-long-user"] [data-prompt-toggle]')?.click()`);
     await waitFor(win, `document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]')?.dataset.promptExpanded === 'true'`);
     const expandedMobileMetrics = await win.webContents.executeJavaScript(`(() => {
@@ -604,20 +858,25 @@ app.whenReady().then(async () => {
       const body = prompt?.querySelector('.user-prompt-text');
       const topActions = prompt?.querySelector('.chat-prompt-actions.is-top');
       const controls = topActions?.querySelector('[data-prompt-toggle]')?.getAttribute('aria-controls') || '';
+      const actionButtons = [...(topActions?.querySelectorAll('button') || [])];
+      const actionTops = actionButtons.map(button => button.getBoundingClientRect().top);
       return {
         promptNoOverflow: prompt.scrollWidth <= prompt.clientWidth + 2 && body.scrollWidth <= body.clientWidth + 2,
         promptWidth: [prompt.clientWidth, prompt.scrollWidth],
         bodyWidth: [body.clientWidth, body.scrollWidth],
         topActionsVisible: Boolean(topActions && topActions.getBoundingClientRect().height > 0),
         topActionsNoOverflow: Boolean(topActions && topActions.scrollWidth <= topActions.clientWidth + 2),
+        closeVisible: Boolean(topActions?.querySelector('[data-close-expanded-reader]')?.getBoundingClientRect().height > 0),
         controlsBody: Boolean(controls && document.getElementById(controls) === body),
         visibleBodyLines: Math.floor(Math.max(0, Math.min(innerHeight, body.getBoundingClientRect().bottom)
           - Math.max(0, body.getBoundingClientRect().top)) / parseFloat(getComputedStyle(body).lineHeight)),
-        actionHeights: [...topActions.querySelectorAll('button')].map(button => button.getBoundingClientRect().height),
+        actionHeights: actionButtons.map(button => button.getBoundingClientRect().height),
+        singleActionRow: actionTops.length === 3 && Math.max(...actionTops) - Math.min(...actionTops) < 2,
       };
     })()`);
     if (!expandedMobileMetrics.promptNoOverflow || !expandedMobileMetrics.topActionsVisible
-      || !expandedMobileMetrics.topActionsNoOverflow || !expandedMobileMetrics.controlsBody
+      || !expandedMobileMetrics.topActionsNoOverflow || !expandedMobileMetrics.closeVisible
+      || !expandedMobileMetrics.controlsBody || !expandedMobileMetrics.singleActionRow
       || expandedMobileMetrics.visibleBodyLines < 6
       || expandedMobileMetrics.actionHeights.some(height => height < 43.5)) {
       throw new Error(`영문 모바일 펼친 요청 가독성 기준 미달: ${JSON.stringify(expandedMobileMetrics)}`);

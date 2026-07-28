@@ -220,7 +220,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       aria-label="${esc(t("project.filter_named", { name: item.name, count: item.count }))}"
       aria-pressed="${state.workspace === item.path ? "true" : "false"}">
       <strong>${esc(item.name)}</strong><small>${Number(item.count || 0)}</small>
-      ${Number(item.liveCount || 0) ? `<span class="workspace-live-state" title="${esc(t("project.in_progress"))}"><i aria-hidden="true"></i><b>${esc(t("project.in_progress"))}</b></span>` : ""}
+      ${Number(item.liveCount || 0) ? `<span class="workspace-live-state" role="status" aria-label="${esc(t("project.in_progress"))}" title="${esc(t("project.in_progress"))}"><i aria-hidden="true"></i><b aria-hidden="true">${esc(t("project.in_progress"))}</b></span>` : ""}
       </button>`;
     const mobileHtml =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"

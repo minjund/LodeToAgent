@@ -548,14 +548,15 @@ body :is(input, textarea)::placeholder {
   font-size: 12px;
 }
 
-.terminal-command-form textarea,
 .terminal-screen .xterm {
   font-size: 14px;
   line-height: 1.5;
 }
 
 .terminal-command-form textarea {
-  min-height: 72px;
+  min-height: 64px;
+  font-size: 15px;
+  line-height: 1.62;
 }
 
 .tmux-pane-node :is(small, span),
@@ -715,7 +716,6 @@ body :is(input, textarea)::placeholder {
   .terminal-session-icon,
   .terminal-target-icon,
   .terminal-console-state,
-  .terminal-command-label > span,
   .terminal-notice
 ) {
   font-size: 12px;
@@ -724,9 +724,12 @@ body :is(input, textarea)::placeholder {
 #terminalSessionSummary,
 .terminal-resource-tip b,
 .terminal-target-meta span,
-.terminal-connection-state span,
-.terminal-command-form .terminal-command-label label {
+.terminal-connection-state span {
   font-size: 12px;
+}
+
+.terminal-command-form .terminal-command-label label {
+  font-size: 13px;
 }
 
 .tmux-section :is(
@@ -900,10 +903,22 @@ body button:not(.icon-button) :is(b, strong, span, small) {
   line-height: 1.45;
 }
 
+body .terminal-command-submit {
+  min-width: 100px;
+}
+
+body .terminal-command-submit > span {
+  white-space: nowrap;
+}
+
 body .icon-button {
   min-width: 44px;
   min-height: 44px !important;
   font-size: 17px !important;
+}
+
+body .terminal-slash-menu-list > button {
+  min-height: 52px !important;
 }
 
 body :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea, summary, [role="button"]) {
@@ -1010,6 +1025,26 @@ body .primary-button:disabled {
   border-color: #40515e;
   background: #26343e;
   color: #d3dde4;
+}
+
+body button[aria-busy="true"] {
+  cursor: progress !important;
+  opacity: .78;
+}
+
+body button:disabled:not([aria-busy="true"]) {
+  cursor: not-allowed;
+}
+
+@media (min-width: 761px) and (max-width: 1300px) {
+  .top-icon-action {
+    width: 44px;
+    padding: 0;
+  }
+
+  .top-icon-action .top-icon-label {
+    display: none;
+  }
 }
 
 .settings-section :is(.update-state-copy > span, .release-notes > div span, .settings-meta-grid span) {

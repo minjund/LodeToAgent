@@ -351,9 +351,10 @@ app.whenReady().then(async () => {
         automaticRoute: form?.dataset.agentCommandRouteSelected || '',
         composerVisible: !document.querySelector('#drawerComposer')?.classList.contains('hidden'),
         defaultInputMode: form?.dataset.agentCommandInputModeSelected || '',
-        terminalCollapsed: Boolean(drawer.querySelector('.conversation-terminal-toggle[aria-expanded="false"]')),
+        simpleComposer: Boolean(form?.querySelector('[data-agent-command-draft]'))
+          && !drawer.querySelector('.conversation-terminal-toggle, .conversation-terminal-expanded, [data-agent-command-count], .agent-command-actions > small'),
         focusControlRemoved: !document.querySelector('#drawerFocusModeBtn'),
-        targetAvailable: !drawer.querySelector('[data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled,
+        emptyTargetDisabled: Boolean(drawer.querySelector('[data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled),
         runtimePresence: child?.runtimePresence || [],
         directTargets: window.LoadToAgentTerminal?.agentTargets(child) || [],
         scope: drawer.querySelector('[data-conversation-scope]')?.dataset.conversationScope || '',
@@ -366,7 +367,7 @@ app.whenReady().then(async () => {
       || !drawerMetrics.assignmentVisible || drawerMetrics.conversationMessages < 1
       || !drawerMetrics.routeControlsHidden || drawerMetrics.automaticRoute !== 'direct'
       || !drawerMetrics.composerVisible || drawerMetrics.defaultInputMode !== 'conversation'
-      || !drawerMetrics.terminalCollapsed || !drawerMetrics.focusControlRemoved || !drawerMetrics.targetAvailable
+      || !drawerMetrics.simpleComposer || !drawerMetrics.focusControlRemoved || !drawerMetrics.emptyTargetDisabled
       || drawerMetrics.scope !== 'subagent-only' || !drawerMetrics.childWorkVisible || !drawerMetrics.parentConversationHidden || !drawerMetrics.noDrawerOverflow) {
       throw new Error(`서브에이전트 대화 참여 검증 실패: ${JSON.stringify(drawerMetrics)}`);
     }

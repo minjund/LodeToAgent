@@ -347,18 +347,12 @@
     overflow-y: auto;
   }
 
-  .terminal-command-label>span {
+  .terminal-command-shortcuts {
     display: none;
   }
 
-  .terminal-command-form button span {
-    display: none;
-  }
-
-  .terminal-command-form button {
-    width: 42px;
-    padding: 0;
-    justify-content: center;
+  .terminal-command-heading small {
+    white-space: normal;
   }
 
   .terminal-console-head {
@@ -557,8 +551,12 @@
     margin-inline: 0;
   }
 
-  .terminal-command-composer {
-    grid-template-columns: minmax(0,1fr) 42px;
+  .terminal-slash-menu-list > button {
+    grid-template-columns: minmax(94px,.38fr) minmax(0,1fr);
+  }
+
+  .terminal-slash-menu-list > button > kbd {
+    display: none;
   }
 
   .sidebar .nav-item[data-view="terminal"] {
@@ -590,6 +588,31 @@
 
 /* Compact screens ≤ 640px: turn runtime panes into a vertical workbench with wrapped controls. */
 @media (max-width:640px) {
+  body[data-current-view="terminal"] #terminalSection {
+    transform: none;
+    animation: none;
+  }
+
+  body[data-current-view="terminal"] .terminal-command-form {
+    position: fixed;
+    z-index: 14;
+    right: 11px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    left: 11px;
+    margin: 0;
+    border: 0;
+    border-radius: 19px;
+    background:
+      radial-gradient(circle at 90% -55%,rgba(145,167,203,.1),transparent 40%),
+      linear-gradient(180deg,rgba(12,19,27,.98),rgba(8,14,21,.99));
+    box-shadow: 0 24px 64px rgba(0,0,0,.62);
+    backdrop-filter: blur(18px);
+  }
+
+  body[data-current-view="terminal"] .terminal-console-pane {
+    padding-bottom: 164px;
+  }
+
   .tmux-section-head h2 {
     font-size: 20px;
   }
@@ -649,12 +672,21 @@
     grid-template-columns: 1fr;
   }
 
-  .terminal-command-form label {
-    display: none;
+  .terminal-command-label {
+    grid-template-columns: 30px minmax(0,1fr);
   }
 
-  .terminal-command-form button {
-    width: 100%;
+  .terminal-command-mark {
+    width: 30px;
+    height: 30px;
+  }
+
+  .terminal-command-footer {
+    gap: 4px;
+  }
+
+  .terminal-long-draft-meta > span {
+    max-width: 168px;
   }
 
   .terminal-viewport {
@@ -723,6 +755,22 @@
 
   .terminal-command-form {
     padding-inline: 8px;
+  }
+
+  .terminal-command-label {
+    display: none;
+  }
+
+  .terminal-slash-menu {
+    border-radius: 15px;
+  }
+
+  .terminal-slash-command-description {
+    font-size: 11px;
+  }
+
+  .terminal-long-draft-meta > span {
+    max-width: 118px;
   }
 
   .live-tmux-title {

@@ -61,6 +61,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/app-bootstrap.js',
   'renderer/terminal-workbench.js',
   'renderer/terminal-agent.js',
+  'renderer/terminal-composer.js',
   'renderer/terminal-events.js',
   'renderer/terminal.js',
   'scripts/bridge-integration-test.js',
@@ -131,6 +132,11 @@ const REQUIRED_UI_IDS = [
   'emptyClearFiltersBtn',
   'clearRunDraftBtn',
   'terminalCommandClearBtn',
+  'terminalSlashMenu',
+  'terminalSlashMenuList',
+  'terminalSlashTrigger',
+  'terminalLongDraftMeta',
+  'terminalLongDraftToggle',
   'terminalFontDecreaseBtn',
   'terminalFontIncreaseBtn',
   'terminalFontSizeLabel',
@@ -478,12 +484,12 @@ const WORKFLOW_INTERACTION_CONTRACTS = [
   '{ focus: false }',
   'function openAgentTerminal',
   'drawerPresentation',
-  'agentCommandInputModes',
   'function copyBridgeCommand',
   'data-agent-command-form',
   'data-agent-command-draft',
-  'data-agent-command-input-mode',
   'data-agent-command-route-selected',
+  'data-conversation-slash-menu',
+  'data-conversation-slash-command',
   'data-agent-terminal-open',
   'data-agent-bridge-copy',
   'agent.direct_status',
@@ -665,8 +671,8 @@ const INTERACTION_STYLE_CONTRACTS = [
   'control-handoff',
   'control-origin-resume',
   'conversation-context-open',
-  'conversation-terminal-toggle',
-  'conversation-terminal-expanded',
+  'conversation-slash-menu',
+  'conversation-slash-command',
   'drawer-resize-handle',
 ];
 
@@ -775,6 +781,13 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'window.loadtoagent.terminalStop(session.id)',
   'entry.pendingResize',
   'resizeObserver.observe',
+  'window.LoadToAgentTerminalComposer',
+  'function slashQuery',
+  'function filterCommands',
+  'function isLongDraft',
+  'form.dataset.aiTarget',
+  'form.dataset.longDraft',
+  'composer?.handleKeydown(event)',
 ];
 
 const IPC_MODULE_FILES = [
@@ -1065,6 +1078,7 @@ function registerUiContractTests(context) {
       ...APP_MODULES,
       'terminal-workbench.js',
       'terminal-agent.js',
+      'terminal-composer.js',
       'terminal-events.js',
       'terminal.js',
     ];
@@ -1113,6 +1127,7 @@ function registerUiContractTests(context) {
     const terminal = rendererSource([
       'terminal-workbench.js',
       'terminal-agent.js',
+      'terminal-composer.js',
       'terminal-events.js',
       'terminal.js',
     ]);

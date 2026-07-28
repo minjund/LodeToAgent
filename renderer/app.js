@@ -51,7 +51,6 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     agentCommandDrafts: new Map(),
     agentCommandTargets: new Map(),
     agentCommandRoutes: new Map(),
-    agentCommandInputModes: new Map(),
     agentCommandSending: new Set(),
     pendingConversationMessages: new Map(),
     resolvedConversationMessages: new Map(),

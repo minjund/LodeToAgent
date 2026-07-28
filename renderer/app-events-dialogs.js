@@ -138,6 +138,157 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   function bindDrawerAndGlobalEvents() {
     let pendingSessionResetId = "";
     let resetDialogGeneration = 0;
+    const conversationSlashStates = new Map();
+    const conversationSlashState = input => {
+      const sessionId = input?.dataset.agentCommandDraft || "";
+      if (!conversationSlashStates.has(sessionId)) {
+        conversationSlashStates.set(sessionId, {
+          activeIndex: 0,
+          dismissedValue: "",
+          filtered: [],
+          open: false,
+        });
+      }
+      return conversationSlashStates.get(sessionId);
+    };
+    const setConversationSlashOpen = (input, next) => {
+      const slashState = conversationSlashState(input);
+      const form = input?.closest("[data-agent-command-routing='conversation']");
+      const menu = form?.querySelector("[data-conversation-slash-menu]");
+      slashState.open = Boolean(next && menu && input && !input.disabled);
+      menu?.classList.toggle("hidden", !slashState.open);
+      input?.setAttribute("aria-expanded", slashState.open ? "true" : "false");
+      if (!slashState.open) input?.removeAttribute("aria-activedescendant");
+    };
+    const syncConversationSlashOption = input => {
+      const slashState = conversationSlashState(input);
+      const options = Array.from(input?.closest("form")?.querySelectorAll("[data-conversation-slash-command]") || []);
+      if (!options.length) {
+        input?.removeAttribute("aria-activedescendant");
+        return;
+      }
+      slashState.activeIndex = Math.max(0, Math.min(slashState.activeIndex, options.length - 1));
+      options.forEach((option, index) => {
+        const selected = index === slashState.activeIndex;
+        option.classList.toggle("active", selected);
+        option.setAttribute("aria-selected", selected ? "true" : "false");
+      });
+      input?.setAttribute("aria-activedescendant", options[slashState.activeIndex].id);
+      options[slashState.activeIndex]?.scrollIntoView({ block: "nearest" });
+    };
+    const renderConversationSlashMenu = (input, query) => {
+      const composer = window.LoadToAgentTerminalComposer;
+      const form = input?.closest("[data-agent-command-routing='conversation']");
+      const list = form?.querySelector("[data-conversation-slash-list]");
+      const title = form?.querySelector("[data-conversation-slash-title]");
+      const status = form?.querySelector("[data-conversation-slash-status]");
+      if (!composer || !form || !list || !title || !status) return false;
+      const slashState = conversationSlashState(input);
+      const provider = form.dataset.agentCommandProvider || "";
+      const providerLabel = providerInfo(provider).label;
+      slashState.filtered = composer.filterCommands(provider, query);
+      slashState.activeIndex = Math.max(0, Math.min(slashState.activeIndex, slashState.filtered.length - 1));
+      title.textContent = t("terminal.slash.title", { provider: providerLabel });
+      status.textContent = t("terminal.slash.result_count", { count: slashState.filtered.length });
+      list.replaceChildren();
+      if (!slashState.filtered.length) {
+        const empty = document.createElement("div");
+        empty.className = "conversation-slash-empty";
+        empty.textContent = t("terminal.slash.no_results");
+        list.append(empty);
+        return true;
+      }
+      slashState.filtered.forEach((command, index) => {
+        const option = document.createElement("button");
+        const token = document.createElement("span");
+        const description = document.createElement("span");
+        const key = document.createElement("kbd");
+        option.id = `${form.querySelector("[data-conversation-slash-menu]").id}-option-${index}`;
+        option.type = "button";
+        option.tabIndex = -1;
+        option.dataset.conversationSlashCommand = command.value;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-selected", index === slashState.activeIndex ? "true" : "false");
+        token.className = "conversation-slash-command-token";
+        token.textContent = command.value;
+        description.className = "conversation-slash-command-description";
+        description.textContent = t(command.descriptionKey);
+        key.setAttribute("aria-hidden", "true");
+        key.textContent = "↵";
+        option.append(token, description, key);
+        list.append(option);
+      });
+      return true;
+    };
+    const syncConversationSlashMenu = (input, options = {}) => {
+      const form = input?.closest("[data-agent-command-routing='conversation']");
+      const composer = window.LoadToAgentTerminalComposer;
+      if (!form || !composer || input.disabled) {
+        if (input) setConversationSlashOpen(input, false);
+        return;
+      }
+      const slashState = conversationSlashState(input);
+      if (input.value !== slashState.dismissedValue) slashState.dismissedValue = "";
+      const query = composer.slashQuery(input.value, input.selectionStart);
+      if (query == null || (!options.force && slashState.dismissedValue === input.value)) {
+        setConversationSlashOpen(input, false);
+        return;
+      }
+      if (!renderConversationSlashMenu(input, query)) return;
+      setConversationSlashOpen(input, true);
+      syncConversationSlashOption(input);
+    };
+    const closeConversationSlashMenu = (input, dismiss = true) => {
+      const slashState = conversationSlashState(input);
+      if (dismiss) slashState.dismissedValue = input?.value || "";
+      setConversationSlashOpen(input, false);
+    };
+    const selectConversationSlashCommand = (input, commandValue = "") => {
+      const slashState = conversationSlashState(input);
+      const command = commandValue
+        ? slashState.filtered.find(item => item.value === commandValue)
+        : slashState.filtered[slashState.activeIndex];
+      if (!input || !command) return false;
+      input.value = command.value;
+      slashState.dismissedValue = command.value;
+      setConversationSlashOpen(input, false);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(input.value.length, input.value.length);
+      window.LoadToAgentA11y?.announce(t("terminal.slash.selected", { command: command.value }));
+      return true;
+    };
+    const handleConversationSlashKeydown = (event, input) => {
+      const slashState = conversationSlashState(input);
+      if (!slashState.open) return false;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeConversationSlashMenu(input);
+        return true;
+      }
+      if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+        event.preventDefault();
+        if (!slashState.filtered.length) return true;
+        if (event.key === "Home") slashState.activeIndex = 0;
+        else if (event.key === "End") slashState.activeIndex = slashState.filtered.length - 1;
+        else slashState.activeIndex = (
+          slashState.activeIndex + (event.key === "ArrowDown" ? 1 : -1) + slashState.filtered.length
+        ) % slashState.filtered.length;
+        syncConversationSlashOption(input);
+        return true;
+      }
+      if (!["Enter", "Tab"].includes(event.key) || !slashState.filtered.length || event.isComposing || event.keyCode === 229) {
+        return false;
+      }
+      const selected = slashState.filtered[slashState.activeIndex];
+      if (event.key === "Enter" && input.value === selected?.value) {
+        closeConversationSlashMenu(input);
+        return false;
+      }
+      event.preventDefault();
+      selectConversationSlashCommand(input);
+      return true;
+    };
     const closeSessionResetDialog = (restoreFocus = true) => {
       const modal = $("#sessionResetModal");
       if (!modal || modal.classList.contains("hidden")) return;
@@ -169,12 +320,14 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const confirmButton = $("#confirmSessionResetBtn");
       confirmButton.disabled = true;
       confirmButton.setAttribute("aria-busy", "true");
+      confirmButton.textContent = t("session.reset_busy");
       try {
         await resetAgentSession(sessionId);
         closeSessionResetDialog(false);
       } finally {
         confirmButton.disabled = false;
         confirmButton.removeAttribute("aria-busy");
+        confirmButton.textContent = t("session.reset_action");
       }
     });
     $("#closeDrawerBtn").addEventListener("click", closeDrawer);
@@ -247,25 +400,20 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       $(`.drawer-tab[data-tab="${state.drawerTab}"]`)?.focus();
     });
     $("#detailDrawer").addEventListener("click", async (event) => {
+      const expandedReaderClose = event.target.closest("[data-close-expanded-reader]");
+      if (expandedReaderClose) {
+        closeDrawer();
+        return;
+      }
+      const slashCommand = event.target.closest("[data-conversation-slash-command]");
+      if (slashCommand) {
+        const input = slashCommand.closest("form")?.querySelector("[data-agent-command-draft]");
+        selectConversationSlashCommand(input, slashCommand.dataset.conversationSlashCommand);
+        return;
+      }
       const subagent = event.target.closest("[data-open-subagent-chat]");
       if (subagent) {
         openSubagentConversation(subagent.dataset.openSubagentChat, { presentation: state.drawerPresentation });
-        return;
-      }
-      const inputMode = event.target.closest("[data-agent-command-input-mode]");
-      if (inputMode) {
-        const sessionId = inputMode.dataset.agentCommandSession;
-        const nextMode = inputMode.dataset.agentCommandInputMode;
-        state.agentCommandInputModes.set(sessionId, nextMode);
-        renderDrawer();
-        requestAnimationFrame(() => {
-          const target = nextMode === "terminal"
-            ? $("#detailDrawer")?.querySelector(`[data-agent-command-draft="${CSS.escape(sessionId)}"]`)
-            : $("#detailDrawer")?.querySelector(
-              `[data-agent-command-session="${CSS.escape(sessionId)}"][data-agent-command-input-mode="terminal"]`,
-            );
-          target?.focus({ preventScroll: true });
-        });
         return;
       }
       const copy = event.target.closest("[data-copy-text]");
@@ -360,8 +508,20 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const input = event.target.closest("[data-agent-command-draft]");
       if (input) {
         state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
-        const counter = input.closest("form")?.querySelector("[data-agent-command-count]");
+        const form = input.closest("form");
+        const counter = form?.querySelector("[data-agent-command-count]");
         if (counter) counter.textContent = t("agent.input_count", { count: input.value.length.toLocaleString() });
+        const progressiveCount = form?.querySelector("[data-conversation-draft-count]");
+        if (progressiveCount) {
+          progressiveCount.textContent = t("agent.input_count", { count: input.value.length.toLocaleString() });
+          progressiveCount.classList.toggle("hidden", input.value.length < 7200);
+          progressiveCount.classList.toggle("limit-near", input.value.length >= 7800);
+        }
+        const conversationSend = form?.querySelector(".conversation-send");
+        if (conversationSend && !conversationSend.matches('[aria-busy="true"]')) {
+          conversationSend.disabled = form.dataset.agentSendAvailable !== "true" || !input.value.trim();
+        }
+        syncConversationSlashMenu(input);
       }
     });
     $("#detailDrawer").addEventListener("change", (event) => {
@@ -373,9 +533,18 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     });
     $("#detailDrawer").addEventListener("keydown", (event) => {
       const input = event.target.closest("[data-agent-command-draft]");
-      if (!input || event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+      if (!input || handleConversationSlashKeydown(event, input)) return;
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();
+      if (!input.value.trim()) return;
       input.closest("form")?.requestSubmit();
+    });
+    $("#detailDrawer").addEventListener("focusout", (event) => {
+      const input = event.target.closest("[data-agent-command-routing='conversation'] [data-agent-command-draft]");
+      if (!input) return;
+      setTimeout(() => {
+        if (!input.closest("form")?.contains(document.activeElement)) closeConversationSlashMenu(input);
+      }, 0);
     });
     $("#detailDrawer").addEventListener("submit", async (event) => {
       const form = event.target.closest("[data-agent-command-form]");

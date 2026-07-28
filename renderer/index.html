@@ -53,7 +53,7 @@
           <p id="pageSubtitle" class="subtitle" data-i18n="ui.active_work_and_items_needing_your_review_appear_first_find">실행 구조는 항상 보이고, 세션을 누르면 대화를 확인하거나 바로 참여할 수 있습니다.</p>
         </div>
         <div class="top-actions">
-          <button id="shortcutHelpBtn" class="top-icon-action" type="button" aria-label="키보드 단축키 보기" data-i18n-aria-label="quality.shortcuts.open" aria-keyshortcuts="?" aria-controls="shortcutHelpModal"><span aria-hidden="true">⌨</span></button>
+          <button id="shortcutHelpBtn" class="top-icon-action" type="button" aria-label="키보드 단축키 보기" data-i18n-aria-label="quality.shortcuts.open" aria-keyshortcuts="?" aria-controls="shortcutHelpModal"><span aria-hidden="true">⌘</span><b class="top-icon-label" data-i18n="quality.shortcuts.title">앱 단축키</b></button>
           <button id="guideBtn" class="guide-toggle" type="button" aria-controls="beginnerGuide" aria-expanded="false"><span aria-hidden="true">?</span><span><b data-i18n="ui.10_minute_quick_start">10분 시작 가이드</b><small id="guideButtonProgress" data-i18n="common.progress" data-i18n-params='{"current":0,"total":4}'>0 / 4 완료</small></span></button>
           <div id="appConnectionState" class="sync-state" role="status" aria-live="polite"><span aria-hidden="true"></span><div><b data-i18n="ui.app_connection">앱 연결</b><small id="lastSync" data-i18n="ui.connecting">연결 중</small></div></div>
           <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="AI에게 새 일 맡기기" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업</b><small><kbd>⌘N</kbd></small></span></button>
@@ -236,9 +236,33 @@
                   </div>
                 </header>
                 <div id="terminalViewport" class="terminal-viewport"><div id="terminalEmpty" class="terminal-empty"><span>›_</span><h3 data-i18n="ui.choose_a_session_to_continue">이어갈 세션을 선택하세요</h3><p data-i18n="ui.choose_a_session_on_the_left_or_create_one_to">왼쪽 세션을 고르거나 새 세션을 만들면 실시간 출력과 명령 입력창이 열립니다.</p></div></div>
-                <form id="terminalCommandForm" class="terminal-command-form">
-                  <div class="terminal-command-label"><label id="terminalCommandLabel" for="terminalCommandInput" data-i18n="ui.send_command_to_terminal">터미널에 명령 보내기</label><span data-i18n="ui.enter_to_send_shift_enter_for_newline">Enter 전송 · Shift+Enter 줄바꿈</span></div>
-                  <div class="terminal-command-composer"><textarea id="terminalCommandInput" rows="2" maxlength="8000" aria-describedby="terminalCommandCount" placeholder="먼저 왼쪽에서 세션을 선택하세요" data-i18n-placeholder="ui.select_a_session_on_the_left_first" spellcheck="false"></textarea><button id="terminalCommandClearBtn" class="terminal-command-clear hidden" type="button" aria-label="작성 중인 명령 지우기" data-i18n-aria-label="quality.terminal_clear_draft">×</button><button type="submit"><span data-i18n="common.send">보내기</span><b>↵</b></button><small id="terminalCommandCount" class="terminal-command-count">0 / 8,000</small></div>
+                <form id="terminalCommandForm" class="terminal-command-form" data-ai-target="false" data-long-draft="false" data-long-draft-expanded="false">
+                  <div class="terminal-command-label">
+                    <span class="terminal-command-mark" aria-hidden="true">✦</span>
+                    <span class="terminal-command-heading">
+                      <label id="terminalCommandLabel" for="terminalCommandInput" data-i18n="ui.send_command_to_terminal">터미널에 명령 보내기</label>
+                      <small id="terminalCommandModeHint" data-i18n="terminal.composer.shell_hint">명령과 여러 줄 내용을 읽기 좋은 형태로 입력하세요.</small>
+                    </span>
+                    <span class="terminal-command-shortcuts" role="note" aria-label="Enter 전송 · Shift+Enter 줄바꿈" data-i18n-aria-label="ui.enter_to_send_shift_enter_for_newline"><kbd aria-hidden="true">↵</kbd><span data-i18n="terminal.composer.send_hint">전송</span><kbd aria-hidden="true">⇧↵</kbd><span data-i18n="terminal.composer.newline_hint">줄바꿈</span></span>
+                  </div>
+                  <div class="terminal-command-composer">
+                    <div id="terminalSlashMenu" class="terminal-slash-menu hidden" role="listbox" aria-labelledby="terminalSlashMenuTitle">
+                      <header><span><i aria-hidden="true">/</i><b id="terminalSlashMenuTitle" data-i18n="terminal.slash.title_default">AI 빠른 명령</b></span><small id="terminalSlashMenuStatus" aria-live="polite"></small></header>
+                      <div id="terminalSlashMenuList" class="terminal-slash-menu-list"></div>
+                      <footer><span data-i18n="terminal.slash.keyboard_help">↑↓ 이동 · Enter 선택 · Esc 닫기</span><kbd>Tab</kbd></footer>
+                    </div>
+                    <div class="terminal-command-input-row">
+                      <textarea id="terminalCommandInput" rows="1" maxlength="8000" aria-describedby="terminalCommandModeHint terminalCommandCount" aria-controls="terminalSlashMenu" aria-expanded="false" aria-autocomplete="list" autocomplete="off" placeholder="먼저 왼쪽에서 세션을 선택하세요" data-i18n-placeholder="ui.select_a_session_on_the_left_first" spellcheck="true"></textarea>
+                      <button id="terminalCommandClearBtn" class="terminal-command-clear hidden" type="button" aria-label="작성 중인 명령 지우기" data-i18n-aria-label="quality.terminal_clear_draft"><span aria-hidden="true">×</span></button>
+                      <button class="terminal-command-submit" type="submit" aria-label="보내기" data-i18n-aria-label="common.send"><span data-i18n="common.send">보내기</span><b aria-hidden="true">↑</b></button>
+                    </div>
+                    <div class="terminal-command-footer">
+                      <button id="terminalSlashTrigger" class="terminal-slash-trigger hidden" type="button" aria-label="빠른 명령 열기" data-i18n-aria-label="terminal.slash.open"><kbd>/</kbd><span data-i18n="terminal.slash.open_short">명령</span></button>
+                      <span id="terminalLongDraftMeta" class="terminal-long-draft-meta hidden"><i aria-hidden="true">≡</i><span id="terminalLongDraftSummary"></span><button id="terminalLongDraftToggle" type="button" aria-expanded="false" aria-controls="terminalCommandInput" data-i18n="terminal.composer.expand">펼치기</button></span>
+                      <span class="terminal-command-footer-spacer"></span>
+                      <small id="terminalCommandCount" class="terminal-command-count">0 / 8,000</small>
+                    </div>
+                  </div>
                 </form>
                 <div id="terminalNotice" class="terminal-notice" role="status" aria-live="polite" aria-atomic="true" tabindex="-1"><span class="terminal-notice-dot"></span><span data-i18n="ui.select_a_session_to_start_typing">세션을 선택하면 바로 입력할 수 있습니다.</span></div>
               </section>
@@ -391,13 +415,13 @@
         <span class="session-reset-dialog-icon" aria-hidden="true">↻</span>
         <div>
           <p data-i18n="session.reset_eyebrow">현재 대화는 그대로 유지됩니다</p>
-          <h2 id="sessionResetTitle" data-i18n="session.reset">세션 초기화</h2>
+          <h2 id="sessionResetTitle" data-i18n="session.reset">새 AI 세션</h2>
         </div>
       </header>
       <p id="sessionResetDescription" data-i18n="session.reset_confirm">기존 대화 기록은 유지하고 새 AI 세션을 시작할까요? 현재 컨텍스트는 새로 시작됩니다.</p>
       <div class="session-reset-dialog-actions">
         <button id="cancelSessionResetBtn" type="button" class="ghost-button" data-i18n="common.cancel">취소</button>
-        <button id="confirmSessionResetBtn" type="button" class="primary-button" data-i18n="session.reset_action">초기화하고 새 세션 시작</button>
+        <button id="confirmSessionResetBtn" type="button" class="primary-button" data-i18n="session.reset_action">새 세션 시작</button>
       </div>
     </section>
   </div>
@@ -493,6 +517,7 @@
   <script src="app-bootstrap.js"></script>
   <script src="terminal-workbench.js"></script>
   <script src="terminal-agent.js"></script>
+  <script src="terminal-composer.js"></script>
   <script src="terminal-events.js"></script>
   <script src="terminal.js"></script>
 </body>

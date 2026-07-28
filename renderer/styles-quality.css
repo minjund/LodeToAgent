@@ -53,14 +53,30 @@ body.quality-keyboard-mode :focus-visible {
 }
 
 .top-icon-action {
-  width: 44px;
+  width: auto;
+  min-width: 44px;
   height: 44px;
-  flex: 0 0 44px;
+  flex: 0 0 auto;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   border: 1px solid #2a3544;
   border-radius: 12px;
   background: #101722;
   color: #91a1b5;
   cursor: pointer;
+}
+
+.top-icon-action > span {
+  font-size: 16px;
+}
+
+.top-icon-action .top-icon-label {
+  font-size: 12px;
+  font-weight: 740;
+  white-space: nowrap;
 }
 
 .top-icon-action:hover,
@@ -262,13 +278,14 @@ body.quality-keyboard-mode :focus-visible {
 }
 
 .terminal-command-form .terminal-command-clear {
-  width: 38px;
-  min-width: 38px;
+  width: 44px;
+  min-width: 44px;
   padding: 0;
   justify-content: center;
-  border-color: #394755;
-  background: #111923;
-  color: #8292a4;
+  border: 0;
+  border-radius: 50%;
+  background: #171f29;
+  color: #909dac;
 }
 
 .terminal-command-count.warning {
@@ -281,6 +298,11 @@ body.quality-keyboard-mode :focus-visible {
     width: 42px;
     height: 42px;
     flex-basis: 42px;
+    padding: 0;
+  }
+
+  .top-icon-action .top-icon-label {
+    display: none;
   }
 
   .quality-modal {
@@ -306,7 +328,4 @@ body.quality-keyboard-mode :focus-visible {
     grid-column: 2;
   }
 
-  .terminal-command-form button[type="submit"] {
-    grid-column: 1 / -1;
-  }
 }

@@ -526,6 +526,9 @@ app.whenReady().then(async () => {
           const list = document.querySelector('#mobileWorkspaceList');
           const selectedItem = list?.querySelector('[aria-pressed="true"]');
           const menuRect = menu?.getBoundingClientRect();
+          const liveDot = [...(list?.querySelectorAll('.workspace-live-state i') || [])]
+            .find(candidate => candidate.getClientRects().length > 0);
+          const liveDotRect = liveDot?.getBoundingClientRect();
           return {
             visible: Boolean(menu && !menu.classList.contains('hidden') && picker?.open),
             selected: selectedItem?.textContent.trim() || '',
@@ -533,9 +536,11 @@ app.whenReady().then(async () => {
             singleScrollRegion: Boolean(list && list.scrollHeight <= list.clientHeight + 1),
             noHorizontalOverflow: Boolean(menu && menu.scrollWidth <= menu.clientWidth + 2 && list && list.scrollWidth <= list.clientWidth + 2),
             insideViewport: Boolean(menuRect && menuRect.left >= -1 && menuRect.right <= window.innerWidth + 1 && menuRect.top >= -1 && menuRect.bottom <= window.innerHeight + 1),
+            liveDotCompact: Boolean(liveDotRect && liveDotRect.width <= 9 && liveDotRect.height <= 9 && getComputedStyle(liveDot).borderRadius.includes('50')),
+            liveDotLabel: liveDot?.closest('.workspace-live-state')?.getAttribute('aria-label') || '',
           };
         })()`);
-        if (!mobileProjects.visible || !mobileProjects.selected || !mobileProjects.selectedRepresentedOnce || !mobileProjects.singleScrollRegion || !mobileProjects.noHorizontalOverflow || !mobileProjects.insideViewport) throw new Error(`360×520 모바일 프로젝트 선택기가 올바르지 않습니다: ${JSON.stringify(mobileProjects)}`);
+        if (!mobileProjects.visible || !mobileProjects.selected || !mobileProjects.selectedRepresentedOnce || !mobileProjects.singleScrollRegion || !mobileProjects.noHorizontalOverflow || !mobileProjects.insideViewport || !mobileProjects.liveDotCompact || !mobileProjects.liveDotLabel) throw new Error(`360×520 모바일 프로젝트 선택기가 올바르지 않습니다: ${JSON.stringify(mobileProjects)}`);
         await wait(120);
         fs.writeFileSync(path.join(outputDir, 'loadtoagent-responsive-projects-360.png'), (await win.webContents.capturePage()).toPNG());
         const projectSelection = await win.webContents.executeJavaScript(`(() => {

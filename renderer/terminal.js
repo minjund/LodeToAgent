@@ -76,6 +76,7 @@
     terminalFocusMode: false,
     platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows Terminal', nativeTmux: false },
   };
+  let composer = null;
 
   const STATUS_LABELS = {};
 
@@ -291,6 +292,7 @@
     if (input) {
       input.value = state.commandDrafts.get(currentTargetId()) || '';
       $('#terminalCommandClearBtn')?.classList.toggle('hidden', !input.value);
+      composer?.sync();
     }
   }
 
@@ -439,7 +441,9 @@
     if (toggle) {
       toggle.setAttribute('aria-expanded', state.historyCollapsed ? 'false' : 'true');
       toggle.textContent = state.historyCollapsed ? '›' : '‹';
-      toggle.title = state.historyCollapsed ? t('terminal.history.expand') : t('ui.collapse_conversation_panel');
+      const toggleLabel = state.historyCollapsed ? t('terminal.history.expand') : t('ui.collapse_conversation_panel');
+      toggle.title = toggleLabel;
+      toggle.setAttribute('aria-label', toggleLabel);
     }
     if (!agent) return;
     const allMessages = Array.isArray(agent.messages) ? agent.messages.filter(message => message && message.text) : [];
@@ -652,8 +656,15 @@
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench,
+    syncComposer: (...args) => composer?.sync(...args),
     tmuxRows: (...args) => tmuxRows(...args),
     updateSnapshot: (...args) => updateSnapshot(...args),
+  });
+
+  composer = window.LoadToAgentTerminalComposer.create({
+    $, state, currentTargetId, esc,
+    isAiTarget: () => isAiTerminalSession(currentSession()),
+    providerForTarget: () => visibleBoundAgent()?.provider || currentSession()?.provider || '',
   });
 
   const {
@@ -661,6 +672,7 @@
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
+    syncComposer: (...args) => composer?.sync(...args),
   });
 
   function bindEvents() {
@@ -693,6 +705,7 @@
       setTerminalFontSize,
       toggleTerminalFocusMode,
       isAiTerminalSession,
+      composer,
     });
   }
 

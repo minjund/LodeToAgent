@@ -314,13 +314,25 @@ app.whenReady().then(() => {
       await new Promise(resolve => setTimeout(resolve, 350));
       const structuredMetrics = await win.webContents.executeJavaScript(`(() => {
         const content = document.querySelector('#drawerContent');
+        const rows = [...document.querySelectorAll('.chat-row')];
+        const latest = rows[rows.length - 1];
+        const contentBounds = content?.getBoundingClientRect();
+        const latestBounds = latest?.getBoundingClientRect();
+        const latestIsTall = Boolean(content && latest && latest.offsetHeight > content.clientHeight - 90);
+        const latestStartsVisible = Boolean(contentBounds && latestBounds
+          && latestBounds.top >= contentBounds.top - 2
+          && latestBounds.top <= contentBounds.top + 72);
+        const atBottom = content ? Math.abs(content.scrollHeight - content.scrollTop - content.clientHeight) < 60 : false;
         return {
           sessionId: ${JSON.stringify(structuredSessionId)},
           candidates: document.querySelectorAll('.memory-candidate').length,
           rawPreBlocks: document.querySelectorAll('.chat-bubble pre').length,
           bottomGap: content ? Math.abs(content.scrollHeight - content.scrollTop - content.clientHeight) : null,
-          atBottom: content ? Math.abs(content.scrollHeight - content.scrollTop - content.clientHeight) < 60 : false,
-          messageCount: document.querySelectorAll('.chat-row').length,
+          atBottom,
+          latestIsTall,
+          latestStartsVisible,
+          positionedAtLatest: latestIsTall ? latestStartsVisible : atBottom,
+          messageCount: rows.length,
         };
       })()`);
       const structuredImage = await win.webContents.capturePage();
@@ -328,7 +340,8 @@ app.whenReady().then(() => {
       fs.writeFileSync(structuredOutput, structuredImage.toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
       if (structuredSessionId && structuredMetrics.candidates === 0) throw new Error('구조화 JSON 메시지가 읽기 쉬운 카드로 렌더링되지 않았습니다.');
-      if (structuredSessionId && !structuredMetrics.atBottom) throw new Error(`상세 대화가 최신 메시지 위치로 이동하지 않았습니다. gap=${structuredMetrics.bottomGap}`);
+      if (structuredSessionId && !structuredMetrics.positionedAtLatest)
+        throw new Error(`상세 대화가 최신 메시지 위치로 이동하지 않았습니다: ${JSON.stringify(structuredMetrics)}`);
       const deliveryMetrics = await win.webContents.executeJavaScript(`(() => {
         const app = window.LoadToAgentApp;
         const base = app.state.details.get(${JSON.stringify(structuredSessionId)}) || {};
@@ -368,13 +381,11 @@ app.whenReady().then(() => {
         document.querySelector('#detailDrawer').setAttribute('aria-hidden', 'false');
         app.renderDrawer();
         const panel = document.querySelector('.chat-delivery-progress');
+        const status = document.querySelector('.chat-delivery-status.delayed');
         const content = document.querySelector('#drawerContent');
         return {
-          phase: panel?.dataset.deliveryPhase || '',
-          steps: panel?.querySelectorAll('ol > li').length || 0,
-          completedSteps: panel?.querySelectorAll('ol > li.done').length || 0,
-          warningSteps: panel?.querySelectorAll('ol > li.warning').length || 0,
-          evidence: panel?.querySelector('footer')?.textContent.replace(/\\s+/g, ' ').trim() || '',
+          hasDeliveryCard: Boolean(panel),
+          inlineStatus: status?.textContent.replace(/\\s+/g, ' ').trim() || '',
           providerStatus: document.querySelector('#drawerProvider')?.textContent || '',
           noHorizontalOverflow: Boolean(content && content.scrollWidth <= content.clientWidth + 2),
         };
@@ -384,10 +395,9 @@ app.whenReady().then(() => {
       const deliveryOutput = path.join(outputDir, 'loadtoagent-message-delivery-status.png');
       fs.writeFileSync(deliveryOutput, deliveryImage.toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
-      if (deliveryMetrics.phase !== 'delayed' || deliveryMetrics.steps !== 3 || deliveryMetrics.completedSteps !== 1
-        || deliveryMetrics.warningSteps !== 1 || !deliveryMetrics.evidence.includes('60초 이상')
+      if (deliveryMetrics.hasDeliveryCard || !deliveryMetrics.inlineStatus.includes('확인 지연')
         || !deliveryMetrics.providerStatus.includes('전달 확인 지연') || !deliveryMetrics.noHorizontalOverflow) {
-        throw new Error(`메시지 전달 상태 화면이 실제 확인 근거를 구분하지 못했습니다: ${JSON.stringify(deliveryMetrics)}`);
+        throw new Error(`메시지 전달 상태가 간결한 인라인 표시로 유지되지 않았습니다: ${JSON.stringify(deliveryMetrics)}`);
       }
       const densitySetup = await win.webContents.executeJavaScript(`(async () => {
         const sessions = window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || [];
@@ -1082,7 +1092,7 @@ app.whenReady().then(() => {
       })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('.subagent-assignment-card')`);
       const subagentConversationOutput = path.join(outputDir, 'loadtoagent-subagent-conversation.png');
       fs.writeFileSync(subagentConversationOutput, subagentConversationImage.toPNG());
-      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route]') && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent' && !document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled && Boolean(document.querySelector('#drawerComposer .conversation-terminal-toggle[aria-expanded="false"]')), actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')), placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
+      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route], #drawerComposer .conversation-terminal-toggle, #drawerComposer [data-agent-command-count], #drawerComposer .agent-command-actions > small') && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent' && document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled && Boolean(document.querySelector('#drawerComposer [data-agent-command-draft]')), actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')), placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
       if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 2 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.inlineRelay || !subagentConversationMetrics.actualWorkVisible || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 작업 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
 
