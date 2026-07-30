@@ -10,19 +10,19 @@ const ALLOWED_LAYOUTS = new Set(['even-horizontal', 'even-vertical', 'main-horiz
 
 function clean(value, max = 200) {
   const text = String(value == null ? '' : value).replace(/[\u0000\r\n]/g, '').trim();
-  if (!text || text.length > max) throw new Error('tmux 대상 값이 올바르지 않습니다.');
+  if (!text || text.length > max) throw new Error('선택한 명령창 정보가 올바르지 않습니다.');
   return text;
 }
 
 function safeName(value) {
   const text = clean(value, 100);
-  if (!/^[\p{L}\p{N}_.-]+$/u.test(text)) throw new Error('이름에는 문자, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.');
+  if (!/^[\p{L}\p{N}_.-]+$/u.test(text)) throw new Error('이름에는 글자, 숫자, 점(.), 밑줄(_), - 기호만 사용할 수 있습니다.');
   return text;
 }
 
 function safeTarget(value) {
   const text = clean(value, 160);
-  if (!/^[\p{L}\p{N}_@%$.:+\/-]+$/u.test(text)) throw new Error('tmux 대상 형식이 올바르지 않습니다.');
+  if (!/^[\p{L}\p{N}_@%$.:+\/-]+$/u.test(text)) throw new Error('선택한 명령창 정보의 형식이 올바르지 않습니다.');
   return text;
 }
 
@@ -42,7 +42,7 @@ function runProcess(file, args, options = {}) {
     };
     const timer = setTimeout(() => {
       runBestEffort('tmux-timeout-kill', () => child.kill());
-      finish(new Error('tmux 명령 시간이 초과되었습니다.'));
+      finish(new Error('여러 명령창 작업이 제한 시간 안에 끝나지 않았습니다.'));
     }, options.timeoutMs || 8_000);
     child.stdout.on('data', chunk => {
       stdoutBytes += chunk.length;
@@ -57,7 +57,7 @@ function runProcess(file, args, options = {}) {
       const out = Buffer.concat(stdout).toString('utf8');
       const err = Buffer.concat(stderr).toString('utf8').trim();
       if (code === 0) finish(null, { ok: true, stdout: out, stderr: err });
-      else finish(new Error(err || `tmux 명령이 종료 코드 ${code}로 실패했습니다.`));
+      else finish(new Error(err || '여러 명령창 관리 요청을 처리하지 못했습니다.'));
     });
     if (options.input != null) child.stdin.end(String(options.input), 'utf8');
     else child.stdin.end();
@@ -100,7 +100,7 @@ class TmuxController {
 
   sendKey(options = {}) {
     const key = clean(options.key, 20);
-    if (!ALLOWED_KEYS.has(key)) throw new Error('허용되지 않은 tmux 키입니다.');
+    if (!ALLOWED_KEYS.has(key)) throw new Error('이 명령창에서는 사용할 수 없는 키입니다.');
     return this.execute(options.distro, ['send-keys', '-t', safeTarget(options.target), key]).then(() => ({ ok: true }));
   }
 
@@ -132,7 +132,7 @@ class TmuxController {
     // WSL routes command arguments through a Linux command line; a bare tmux
     // format beginning with # can be consumed as a shell comment. -P's default
     // target format is stable and avoids that quoting boundary entirely.
-    if (!['horizontal', 'vertical'].includes(options.direction)) throw new Error('지원하지 않는 tmux 분할 방향입니다.');
+    if (!['horizontal', 'vertical'].includes(options.direction)) throw new Error('지원하지 않는 명령창 나누기 방향입니다.');
     const args = ['split-window', '-d', '-t', safeTarget(options.target), '-P'];
     if (options.direction === 'horizontal') args.splice(1, 0, '-h');
     if (options.cwd) args.push('-c', clean(options.cwd, 500));
@@ -152,7 +152,7 @@ class TmuxController {
 
   async selectLayout(options = {}) {
     const layout = clean(options.layout, 40);
-    if (!ALLOWED_LAYOUTS.has(layout)) throw new Error('지원하지 않는 tmux 레이아웃입니다.');
+    if (!ALLOWED_LAYOUTS.has(layout)) throw new Error('지원하지 않는 명령창 배치 방식입니다.');
     await this.execute(options.distro, ['select-layout', '-t', safeTarget(options.target), layout]);
     return { ok: true };
   }

@@ -25,8 +25,9 @@ integration. Privileged operations are exposed only through the preload bridge
 and validated IPC handlers. Updates are accepted only from this repository's
 HTTPS release assets and require a GitHub-provided SHA-256 digest. Production
 channels also require a valid platform code signature. The explicit internal
-macOS channel may accept an unsigned DMG after the URL, filename, size, and
-digest checks and removes quarantine only from the staged application bundle.
+channel may accept an unsigned Windows installer or macOS DMG after the URL,
+filename, size, and digest checks. On macOS it removes quarantine only from the
+staged application bundle.
 
 See [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) and
 [docs/DATA-RETENTION.md](docs/DATA-RETENTION.md) for operational details.

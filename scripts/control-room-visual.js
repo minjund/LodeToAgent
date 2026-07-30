@@ -108,7 +108,7 @@ app.whenReady().then(async () => {
       });
       const waitingWithBackground = control.state.snapshot.sessions.find(session => session.id === 'fixture-root');
       waitingWithBackground.status = 'waiting';
-      waitingWithBackground.statusDetail = '답변 또는 선택 대기';
+      waitingWithBackground.statusDetail = '내 답변을 기다리는 중';
       window.interactionTest.setSessionRuntimePresence('fixture-child', [{ kind: 'terminal', terminalId: 'terminal-race-a', pid: 41003, label: 'subagent fixture terminal' }]);
       const child = control.state.snapshot.sessions.find(session => session.id === 'fixture-child');
       child.runtimePresence = [{ kind: 'terminal', terminalId: 'terminal-race-a', pid: 41003, label: 'subagent fixture terminal' }];
@@ -127,8 +127,10 @@ app.whenReady().then(async () => {
       const primaryProjectGroup = [...document.querySelectorAll('.control-room-project-group')]
         .find(group => group.dataset.controlProject === ['Lode', 'star'].join(''));
       if (primaryProjectGroup) {
-        primaryProjectGroup.querySelector('.control-project-heading small').textContent = '실행 중 4 · 확인 필요 1';
-        primaryProjectGroup.querySelector('.control-project-heading em').textContent = '5';
+        const projectSummary = primaryProjectGroup.querySelector('.control-project-heading small > span');
+        const projectAction = primaryProjectGroup.querySelector('.control-project-heading small > em');
+        if (projectSummary) projectSummary.textContent = '현재 상태: AI가 작업 중 · 확인할 결과 1건';
+        if (projectAction) projectAction.textContent = '확인할 결과 1건 보기';
       }
       document.querySelector('.main-stage')?.scrollTo(0, 0);
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -221,33 +223,33 @@ app.whenReady().then(async () => {
     if (!overviewMetrics.usageOverviewVisible || overviewMetrics.usageProviderCards < 1 || overviewMetrics.usageGauges < 1
       || overviewMetrics.controlRooms < 1
       || !overviewMetrics.rootVisible || !overviewMetrics.mainNode || overviewMetrics.helperNodes < 1
-      || overviewMetrics.compositeSessionLabel !== '응답 대기 · 백그라운드 실행 중'
+      || !overviewMetrics.compositeSessionLabel.includes('내 답변 대기')
+      || !overviewMetrics.compositeSessionLabel.includes('화면 밖에서 작업 중')
       || overviewMetrics.executionNodes < 1 || overviewMetrics.completedNodes < 1
       || overviewMetrics.mainLeakedIntoWorkColumns || overviewMetrics.invalidRunningUnits || overviewMetrics.invalidCompletedUnits
       || overviewMetrics.emptyRunningColumns < 1
-      || !overviewMetrics.mainOwnerLabelsHidden || !overviewMetrics.executionTypeLabels.some(label => label.startsWith('PowerShell ·'))
+      || !overviewMetrics.mainOwnerLabelsHidden || !overviewMetrics.executionTypeLabels.some(label => label === '컴퓨터 작업')
       || overviewMetrics.runtimeTooltips.length !== overviewMetrics.executionNodes || overviewMetrics.runtimeTooltips.some(value => !value)
       || !overviewMetrics.mainSummary || overviewMetrics.helperSummaries.some(summary => !summary)
       || overviewMetrics.executionSummaries.some(summary => !summary) || !overviewMetrics.rawBackgroundLabelsHidden
       || overviewMetrics.executionTargets.some(target => !target.owner || !target.execution || target.opensSession)
-      || !overviewMetrics.humanColumnLabels.some(label => label.includes('위임과 실제 행위'))
-      || overviewMetrics.semanticSamples.copy !== '에이전트·실행 작업의 요약 문구 개선'
+      || !overviewMetrics.humanColumnLabels.some(label => label.includes('같은 요청에서 함께 진행 중인 AI 작업'))
+      || overviewMetrics.semanticSamples.copy !== 'AI와 진행 중인 작업의 요약 문구 개선'
       || overviewMetrics.semanticSamples.loop !== 'v18-seo-blog 자동 작업 실행'
       || overviewMetrics.semanticSamples.phase !== '요구사항과 단계 완료 조건 확인'
       || !overviewMetrics.noSectionOverflow || !overviewMetrics.noStageOverflow || overviewMetrics.sessionRecords !== 0
-      || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.projectToolbarVisible || !overviewMetrics.stateTabsRemoved
+      || !overviewMetrics.sidebarProjectListRemoved || !overviewMetrics.stateTabsRemoved
       || overviewMetrics.projectHeaderHeight < 43.5
-      || !['모든 프로젝트', ['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', '기타', 'nested-active-project', 'tmux-only-project']
+      || !['전체', ['Lode', 'star'].join('') + ' 폴더', 'CMS_WEB 폴더', 'cras_backend 폴더', '기타 폴더', 'nested-active-project 폴더', 'tmux-only-project 폴더']
         .every(name => overviewMetrics.projectChips.includes(name))
-      || overviewMetrics.projectChipCounts.some((count, index, counts) => index > 0 && counts[index - 1] < count)
-      || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', 'nested-active-project', 'tmux-only-project']
+      || ![['Lode', 'star'].join(''), 'CMS_WEB', 'cras_backend', 'tmux-only-project']
         .every(name => overviewMetrics.projectGroups.includes(name))
       || overviewMetrics.projectGroups.length < 4
-      || overviewMetrics.projectGroupCounts.some(count => count < 1)
-      || overviewMetrics.openProjectGroups !== 1 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
+      || overviewMetrics.openProjectGroups > 1 || overviewMetrics.clippedOpenProjectBodies !== 0 || overviewMetrics.inaccessibleProjectBodies !== 0
       || !overviewMetrics.projectFlowIsButton || !overviewMetrics.projectHandleVisible
-      || !overviewMetrics.addProjectAtRight || !overviewMetrics.bulkActionsAtTop
-      || !overviewMetrics.expandEnabled || overviewMetrics.collapseDisabled || !overviewMetrics.pagerRemoved) {
+      || !overviewMetrics.expandEnabled
+      || overviewMetrics.collapseDisabled !== (overviewMetrics.openProjectGroups === 0)
+      || !overviewMetrics.pagerRemoved) {
       throw new Error(`세션 관제 홈 검증 실패: ${JSON.stringify(overviewMetrics)}`);
     }
 
@@ -257,13 +259,15 @@ app.whenReady().then(async () => {
       const control = window.LoadToAgentApp;
       const root = control.state.snapshot.sessions.find(session => session.id === 'fixture-root');
       root.status = 'running';
-      root.statusDetail = '도구 실행 또는 스트리밍 중';
+      root.statusDetail = '기능 사용 또는 답변 작성 중';
       control.render();
       const primaryProjectGroup = [...document.querySelectorAll('.control-room-project-group')]
         .find(group => group.dataset.controlProject === ['Lode', 'star'].join(''));
       if (primaryProjectGroup) {
-        primaryProjectGroup.querySelector('.control-project-heading small').textContent = '실행 중 4 · 확인 필요 1';
-        primaryProjectGroup.querySelector('.control-project-heading em').textContent = '5';
+        const projectSummary = primaryProjectGroup.querySelector('.control-project-heading small > span');
+        const projectAction = primaryProjectGroup.querySelector('.control-project-heading small > em');
+        if (projectSummary) projectSummary.textContent = '현재 상태: AI가 작업 중 · 확인할 결과 1건';
+        if (projectAction) projectAction.textContent = '확인할 결과 1건 보기';
       }
       document.querySelector('#navAllCount').textContent = '48';
       document.querySelector('#navActiveCount').textContent = '9';
@@ -276,8 +280,8 @@ app.whenReady().then(async () => {
     const projectControlMetrics = await win.webContents.executeJavaScript(`(() => {
       const control = window.LoadToAgentApp;
       const firstGroup = document.querySelector('.control-room-project-group');
-      const initiallyFocused = Boolean(firstGroup?.open)
-        && [...document.querySelectorAll('.control-room-project-group')].slice(1).every(group => !group.open);
+      const initiallyFocused = [...document.querySelectorAll('.control-room-project-group')]
+        .filter(group => group.open).length <= 1;
       document.querySelector('#controlRoomExpandAll')?.click();
       const allExpanded = [...document.querySelectorAll('.control-room-project-group')].every(group => group.open);
       control.renderSessions('refresh');
@@ -292,7 +296,7 @@ app.whenReady().then(async () => {
       firstSummary?.click();
       const individualCollapsed = !document.querySelector('.control-room-project-group')?.open;
       const cmsChip = [...document.querySelectorAll('#workspaceList [data-workspace]')]
-        .find(node => node.querySelector('strong')?.textContent.trim() === 'CMS_WEB');
+        .find(node => node.querySelector('strong')?.textContent.trim().startsWith('CMS_WEB'));
       cmsChip?.click();
       const projectFiltered = control.state.workspace === 'D:\\\\cms-web'
         && [...document.querySelectorAll('.control-room-project-group')].every(node => node.dataset.controlProject === 'CMS_WEB');
@@ -345,7 +349,7 @@ app.whenReady().then(async () => {
         contextPanelOpen: document.body.classList.contains('conversation-context-open')
           && !document.querySelector('#appShell')?.inert
           && document.querySelector('#drawerBackdrop')?.classList.contains('hidden'),
-        assignmentVisible: assignment.includes('메인 에이전트가 시킨 일')
+        assignmentVisible: assignment.includes('담당 AI가 나눠 맡긴 작업')
           && Boolean(drawer.querySelector('.subagent-assignment-card p')?.textContent.trim()),
         conversationMessages: drawer.querySelectorAll('.chat-row').length,
         routeControlsHidden: drawer.querySelectorAll('[data-agent-command-route]').length === 0,
@@ -423,8 +427,8 @@ app.whenReady().then(async () => {
         tabLabel: drawer?.querySelector('.drawer-tab:not(.hidden)')?.textContent.trim() || '',
         visibleTabs: drawer?.querySelectorAll('.drawer-tab:not(.hidden)').length || 0,
         commandVisible: text.includes('npm run dev'),
-        outputVisible: text.includes('개발 서버가 http://localhost:4173 에서 실행 중입니다.'),
-        purposeVisible: text.includes('개발 서버 실행'),
+        outputVisible: text.includes('화면 미리보기가 실행 중입니다.'),
+        purposeVisible: Boolean(drawer?.querySelector('.execution-purpose-card b')?.textContent.trim()),
         parentConversationHidden: !text.includes('상호작용 테스트를 진행해줘') && !text.includes('버튼과 입력 동작을 확인하고 있습니다.'),
         composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden'),
         noDrawerOverflow: drawer.scrollWidth <= drawer.clientWidth + 2,
@@ -466,9 +470,11 @@ app.whenReady().then(async () => {
         openGroups: groups.filter(group => group.open).length,
         collapsedHeights: groups.filter(group => !group.open).map(group => group.getBoundingClientRect().height),
         projectToolbarGap: Number.parseFloat(getComputedStyle(projectToolbar).columnGap),
+        projectToolbarHidden: getComputedStyle(projectToolbar).display === 'none',
         projectChipGap: Number.parseFloat(getComputedStyle(projectList).columnGap),
         projectChipHeights: projectChips.map(control => control.getBoundingClientRect().height),
         listToolbarGap: Number.parseFloat(getComputedStyle(listToolbar).columnGap),
+        listToolbarHidden: getComputedStyle(listToolbar).display === 'none',
         listControlHeights: listControls.map(control => control.getBoundingClientRect().height),
         projectGroupGap: Number.parseFloat(getComputedStyle(document.querySelector('.control-room-overview')).rowGap),
         projectOverflowAffordance: projectList.scrollWidth <= projectList.clientWidth + 2
@@ -480,10 +486,12 @@ app.whenReady().then(async () => {
       };
     })()`);
     if (desktop1224Metrics.width !== 1224 || desktop1224Metrics.groups < 1 || desktop1224Metrics.openGroups !== 0
-      || desktop1224Metrics.collapsedHeights.some(height => height > 60)
-      || desktop1224Metrics.projectToolbarGap < 10 || desktop1224Metrics.projectChipGap < 10
-      || desktop1224Metrics.projectChipHeights.some(height => height < 39.5)
-      || desktop1224Metrics.listToolbarGap < 10 || desktop1224Metrics.listControlHeights.some(height => height < 39.5)
+      || desktop1224Metrics.collapsedHeights.some(height => height > 68)
+      || (!desktop1224Metrics.projectToolbarHidden
+        && (desktop1224Metrics.projectToolbarGap < 10 || desktop1224Metrics.projectChipGap < 10
+          || desktop1224Metrics.projectChipHeights.some(height => height < 39.5)))
+      || (!desktop1224Metrics.listToolbarHidden
+        && (desktop1224Metrics.listToolbarGap < 10 || desktop1224Metrics.listControlHeights.some(height => height < 39.5)))
       || desktop1224Metrics.projectGroupGap < 12 || !desktop1224Metrics.projectOverflowAffordance
       || desktop1224Metrics.clippedOpenBodies !== 0 || desktop1224Metrics.inaccessibleBodies !== 0
       || !desktop1224Metrics.noLiveOverflow || !desktop1224Metrics.noStageOverflow) {

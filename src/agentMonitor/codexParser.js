@@ -66,7 +66,7 @@ function createCodexParser(dependencies) {
       session.sourceLabel = 'Codex 데스크톱 앱';
     } else if (/vscode|ide/i.test(String(meta.source || ''))) {
       session.clientKind = 'codex-ide';
-      session.sourceLabel = 'Codex IDE';
+      session.sourceLabel = 'Codex 앱';
     } else {
       session.clientKind = 'codex-cli';
     }
@@ -135,8 +135,8 @@ function createCodexParser(dependencies) {
     state.collaboration.addCommunication({
       id: `activity:${payload.event_id || payload.agent_thread_id}:${payload.kind}`,
       kind: payload.kind === 'started' ? 'started' : 'status',
-      label: payload.kind === 'started' ? '서브에이전트 실행 시작' : '서브에이전트 상태 변경',
-      from: 'Codex 런타임',
+      label: payload.kind === 'started' ? '도움 AI 작업 시작' : '도움 AI 상태 변경',
+      from: 'Codex AI',
       to: record.agentPath,
       taskName: record.taskName,
       childId: record.childId,
@@ -171,8 +171,8 @@ function createCodexParser(dependencies) {
       addLifecycle(session, {
         id: payload.turn_id,
         type: 'turn-complete',
-        label: '턴 완료',
-        detail: payload.duration_ms ? `${payload.duration_ms} ms` : '',
+        label: 'AI 답변 완료',
+        detail: payload.duration_ms ? `${payload.duration_ms}밀리초` : '',
         status: 'done',
         timestamp: payload.completed_at || row.timestamp,
       });
@@ -205,8 +205,8 @@ function createCodexParser(dependencies) {
       addLifecycle(session, {
         id: `r:${row.timestamp}`,
         type: 'reasoning',
-        label: '판단 중',
-        detail: '다음 작업을 판단하고 결과를 정리하는 중',
+        label: '다음 작업 확인 중',
+        detail: '다음에 할 일을 확인하고 결과를 정리하는 중',
         status: 'running',
         timestamp: row.timestamp,
       });
@@ -301,7 +301,7 @@ function createCodexParser(dependencies) {
     const protectedToolText = name === 'followup_task' ? '보호된 추가 작업 지시' : '보호된 메시지 전달';
     const toolText = collaborationTool
       ? (name === 'spawn_agent'
-        ? `담당 작업: ${args.task_name || '이름 미상'}`
+        ? `담당 작업: ${args.task_name || '이름 정보 없음'}`
         : (collaborationMessageProtected
           ? protectedToolText
           : compactText(args.message || args.target || '', 1000)))
@@ -363,7 +363,7 @@ function createCodexParser(dependencies) {
     const communication = state.collaboration.addCommunication({
       id: payload.id || `agent-message:${row.timestamp}:${from}:${to}`,
       kind,
-      label: kind === 'result' ? '결과 반환' : (kind === 'assignment' ? '작업 전달' : '에이전트 메시지'),
+      label: kind === 'result' ? '결과 보냄' : (kind === 'assignment' ? '작업 전달' : 'AI 메시지'),
       from,
       to,
       taskName,
@@ -452,8 +452,8 @@ function createCodexParser(dependencies) {
     session.updatedAt = state.latestTs;
     session.sharedGoal = session.depth ? compactText(state.latestUser, 6000) : '';
     session.title = session.depth
-      ? (session.taskName || `${session.agentName} 서브에이전트`)
-      : (compactText(state.latestUser || state.latestInternalGoal, 180) || 'GPT 작업 세션');
+      ? (session.taskName || `${session.agentName} 도움 AI`)
+      : (compactText(state.latestUser || state.latestInternalGoal, 180) || 'GPT 작업');
     session.result = state.lastFinalAnswer;
     if (!session.depth && state.goalContexts.size) session.loop = { kind: 'goal', iteration: state.goalContexts.size };
     const collaboration = state.collaboration.finalize(session.collaboration.retainedAgents);
@@ -483,7 +483,7 @@ function createCodexParser(dependencies) {
         && (state.lastTurnCompleted || turnAge >= ACTIVE_THRESHOLD_MS);
       if (!session.depth && (pendingUserInput || conversationalInput)) {
         session.status = 'waiting';
-        session.statusDetail = pendingUserInput ? '선택 또는 입력 대기' : '답변 또는 선택 대기';
+        session.statusDetail = '내 답변을 기다리는 중';
         session.statusObserved = true;
       } else if (state.activeTurn && turnAge < STALE_TURN_THRESHOLD_MS) {
         session.status = 'running';
@@ -495,7 +495,7 @@ function createCodexParser(dependencies) {
         session.statusObserved = false;
       } else {
         session.status = 'idle';
-        session.statusDetail = state.activeTurn ? '마지막 턴 기록이 종료됨' : '다음 요청 대기';
+        session.statusDetail = state.activeTurn ? '마지막 요청 처리 기록이 종료됨' : '다음 요청 대기';
         session.statusObserved = Date.now() - fileInfo.mtimeMs < ACTIVE_THRESHOLD_MS;
       }
     }

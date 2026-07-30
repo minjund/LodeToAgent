@@ -19,7 +19,7 @@ window.LoadToAgentRendererUtils = Object.freeze({
     return window.LoadToAgentI18n?.getLocaleTag() || 'ko-KR';
   },
   providerLabel(provider) {
-    return ({ claude: 'Claude', codex: 'GPT · Codex', gemini: 'Gemini', grok: 'Grok' })[provider] || 'AI';
+    return ({ claude: 'Claude', gpt: 'GPT', codex: 'GPT', gemini: 'Gemini', grok: 'Grok' })[provider] || 'AI';
   },
   preserveScrollPositions(targets) {
     const positions = (Array.isArray(targets) ? targets : [targets]).map(target => {

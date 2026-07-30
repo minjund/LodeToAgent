@@ -466,8 +466,10 @@
   font-family: "Geist Mono","Cascadia Code",Consolas,monospace;
   font-size: 12px;
   font-weight: 800;
-  letter-spacing: .13em;
-  white-space: nowrap;
+  line-height: 1.45;
+  letter-spacing: .04em;
+  text-align: center;
+  white-space: normal;
 }
 
 .update-console {

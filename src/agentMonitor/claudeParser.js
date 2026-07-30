@@ -207,8 +207,8 @@ function createClaudeParser(dependencies) {
       addClaudeCommunication(session, {
         id: `started:${record.callId}`,
         kind: 'started',
-        label: '서브에이전트 실행 시작',
-        from: 'Claude 런타임',
+        label: '도움 AI 작업 시작',
+        from: 'Claude AI',
         to: record.agentPath || record.taskName,
         taskName: record.taskName,
         childId: record.childId,
@@ -250,7 +250,7 @@ function createClaudeParser(dependencies) {
     addClaudeCommunication(session, {
       id: `${kind}:${callId}`,
       kind,
-      label: kind === 'interrupt' ? '서브에이전트 중단 요청' : '후속 메시지 전달',
+      label: kind === 'interrupt' ? '도움 AI 작업 중단 요청' : '추가 메시지 전달',
       from: session.agentPath || session.id,
       to: childId || target,
       taskName,
@@ -508,7 +508,7 @@ function createClaudeParser(dependencies) {
         addLifecycle(session, {
           id: row.uuid,
           type: 'session-start',
-          label: '세션 시작',
+          label: '작업 시작',
           status: 'done',
           timestamp: row.timestamp,
         });
@@ -527,11 +527,11 @@ function createClaudeParser(dependencies) {
     session.startedAt = timestamp(parsed.rows[0].timestamp, session.updatedAt);
     session.usage = sumUsage([...state.requestUsage.values()]);
     const utilityTitle = session.utilityKind === 'memory-extraction'
-      ? 'Claude 백그라운드 메모리 추출'
+      ? 'Claude가 지난 작업 내용을 정리하는 중'
       : (session.utilityKind === 'authentication-check' ? 'Claude 인증 점검' : '');
     session.title = compactText(state.latestUser, 180)
       || utilityTitle
-      || (session.depth ? `Claude ${session.agentName}` : 'Claude 세션');
+      || (session.depth ? `Claude ${session.agentName}` : 'Claude 작업');
     const currentInput = session.turnUsage.input + session.turnUsage.cachedInput
       + session.turnUsage.cacheWrite + session.turnUsage.output + session.turnUsage.reasoning;
     session.context = contextInfo(currentInput, modelContextWindow('claude', session.model, 0));
@@ -568,12 +568,12 @@ function createClaudeParser(dependencies) {
       session.result = state.lastAssistantText || session.result;
     } else if (!session.depth && (pendingUserInput || conversationalInput)) {
       session.status = 'waiting';
-      session.statusDetail = pendingUserInput ? '선택 또는 입력 대기' : '답변 또는 선택 대기';
+      session.statusDetail = '내 답변을 기다리는 중';
     } else if (!session.depth && activeSubagents.length) {
       session.status = 'running';
       session.statusDetail = activeSubagents.length === 1
-        ? '서브에이전트 작업 진행 중'
-        : `서브에이전트 ${activeSubagents.length}개 작업 진행 중`;
+        ? '도움 AI 작업 진행 중'
+        : `도움 AI ${activeSubagents.length}개 작업 진행 중`;
     } else if (age < STALE_TURN_THRESHOLD_MS && !state.lastTurnFinished) {
       session.status = 'running';
       session.statusDetail = state.lastRole === 'user' ? '응답 생성 중' : '도구 실행 또는 스트리밍 중';

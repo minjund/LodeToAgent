@@ -404,6 +404,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         : context.source === "model-catalog"
           ? t("drawer.context_source_catalog")
           : t("session.context_size_unknown");
+    const wordPieces = value => esc(t("drawer.word_pieces", { count: fullNumber(value) }));
     return `<div class="token-hero" style="--drawer-provider:${providerInfo(session.provider).accent}">
       <div class="token-hero-head">
         <span>${esc(t("session.context_usage"))}</span>
@@ -411,19 +412,19 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         </div>
       <div class="big-context"><span style="width:${Math.min(100, context.percent || 0)}%"></span></div>
       <div class="context-scale">
-        <span>0</span><span>${(context.percent || 0).toFixed(1)}%</span>
-        <span>${context.window ? compact(context.window) : "--"}</span>
+        <span>${wordPieces(0)}</span><span>${(context.percent || 0).toFixed(1)}%</span>
+        <span>${context.window ? esc(t("drawer.word_pieces", { count: compact(context.window) })) : "--"}</span>
       </div>
     </div>
     <div class="token-grid">
-      <div class="token-tile"><span>${esc(t("drawer.input"))}</span><strong>${fullNumber(usage.input)}</strong><small>${esc(t("drawer.input_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.output"))}</span><strong>${fullNumber(usage.output)}</strong><small>${esc(t("drawer.output_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.cached"))}</span><strong>${fullNumber(usage.cachedInput)}</strong><small>${esc(t("drawer.cached_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.cache_write"))}</span><strong>${fullNumber(usage.cacheWrite)}</strong><small>${esc(t("drawer.cache_write_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.reasoning"))}</span><strong>${fullNumber(usage.reasoning)}</strong><small>${esc(t("drawer.reasoning_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.total"))}</span><strong>${fullNumber(usage.total)}</strong><small>${esc(t("drawer.total_help"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.last_input"))}</span><strong>${fullNumber(turn.input)}</strong><small>${esc(t("drawer.latest_turn"))}</small></div>
-      <div class="token-tile"><span>${esc(t("drawer.last_total"))}</span><strong>${fullNumber(turn.total)}</strong><small>${esc(t("drawer.last_total_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.input"))}</span><strong>${wordPieces(usage.input)}</strong><small>${esc(t("drawer.input_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.output"))}</span><strong>${wordPieces(usage.output)}</strong><small>${esc(t("drawer.output_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.cached"))}</span><strong>${wordPieces(usage.cachedInput)}</strong><small>${esc(t("drawer.cached_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.cache_write"))}</span><strong>${wordPieces(usage.cacheWrite)}</strong><small>${esc(t("drawer.cache_write_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.reasoning"))}</span><strong>${wordPieces(usage.reasoning)}</strong><small>${esc(t("drawer.reasoning_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.total"))}</span><strong>${wordPieces(usage.total)}</strong><small>${esc(t("drawer.total_help"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.last_input"))}</span><strong>${wordPieces(turn.input)}</strong><small>${esc(t("drawer.latest_turn"))}</small></div>
+      <div class="token-tile"><span>${esc(t("drawer.last_total"))}</span><strong>${wordPieces(turn.total)}</strong><small>${esc(t("drawer.last_total_help"))}</small></div>
     </div><div class="token-note">${esc(t("drawer.token_note", { source: sourceLabel }))}</div>`;
   }
 
@@ -610,7 +611,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
           <div><dt>${esc(t("graph.execution_runtime"))}</dt><dd>${esc(runtime)}</dd></div>
           ${activity.cwd ? `<div><dt>${esc(t("graph.execution_workdir"))}</dt><dd title="${esc(activity.cwd)}">${esc(activity.cwd)}</dd></div>` : ""}
           ${handle ? `<div><dt>${esc(t("graph.execution_handle"))}</dt><dd>${esc(handle)}</dd></div>` : ""}
-          ${activity.exitCode != null ? `<div><dt>${esc(t("drawer.execution_exit_code"))}</dt><dd>${esc(activity.exitCode)}</dd></div>` : ""}
+          ${activity.exitCode != null ? `<div><dt>${esc(t("drawer.execution_exit_code"))}</dt><dd>${esc(Number(activity.exitCode) === 0 ? t("drawer.execution_exit_success") : t("drawer.execution_exit_failure", { code: activity.exitCode }))}</dd></div>` : ""}
         </dl>
       </section>
       <section class="execution-code-card">

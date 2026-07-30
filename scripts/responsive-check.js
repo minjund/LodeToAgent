@@ -106,6 +106,16 @@ async function layoutMetrics(win) {
       .every(label => getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0 && label.textContent.trim());
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
     const tmuxShortcutRect = tmuxShortcut?.getBoundingClientRect();
+    const tmuxNav = document.querySelector('.sidebar [data-view="tmux"]');
+    const tmuxNavRect = tmuxNav?.getBoundingClientRect();
+    const tmuxRouteVisible = Boolean(
+      tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40
+      || tmuxNavRect && tmuxNavRect.width > 0 && tmuxNavRect.height >= 40
+    );
+    const tmuxRouteInsideViewport = Boolean(
+      tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1
+      || tmuxNavRect && tmuxNavRect.left >= -1 && tmuxNavRect.right <= window.innerWidth + 1
+    );
     const liveSectionVisible = !document.querySelector('#liveSection')?.classList.contains('hidden');
     const projectGroups = [...document.querySelectorAll('.control-room-project-group')];
     const openProjectBodies = [...document.querySelectorAll('.control-room-project-group[open] .control-project-body')];
@@ -161,8 +171,8 @@ async function layoutMetrics(win) {
           : Boolean(document.querySelector('#controlRoomProjectToolbar') && document.querySelector('#workspaceList'))),
       compactContentClearance: !compact || Boolean(stageRect && sidebarRect && stageRect.bottom <= sidebarRect.top + 1),
       terminalActionLabels,
-      tmuxShortcutVisible: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40),
-      tmuxShortcutInsideViewport: !liveSectionVisible || Boolean(tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1),
+      tmuxShortcutVisible: !liveSectionVisible || tmuxRouteVisible,
+      tmuxShortcutInsideViewport: !liveSectionVisible || tmuxRouteInsideViewport,
       openProjectGroups: projectGroups.filter(group => group.open).length,
       clippedOpenProjectBodies,
       inaccessibleProjectBodies,
@@ -324,6 +334,7 @@ async function workflowMetrics(win) {
     const output = document.querySelector('[data-workflow-port="focus-output"]');
     const identity = document.querySelector('.agent-workflow-selected .agent-identity');
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
+    const tmuxNav = document.querySelector('.sidebar [data-view="tmux"]');
     const helpTitle = [...document.querySelectorAll('.downstream-stack .agent-flow-session-title')]
       .find(element => element.title.includes('deliberately_long_task_name'));
     const helpCard = helpTitle?.closest('.child-session');
@@ -344,6 +355,7 @@ async function workflowMetrics(win) {
     const downstreamRect = rect(downstream);
     const outputRect = rect(output);
     const tmuxShortcutRect = rect(tmuxShortcut);
+    const tmuxNavRect = rect(tmuxNav);
     let pathCrossesCommand = false;
     if (path && commandRect && canvasRect) {
       const length = path.getTotalLength();
@@ -372,8 +384,14 @@ async function workflowMetrics(win) {
       horizontalOrder: stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.right <= selectedRect.left + 1 && (hybrid || selectedRect.right <= downstreamRect.left + 1)),
       pathCrossesCommand,
       identityClipped: Boolean(identity && (identity.scrollWidth > identity.clientWidth + 1 || identity.scrollHeight > identity.clientHeight + 1)),
-      tmuxShortcutVisible: Boolean(tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40),
-      tmuxShortcutInsideViewport: Boolean(tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1),
+      tmuxShortcutVisible: Boolean(
+        tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40
+        || tmuxNavRect && tmuxNavRect.width > 0 && tmuxNavRect.height >= 40
+      ),
+      tmuxShortcutInsideViewport: Boolean(
+        tmuxShortcutRect && tmuxShortcutRect.left >= -1 && tmuxShortcutRect.right <= window.innerWidth + 1
+        || tmuxNavRect && tmuxNavRect.left >= -1 && tmuxNavRect.right <= window.innerWidth + 1
+      ),
       helpCardInsideColumn: Boolean(helpCard && helpCard.getBoundingClientRect().right <= downstream.getBoundingClientRect().right + 1),
       helpTitleEllipsisReady: ellipsisReady(helpTitle),
       helpAssignmentEllipsisReady: ellipsisReady(helpAssignment),
@@ -402,7 +420,7 @@ async function managementDetailMetrics(win) {
     const sessions = app.state.snapshot?.sessions || [];
     const base = sessions.find(session => !session.parentId) || sessions[0] || {
       provider: 'codex', model: 'gpt-5.6', cwd: '/responsive/project', originCwd: '/responsive/project', workspace: 'responsive-project',
-      status: 'waiting', statusDetail: '사용자 확인 대기', updatedAt: new Date().toISOString(), messages: [], lifecycle: [], usage: {}, context: {}, runtimePresence: [],
+      status: 'waiting', statusDetail: '내 확인 대기', updatedAt: new Date().toISOString(), messages: [], lifecycle: [], usage: {}, context: {}, runtimePresence: [],
     };
     const id = 'responsive-management-detail';
     const signalDetail = '보고서를 작성했지만 이메일 발송은 확인되지 않았습니다. 긴 설명도 제목 영역을 누르지 않아야 합니다.';
@@ -415,7 +433,7 @@ async function managementDetailMetrics(win) {
       childIds: [],
       title: '반응형 관리 상세 검증',
       attention: { required: false },
-      progress: { stage: 'waiting', percent: 65, completedSteps: 4, totalSteps: 6, currentStep: '사용자 확인 대기', checkpoints: [] },
+      progress: { stage: 'waiting', percent: 65, completedSteps: 4, totalSteps: 6, currentStep: '내 확인 대기', checkpoints: [] },
       health: { level: 'critical', score: 65, signals: [{ code: 'waiting-too-long', severity: 'critical', detail: signalDetail }] },
       outcome: {
         status: 'in-progress', summary: '좁은 상세 패널에서도 실행 결과를 읽기 쉽게 표시합니다.', verified: false,

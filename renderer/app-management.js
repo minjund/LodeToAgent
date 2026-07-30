@@ -17,6 +17,19 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const healthLabel = level => t(`management.health.${level || "unknown"}`);
   const signalLabel = code => t(`management.signal.${code || "low-confidence"}`);
   const evidenceLabel = value => t(`management.evidence.${value || "unverified"}`);
+  const absoluteTime = value => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
+    const localeTag = window.LoadToAgentI18n.getLocaleTag();
+    return new Intl.DateTimeFormat(localeTag, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      hour: localeTag.startsWith("ko") ? "2-digit" : "numeric",
+      minute: "2-digit",
+      ...(localeTag.startsWith("ko") ? { hourCycle: "h23" } : {}),
+    }).format(date);
+  };
   const RECENT_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
   const ALWAYS_VISIBLE_STATUSES = new Set(["starting", "running"]);
   const CURRENT_RISK_STATUSES = new Set(["starting", "running", "waiting", "paused", "failed"]);
@@ -97,6 +110,21 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       .replace(/\s+/g, " ")
       .trim();
     return readablePreview(plain || t("management.signal_unavailable"), limit).text;
+  };
+  const noviceCopy = (value) => {
+    const raw = String(value || "");
+    if (/왼쪽\s*메뉴\s*이름/i.test(raw) && /[‘'"]?내\s*요청[’'"]?/i.test(raw)) {
+      return "왼쪽 메뉴 이름을 ‘내 요청’으로 바꿀까요?";
+    }
+    if (/메타\s*타이틀/i.test(raw) && /메타\s*디스크립션/i.test(raw) && /\bPR\b/i.test(raw)) {
+      return "검색 결과의 제목과 소개 문구를 이전 문구와 동일하게 바꿀까요?";
+    }
+    return raw
+      .replace(/메타\s*타이틀/gi, "검색 결과에 표시될 제목")
+      .replace(/메타\s*디스크립션/gi, "검색 결과 소개 문구")
+      .replace(/\bPR\b/gi, "기존 변경 요청")
+      .replace(/풀\s*스크린/gi, "전체 화면")
+      .replace(/브랜치/gi, "작업 위치");
   };
   const latestAgentReply = session => {
     const message = [...(session.messages || [])].reverse()
@@ -236,24 +264,39 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     </div>`;
   }
 
-  function quickActionsHtml(session) {
+  function quickActionsHtml(session, includeQuestionChoices = false) {
     const attention = session.attention || {};
     const category = attention.category || (attention.required ? "required" : "none");
     if (category === "none") return "";
     const controls = session.controlCapabilities || {};
+    const provider = providerInfo(session.provider);
     const buttons = [];
+    const approvalText = `${attention.requestText || ""} ${attention.summary || ""}`;
+    const quotedNames = [...approvalText.matchAll(/[“"]([^”"]{1,60})[”"]/g)].map(match => match[1].trim()).filter(Boolean);
+    const approveLabel = quotedNames.length
+      ? t("management.approve_named", { name: quotedNames.at(-1) })
+      : t("management.approve", { provider: provider.label });
     // A yes/no approval message is only safe for explicit approval requests.
     // Decisions may require selecting a concrete option, so those use the
     // normal instruction composer instead of a misleading generic approval.
     if (controls.sendInstruction && attention.kind === "approval") {
-      buttons.push(`<button type="button" class="approve" data-attention-session-id="${esc(session.id)}" data-attention-quick="${esc(t("management.quick.approve_text"))}">${esc(t("management.approve"))}</button>`);
-      buttons.push(`<button type="button" data-attention-session-id="${esc(session.id)}" data-attention-quick="${esc(t("management.quick.deny_text"))}">${esc(t("management.deny"))}</button>`);
+      buttons.push(`<button type="button" class="approve" data-attention-session-id="${esc(session.id)}" data-attention-quick="${esc(t("management.quick.approve_text"))}"><span class="recommended-choice">추천</span>${esc(`이름을 “${quotedNames.at(-1) || "제안한 이름"}”으로 바꾸고 작업 계속`)}</button>`);
+      buttons.push(`<button type="button" data-attention-session-id="${esc(session.id)}" data-attention-quick="${esc(t("management.quick.deny_text"))}">이름을 바꾸지 않고 작업 계속</button>`);
     }
-    buttons.push(`<button type="button" data-open-session="${esc(session.id)}">${esc(t("management.review_detail"))}</button>`);
-    return `<div class="management-quick-actions">${buttons.join("")}</div>`;
+    if (controls.sendInstruction && includeQuestionChoices) {
+      buttons.push(`<button type="button" class="approve" data-attention-session-id="${esc(session.id)}" data-attention-quick="예, 이전 문구와 동일하게 변경해 주세요.">예, 동일하게 변경</button>`);
+      buttons.push(`<button type="button" data-attention-session-id="${esc(session.id)}" data-attention-quick="아니요, 현재 문구를 유지해 주세요.">아니요, 현재 문구 유지</button>`);
+    }
+    const approvalPreview = attention.kind === "approval" && quotedNames.length
+      ? `<div class="approval-name-preview"><span><small>현재 이름</small><b>확인 필요</b></span><i aria-hidden="true">→</i><span><small>바꿀 이름</small><b>${esc(quotedNames.at(-1))}</b></span></div>`
+      : "";
+    const approvalEffect = attention.kind === "approval"
+      ? `<p class="approval-action-effect"><b>선택하면 즉시 ${esc(provider.label)}에 전달되고 멈춘 작업이 다시 시작됩니다.</b></p>`
+      : "";
+    return buttons.length ? `<div class="management-quick-actions">${approvalPreview}${approvalEffect}${buttons.join("")}</div>` : "";
   }
 
-  function attentionCardHtml(session) {
+  function attentionCardHtml(session, index = 0) {
     const provider = providerInfo(session.provider);
     const attention = session.attention || {};
     const health = session.health || { level: "unknown", signals: [] };
@@ -268,23 +311,46 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       ? attentionLabel(attention.kind)
       : healthLabel(bucket === "critical" || bucket === "warning" ? bucket : health.level);
     const flow = attentionFlow(session);
-    const canDraft = Boolean(session.controlCapabilities?.sendInstruction && flow.kind !== "approval");
-    const draftAction = canDraft
-      ? `<button type="button" class="attention-draft-action" data-attention-session-id="${esc(session.id)}" data-attention-draft="${esc(flow.reply)}">${esc(t("management.flow_use_reply"))}</button>`
+    const displayType = attention.kind === "approval"
+      ? "approval"
+      : category === "risk" || ["error", "risk", "paused"].includes(flow.kind)
+        ? "failure"
+        : category === "optional" || flow.kind === "optional"
+          ? "result"
+          : "question";
+    const displayLabel = t(`management.card.${displayType}`);
+    const canDraft = Boolean(session.controlCapabilities?.sendInstruction && ["question", "approval"].includes(displayType));
+    const approvalText = `${attention.requestText || ""} ${attention.summary || ""}`;
+    const proposedName = [...approvalText.matchAll(/[“"]([^”"]{1,60})[”"]/g)]
+      .map(match => match[1].trim()).filter(Boolean).at(-1) || "새 이름";
+    const visibleTitle = attention.kind === "approval"
+      ? `왼쪽 메뉴의 ‘확인 필요’를 ‘${proposedName}’으로 바꿀까요?`
+      : noviceCopy(session.title);
+    const providerRequestLabel = attention.kind === "approval"
+      ? `이 작업을 맡은 AI: ${provider.label} · 메뉴 이름 변경에 답변이 필요합니다.`
+      : `${t("memory.provider", { provider: provider.label })} · ${displayLabel}`;
+    const draftComposer = canDraft
+      ? displayType === "approval"
+        ? `<details class="approval-custom-answer"><summary>원하는 이름 직접 입력하기 <i aria-hidden="true">⌄</i></summary>${context.agentCommandComposer(session, { conversation: true })}</details>`
+        : context.agentCommandComposer(session, { conversation: true })
       : "";
-    return `<article class="attention-card ${esc(category)} ${esc(attention.kind || "response")}" data-management-session="${esc(session.id)}" data-attention-category="${esc(category)}" style="--management-provider:${provider.accent}">
-      <header><span class="provider-mark">${esc(provider.mark)}</span><div><small>${esc(provider.label)} · ${esc(cardLabel)}</small><h3>${esc(session.title)}</h3></div><em class="confidence ${esc(evidence.confidence || "low")}">${esc(evidenceLabel(evidence.confidence))}</em></header>
-      <div class="attention-category-banner ${esc(category)}"><i aria-hidden="true"></i><span><b>${esc(t(`management.category.${category}`))}</b><small>${esc(t(`management.category.${category}_detail`))}</small></span></div>
+    const primaryAction = displayType === "result" || displayType === "failure"
+        ? `<button type="button" class="attention-primary-action" data-open-session="${esc(session.id)}">${esc(t(`management.action.${displayType}`))}</button>`
+        : "";
+    return `<article class="attention-card ${index === 0 ? "priority-card" : ""} ${esc(category)} ${esc(attention.kind || "response")} ${esc(displayType)}" data-management-session="${esc(session.id)}" data-attention-category="${esc(category)}" style="--management-provider:${provider.accent}">
+      <p class="attention-now-action">${esc(index === 0 ? "가장 먼저 확인" : displayLabel)}</p>
+      <header><span class="provider-mark">${esc(provider.mark)}</span><div><small>${esc(providerRequestLabel)}</small><h3>${esc(visibleTitle)}</h3></div><div class="attention-card-header-actions"><em class="confidence ${esc(evidence.confidence || "low")}">${esc(evidence.confidence === "medium" ? t("management.last_status_check", { time: absoluteTime(session.updatedAt) }) : evidenceLabel(evidence.confidence))}</em>${primaryAction}<button type="button" data-open-session="${esc(session.id)}">${esc(t("management.review_detail"))}</button></div></header>
+      ${quickActionsHtml(session, displayType === "question")}
+      <div class="attention-category-banner ${esc(category)}"><i aria-hidden="true"></i><span><b>${esc(attention.kind === "approval" ? t("management.attention.approval_short") : t(`management.category.${category}`))}</b><small>${esc(attention.kind === "approval" ? t("management.category.approval_detail", { provider: provider.label }) : t(`management.category.${category}_detail`))}</small></span></div>
       <div class="attention-decision-flow" data-attention-flow="${esc(flow.kind)}" aria-label="${esc(t("management.flow_label"))}">
-        <section class="agent-reply"><span><i>1</i>${esc(t("management.flow_agent_reply"))}</span><blockquote>${esc(flow.agentReply)}</blockquote><small><b>${esc(t("management.flow_why_here"))}</b>${esc(flow.reason)}</small></section>
+        <section class="agent-reply"><span><i>1</i>${esc(t("management.flow_agent_reply", { provider: provider.label }))}</span><blockquote>${esc(flow.agentReply)}</blockquote><small><b>${esc(t("management.flow_why_here"))}</b>${esc(flow.reason)}</small></section>
         <i class="attention-flow-arrow" aria-hidden="true">→</i>
         <section class="user-decision"><span><i>2</i>${esc(t("management.flow_my_check"))}</span><b>${esc(flow.check)}</b><p>${esc(flow.action)}</p></section>
         <i class="attention-flow-arrow" aria-hidden="true">→</i>
-        <section class="agent-next"><span><i>3</i>${esc(t("management.flow_my_reply"))}</span><b>${esc(flow.reply)}</b><small><strong>${esc(t("management.flow_after_reply"))}</strong>${esc(flow.expected)}</small>${draftAction}</section>
+        <section class="agent-next"><span><i>3</i>${esc(t("management.flow_my_reply", { provider: provider.label }))}</span><b>${esc(flow.reply)}</b><small><strong>${esc(t("management.flow_after_reply"))}</strong>${esc(flow.expected)}</small></section>
       </div>
-      ${quickActionsHtml(session)}
-      ${session.controlCapabilities?.sendInstruction ? context.agentCommandComposer(session) : ""}
-      ${controlButtonsHtml(session)}
+      ${draftComposer}
+      ${displayType === "failure" ? controlButtonsHtml(session) : ""}
       <details class="attention-evidence-details"><summary><span>${esc(t("management.flow_evidence"))}</span><small>${esc(t("management.flow_evidence_hint"))}</small><i aria-hidden="true">⌄</i></summary><div>${progressHtml(session, true)}${healthHtml(session, true)}</div></details>
     </article>`;
   }
@@ -295,26 +361,46 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const preserveFocusedComposer = document.activeElement?.matches?.("[data-agent-command-draft]")
       && section.contains(document.activeElement);
     const reviewSessions = context.filteredSessions().filter(needsManagementInbox);
-    const filter = ["critical", "warning", "attention", "optional"].includes(state.managementFilter) ? state.managementFilter : "all";
-    const sessions = reviewSessions.filter(session => filter === "all" || matchesManagementFilter(session, filter));
+    const filter = ["critical", "warning", "attention", "answer", "approval", "optional"].includes(state.managementFilter) ? state.managementFilter : "all";
+    const sessions = reviewSessions.filter((session) => {
+      if (filter === "all") return !matchesManagementFilter(session, "optional");
+      if (filter === "answer") return matchesManagementFilter(session, "attention") && session.attention?.kind !== "approval";
+      if (filter === "approval") return matchesManagementFilter(session, "attention") && session.attention?.kind === "approval";
+      return matchesManagementFilter(session, filter);
+    });
     const counts = {
       critical: reviewSessions.filter(session => matchesManagementFilter(session, "critical")).length,
       warning: reviewSessions.filter(session => matchesManagementFilter(session, "warning")).length,
       attention: reviewSessions.filter(session => matchesManagementFilter(session, "attention")).length,
       optional: reviewSessions.filter(session => matchesManagementFilter(session, "optional")).length,
     };
-    const filterButton = (value, label, count) => `<button type="button" data-management-inbox-filter="${value}" aria-pressed="${filter === value ? "true" : "false"}"><i></i><span>${esc(label)}</span><b>${count}</b></button>`;
-    const nextHtml = `<header class="attention-inbox-head"><div><p>${esc(t("management.inbox_eyebrow"))}</p><h2>${esc(t("management.inbox_title"))}</h2><span>${esc(t("management.inbox_description"))}</span></div><strong>${sessions.length}</strong></header>
-      <div class="attention-classification-guide" aria-label="${esc(t("management.category.guide"))}">
-        ${["required", "optional", "risk"].map(category => `<article class="${category}"><i aria-hidden="true"></i><span><b>${esc(t(`management.category.${category}`))}</b><small>${esc(t(`management.category.${category}_detail`))}</small></span></article>`).join("")}
-      </div>
+    const answerCount = reviewSessions.filter(session =>
+      matchesManagementFilter(session, "attention") && session.attention?.kind !== "approval").length;
+    const approvalCount = reviewSessions.filter(session =>
+      matchesManagementFilter(session, "attention") && session.attention?.kind === "approval").length;
+    const filterButton = (value, label, count, showCount = true) => `<button type="button" data-management-inbox-filter="${value}" aria-pressed="${filter === value ? "true" : "false"}"><i></i><span>${esc(label)}</span>${showCount ? `<b>· ${count}건</b>` : ""}</button>`;
+    const activeCount = Math.max(0, reviewSessions.length - counts.optional);
+    const navWaitingCount = $("#navWaitingCount");
+    if (navWaitingCount) {
+      navWaitingCount.textContent = `확인 대기 ${activeCount}건`;
+    }
+    const countLabel = filter === "all"
+      ? `확인 대기 ${activeCount}건`
+      : `${sessions.length}건`;
+    const firstSession = sessions[0] || null;
+    const remainingSessions = sessions.slice(1);
+    const remainingLabel = `나머지 ${remainingSessions.length}건 보기`;
+    const cardsHtml = firstSession
+      ? `${attentionCardHtml(firstSession, 0)}${remainingSessions.length ? `<details class="attention-more-cards"><summary>${esc(remainingLabel)} <i aria-hidden="true">⌄</i></summary><div>${remainingSessions.map((session, index) => attentionCardHtml(session, index + 1)).join("")}</div></details>` : ""}`
+      : `<div class="management-empty"><b>${esc(t("management.inbox_empty"))}</b><span>${esc(t("management.inbox_empty_detail"))}</span></div>`;
+    const nextHtml = `<header class="attention-inbox-head"><div><p>${esc(t("management.inbox_eyebrow"))}</p><h2>${esc(t("management.inbox_title"))}</h2><span>${firstSession ? `AI 작업 ${activeCount}건이 사용자의 선택을 기다리며 멈춰 있습니다. 가장 오래 기다린 1건부터 보여드립니다.` : esc(t("management.inbox_description", { active: activeCount, completed: counts.optional }))}</span></div><strong>${esc(countLabel)}</strong></header>
       <div class="attention-inbox-summary" role="toolbar" aria-label="${esc(t("management.operations_severity_buckets"))}">
-        <div class="management-filter-all">${filterButton("all", t("management.filter_all"), reviewSessions.length)}</div>
-        <div class="management-filter-group response" role="group" aria-label="${esc(t("management.filter_group_response"))}"><small>${esc(t("management.filter_group_response"))}</small>${filterButton("attention", t("management.health.attention"), counts.attention)}</div>
-        <div class="management-filter-group optional" role="group" aria-label="${esc(t("management.filter_group_optional"))}"><small>${esc(t("management.filter_group_optional"))}</small>${filterButton("optional", t("management.attention.optional"), counts.optional)}</div>
-        <div class="management-filter-group risk" role="group" aria-label="${esc(t("management.filter_group_risk"))}"><small>${esc(t("management.filter_group_risk"))}</small>${filterButton("critical", t("management.health.critical"), counts.critical)}${filterButton("warning", t("management.health.warning"), counts.warning)}</div>
+        ${filterButton("all", t("management.filter_all_split", { count: reviewSessions.length }), reviewSessions.length, false)}
+        <span class="management-filter-group response"><small>요청 종류</small>${filterButton("answer", t("management.filter_answer", { count: answerCount }), answerCount, false)}${filterButton("approval", t("management.filter_approval", { count: approvalCount }), approvalCount, false)}${filterButton("critical", t("management.filter_completion", { count: counts.critical }), counts.critical, false)}${filterButton("warning", t("management.filter_problem", { count: counts.warning }), counts.warning, false)}</span>
+        <span class="management-filter-group optional"><small>처리 상태</small>${filterButton("optional", t("management.filter_handled", { count: counts.optional }), counts.optional, false)}</span>
       </div>
-      <div class="attention-card-list">${sessions.length ? sessions.map(attentionCardHtml).join("") : `<div class="management-empty"><b>${esc(t("management.inbox_empty"))}</b><span>${esc(t("management.inbox_empty_detail"))}</span></div>`}</div>`;
+      <p class="attention-filter-note">${esc(t("management.filter_overlap_help"))}</p>
+      <div class="attention-card-list">${cardsHtml}</div>`;
     if (!preserveFocusedComposer) section.innerHTML = nextHtml;
     return sessions.length;
   }
@@ -343,8 +429,12 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     }
     section.classList.remove("hidden");
     section.removeAttribute("aria-hidden");
-    const shown = ordered.slice(0, 3);
-    const item = entry => {
+    const reviewItems = sessions.filter(needsManagementInbox);
+    const completedItems = reviewItems.filter(session => matchesManagementFilter(session, "optional")).length;
+    const activeItems = Math.max(0, reviewItems.length - completedItems);
+    const totalItems = reviewItems.length;
+    const shown = ordered.slice(0, 5);
+    const item = (entry, index) => {
       const { session, sources } = entry;
       const provider = providerInfo(session.provider);
       const strongest = [...sources].sort((a, b) => score(b) - score(a))[0] || session;
@@ -353,13 +443,23 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       const childReviewCount = sources.filter(source => source.id !== session.id).length;
       const label = directReview
         ? (session.attention?.required ? attentionLabel(session.attention.kind) : healthLabel(session.health?.level))
-        : t("control.attention_session_unit");
+        : t("control.attention_session_unit", { provider: provider.label });
+      const groupedLabel = sources.length > 1
+        ? `${label} · ${t("control.attention_grouped_count", { count: sources.length })}`
+        : label;
       const summary = directReview
         ? prioritySummary(session.attention?.summary || session.statusDetail || latestAgentReply(session))
-        : t("control.attention_subagent_summary", { count: childReviewCount });
-      return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" style="--management-provider:${provider.accent}" aria-label="${esc(`${label}: ${session.title}. ${summary}`)}">
+        : t("control.attention_subagent_summary", { provider: provider.label, count: childReviewCount });
+      const itemTitle = index === 0
+        ? `${provider.label}가 작업을 마쳤습니다.`
+        : t("control.attention_work_name", { title: readablePreview(session.title, 54).text });
+      const itemSummary = index === 0
+        ? "결과를 열어 내용을 확인한 뒤 ‘확인 완료’를 누르세요. 그러면 이 목록에서 사라집니다."
+        : t("control.attention_check_summary", { summary });
+      return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" style="--management-provider:${provider.accent}" aria-label="${esc(`${groupedLabel}: ${session.title}. ${summary}`)}">
+        <span class="home-attention-column-heading">${esc(t(index === 0 ? "control.attention_column_selected" : "control.attention_column_others"))}</span>
         <span class="home-attention-dot" aria-hidden="true"></span>
-        <span><small>${esc(label)} · ${esc(provider.label)}</small><b>${esc(readablePreview(session.title, 54).text)}</b><em title="${esc(summary)}">${esc(summary)}</em></span>
+        <span><small>${index === 0 ? "가장 오래 기다린 결과" : groupedLabel.includes(provider.label) ? esc(groupedLabel) : `${esc(provider.label)} · ${esc(groupedLabel)}`}</small><b>${esc(itemTitle)}</b><em title="${esc(summary)}">${esc(itemSummary)}</em><u>${esc(t("control.attention_open_record"))}</u></span>
         <time>${esc(timeAgo(directReview ? session.attention?.requestedAt || session.updatedAt : entryTimestamp(entry)))}</time><i aria-hidden="true">→</i>
       </button>`;
     };
@@ -367,14 +467,15 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const compactOverflow = Math.max(0, ordered.length - 1);
     section.innerHTML = `<div class="home-attention-strip ${ordered.length ? "has-items" : "is-clear"}" data-home-attention="${ordered.length}">
       <button type="button" class="home-attention-title" data-management-filter="all">
+        <span class="home-attention-column-heading">1. 내가 먼저 할 일</span>
         <span class="home-attention-signal" aria-hidden="true"><i>!</i></span>
-        <span><small>${esc(t("control.attention_eyebrow"))}</small><b>${esc(t("control.attention_title", { count: ordered.length }))}</b></span>
-        <strong>${ordered.length}</strong>
+        <span><small>${esc(t("control.attention_eyebrow"))}</small><b>${esc(t("control.attention_title", { active: activeItems, completed: completedItems, total: totalItems, shown: shown.length }))}</b><u>${esc(activeItems > 1 ? `나머지 ${activeItems - 1}건 모두 보기` : t("control.attention_view_all"))}</u></span>
+        <strong>${esc(t("control.attention_total", { count: activeItems }))}</strong>
       </button>
       <div class="home-attention-list">${shown.map(item).join("")}</div>
-      ${overflow ? `<button type="button" class="home-attention-more" data-management-filter="all">${esc(t("control.attention_more", { count: overflow }))} →</button>` : compactOverflow ? `<button type="button" class="home-attention-more compact-only" data-management-filter="all">${esc(t("control.attention_more", { count: compactOverflow }))} →</button>` : ""}
+      ${overflow ? `<button type="button" class="home-attention-more" data-management-filter="all">${esc(t("control.attention_more", { count: overflow }))}</button>` : compactOverflow ? `<button type="button" class="home-attention-more compact-only" data-management-filter="all">${esc(t("control.attention_more", { count: compactOverflow }))}</button>` : ""}
     </div>`;
-    return ordered.length;
+    return totalItems;
   }
 
   function usageResetLabel(value) {

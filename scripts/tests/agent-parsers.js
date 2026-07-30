@@ -58,7 +58,7 @@ function registerClaudeParserTests(context) {
       { type: 'system', subtype: 'turn_complete', timestamp: '2026-07-14T01:10:02Z' },
     ]));
     assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '답변 또는 선택 대기');
+    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
 
     const now = Date.now();
     const recentBackground = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'question-with-recent-background.jsonl'), [
@@ -78,7 +78,7 @@ function registerClaudeParserTests(context) {
     ]));
     assert.equal(staleBackground.status, 'waiting');
     assert.deepStrictEqual(staleBackground.executions.map(item => [item.mode, item.status]), [['background', 'unverified']]);
-    assert.equal(staleBackground.executions[0].statusDetail, '최근 실행 신호 없음');
+    assert.equal(staleBackground.executions[0].statusDetail, '최근 실행 활동이 확인되지 않음');
   });
 
   test('Claude 구조화 오류는 실패로 표시하고 다음 정상 턴에서 해제한다', () => {
@@ -233,7 +233,7 @@ function registerClaudeParserTests(context) {
     const active = parseClaude(activeInfo);
 
     assert.equal(active.status, 'running');
-    assert.equal(active.statusDetail, '서브에이전트 작업 진행 중');
+    assert.equal(active.statusDetail, '도움 AI 작업 진행 중');
     assert.equal(active.collaboration.spawns[0].status, 'running');
     assert.equal(active.collaboration.spawns[0].childId, 'claude:child-followup');
     assert.deepStrictEqual(active.collaboration.communications.map(event => event.kind), [
@@ -470,7 +470,7 @@ function registerCodexParserTests(context) {
       { timestamp: '2026-07-14T03:00:04Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'question-turn', last_agent_message: question } },
     ]));
     assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '답변 또는 선택 대기');
+    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
 
     const answered = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-question-answered.jsonl'), [
       { timestamp: '2026-07-14T03:10:00Z', type: 'session_meta', payload: { id: 'question-answered', cwd: 'D:\\repo' } },
@@ -487,7 +487,7 @@ function registerCodexParserTests(context) {
       { timestamp: '2026-07-14T03:20:02Z', type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'input-1', arguments: '{}' } },
     ]));
     assert.equal(structured.status, 'waiting');
-    assert.equal(structured.statusDetail, '선택 또는 입력 대기');
+    assert.equal(structured.statusDetail, '내 답변을 기다리는 중');
 
     assert.equal(assistantRequestsUserResponse('실행 환경을 골라주세요:\n- WSL\n- Windows'), true);
     assert.equal(assistantRequestsUserResponse('수정을 완료했습니다.'), false);
@@ -761,7 +761,7 @@ function registerCodexRecoveryTests(context) {
     const staleCodex = parseCodex(codexInfo);
     assert.equal(staleCodex.status, 'idle');
     assert.deepStrictEqual(staleCodex.executions.map(item => [item.mode, item.status, item.statusDetail]), [
-      ['foreground', 'unverified', '최근 실행 신호 없음'],
+      ['foreground', 'unverified', '최근 실행 활동이 확인되지 않음'],
     ]);
 
     const claudeFile = path.join(temp, 'claude', 'stale-waiting.jsonl');

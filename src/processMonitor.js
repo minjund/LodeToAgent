@@ -172,7 +172,7 @@ function windowsProcessRows(run = execFileSync) {
       });
       return processRows(output);
     } catch (wmicError) {
-      const error = new Error(`Windows 프로세스 조회 실패: ${powershellError.message || powershellError}; ${wmicError.message || wmicError}`);
+      const error = new Error(`Windows에서 실행 중인 프로그램을 확인하지 못했습니다: ${powershellError.message || powershellError}; ${wmicError.message || wmicError}`);
       error.cause = powershellError;
       throw error;
     }
@@ -288,7 +288,7 @@ function markRuntime(session, presence) {
   if (presence.interactionMode === 'batch') {
     session.conversationStatus = session.status;
     session.status = 'running';
-    session.statusDetail = `백그라운드 자율 실행 중 · PID ${presence.pid || '--'}`;
+    session.statusDetail = '화면 밖에서 AI가 계속 작업 중';
     session.statusObserved = true;
   }
   return session;
@@ -306,17 +306,17 @@ function syntheticRuntimeSession(processInfo, now = Date.now()) {
     depth: 0,
     agentName: '',
     agentRole: '',
-    environment: { kind: processInfo.environment || 'windows', distro: '', label: `${environmentLabel} 실행 프로세스`, home: '' },
-    title: `${label} CLI · PID ${processInfo.pid}`,
+    environment: { kind: processInfo.environment || 'windows', distro: '', label: `${environmentLabel}에서 실행 중인 프로그램`, home: '' },
+    title: `${label} AI 프로그램 · 번호 ${processInfo.pid}`,
     model: '',
     cwd: '',
     branch: '',
     workspace: '작업 폴더 확인 중',
     source: 'runtime-process',
-    sourceLabel: `${environmentLabel} 실행 프로세스`,
+    sourceLabel: `${environmentLabel}에서 실행 중인 프로그램`,
     clientKind: 'external-cli',
     status: 'running',
-    statusDetail: `AI CLI 프로세스 실행 중 · PID ${processInfo.pid}`,
+    statusDetail: 'AI 프로그램 실행 중',
     statusObserved: true,
     startedAt: processInfo.startedAt || updatedAt,
     updatedAt,
@@ -327,9 +327,9 @@ function syntheticRuntimeSession(processInfo, now = Date.now()) {
     turnUsage: blankUsage(),
     context: { used: 0, window: 0, percent: 0, source: 'unknown' },
     childIds: [],
-    runtimePresence: [{ ...processInfo, kind: processInfo.environment || 'windows', label: `${environmentLabel} CLI` }],
-    messages: [{ id: `runtime:${processInfo.pid}:notice`, role: 'system', type: 'notice', title: '프로세스 감지', text: '실행 중인 AI CLI는 확인했지만 연결할 대화 기록을 아직 찾지 못했습니다.', status: 'running', timestamp: updatedAt }],
-    lifecycle: [{ id: `runtime:${processInfo.pid}:start`, type: 'session-start', label: 'AI CLI 프로세스 감지', detail: `PID ${processInfo.pid}`, status: 'running', timestamp: processInfo.startedAt || updatedAt }],
+    runtimePresence: [{ ...processInfo, kind: processInfo.environment || 'windows', label: `${environmentLabel} AI 프로그램` }],
+    messages: [{ id: `runtime:${processInfo.pid}:notice`, role: 'system', type: 'notice', title: '실행 중인 AI 프로그램 찾음', text: '실행 중인 AI 프로그램은 확인했지만 연결할 대화 기록을 아직 찾지 못했습니다.', status: 'running', timestamp: updatedAt }],
+    lifecycle: [{ id: `runtime:${processInfo.pid}:start`, type: 'session-start', label: '실행 중인 AI 프로그램 찾음', detail: '프로그램 실행 중', status: 'running', timestamp: processInfo.startedAt || updatedAt }],
   };
 }
 
@@ -360,10 +360,10 @@ function syntheticBridgeSession(bridge, now = Date.now()) {
   session.cwd = bridge.cwd || '';
   session.workspace = session.cwd ? session.cwd.replace(/\\/g, '/').split('/').filter(Boolean).pop() : '작업 폴더 확인 중';
   session.source = 'loadtoagent-bridge';
-  session.sourceLabel = 'LoadToAgent 외부 터미널 브리지';
+  session.sourceLabel = 'LoadToAgent 외부 명령창 연결';
   session.clientKind = 'loadtoagent-bridge';
-  session.runtimePresence = [{ ...bridge, kind: 'bridge', label: 'LoadToAgent 외부 터미널 브리지' }];
-  session.statusDetail = `안전하게 연결된 외부 터미널 · PID ${bridge.pid}`;
+  session.runtimePresence = [{ ...bridge, kind: 'bridge', label: 'LoadToAgent 외부 명령창 연결' }];
+  session.statusDetail = '안전하게 연결된 외부 명령창';
   return session;
 }
 
@@ -381,7 +381,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     if (!linked || linked.provider !== bridge.provider || utilitySession(linked)) continue;
     usedBridgeIds.add(bridge.id);
     usedSessionIds.add(linked.id);
-    markRuntime(linked, { ...bridge, kind: 'bridge', label: 'LoadToAgent 세션 터미널', linkScore: 'explicit' });
+    markRuntime(linked, { ...bridge, kind: 'bridge', label: 'LoadToAgent AI 명령창', linkScore: 'explicit' });
   }
   for (const bridge of bridges || []) {
     if (usedBridgeIds.has(bridge.id)) continue;
@@ -396,7 +396,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     if (usedBridgeIds.has(pair.bridge.id) || usedSessionIds.has(pair.session.id)) continue;
     usedBridgeIds.add(pair.bridge.id);
     usedSessionIds.add(pair.session.id);
-    markRuntime(pair.session, { ...pair.bridge, kind: 'bridge', label: 'LoadToAgent 외부 터미널 브리지', linkScore: Math.round(pair.score) });
+    markRuntime(pair.session, { ...pair.bridge, kind: 'bridge', label: 'LoadToAgent 외부 명령창 연결', linkScore: Math.round(pair.score) });
   }
   for (const distro of tmuxSnapshot && tmuxSnapshot.distros || []) {
     for (const tmuxSession of distro.sessions || []) {
@@ -409,7 +409,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
           markRuntime(linked, {
             id: `tmux:${distro.name}:${pane.nativeId}`,
             kind: 'tmux',
-            label: `${distro.name} · ${tmuxSession.name} · pane ${pane.index}`,
+            label: `${distro.name} · ${tmuxSession.name} · 명령창 ${pane.index}`,
             distro: distro.name,
             sessionId: tmuxSession.id,
             sessionName: tmuxSession.name,
@@ -438,7 +438,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     if (!linked) continue;
     usedProcessIds.add(processInfo.id);
     usedSessionIds.add(linked.id);
-    const label = processInfo.environment === 'macos' ? 'macOS CLI' : (processInfo.environment === 'linux' ? 'Linux CLI' : 'Windows CLI');
+    const label = processInfo.environment === 'macos' ? 'macOS AI 프로그램' : (processInfo.environment === 'linux' ? 'Linux AI 프로그램' : 'Windows AI 프로그램');
     markRuntime(linked, { ...processInfo, kind: processInfo.environment || 'windows', label, linkScore: 'explicit-session-id' });
   }
   const pairs = [];
@@ -455,7 +455,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     if (usedProcessIds.has(pair.processInfo.id) || usedSessionIds.has(pair.session.id)) continue;
     usedProcessIds.add(pair.processInfo.id);
     usedSessionIds.add(pair.session.id);
-    const label = pair.processInfo.environment === 'macos' ? 'macOS CLI' : (pair.processInfo.environment === 'linux' ? 'Linux CLI' : 'Windows CLI');
+    const label = pair.processInfo.environment === 'macos' ? 'macOS AI 프로그램' : (pair.processInfo.environment === 'linux' ? 'Linux AI 프로그램' : 'Windows AI 프로그램');
     markRuntime(pair.session, { ...pair.processInfo, kind: pair.processInfo.environment || 'windows', label, linkScore: Math.round(pair.score) });
   }
   for (const bridge of bridges || []) {

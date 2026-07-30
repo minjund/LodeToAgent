@@ -57,7 +57,7 @@ function createHierarchyAttacher(dependencies) {
     child.agentName = record.agentName || record.taskName || 'subagent';
     child.title = record.assignmentObserved
       ? compactText(record.assignment, 180)
-      : (record.taskName || '서브에이전트 작업');
+      : (record.taskName || '도움 AI 작업');
     child.sharedGoal = record.sharedGoal || parent.title;
     child.status = record.status === 'completed' ? 'completed' : (record.status === 'running' ? 'running' : 'idle');
     child.statusDetail = child.status === 'completed'
@@ -69,7 +69,7 @@ function createHierarchyAttacher(dependencies) {
     child.completionObserved = child.status === 'completed';
     child.result = record.result || '';
     child.source = 'collaboration-history';
-    child.sourceLabel = parent.provider === 'claude' ? 'Claude 협업 이벤트' : 'Codex 협업 이벤트';
+    child.sourceLabel = parent.provider === 'claude' ? 'Claude 도움 AI 활동' : 'Codex 도움 AI 활동';
     child.clientKind = parent.clientKind;
     child.model = parent.model;
     child.cwd = parent.cwd;
@@ -203,8 +203,8 @@ function createHierarchyAttacher(dependencies) {
     communications.push({
       id: `inferred-started:${child.id}`,
       kind: 'started',
-      label: '서브에이전트 실행 시작',
-      from: 'Codex 런타임',
+      label: '도움 AI 작업 시작',
+      from: 'Codex AI',
       to: child.agentPath || child.id,
       taskName: record.taskName,
       childId: child.id,
@@ -221,7 +221,7 @@ function createHierarchyAttacher(dependencies) {
       to: parent.agentPath || '/root',
       taskName: record.taskName,
       childId: child.id,
-      text: child.result || '작업을 완료하고 메인 AI에 결과를 반환했습니다.',
+      text: child.result || '맡은 일을 마치고 담당 AI에게 결과를 보냈습니다.',
       protected: false,
       timestamp: child.completedAt || child.updatedAt,
     });

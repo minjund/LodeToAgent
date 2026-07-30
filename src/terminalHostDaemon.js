@@ -8,10 +8,10 @@ const { TerminalHostServer } = require('./terminalHost');
 
 function parseConfig(argv = process.argv.slice(2)) {
   const index = argv.indexOf('--config');
-  if (index < 0 || !argv[index + 1]) throw new Error('터미널 호스트 설정이 없습니다.');
+  if (index < 0 || !argv[index + 1]) throw new Error('명령창 연결 설정이 없습니다.');
   const parsed = JSON.parse(Buffer.from(argv[index + 1], 'base64').toString('utf8'));
   for (const key of ['storeFile', 'discoveryFile', 'bridgeHome']) {
-    if (!parsed[key] || typeof parsed[key] !== 'string') throw new Error(`터미널 호스트 설정이 올바르지 않습니다: ${key}`);
+    if (!parsed[key] || typeof parsed[key] !== 'string') throw new Error(`명령창 연결 설정이 올바르지 않습니다: ${key}`);
   }
   return {
     storeFile: path.resolve(parsed.storeFile),

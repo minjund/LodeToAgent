@@ -5,9 +5,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
-    renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
+    renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
     syncComposer,
   } = context;
+  const terminalLabel = typeof terminalTypeLabel === 'function'
+    ? terminalTypeLabel
+    : terminal => String(terminal?.type || t('terminal.type.terminal'));
 
   function tmuxRows(snapshot = state.snapshot) {
     const rows = [];
@@ -60,7 +63,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         id: terminal.id,
         kind: 'terminal',
         label: terminal.title,
-        detail: `${String(terminal.type || '').toUpperCase()} · PID ${terminal.pid || '--'}`,
+        detail: `${terminalLabel(terminal)} · ${t('session.program_pid', { pid: terminal.pid || '--' })}`,
         terminalId: terminal.id,
       });
     }
@@ -70,12 +73,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     for (const item of presence.filter(entry => entry.kind === 'terminal' && entry.terminalId && !blockedTerminalIds.has(entry.terminalId)
       && (!agentSession.parentId || state.sessions.some(terminal => terminal.id === entry.terminalId && terminal.type !== 'agent')))) {
       if (targets.some(target => target.id === item.terminalId)) continue;
-      const runtime = String(item.runtime || item.shell || 'PowerShell');
+      const runtime = String(item.runtime || item.shell || '이 컴퓨터에서 실행하는 작업');
       targets.push({
         id: item.terminalId,
         kind: 'terminal',
         label: String(item.label || runtime),
-        detail: `${runtime.toUpperCase()} · PID ${item.pid || '--'}`,
+        detail: `${terminalLabel({ type: runtime })} · ${t('session.program_pid', { pid: item.pid || '--' })}`,
         terminalId: item.terminalId,
       });
     }
@@ -188,7 +191,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         id: reusable.id,
         kind: 'terminal',
         label: reusable.title || title,
-        detail: `${String(reusable.type || 'agent').toUpperCase()} · PID ${reusable.pid || '--'}`,
+        detail: `${terminalLabel(reusable)} · ${t('session.program_pid', { pid: reusable.pid || '--' })}`,
         terminalId: reusable.id,
       };
       if (options.focus === false) return { ...target, promptSent: Boolean(sendDraft && prompt), background: true, reused: true };
@@ -236,7 +239,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       id: created.id,
       kind: 'terminal',
       label: created.title || title,
-      detail: `${String(created.type || 'agent').toUpperCase()} · PID ${created.pid || '--'}`,
+      detail: `${terminalLabel(created)} · ${t('session.program_pid', { pid: created.pid || '--' })}`,
       terminalId: created.id,
     };
     if (options.focus === false) return { ...target, promptSent: Boolean(sendDraft && prompt), background: true };
@@ -297,7 +300,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       id: created.id,
       kind: 'terminal',
       label: created.title || providerLabel(provider),
-      detail: `${String(created.type || 'agent').toUpperCase()} · PID ${created.pid || '--'}`,
+      detail: `${terminalLabel(created)} · ${t('session.program_pid', { pid: created.pid || '--' })}`,
       terminalId: created.id,
     };
     if (options.focus === false) return { ...target, mode: 'new-session' };

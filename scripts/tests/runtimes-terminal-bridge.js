@@ -170,7 +170,7 @@ function registerTmuxAndProcessTests(context) {
     }], {}, { processes: [processes[1]] }, Date.parse('2026-07-14T03:01:00Z'));
     assert.equal(batch[0].status, 'running');
     assert.equal(batch[0].conversationStatus, 'waiting');
-    assert.match(batch[0].statusDetail, /백그라운드 자율 실행 중/);
+    assert.match(batch[0].statusDetail, /화면 밖에서 AI가 계속 작업 중/);
     assert.equal(batch[0].runtimePresence[0].pid, 404);
     const commandLine = 'claude.exe --session-id current-session --fork-session --resume C:\\Users\\dev\\.claude\\projects\\repo\\old-session.jsonl';
     assert.equal(processSessionExternalId({ commandLine }, 'claude'), 'current-session');
@@ -321,7 +321,7 @@ function registerGenericAgentTests(context) {
     const questionStat = fs.statSync(questionFile);
     const waiting = parseGeneric({ file: questionFile, mtimeMs: questionStat.mtimeMs, size: questionStat.size }, 'gemini');
     assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '답변 또는 선택 대기');
+    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
   });
 
   test('Gemini/Grok 스트리밍 메시지는 같은 ID의 최종 내용만 시간순으로 표시한다', () => {
@@ -696,7 +696,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(spawned.length, 2);
     assert.equal(spawned[1].file, 'tmux');
     assert.equal(spawned[1].args.includes(created.managedTmuxSession), true);
-    assert.match(afterCrash.get(created.id, true).replay, /살아 있는 tmux 세션에 다시 연결/);
+    assert.match(afterCrash.get(created.id, true).replay, /실행 중이던 작업에 다시 연결/);
     afterCrash.close(created.id);
   });
 
@@ -768,7 +768,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(processes.length, 2);
     manager.detach(session.id);
     exists = false;
-    assert.throws(() => manager.reconnect(session.id), /tmux 세션이 종료/);
+    assert.throws(() => manager.reconnect(session.id), /명령창 묶음이 끝나/);
     assert.equal(manager.get(session.id).status, 'stopped');
     assert.equal(processes.length, 2);
     manager.close(session.id);
@@ -931,7 +931,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(resolvePosixShell({}, 'linux', customShellFs), '/bin/bash');
     assert.throws(() => resolvePosixShell({ SHELL: '/missing' }, 'linux', {
       constants: { X_OK: 1 }, statSync() { throw new Error('missing'); }, accessSync() { throw new Error('missing'); },
-    }), /실행 가능한 POSIX 셸/);
+    }), /Linux 명령창을 실행할 프로그램/);
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).file, '/bin/zsh');
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).args[0], '-l');
     const macTmux = launchSpec(normalizeLaunchOptions({ type: 'tmux', distro: 'macOS', tmuxSession: 'work' }, 'darwin'), 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
@@ -1119,9 +1119,9 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(recovered[0].status, 'running');
     assert.equal(recovered[0].pid, 15_003);
     assert.equal(recovered[0].bridgeId, 'codex:session-123');
-    assert.match(afterCrash.get(created.id, true).replay, /호스트 중단 뒤 새 프로세스로 복구/);
+    assert.match(afterCrash.get(created.id, true).replay, /연결이 끊긴 뒤 새 프로그램으로 복구/);
     assert.equal(afterCrash.get(freshAgent.id).status, 'exited');
-    assert.match(afterCrash.get(freshAgent.id, true).replay, /새 AI 대화를 만들 수 있어 자동 재개하지 않았습니다/);
+    assert.match(afterCrash.get(freshAgent.id, true).replay, /새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다/);
     assert.equal(afterCrash.get(stalledAgent.id), null);
     afterCrash.dispose();
   });
@@ -1307,13 +1307,13 @@ function registerTerminalFailureTests(context) {
 
   test('외부 브리지는 손상된 입력과 알 수 없는 메시지를 거부한다', () => {
     assert.equal(decodeBase64(Buffer.from('안전한 입력').toString('base64')), '안전한 입력');
-    assert.throws(() => decodeBase64('%%%'), /인코딩/);
+    assert.throws(() => decodeBase64('%%%'), /글자를 읽을 수 없습니다/);
     const terminalManager = new EventEmitter();
     terminalManager.write = () => { throw new Error('호출되면 안 됨'); };
     const server = new BridgeServer({ terminalManager });
     const client = { authenticated: true, terminalId: 'terminal:1', socket: { end() {} } };
-    assert.throws(() => server.handle(client, { type: 'unknown' }), /지원하지 않는/);
-    assert.throws(() => server.handle(client, { type: 'input', data: '%%%' }), /인코딩/);
+    assert.throws(() => server.handle(client, { type: 'unknown' }), /지원하지 않습니다/);
+    assert.throws(() => server.handle(client, { type: 'input', data: '%%%' }), /글자를 읽을 수 없습니다/);
   });
 
   test('시작 실패한 PTY도 사용자가 닫기 전까지 실패 상태와 replay를 보존한다', () => {
@@ -1398,14 +1398,14 @@ function registerTmuxControlTests(context) {
     assert.deepStrictEqual(calls[2].args.slice(-5), ['tmux', 'send-keys', '-t', '%1', 'Enter']);
     const split = await controller.splitPane({ distro: 'Ubuntu', target: '%1', direction: 'horizontal', cwd: '/repo' });
     assert.equal(split.paneId, '%99');
-    await assert.rejects(() => controller.splitPane({ distro: 'Ubuntu', target: '%1', direction: 'diagonal' }), /분할 방향/);
+    await assert.rejects(() => controller.splitPane({ distro: 'Ubuntu', target: '%1', direction: 'diagonal' }), /명령창 나누기 방향/);
     await controller.newSession({ distro: 'Ubuntu', name: 'safe-name', cwd: '/repo' });
     await controller.selectLayout({ distro: 'Ubuntu', target: '@1', layout: 'tiled' });
     assert.equal(safeName('작업-1'), '작업-1');
     assert.equal(safeTarget('$1:@2.%3'), '$1:@2.%3');
-    assert.throws(() => controller.sendKey({ distro: 'Ubuntu', target: '%1', key: 'run-shell' }), /허용되지 않은/);
+    assert.throws(() => controller.sendKey({ distro: 'Ubuntu', target: '%1', key: 'run-shell' }), /사용할 수 없는 키/);
     assert.throws(() => safeName('bad name;rm'), /이름에는/);
-    assert.throws(() => safeTarget('%1;rm'), /대상 형식/);
+    assert.throws(() => safeTarget('%1;rm'), /명령창 정보의 형식/);
     await controller.execute('Ubuntu', ['list-sessions'], { timeoutMs: 1_234 });
     assert.equal(calls.at(-1).options.timeoutMs, 1_234);
     const macCalls = [];

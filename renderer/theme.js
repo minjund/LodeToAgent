@@ -24,16 +24,16 @@
     const light = theme === 'light';
     document.querySelectorAll('[data-theme-toggle]').forEach(button => {
       const nextLabel = light
-        ? label('settings.theme.switch_to_dark', '다크 모드로 전환')
-        : label('settings.theme.switch_to_light', '라이트 모드로 전환');
+        ? label('settings.theme.switch_to_dark', '어두운 색상으로 바꾸기')
+        : label('settings.theme.switch_to_light', '밝은 색상으로 바꾸기');
       button.setAttribute('aria-label', nextLabel);
       button.setAttribute('title', nextLabel);
       button.setAttribute('aria-pressed', light ? 'true' : 'false');
       const visibleLabel = button.querySelector('[data-theme-toggle-label]');
       if (visibleLabel) {
         visibleLabel.textContent = light
-          ? label('settings.theme.dark', '다크')
-          : label('settings.theme.light', '라이트');
+          ? label('settings.theme.switch_to_dark', '어두운 모드로 전환')
+          : label('settings.theme.switch_to_light', '밝은 모드로 전환');
       }
     });
     document.querySelectorAll('[data-theme-choice]').forEach(button => {
@@ -41,6 +41,12 @@
       button.setAttribute('aria-checked', selected ? 'true' : 'false');
       button.classList.toggle('active', selected);
     });
+    const settingsTitle = document.querySelector('#themeSettingsTitle');
+    if (settingsTitle) {
+      settingsTitle.textContent = light
+        ? label('settings.theme.current_light', '현재 화면 모드: 밝은 모드')
+        : label('settings.theme.current_dark', '현재 화면 모드: 어두운 모드');
+    }
   }
 
   function setTheme(nextTheme, options = {}) {

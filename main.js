@@ -29,6 +29,8 @@ const { macPathEntries } = require('./src/platformPath');
 const packageMetadata = require('./package.json');
 
 const PRODUCT_NAME = 'LoadToAgent';
+const ALLOW_UNSIGNED_WINDOWS_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
+  && packageMetadata.loadToAgent?.allowUnsignedWindowsUpdates === true;
 const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
   && packageMetadata.loadToAgent?.allowUnsignedMacUpdates === true;
 app.setName(PRODUCT_NAME);
@@ -60,17 +62,17 @@ let detailRequestId = 0;
 const pendingDetails = new Map();
 const MAIN_COPY = {
   ko: {
-    trayTooltip: 'LoadToAgent · 백그라운드 터미널 {count}개',
+    trayTooltip: 'LoadToAgent · 뒤에서 실행 중인 명령창 {count}개',
     trayOpen: 'LoadToAgent 열기',
-    traySessions: '백그라운드 터미널 {count}개 유지 중',
-    trayQuit: '프로그램 끝내기 · 터미널 세션 유지',
+    traySessions: '명령창 {count}개가 뒤에서 실행 중',
+    trayQuit: '프로그램 끝내기 · 명령창 작업은 계속 실행',
     addWorkspaces: 'AI 작업 폴더 선택',
     pickWorkspace: '작업 폴더 선택',
-    attentionTitle: '내 확인이 필요합니다',
+    attentionTitle: '내 답변이나 확인이 필요합니다',
     attentionBody: '{provider} · {title}',
-    terminalHostReconnecting: '터미널 연결을 자동으로 복구하는 중입니다.',
-    terminalHostReconnected: '터미널 연결을 복구했습니다.',
-    terminalHostReconnectFailed: '터미널 연결을 복구하지 못했습니다: {reason}',
+    terminalHostReconnecting: '명령창 연결을 자동으로 복구하는 중입니다.',
+    terminalHostReconnected: '명령창 연결을 복구했습니다.',
+    terminalHostReconnectFailed: '명령창 연결을 복구하지 못했습니다. 명령창을 다시 열어 주세요.',
   },
   en: {
     trayTooltip: 'LoadToAgent · {count} background terminals',
@@ -213,7 +215,7 @@ function createWindow() {
     height: 980,
     minWidth: 360,
     minHeight: 520,
-    title: 'LoadToAgent · AI Agent Observatory',
+    title: 'LoadToAgent · AI 작업 도우미',
     backgroundColor: '#080b12',
     show: false,
     webPreferences: {
@@ -312,7 +314,7 @@ function trustedSender(event) {
 }
 
 function requireTrustedSender(event) {
-  if (!trustedSender(event)) throw new Error('허용되지 않은 터미널 요청입니다.');
+  if (!trustedSender(event)) throw new Error('안전을 위해 이 명령창 요청을 차단했습니다.');
 }
 
 function handleTrusted(channel, handler) {
@@ -436,7 +438,7 @@ function createAttentionNotifier() {
         title: mainText('attentionTitle'),
         body: mainText('attentionBody', {
           provider: provider && provider.label || session.provider || 'AI',
-          title: session.title || '이름 없는 세션',
+          title: session.title || '이름 없는 작업',
         }),
       };
     },
@@ -477,7 +479,7 @@ async function connectTerminalForStartup(timeoutMs = 4_000) {
       new Promise((_, reject) => {
         timer = setTimeout(() => {
           timedOut = true;
-          reject(new Error('터미널 호스트 연결을 백그라운드에서 계속합니다.'));
+          reject(new Error('명령창 연결을 뒤에서 계속합니다.'));
         }, timeoutMs);
       }),
     ]);
@@ -489,7 +491,7 @@ async function connectTerminalForStartup(timeoutMs = 4_000) {
 }
 
 async function installDownloadedUpdate() {
-  if (!updateManager) throw new Error('업데이트 관리자가 준비되지 않았습니다.');
+  if (!updateManager) throw new Error('업데이트 기능이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
   const downloaded = await updateManager.download();
   const outcome = await launchDownloadedUpdate({
     platform: process.platform,
@@ -499,6 +501,7 @@ async function installDownloadedUpdate() {
     appPath: process.execPath,
     parentPid: process.pid,
     shell,
+    allowUnsignedWindowsUpdates: ALLOW_UNSIGNED_WINDOWS_UPDATES,
     allowUnsignedMacUpdates: ALLOW_UNSIGNED_MAC_UPDATES,
   });
   if (outcome.mode === 'automatic') {
@@ -540,6 +543,7 @@ async function setupRuntime() {
     verifyInstaller: installerPath => verifyDownloadedInstaller({
       installerPath,
       platform: process.platform,
+      allowUnsignedWindowsUpdates: ALLOW_UNSIGNED_WINDOWS_UPDATES,
       allowUnsignedMacUpdates: ALLOW_UNSIGNED_MAC_UPDATES,
     }),
   });
@@ -604,7 +608,7 @@ function bridgePresence() {
       environment: session.distro && process.platform === 'win32' ? 'wsl' : localEnvironment,
       distro: session.distro || '',
       kind: 'bridge',
-      label: 'LoadToAgent 외부 터미널 브리지',
+      label: 'LoadToAgent 외부 명령창 연결',
     }));
 }
 
@@ -620,8 +624,9 @@ function bootstrapState() {
     platform: {
       id: process.platform,
       label: process.platform === 'darwin' ? 'macOS' : (process.platform === 'win32' ? 'Windows' : 'Linux'),
+      computerName: os.hostname(),
       localShell: process.platform === 'win32' ? 'powershell' : 'shell',
-      localShellLabel: process.platform === 'darwin' ? 'macOS shell' : (process.platform === 'win32' ? 'Windows PowerShell' : 'Linux shell'),
+      localShellLabel: process.platform === 'darwin' ? 'macOS 명령창' : (process.platform === 'win32' ? 'Windows 명령창' : 'Linux 명령창'),
       nativeTmux: process.platform !== 'win32',
     },
     bridgeCli: bridgeLauncher,
@@ -766,7 +771,8 @@ app.whenReady().then(async () => {
   createWindow();
   app.on('activate', showMainWindow);
 }).catch(error => {
-  dialog.showErrorBox('LoadToAgent 시작 실패', error.stack || error.message || String(error));
+  console.error(error);
+  dialog.showErrorBox('LoadToAgent 시작 실패', 'LoadToAgent를 시작하지 못했습니다. 프로그램을 다시 실행해 주세요.');
   app.quit();
 });
 

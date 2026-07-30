@@ -71,7 +71,7 @@ function windowsPowerShell(environment = process.env) {
 
 function waitForProcessSpawn(child, timeoutMs = 5000) {
   if (!child || typeof child.once !== 'function' || typeof child.unref !== 'function') {
-    return Promise.reject(new Error('업데이트 설치 프로세스를 시작하지 못했습니다.'));
+    return Promise.reject(new Error('업데이트 설치 프로그램을 시작하지 못했습니다.'));
   }
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -82,7 +82,7 @@ function waitForProcessSpawn(child, timeoutMs = 5000) {
       if (error) reject(error);
       else resolve();
     };
-    const timer = setTimeout(() => finish(new Error('업데이트 설치 프로세스 시작 확인 시간이 초과되었습니다.')), timeoutMs);
+    const timer = setTimeout(() => finish(new Error('업데이트 설치 프로그램이 시작되는 데 너무 오래 걸립니다.')), timeoutMs);
     child.once('spawn', () => finish());
     child.once('error', error => finish(error));
   });
@@ -92,18 +92,19 @@ async function verifyDownloadedInstaller(options = {}) {
   const installerPath = String(options.installerPath || '');
   const platform = String(options.platform || process.platform);
   const execFile = options.execFile || execFileProcess;
-  if (!installerPath || !fs.existsSync(installerPath)) throw new Error('서명을 확인할 설치 파일을 찾지 못했습니다.');
+  if (!installerPath || !fs.existsSync(installerPath)) throw new Error('안전성을 확인할 설치 파일을 찾지 못했습니다.');
   if (platform === 'win32') {
     const systemRoot = String(options.environment?.SystemRoot || options.environment?.WINDIR || process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows');
     const windowsModulePath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules');
     const script = [
       'Import-Module Microsoft.PowerShell.Security -ErrorAction Stop',
       '$signature = Get-AuthenticodeSignature -LiteralPath $env:LOADTOAGENT_VERIFY_PATH',
+      "if ($signature.Status -eq 'Valid') { Write-Output 'Valid'; exit 0 }",
+      "if (($env:LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS -eq 'true') -and ($signature.Status -eq 'NotSigned')) { Write-Output 'NotSigned'; exit 0 }",
       "if ($signature.Status -ne 'Valid') { throw ('Invalid Authenticode signature: ' + $signature.Status) }",
-      '$signature.SignerCertificate.Thumbprint',
     ].join('; ');
     const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
-    await execFile(windowsPowerShell(options.environment), [
+    const result = await execFile(windowsPowerShell(options.environment), [
       '-NoLogo',
       '-NoProfile',
       '-NonInteractive',
@@ -118,9 +119,11 @@ async function verifyDownloadedInstaller(options = {}) {
         ...(options.environment || {}),
         PSModulePath: windowsModulePath,
         LOADTOAGENT_VERIFY_PATH: installerPath,
+        LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS: String(options.allowUnsignedWindowsUpdates === true),
       },
     });
-    return { platform, verified: true };
+    const unsignedAllowed = String(result && result.stdout || '').trim() === 'NotSigned';
+    return { platform, verified: !unsignedAllowed, unsignedAllowed };
   }
   if (platform === 'darwin') {
     try {
@@ -137,13 +140,13 @@ async function verifyDownloadedInstaller(options = {}) {
       return { platform, verified: false, unsignedAllowed: true };
     }
   }
-  throw new Error('이 운영체제에서는 업데이트 서명을 검증할 수 없습니다.');
+  throw new Error('이 운영체제에서는 업데이트 설치 파일의 안전성을 확인할 수 없습니다.');
 }
 
 async function launchDownloadedUpdate(options = {}) {
   const installerPath = String(options.installerPath || '');
   const downloadsDir = String(options.downloadsDir || '');
-  if (!installerPath || !fs.existsSync(installerPath)) throw new Error('내려받은 설치 파일을 찾지 못했습니다. 다시 다운로드해 주세요.');
+  if (!installerPath || !fs.existsSync(installerPath)) throw new Error('받은 설치 파일을 찾지 못했습니다. 다시 받아 주세요.');
 
   const platform = String(options.platform || process.platform);
   const verifyInstaller = options.verifyInstaller || verifyDownloadedInstaller;
@@ -152,6 +155,7 @@ async function launchDownloadedUpdate(options = {}) {
     platform,
     environment: options.environment,
     execFile: options.execFile,
+    allowUnsignedWindowsUpdates: options.allowUnsignedWindowsUpdates === true,
     allowUnsignedMacUpdates: options.allowUnsignedMacUpdates === true,
   });
   const automaticPlatform = automaticInstallPlatform({
@@ -196,7 +200,7 @@ async function launchDownloadedUpdate(options = {}) {
       env: environment,
     });
     await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
-    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로세스를 시작하지 못했습니다.');
+    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
     child.unref();
     return { mode: 'automatic', helperPath, logPath, targetApp };
   }
@@ -221,7 +225,7 @@ async function launchDownloadedUpdate(options = {}) {
     stdio: 'ignore',
   });
   await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
-  if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로세스를 시작하지 못했습니다.');
+  if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
   child.unref();
   return { mode: 'automatic', helperPath, logPath };
 }

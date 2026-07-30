@@ -95,7 +95,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     if (prompt && count) {
       const wasWarning = count.dataset.warning === "true";
       const warning = prompt.value.length >= 7_200;
-      count.textContent = `${prompt.value.length.toLocaleString(uiLocale())} / 8,000`;
+      count.textContent = `${prompt.value.length.toLocaleString(uiLocale())}/8,000자`;
       count.classList.toggle("warning", warning);
       count.dataset.warning = warning ? "true" : "false";
       if (warning && !wasWarning) announce(t("run.prompt_near_limit", { count: Math.max(0, 8_000 - prompt.value.length) }));

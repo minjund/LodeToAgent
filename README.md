@@ -181,8 +181,9 @@ Provider event mappings and context-window rules are documented in [Provider Con
 
 The renderer is sandboxed. In-app updates verify a trusted GitHub Release URL
 and SHA-256 digest, and production channels also require a valid platform
-signature. The current internal macOS channel permits unsigned DMGs and removes
-quarantine only from the app being staged for installation. Completed
+signature. The current internal channel permits unsigned Windows installers
+and macOS DMGs only after the release URL, filename, size, and SHA-256 digest
+checks; macOS removes quarantine only from the app being staged. Completed
 managed runs and terminal history expire after 30 days by default. See the
 [security policy](SECURITY.md), [threat model](docs/THREAT-MODEL.md), and
 [data-retention policy](docs/DATA-RETENTION.md).

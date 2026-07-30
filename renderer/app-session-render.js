@@ -50,6 +50,12 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     healthHtml,
   } = context;
 
+  function keepDesktopSidebarAtTop() {
+    const sidebar = $(".sidebar");
+    if (!sidebar || !window.matchMedia("(min-width: 721px)").matches) return;
+    sidebar.scrollTop = 0;
+  }
+
   function recentConversation(session) {
     const messages = (session.messages || []).filter((message) => message && message.text && message.role !== "system");
     const user = [...messages].reverse().find((message) => message.role === "user");
@@ -107,11 +113,9 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   function memoryCard(session) {
     const provider = providerInfo(session.provider);
     const titlePreview = readablePreview(session.title, 112);
+    const requestMessage = (session.messages || []).find((message) => message?.role === "user" && String(message.text || "").trim());
+    const requestPreview = readablePreview(requestMessage?.text || session.title || t("memory.request_not_recorded"), 72);
     const outcome = session.outcome || {};
-    const outcomePreview = readablePreview(
-      outcome.summary || session.result || session.statusDetail || latestWorkCopy(session) || t("memory.recorded"),
-      118,
-    );
     const executions = (session.executions || []).filter(Boolean);
     const delegationCount = (session.childIds || []).length;
     const executionCount = executions.length;
@@ -122,22 +126,42 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       : explicitEvidenceCount > 0
         ? "unverified"
         : "missing";
+    const firstResultFile = (outcome.artifacts || []).find((item) =>
+      typeof item === "string" || String(item?.kind || "").toLowerCase() === "file");
+    const resultFileLocation = typeof firstResultFile === "string"
+      ? firstResultFile
+      : firstResultFile?.value || firstResultFile?.path || firstResultFile?.file || "";
+    const outcomePreview = readablePreview(
+      evidenceState === "missing"
+        ? t("memory.no_result_detail")
+        : resultFileLocation
+          ? t("memory.result_file_location", { location: resultFileLocation })
+          : outcome.summary || session.result || session.statusDetail || latestWorkCopy(session) || t("memory.recorded"),
+      118,
+    );
     const decisionRequested = Boolean(
       session.responseIntent?.category && session.responseIntent.category !== "none"
       || ["approval", "decision"].includes(session.attention?.kind),
     );
     const decisionRetained = hasRetainedDecision(session);
+    const reviewPending = sessionNeedsResultReview(session);
     const decisionState = decisionRetained ? "retained" : decisionRequested ? "pending" : "absent";
     const accessibleId = `memory-${String(session.id || "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-    const stage = (index, label, value, tone = "") => `<span class="${tone}" title="${index} · ${esc(label)} · ${esc(value)}"><small>${esc(label)}</small><b>${esc(value)}</b></span>`;
+    const stage = (index, label, value, tone = "") => `<span class="${tone}" title="${index} · ${esc(label)}${value ? ` · ${esc(value)}` : ""}"><small>${esc(label)}</small>${value ? `<b>${esc(value)}</b>` : ""}</span>`;
     const chain = [
-      stage("01", t("memory.intent"), t("memory.retained")),
-      `<i aria-hidden="true"></i>${stage("02", t("memory.delegation"), delegationCount ? t("memory.count_short", { count: delegationCount }) : t("memory.direct"))}`,
-      `<i aria-hidden="true"></i>${stage("03", t("memory.action"), executionCount ? t("memory.count_short", { count: executionCount }) : provider.label)}`,
-      `<i aria-hidden="true"></i>${stage("04", t("memory.proof"), t(`memory.evidence_${evidenceState}`), evidenceState)}`,
-      `<i aria-hidden="true"></i>${stage("05", t("memory.judgement"), t(`memory.decision_${decisionState}`), decisionRetained ? "decision" : decisionRequested ? "unverified" : "pending")}`,
+      stage("01", t("memory.intent"), requestPreview.truncated ? t("memory.open_full_request") : requestPreview.text),
+      stage("02", t("memory.delegation"), delegationCount ? t("memory.count_short", { count: delegationCount }) : t("memory.no_delegation")),
+      stage("03", t("memory.action"), executionCount ? t("memory.count_short", { count: executionCount }) : t("memory.no_execution")),
+      stage("04", t("memory.proof"), evidenceState === "missing"
+        ? t("memory.none")
+        : t(`memory.stage_evidence_${evidenceState}`), evidenceState === "missing" ? "pending" : evidenceState),
+      stage("05", t("memory.judgement"), evidenceState === "missing"
+        ? t("memory.no_result_to_review")
+        : t(`memory.stage_decision_${decisionState}`), evidenceState === "missing"
+        ? "pending"
+        : decisionRetained ? "decision" : decisionRequested ? "unverified" : "pending"),
     ].join("");
-    return `<article class="session-card memory-record ${statusClass(session.status)}"
+    return `<article class="session-card memory-record ${reviewPending ? "review-pending" : ""} ${statusClass(session.status)}"
       data-session-id="${esc(session.id)}"
       data-session-sortable="${esc(session.id)}"
       data-motion-key="memory:${esc(session.id)}"
@@ -146,20 +170,41 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       role="button" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
       aria-labelledby="${accessibleId}-title" aria-describedby="${accessibleId}-proof sessionReorderHelp">
-      <span class="memory-record-mark" aria-hidden="true">${verified ? "✓" : "○"}</span>
+      <span class="memory-record-mark" aria-hidden="true">${verified && !decisionRetained ? "!" : verified ? "✓" : "○"}</span>
       <span class="memory-record-intent">
-        <small>${esc(t("memory.intent"))} · ${esc(sessionWorkspaceLabel(session))} · ${esc(timeAgo(session.updatedAt))}</small>
-        <b id="${accessibleId}-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</b>
-        <em>${esc(provider.label)}${decisionRetained ? ` · ${esc(t("memory.decisions"))}` : ""}</em>
+        <small>${isProjectlessSession(session)
+          ? `${esc(t("memory.last_activity", { time: memoryActivityTime(session.updatedAt) }))}`
+          : `${esc(t("memory.start_folder"))}: ${esc(sessionWorkspaceLabel(session))} · ${esc(t("memory.last_activity", { time: memoryActivityTime(session.updatedAt) }))}`}</small>
+        <b id="${accessibleId}-title" title="${esc(titlePreview.full)}">${esc(reviewPending ? `${provider.label}가 끝낸 작업을 확인해 주세요` : t("memory.work_name", { title: titlePreview.text }))}</b>
+        ${reviewPending ? `<span id="${accessibleId}-proof" class="memory-review-status">현재 상태: 확인 필요</span>` : ""}
+        ${titlePreview.text.includes(provider.label) ? "" : `<em>${esc(t("memory.provider", { provider: provider.label }))}${decisionRetained ? ` · ${esc(t("memory.decisions"))}` : ""}</em>`}
       </span>
-      <span class="memory-record-lineage"><small>${esc(t("memory.lineage"))}</small><span class="memory-record-chain">${chain}</span></span>
-      <span id="${accessibleId}-proof" class="memory-record-proof">
+      ${reviewPending
+        ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르면 이 항목이 확인 완료 목록으로 이동합니다.</span><span class="memory-review-help-mobile">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르세요.</span></small></span>`
+        : `<details class="memory-record-lineage">
+          <summary><span class="memory-summary-closed">${esc(t("memory.expand_summary"))}</span><span class="memory-summary-open">${esc(t("memory.collapse_summary"))}</span><i aria-hidden="true">⌄</i></summary>
+          <small>${esc(t("memory.lineage"))}</small>
+          <span class="memory-record-chain">${chain}</span>
+        </details>`}
+      ${reviewPending ? `<span class="memory-record-proof memory-review-proof-proxy" aria-hidden="true"></span>` : `<span id="${accessibleId}-proof" class="memory-record-proof ${evidenceState}">
         <small>${esc(t("memory.proof"))}</small>
         <b>${esc(t(`memory.evidence_${evidenceState}`))}</b>
         <em title="${esc(outcomePreview.full)}">${esc(outcomePreview.text)}</em>
-      </span>
-      <span class="memory-record-open"><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${esc(t("memory.open_record"))}<i aria-hidden="true">→</i></span>
+      </span>`}
+      <span class="memory-record-open"><span class="session-drag-handle" title="${esc(t("session.reorder_hint"))}">${esc(t("session.reorder_visible"))}</span>${esc(t("memory.open_record"))}<i aria-hidden="true">→</i></span>
     </article>`;
+  }
+
+  function memoryActivityTime(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
+    const localeTag = window.LoadToAgentI18n.getLocaleTag();
+    return new Intl.DateTimeFormat(localeTag, {
+      year: "numeric", month: "long", day: "numeric",
+      hour: localeTag.startsWith("ko") ? "2-digit" : "numeric",
+      minute: "2-digit",
+      ...(localeTag.startsWith("ko") ? { hourCycle: "h23" } : {}),
+    }).format(date);
   }
 
   function hasRetainedDecision(session) {
@@ -173,20 +218,42 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     });
   }
 
+  function sessionNeedsResultReview(session) {
+    const outcome = session.outcome || {};
+    const verified = outcome.verified === true || session.evidence?.completion === "observed";
+    return verified && !hasRetainedDecision(session);
+  }
+
   function renderMemoryMetrics(sessions) {
-    const evidenceCount = sessions.reduce((sum, session) => {
+    const evidenceCount = sessions.filter((session) => {
       const artifacts = session.outcome?.artifacts?.length || 0;
       const checks = session.outcome?.checks?.length || 0;
-      const completion = session.outcome?.verified || session.evidence?.completion === "observed" ? 1 : 0;
-      return sum + artifacts + checks + completion;
-    }, 0);
-    const decisionCount = sessions.filter(hasRetainedDecision).length;
-    $("#memoryRecordCount").textContent = fullNumber(sessions.length);
-    $("#memoryEvidenceCount").textContent = fullNumber(evidenceCount);
-    $("#memoryDecisionCount").textContent = fullNumber(decisionCount);
+      const completion = session.outcome?.verified || session.evidence?.completion === "observed";
+      return artifacts > 0 || checks > 0 || completion;
+    }).length;
+    const decisionCount = Math.max(0, sessions.length - evidenceCount);
+    $("#memoryRecordCount").textContent = t("memory.metric_count", { count: fullNumber(sessions.length) });
+    $("#memoryEvidenceLabel").textContent = "확인 필요";
+    $("#memoryEvidenceCount").textContent = t("memory.metric_count", { count: fullNumber(evidenceCount) });
+    $("#memoryDecisionLabel").textContent = "확인 완료";
+    $("#memoryDecisionCount").textContent = t("memory.metric_count", { count: fullNumber(decisionCount) });
+    const priorityAction = $("#memoryPriorityAction");
+    if (priorityAction) {
+      priorityAction.classList.toggle("hidden", evidenceCount === 0);
+      priorityAction.textContent = `확인 필요한 결과 ${fullNumber(evidenceCount)}건 보기`;
+    }
+    if ($("#memoryPrinciple")) {
+      $("#memoryPrinciple").textContent = t("memory.principle", {
+        total: fullNumber(sessions.length),
+        new: fullNumber(evidenceCount),
+        reviewed: fullNumber(decisionCount),
+      });
+    }
+    if ($("#viewTitle")) $("#viewTitle").textContent = t("memory.archive_title", { count: fullNumber(sessions.length) });
   }
 
   function renderSessionsContent(motionKind = "refresh", deferMotion = false) {
+    keepDesktopSidebarAtTop();
     const previousLayout = deferMotion ? null : captureMotionLayout();
     syncViewChrome();
     renderGuide();
@@ -249,23 +316,46 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const attentionCount = attentionView ? renderAttentionInbox() : 0;
     const showMap = homeView;
     const graphLiveCount = showMap ? renderAgentMap(graphFilteredSessions(), motionKind) : 0;
-    const regular = memoryView ? sessions : [];
-    const visible = regular.slice(0, state.visibleLimit);
+    const regular = memoryView ? [...sessions].sort((a, b) =>
+      Number(sessionNeedsResultReview(b)) - Number(sessionNeedsResultReview(a))) : [];
+    const compactMemory = memoryView && window.matchMedia("(max-width: 760px)").matches;
+    const effectiveLimit = compactMemory && state.visibleLimit === 30 ? 2 : state.visibleLimit;
+    const visible = regular.slice(0, effectiveLimit);
     const resultCount = attentionView
       ? attentionCount
       : memoryView
         ? regular.length
         : regular.length;
-    $("#sessionResultSummary").textContent = window.LoadToAgentI18n.t("quality.results_summary", { count: resultCount });
+    const resultSummaryKey = window.matchMedia("(max-width: 760px)").matches
+      ? "quality.results_summary_mobile"
+      : "quality.results_summary";
+    $("#sessionResultSummary").textContent = window.LoadToAgentI18n.t(resultSummaryKey, {
+      count: resultCount,
+      total: resultCount,
+      shown: visible.length,
+      remaining: Math.max(0, resultCount - visible.length),
+    });
     const activeEmpty = homeView && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
     $("#liveSection").classList.toggle("hidden", !homeView || graphLiveCount === 0);
     $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
-    $("#sessionGrid").innerHTML = visible.map((session) => memoryView ? memoryCard(session) : sessionCard(session)).join("");
+    const reviewCount = memoryView ? regular.filter(sessionNeedsResultReview).length : 0;
+    const completedCount = Math.max(0, regular.length - reviewCount);
+    $("#sessionGrid").innerHTML = visible.map((session, index) => {
+      if (!memoryView) return sessionCard(session);
+      const headings = [];
+      if (index === 0 && reviewCount > 0) {
+        headings.push(`<h3 class="memory-list-group-heading review">확인 필요한 작업 ${reviewCount}건</h3>`);
+      }
+      if ((reviewCount === 0 && index === 0 || index === reviewCount) && completedCount > 0) {
+        headings.push(`<h3 class="memory-list-group-heading completed">확인 완료한 작업 ${completedCount}건</h3>`);
+      }
+      return `${headings.join("")}${memoryCard(session)}`;
+    }).join("");
     if (memoryView) renderMemoryMetrics(regular);
     $("#sessionGrid").classList.toggle("hidden", visible.length === 0);
-    $("#loadMoreBtn").classList.toggle("hidden", regular.length <= state.visibleLimit);
-    $("#loadMoreBtn").textContent = window.LoadToAgentI18n.t("common.remaining", { count: regular.length - state.visibleLimit });
+    $("#loadMoreBtn").classList.toggle("hidden", regular.length <= effectiveLimit);
+    $("#loadMoreBtn").textContent = window.LoadToAgentI18n.t("common.remaining", { count: Math.max(0, regular.length - visible.length) });
     $("#emptyState").classList.toggle("hidden", attentionView || graphLiveCount + regular.length !== 0);
     const hasConditions = Boolean(state.search || state.providerFilters.size || state.workspace !== "all" || state.sort !== "recent");
     $("#emptyClearFiltersBtn").classList.toggle("hidden", resultCount !== 0 || !hasConditions);
@@ -285,18 +375,33 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   }
 
   function renderSessions(motionKind = "refresh", deferMotion = false) {
-    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions([".main-stage", ".sidebar"]);
+    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+      motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
+    );
     context.rememberDisclosureStates?.(document);
     try {
       return renderSessionsContent(motionKind, deferMotion);
     } finally {
       context.restoreDisclosureStates?.(document);
       restoreScroll();
+      if (motionKind === "view") {
+        const resetSidebar = () => {
+          const sidebar = $(".sidebar");
+          if (sidebar) sidebar.scrollTop = 0;
+        };
+        resetSidebar();
+        requestAnimationFrame(() => {
+          resetSidebar();
+          requestAnimationFrame(resetSidebar);
+        });
+      }
     }
   }
 
   function render(motionKind = "refresh") {
-    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions([".main-stage", ".sidebar"]);
+    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+      motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
+    );
     context.rememberDisclosureStates?.(document);
     try {
       const previousLayout = captureMotionLayout();
@@ -313,6 +418,17 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     } finally {
       context.restoreDisclosureStates?.(document);
       restoreScroll();
+      if (motionKind === "view") {
+        const resetSidebar = () => {
+          const sidebar = $(".sidebar");
+          if (sidebar) sidebar.scrollTop = 0;
+        };
+        resetSidebar();
+        requestAnimationFrame(() => {
+          resetSidebar();
+          requestAnimationFrame(resetSidebar);
+        });
+      }
     }
   }
 

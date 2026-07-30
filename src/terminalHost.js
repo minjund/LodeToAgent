@@ -35,10 +35,10 @@ function incompatibleHostError(message, discovery) {
 function readHostDiscovery(file, fileSystem = fs, expectedRuntime = TERMINAL_HOST_RUNTIME) {
   const parsed = JSON.parse(fileSystem.readFileSync(file, 'utf8'));
   if (!parsed?.endpoint || !parsed.token || !Number.isSafeInteger(Number(parsed.pid)) || Number(parsed.pid) <= 0) {
-    throw new Error('터미널 호스트 연결 정보가 올바르지 않습니다.');
+    throw new Error('명령창 연결 정보가 올바르지 않습니다.');
   }
   if (parsed.protocol !== TERMINAL_HOST_PROTOCOL || parsed.runtime !== expectedRuntime) {
-    throw incompatibleHostError('현재 앱과 호환되지 않는 터미널 호스트입니다.', parsed);
+    throw incompatibleHostError('현재 앱과 맞지 않는 명령창 연결 프로그램입니다.', parsed);
   }
   return parsed;
 }
@@ -56,13 +56,13 @@ function verifyHostDiscovery(discovery, timeoutMs = 1_500) {
       if (error) reject(error);
       else resolve();
     };
-    const timer = setTimeout(() => finish(new Error('이전 터미널 호스트 인증 시간이 초과되었습니다.')), timeoutMs);
+    const timer = setTimeout(() => finish(new Error('이전 명령창 연결 확인 시간이 초과되었습니다.')), timeoutMs);
     socket.setNoDelay(true);
     socket.on('connect', () => sendFrame(socket, { type: 'authenticate', token: discovery.token }));
     socket.on('data', chunk => {
       buffer += chunk.toString('utf8');
       if (buffer.length > MAX_FRAME_CHARS) {
-        finish(new Error('이전 터미널 호스트 응답이 너무 큽니다.'));
+        finish(new Error('이전 명령창 연결 프로그램이 보낸 내용이 너무 큽니다.'));
         return;
       }
       let newline;
@@ -80,7 +80,7 @@ function verifyHostDiscovery(discovery, timeoutMs = 1_500) {
     });
     socket.on('error', finish);
     socket.on('close', () => {
-      if (!settled) finish(new Error('이전 터미널 호스트 인증 연결이 닫혔습니다.'));
+      if (!settled) finish(new Error('이전 명령창 연결 확인이 중단되었습니다.'));
     });
   });
 }
@@ -99,7 +99,7 @@ function processExists(pid) {
 async function terminateHostProcess(discovery) {
   const pid = Number(discovery?.pid);
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) {
-    throw new Error('교체할 터미널 호스트 프로세스 정보가 올바르지 않습니다.');
+    throw new Error('교체할 명령창 연결 프로그램 정보가 올바르지 않습니다.');
   }
   try {
     process.kill(pid, 'SIGTERM');
@@ -108,7 +108,7 @@ async function terminateHostProcess(discovery) {
   }
   const deadline = Date.now() + 3_000;
   while (processExists(pid)) {
-    if (Date.now() >= deadline) throw new Error(`이전 터미널 호스트가 종료되지 않았습니다: PID ${pid}`);
+    if (Date.now() >= deadline) throw new Error('이전 명령창 연결이 아직 끝나지 않았습니다.');
     await new Promise(resolve => setTimeout(resolve, 50));
   }
 }
@@ -152,7 +152,7 @@ class TerminalHostServer {
   }
 
   start() {
-    if (!this.manager) return Promise.reject(new Error('터미널 관리자가 준비되지 않았습니다.'));
+    if (!this.manager) return Promise.reject(new Error('명령창 기능이 아직 준비되지 않았습니다.'));
     if (this.server) return Promise.resolve(this.info());
     if (this.platform !== 'win32' && fs.existsSync(this.endpoint)) {
       runBestEffort('terminal-host-stale-endpoint', () => fs.unlinkSync(this.endpoint));
@@ -188,7 +188,7 @@ class TerminalHostServer {
       buffer: '',
       authenticated: false,
       queue: Promise.resolve(),
-      authTimer: setTimeout(() => socket.destroy(new Error('터미널 호스트 인증 시간이 초과되었습니다.')), AUTH_TIMEOUT_MS),
+      authTimer: setTimeout(() => socket.destroy(new Error('명령창 연결 확인 시간이 초과되었습니다.')), AUTH_TIMEOUT_MS),
     };
     this.clients.add(client);
     socket.on('data', chunk => this.consume(client, chunk));
@@ -199,7 +199,7 @@ class TerminalHostServer {
   consume(client, chunk) {
     client.buffer += chunk.toString('utf8');
     if (client.buffer.length > MAX_FRAME_CHARS) {
-      client.socket.destroy(new Error('터미널 호스트 요청이 너무 큽니다.'));
+      client.socket.destroy(new Error('명령창에 보낸 내용이 너무 큽니다.'));
       return;
     }
     let newline;
@@ -211,7 +211,7 @@ class TerminalHostServer {
       try {
         message = JSON.parse(line);
       } catch (_invalidFrame) {
-        client.socket.destroy(new Error('터미널 호스트 요청 형식이 올바르지 않습니다.'));
+        client.socket.destroy(new Error('명령창에 보낸 내용의 형식이 올바르지 않습니다.'));
         return;
       }
       client.queue = client.queue
@@ -228,7 +228,7 @@ class TerminalHostServer {
   async handle(client, message) {
     if (!client.authenticated) {
       if (message.type !== 'authenticate' || message.token !== this.token) {
-        throw new Error('터미널 호스트 인증에 실패했습니다.');
+        throw new Error('명령창 연결을 확인하지 못했습니다.');
       }
       client.authenticated = true;
       clearTimeout(client.authTimer);
@@ -242,7 +242,7 @@ class TerminalHostServer {
       return;
     }
     if (message.type !== 'request' || !HOST_OPERATIONS.has(message.operation)) {
-      throw new Error('지원하지 않는 터미널 호스트 작업입니다.');
+      throw new Error('이 명령창 작업은 사용할 수 없습니다.');
     }
     const operation = message.operation;
     const args = Array.isArray(message.args) ? message.args : [];
@@ -305,7 +305,7 @@ class TerminalHostServer {
 function launchTerminalHost(options = {}) {
   const executable = options.executable || process.execPath;
   const script = options.script;
-  if (!script) throw new Error('터미널 호스트 스크립트 경로가 없습니다.');
+  if (!script) throw new Error('명령창 연결에 필요한 파일 위치가 없습니다.');
   const config = Buffer.from(JSON.stringify({
     storeFile: options.storeFile,
     discoveryFile: options.discoveryFile,
@@ -384,7 +384,7 @@ class TerminalHostClient extends EventEmitter {
     while (!this.disposed && generation === this.connectGeneration && Date.now() < deadline) {
       try {
         await this.connectExisting();
-        if (this.disposed || generation !== this.connectGeneration) throw new Error('터미널 호스트 재연결이 취소되었습니다.');
+        if (this.disposed || generation !== this.connectGeneration) throw new Error('명령창 다시 연결이 취소되었습니다.');
         return this;
       } catch (error) {
         lastError = error;
@@ -407,8 +407,8 @@ class TerminalHostClient extends EventEmitter {
       }
       await new Promise(resolve => setTimeout(resolve, 120));
     }
-    if (this.disposed || generation !== this.connectGeneration) throw new Error('터미널 호스트 재연결이 취소되었습니다.');
-    throw new Error(`터미널 호스트에 연결하지 못했습니다: ${lastError?.message || '시간 초과'}`);
+    if (this.disposed || generation !== this.connectGeneration) throw new Error('명령창 다시 연결이 취소되었습니다.');
+    throw new Error(`명령창에 연결하지 못했습니다: ${lastError?.message || '시간 초과'}`);
   }
 
   connectExisting() {
@@ -417,7 +417,7 @@ class TerminalHostClient extends EventEmitter {
       const socket = net.createConnection(discovery.endpoint);
       const timer = setTimeout(() => {
         socket.destroy();
-        reject(new Error('터미널 호스트 연결 시간이 초과되었습니다.'));
+        reject(new Error('명령창 연결 시간이 초과되었습니다.'));
       }, 1_500);
       this.socket = socket;
       this.buffer = '';
@@ -442,7 +442,7 @@ class TerminalHostClient extends EventEmitter {
     if (socket && socket !== this.socket) return;
     this.buffer += chunk.toString('utf8');
     if (this.buffer.length > MAX_FRAME_CHARS) {
-      this.socket?.destroy(new Error('터미널 호스트 응답이 너무 큽니다.'));
+      this.socket?.destroy(new Error('명령창 연결 프로그램이 보낸 내용이 너무 큽니다.'));
       return;
     }
     let newline;
@@ -462,7 +462,7 @@ class TerminalHostClient extends EventEmitter {
         this.pending.delete(String(message.requestId || ''));
         clearTimeout(pending.timer);
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(new Error(String(message.error || '터미널 호스트 작업 실패')));
+        else pending.reject(new Error(String(message.error || '명령창 작업 실패')));
       } else if (message.type === 'event' && message.event === 'data') {
         this.emit('data', message.payload);
       } else if (message.type === 'event' && message.event === 'state') {
@@ -476,10 +476,10 @@ class TerminalHostClient extends EventEmitter {
     if (socket && socket !== this.socket) return;
     const wasConnected = this.connected;
     this.connected = false;
-    if (this.handshake) this.handshake.reject(new Error('터미널 호스트 연결이 닫혔습니다.'));
+    if (this.handshake) this.handshake.reject(new Error('명령창 연결이 닫혔습니다.'));
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('터미널 호스트 연결이 닫혔습니다.'));
+      pending.reject(new Error('명령창 연결이 닫혔습니다.'));
     }
     this.pending.clear();
     this.socket = null;
@@ -506,13 +506,13 @@ class TerminalHostClient extends EventEmitter {
       await this.connect();
     }
     if (!this.connected || !this.socket || this.socket.destroyed) {
-      throw new Error('터미널 호스트에 연결되어 있지 않습니다.');
+      throw new Error('명령창이 연결되어 있지 않습니다.');
     }
     const requestId = String(++this.sequence);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId);
-        reject(new Error(`터미널 호스트 작업 시간이 초과되었습니다: ${operation}`));
+        reject(new Error('명령창 작업이 제한 시간 안에 끝나지 않았습니다.'));
       }, REQUEST_TIMEOUT_MS);
       this.pending.set(requestId, { resolve, reject, timer });
       sendFrame(this.socket, { type: 'request', requestId, operation, args });
@@ -541,7 +541,7 @@ class TerminalHostClient extends EventEmitter {
     }
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new Error('터미널 호스트 클라이언트가 종료되었습니다.'));
+      pending.reject(new Error('명령창 연결 프로그램이 종료되었습니다.'));
     }
     this.pending.clear();
   }

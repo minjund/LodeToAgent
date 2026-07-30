@@ -10,7 +10,7 @@
 }
 
 .session-card.subagent:after {
-  content: "SUB";
+  content: "도움";
   position: absolute;
   right: 14px;
   top: 14px;

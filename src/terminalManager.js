@@ -38,7 +38,7 @@ function cleanText(value, max = 200) {
 function safeTmuxName(value, fallback = '') {
   const text = cleanText(value, 100);
   if (!text) return fallback;
-  if (!/^[A-Za-z0-9_.-]+$/.test(text)) throw new Error('tmux 이름에는 영문, 숫자, 점, 밑줄, 하이픈만 사용할 수 있습니다.');
+  if (!/^[\p{L}\p{N}_.-]+$/u.test(text)) throw new Error('명령창 묶음 이름에는 글자, 숫자, 점(.), 밑줄(_), - 기호만 사용할 수 있습니다.');
   return text;
 }
 
@@ -83,7 +83,7 @@ function resolvePosixShell(environment = process.env, platform = process.platfor
     : ['/bin/bash', '/bin/zsh', '/bin/sh'];
   const candidates = [...new Set([configured, ...platformDefaults].filter(Boolean))];
   const shell = candidates.find(candidate => isExecutableFile(candidate, fileSystem));
-  if (!shell) throw new Error('실행 가능한 POSIX 셸을 찾지 못했습니다. SHELL 환경 변수와 /bin/sh 설치 상태를 확인하세요.');
+  if (!shell) throw new Error('Linux 명령창을 실행할 프로그램을 찾지 못했습니다. Linux 명령창 설치 상태를 확인하세요.');
   return shell;
 }
 
@@ -140,12 +140,12 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   if (['powershell', 'cmd', 'shell', 'agent'].includes(type) && !wslAgent && (!fs.existsSync(localCwd) || !fs.statSync(localCwd).isDirectory())) {
     throw new Error(`작업 폴더를 찾을 수 없습니다: ${localCwd}`);
   }
-  if ((type === 'wsl' || type === 'tmux') && !distro) throw new Error(type === 'tmux' ? 'tmux 환경을 선택하세요.' : 'WSL 배포판을 선택하세요.');
+  if ((type === 'wsl' || type === 'tmux') && !distro) throw new Error('작업을 실행할 Linux 환경을 선택하세요.');
   const tmuxSession = cleanText(options.tmuxSession, 100);
   const tmuxPane = cleanText(options.tmuxPane, 100);
-  if (type === 'tmux' && !tmuxSession) throw new Error('연결할 tmux 세션이 필요합니다.');
+  if (type === 'tmux' && !tmuxSession) throw new Error('연결할 명령창 묶음을 선택하세요.');
   const provider = cleanText(options.provider, 30).toLowerCase();
-  if (type === 'agent' && !AGENT_PROVIDERS[provider]) throw new Error('지원하지 않는 AI 제공사입니다.');
+  if (type === 'agent' && !AGENT_PROVIDERS[provider]) throw new Error('선택한 AI 종류는 사용할 수 없습니다.');
   const requestedBackend = cleanText(options.sessionBackend || options.backend, 40);
   const managedByDefault = type === 'agent'
     && !options.transient
@@ -154,7 +154,7 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
     ? requestedBackend
     : (managedByDefault ? 'managed-tmux' : 'direct');
   if (sessionBackend === 'managed-tmux' && type !== 'agent') {
-    throw new Error('관리형 tmux 백엔드는 AI 터미널에서만 사용할 수 있습니다.');
+    throw new Error('여러 명령창 기능은 AI 명령창에서만 사용할 수 있습니다.');
   }
   const args = Array.isArray(options.args)
     ? options.args.slice(0, 80).map(value => cleanText(value, 2_000))
@@ -187,7 +187,7 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
     const file = powershellExecutable();
     return { file, args: ['-NoLogo'], cwd: options.cwd, label: path.basename(file, '.exe') };
   }
-  if (options.type === 'cmd') return { file: process.env.ComSpec || 'cmd.exe', args: ['/Q'], cwd: options.cwd, label: '명령 프롬프트' };
+  if (options.type === 'cmd') return { file: process.env.ComSpec || 'cmd.exe', args: ['/Q'], cwd: options.cwd, label: 'Windows 명령창' };
   if (options.type === 'shell') {
     const file = resolvePosixShell(runtime.env || process.env, platform, runtime.fileSystem || fs);
     return { file, args: ['-l'], cwd: options.cwd, label: path.basename(file) };
@@ -195,7 +195,7 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   if (options.type === 'agent') {
     const provider = agentProviders[options.provider] || AGENT_PROVIDERS[options.provider];
     if (options.sessionBackend === 'managed-tmux') {
-      if (!options.managedTmuxSession) throw new Error('관리형 tmux 세션 이름이 필요합니다.');
+      if (!options.managedTmuxSession) throw new Error('명령창 묶음 이름을 입력하세요.');
       const tmuxArgs = [
         '-L', options.tmuxSocket,
         'new-session', '-A',
@@ -253,19 +253,19 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   if (options.type === 'wsl') {
     const args = ['-d', options.distro];
     if (options.cwd) args.push('--cd', options.cwd);
-    return { file: 'wsl.exe', args, cwd: os.homedir(), label: `${options.distro} 셸` };
+    return { file: 'wsl.exe', args, cwd: os.homedir(), label: `${options.distro} Linux 명령창` };
   }
   const selectPane = options.tmuxPane ? `tmux select-pane -t ${shellQuote(options.tmuxPane)} 2>/dev/null || true; ` : '';
   const script = `${selectPane}exec tmux attach-session -t ${shellQuote(options.tmuxSession)}`;
   if (platform !== 'win32') {
     const file = resolvePosixShell(runtime.env || process.env, platform, runtime.fileSystem || fs);
-    return { file, args: ['-lc', script], cwd: options.cwd || os.homedir(), label: `tmux · ${options.tmuxSession}` };
+    return { file, args: ['-lc', script], cwd: options.cwd || os.homedir(), label: `여러 명령창 · ${options.tmuxSession}` };
   }
   return {
     file: 'wsl.exe',
     args: ['-d', options.distro, '--', 'sh', '-lc', script],
     cwd: os.homedir(),
-    label: `tmux · ${options.tmuxSession}`,
+    label: `여러 명령창 · ${options.tmuxSession}`,
   };
 }
 
@@ -385,9 +385,9 @@ class TerminalManager extends EventEmitter {
     if (!this.storeFile) return;
     try {
       const stat = this.fileSystem.statSync(this.storeFile);
-      if (!stat.isFile() || stat.size > MAX_STORE_BYTES) throw new Error('터미널 기록 파일의 크기가 허용 범위를 초과했습니다.');
+      if (!stat.isFile() || stat.size > MAX_STORE_BYTES) throw new Error('명령창 기록 파일이 너무 큽니다.');
       const parsed = JSON.parse(this.fileSystem.readFileSync(this.storeFile, 'utf8'));
-      if (![1, STORE_VERSION].includes(parsed?.version) || !Array.isArray(parsed.sessions)) throw new Error('지원하지 않는 터미널 기록 형식입니다.');
+      if (![1, STORE_VERSION].includes(parsed?.version) || !Array.isArray(parsed.sessions)) throw new Error('이 버전에서 읽을 수 없는 명령창 기록입니다.');
       for (const value of parsed.sessions.slice(0, MAX_SESSIONS)) {
         if (!shouldRetainTerminalSession(value, this.retentionDays, this.now())) continue;
         const id = cleanText(value?.id, 200);
@@ -483,13 +483,13 @@ class TerminalManager extends EventEmitter {
           session.pid = null;
           session.recoveredAfterHostRestart = false;
           session.recoverySkippedReason = 'managed-tmux-missing';
-          const missingMessage = '\r\n[LoadToAgent] 저장된 tmux 세션이 없어 자동으로 새 AI 대화를 시작하지 않았습니다.\r\n';
+          const missingMessage = '\r\n[LoadToAgent] 저장된 명령창 묶음을 찾지 못해 새 AI 대화를 자동으로 시작하지 않았습니다.\r\n';
           session.replay = `${session.replay}${missingMessage}`.slice(-MAX_REPLAY_CHARS);
           continue;
         }
         session.recoveredAfterHostRestart = true;
         session.recoverySkippedReason = '';
-        const reattachMessage = '\r\n[LoadToAgent] 터미널 호스트 중단 뒤 살아 있는 tmux 세션에 다시 연결했습니다.\r\n';
+        const reattachMessage = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
         session.replay = `${session.replay}${reattachMessage}`.slice(-MAX_REPLAY_CHARS);
         try {
           this.spawn(session);
@@ -509,13 +509,13 @@ class TerminalManager extends EventEmitter {
         session.pid = null;
         session.recoveredAfterHostRestart = false;
         session.recoverySkippedReason = 'unsafe-agent-restart';
-        const skippedMessage = '\r\n[LoadToAgent] 이 터미널은 재개할 기존 AI 세션 ID가 없어, 새 AI 대화를 만들 수 있어 자동 재개하지 않았습니다.\r\n';
+        const skippedMessage = '\r\n[LoadToAgent] 이어갈 기존 AI 대화를 찾지 못했습니다. 새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다.\r\n';
         session.replay = `${session.replay}${skippedMessage}`.slice(-MAX_REPLAY_CHARS);
         continue;
       }
       session.recoveredAfterHostRestart = true;
       session.recoverySkippedReason = '';
-      const message = '\r\n[LoadToAgent] 터미널 호스트 중단 뒤 새 프로세스로 복구했습니다. 이전 셸의 메모리 상태는 이어지지 않습니다.\r\n';
+      const message = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤 새 프로그램으로 복구했습니다. 이전 명령창의 임시 상태는 이어지지 않습니다.\r\n';
       session.replay = `${session.replay}${message}`.slice(-MAX_REPLAY_CHARS);
       try {
         this.spawn(session);
@@ -529,7 +529,7 @@ class TerminalManager extends EventEmitter {
   }
 
   create(rawOptions = {}) {
-    if (this.sessions.size >= MAX_SESSIONS) throw new Error(`동시에 열 수 있는 터미널은 최대 ${MAX_SESSIONS}개입니다.`);
+    if (this.sessions.size >= MAX_SESSIONS) throw new Error(`동시에 열 수 있는 명령창은 최대 ${MAX_SESSIONS}개입니다.`);
     const options = normalizeLaunchOptions(rawOptions, this.platform);
     const id = `terminal:${Date.now().toString(36)}:${crypto.randomBytes(4).toString('hex')}`;
     if (options.sessionBackend === 'managed-tmux' && !options.managedTmuxSession) {
@@ -637,7 +637,7 @@ class TerminalManager extends EventEmitter {
       session.pid = null;
       session.status = 'failed';
       session.updatedAt = new Date().toISOString();
-      const failureMessage = `\r\n[LoadToAgent] 터미널을 시작하지 못했습니다: ${error.message}\r\n`;
+      const failureMessage = `\r\n[LoadToAgent] 명령창을 시작하지 못했습니다: ${error.message}\r\n`;
       session.replay = `${session.replay}${failureMessage}`.slice(-MAX_REPLAY_CHARS);
       this.emit('data', { id: session.id, data: failureMessage });
       this.emitState('updated', session);
@@ -661,13 +661,13 @@ class TerminalManager extends EventEmitter {
 
   required(id) {
     const session = this.sessions.get(String(id || ''));
-    if (!session) throw new Error('터미널 세션을 찾을 수 없습니다.');
+    if (!session) throw new Error('명령창 작업을 찾을 수 없습니다.');
     return session;
   }
 
   write(id, value) {
     const session = this.required(id);
-    if (!session.process || session.status !== 'running') throw new Error('실행 중인 터미널이 아닙니다.');
+    if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
     const data = String(value == null ? '' : value);
     if (data.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
     session.process.write(data);
@@ -700,7 +700,7 @@ class TerminalManager extends EventEmitter {
       return this.write(id, '\x0c');
     }
     if (key === 'terminate') return this.kill(id);
-    throw new Error('지원하지 않는 터미널 신호입니다.');
+    throw new Error('이 명령창에서는 이 버튼을 사용할 수 없습니다.');
   }
 
   releaseProcess(session) {
@@ -738,7 +738,7 @@ class TerminalManager extends EventEmitter {
   reconnect(id) {
     const session = this.required(id);
     if (session.options.sessionBackend !== 'managed-tmux') {
-      throw new Error('직접 실행 터미널은 기존 백그라운드 세션에 재접속할 수 없습니다.');
+      throw new Error('일반 명령창은 화면 밖에서 실행 중인 작업에 다시 연결할 수 없습니다.');
     }
     if (session.process && session.status === 'running') return publicSession(session, true);
     if (!this.managedTmuxRuntime.exists(session.options)) {
@@ -749,7 +749,7 @@ class TerminalManager extends EventEmitter {
       session.updatedAt = new Date().toISOString();
       this.emitState('updated', session);
       this.persistNow();
-      throw new Error('기존 tmux 세션이 종료되어 다시 연결할 수 없습니다.');
+      throw new Error('기존 명령창 묶음이 끝나 다시 연결할 수 없습니다.');
     }
     session.recoveredAfterHostRestart = false;
     session.recoverySkippedReason = '';
@@ -760,7 +760,7 @@ class TerminalManager extends EventEmitter {
   detach(id) {
     const session = this.required(id);
     if (session.options.sessionBackend !== 'managed-tmux') {
-      throw new Error('직접 실행 터미널은 작업을 유지한 채 화면만 분리할 수 없습니다.');
+      throw new Error('일반 명령창은 작업을 계속 둔 채 화면 연결만 끊을 수 없습니다.');
     }
     this.releaseProcess(session);
     session.pid = null;

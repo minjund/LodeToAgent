@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
+app.disableHardwareAcceleration();
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-runtime-overview-'));
 app.setPath('userData', userData);
@@ -68,6 +69,8 @@ app.whenReady().then(async () => {
     const metrics = await win.webContents.executeJavaScript(`(() => {
       const section = document.querySelector('#automationOverview');
       const stage = document.querySelector('.main-stage');
+      const sectionBounds = section.getBoundingClientRect();
+      const sectionStyle = getComputedStyle(section);
       return {
         visible: !section.classList.contains('hidden'),
         activeNav: document.querySelector('.view-nav .nav-item.active')?.dataset.view || '',
@@ -79,18 +82,24 @@ app.whenReady().then(async () => {
         activePhases: section.querySelectorAll('[data-loop-phase].active').length,
         loopTabs: section.querySelectorAll('[data-loop-select]').length,
         inferredLabel: section.querySelector('.runtime-loop-cycle')?.getAttribute('aria-label') || '',
-        scheduledIteration: section.querySelector('.runtime-loop-footer')?.textContent.includes('예약에서 시작됨') || false,
+        scheduledIteration: section.querySelector('.runtime-loop-footer')?.textContent.includes('시작 방식정해 둔 시간에 자동으로 시작') || false,
         duplicateTitle: section.querySelector('h2')?.textContent.trim() === document.querySelector('#pageTitle')?.textContent.trim(),
         modalHidden: document.querySelector('#runModal').classList.contains('hidden'),
         noSectionOverflow: section.scrollWidth <= section.clientWidth + 2,
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
+        sectionBounds: { top: sectionBounds.top, left: sectionBounds.left, width: sectionBounds.width, height: sectionBounds.height },
+        sectionDisplay: sectionStyle.display,
+        sectionOpacity: sectionStyle.opacity,
       };
     })()`);
-    if (!metrics.visible || metrics.activeNav !== 'runtime' || !metrics.homeDetached || metrics.schedules !== 7 || metrics.enabledSchedules !== 6 || metrics.pausedSchedules !== 1 || metrics.phases !== 4 || metrics.activePhases !== 1
-      || metrics.loopTabs !== 6 || !metrics.inferredLabel.includes('입력') || !metrics.scheduledIteration || metrics.duplicateTitle
+    if (!metrics.visible || metrics.activeNav !== 'runtime' || !metrics.homeDetached || metrics.schedules !== 7 || metrics.enabledSchedules !== 5 || metrics.pausedSchedules !== 2 || metrics.phases !== 4 || metrics.activePhases !== 1
+      || metrics.loopTabs !== 6 || !metrics.inferredLabel.includes('결과 확인 필요') || !metrics.scheduledIteration || metrics.duplicateTitle
       || !metrics.modalHidden || !metrics.noSectionOverflow || !metrics.noStageOverflow) {
       throw new Error(`스케줄·루프 시각 검증 실패: ${JSON.stringify(metrics)}`);
     }
+    win.show();
+    win.focus();
+    await wait(120);
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
     const output = path.join(outputDir, 'loadtoagent-runtime-overview.png');

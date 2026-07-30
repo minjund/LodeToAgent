@@ -14,6 +14,7 @@ const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-visu
 process.env.LOADTOAGENT_TEST_INSTANCE = '1';
 process.env.LOADTOAGENT_BRIDGE_HOME = isolatedBridgeHome;
 const { app, BrowserWindow } = require('electron');
+app.disableHardwareAcceleration();
 app.setPath('userData', isolatedUserData);
 app.once('quit', () => {
   try { fs.rmSync(isolatedBridgeHome, { recursive: true, force: true }); } catch {}
@@ -108,7 +109,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('지금') || !beginnerMetrics.navLabels.includes('기억') || !beginnerMetrics.navLabels.includes('판단') || beginnerMetrics.waitingUnit !== '항목' || !beginnerMetrics.navLabels.includes('예약·실행 단계') || !beginnerMetrics.navLabels.includes('AI 세션 터미널') || !beginnerMetrics.navLabels.includes('tmux 터미널 관리') || beginnerMetrics.primaryAction !== '＋새 의도⌘N' || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('처리 중') || !beginnerMetrics.navLabels.includes('지난 작업') || !beginnerMetrics.navLabels.includes('확인 대기') || !beginnerMetrics.navLabels.some(label => label.includes('반복 일정')) || !beginnerMetrics.navLabels.includes('AI와 대화하거나 컴퓨터 작업 요청하기') || !beginnerMetrics.navLabels.includes('다른 컴퓨터의 작업') || !beginnerMetrics.primaryAction.startsWith('＋새 AI 작업 시작') || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -156,7 +157,7 @@ app.whenReady().then(() => {
           noOverflow: Boolean(section && section.scrollWidth <= section.clientWidth + 2),
         };
       })()`);
-      if (!settingsMetrics.visible || settingsMetrics.locale !== 'zh-CN' || settingsMetrics.language !== 'zh-CN' || settingsMetrics.title !== '应用设置' || settingsMetrics.options !== 3 || !settingsMetrics.cardVisible || !settingsMetrics.noOverflow) throw new Error(`다국어 설정 화면이 올바르지 않습니다: ${JSON.stringify(settingsMetrics)}`);
+      if (!settingsMetrics.visible || settingsMetrics.locale !== 'zh-CN' || settingsMetrics.language !== 'zh-CN' || !settingsMetrics.title.includes('设置') || settingsMetrics.options !== 3 || !settingsMetrics.cardVisible || !settingsMetrics.noOverflow) throw new Error(`다국어 설정 화면이 올바르지 않습니다: ${JSON.stringify(settingsMetrics)}`);
       const settingsImage = await win.webContents.capturePage();
       const settingsOutput = path.join(outputDir, 'loadtoagent-language-settings.png');
       fs.writeFileSync(settingsOutput, settingsImage.toPNG());
@@ -288,7 +289,7 @@ app.whenReady().then(() => {
           ...base,
           id,
           provider: 'claude',
-          title: '구조화된 작업 기억 검토',
+          title: '지난 작업 내용 확인',
           model: base.model || 'claude',
           status: 'idle',
           updatedAt: new Date().toISOString(),
@@ -395,8 +396,8 @@ app.whenReady().then(() => {
       const deliveryOutput = path.join(outputDir, 'loadtoagent-message-delivery-status.png');
       fs.writeFileSync(deliveryOutput, deliveryImage.toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
-      if (deliveryMetrics.hasDeliveryCard || !deliveryMetrics.inlineStatus.includes('확인 지연')
-        || !deliveryMetrics.providerStatus.includes('전달 확인 지연') || !deliveryMetrics.noHorizontalOverflow) {
+      if (deliveryMetrics.hasDeliveryCard || !deliveryMetrics.inlineStatus.includes('확인이 늦어짐')
+        || !deliveryMetrics.providerStatus.includes('메시지 확인이 늦어짐') || !deliveryMetrics.noHorizontalOverflow) {
         throw new Error(`메시지 전달 상태가 간결한 인라인 표시로 유지되지 않았습니다: ${JSON.stringify(deliveryMetrics)}`);
       }
       const densitySetup = await win.webContents.executeJavaScript(`(async () => {
@@ -537,7 +538,7 @@ app.whenReady().then(() => {
         const make = (id, status, kind, level, title) => ({
           ...base, id, externalId: id + '-external', parentId: null, childIds: [], title, status,
           updatedAt: now, statusDetail: title, runId: id + '-run', runtimePresence: [],
-          messages: [{ id: id + '-user', role: 'user', text: '다음 단계까지 진행해 주세요.', timestamp: now }, { id: id + '-assistant', role: 'assistant', text: title + ' 상태입니다. 다음 단계로 가기 전에 사용자의 판단이 필요합니다.', timestamp: now }],
+          messages: [{ id: id + '-user', role: 'user', text: '다음 단계까지 진행해 주세요.', timestamp: now }, { id: id + '-assistant', role: 'assistant', text: title + ' 상태입니다. 다음 단계로 가기 전에 사용자의 확인이 필요합니다.', timestamp: now }],
           attention: { required: true, kind, summary: title + '에 대한 사용자 조치가 필요합니다.', requestedAt: now, source: 'observed-status', confidence: 'high' },
           progress: { stage: status, percent: status === 'failed' ? 64 : 42, completedSteps: 3, failedSteps: status === 'failed' ? 1 : 0, totalSteps: 6, currentStep: '검증 결과 확인', blocker: title, lastActivityAt: now, checkpoints: [] },
           health: { level, score: level === 'critical' ? 35 : 68, lastActivityAt: now, signals: [{ code: status === 'failed' ? 'run-failed' : status === 'paused' ? 'run-paused' : 'waiting-too-long', severity: level === 'critical' ? 'critical' : 'warning', detail: title }] },
@@ -571,16 +572,23 @@ app.whenReady().then(() => {
           flows: section?.querySelectorAll('.attention-decision-flow').length || 0,
           flowSteps: section?.querySelectorAll('.attention-decision-flow > section').length || 0,
           replyTemplates: section?.querySelectorAll('[data-attention-draft]').length || 0,
+          answerComposers: section?.querySelectorAll('.attention-card.question .conversation-composer').length || 0,
           evidenceDetails: section?.querySelectorAll('.attention-evidence-details').length || 0,
           visible: Boolean(section && !section.classList.contains('hidden')),
           noHorizontalOverflow: Boolean(section && section.scrollWidth <= section.clientWidth + 2),
+          scrollWidth: section?.scrollWidth || 0,
+          clientWidth: section?.clientWidth || 0,
+          overflowingElements: section ? [...section.querySelectorAll('*')]
+            .filter(element => element.getBoundingClientRect().right > section.getBoundingClientRect().right + 2)
+            .slice(0, 8)
+            .map(element => ({ tag: element.tagName, className: element.className, text: String(element.textContent || '').trim().slice(0, 80) })) : [],
         };
       })()`);
       await new Promise(resolve => setTimeout(resolve, 250));
       const managementImage = await win.webContents.capturePage();
       const managementOutput = path.join(outputDir, 'loadtoagent-management-inbox.png');
       fs.writeFileSync(managementOutput, managementImage.toPNG());
-      if (!managementMetrics.visible || managementMetrics.cards < 4 || managementMetrics.progress < managementMetrics.cards || managementMetrics.health < managementMetrics.cards || managementMetrics.controls < 5 || managementMetrics.quickActions < 2 || managementMetrics.flows !== managementMetrics.cards || managementMetrics.flowSteps !== managementMetrics.cards * 3 || managementMetrics.replyTemplates < 1 || managementMetrics.evidenceDetails !== managementMetrics.cards || !managementMetrics.noHorizontalOverflow) {
+      if (!managementMetrics.visible || managementMetrics.cards < 4 || managementMetrics.progress < managementMetrics.cards || managementMetrics.health < managementMetrics.cards || managementMetrics.controls < 5 || managementMetrics.quickActions < 2 || managementMetrics.flows !== managementMetrics.cards || managementMetrics.flowSteps !== managementMetrics.cards * 3 || managementMetrics.answerComposers < 1 || managementMetrics.evidenceDetails !== managementMetrics.cards || !managementMetrics.noHorizontalOverflow) {
         throw new Error(`관리 확인함 시각 구성이 올바르지 않습니다: ${JSON.stringify(managementMetrics)}`);
       }
       await win.webContents.executeJavaScript(`(() => { window.LoadToAgentApp.state.view = 'all'; window.LoadToAgentApp.renderSessions('view'); document.querySelector('.main-stage')?.scrollTo(0, 0); })()`);
@@ -700,7 +708,7 @@ app.whenReady().then(() => {
         currentView: document.body.dataset.currentView || '',
         consoleVisible: (() => { const rect = document.querySelector('.terminal-console-pane')?.getBoundingClientRect(); return Boolean(rect && rect.width > 500 && rect.height > 400); })(),
       }))()`);
-      if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('기존 AI 세션 유지 중') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || sessionTerminalMetrics.inputCopy !== 'AI에게 이어서 지시' || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible) {
+      if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('질문을 받을 AI') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || !sessionTerminalMetrics.inputCopy.includes('에게 질문') || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible) {
         throw new Error(`기존 AI 세션 대화와 터미널 결합 화면이 올바르지 않습니다: ${JSON.stringify(sessionTerminalMetrics)}`);
       }
       const continuityMetrics = await win.webContents.executeJavaScript(`(async () => {
@@ -772,12 +780,13 @@ app.whenReady().then(() => {
             const consolePane = document.querySelector('.terminal-console-pane')?.getBoundingClientRect();
             return Boolean(history && consolePane && history.right <= consolePane.left + 2);
           })(),
+          questionMode: document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') === 'true',
           actionsVisible: Boolean(actionButtons.length >= 3 && actionButtons.every(rect => rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1 && rect.bottom <= window.innerHeight + 1)),
           actionRects: actionButtons,
           actionLabels: actionButtons.map(item => item.text),
         };
       })()`);
-      if (!terminalCompactMetrics.sessionStripAboveWorkbench || !terminalCompactMetrics.composerVisible || !terminalCompactMetrics.noHorizontalOverflow || !terminalCompactMetrics.historyBesideConsole || !terminalCompactMetrics.actionsVisible || !terminalCompactMetrics.actionLabels.some(label => label.includes('세션 종료'))) throw new Error(`중간 너비 세션 터미널 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
+      if (!terminalCompactMetrics.sessionStripAboveWorkbench || !terminalCompactMetrics.composerVisible || !terminalCompactMetrics.noHorizontalOverflow || !terminalCompactMetrics.historyBesideConsole || !terminalCompactMetrics.questionMode || terminalCompactMetrics.actionsVisible) throw new Error(`중간 너비 AI 질문창 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
       const terminalCompactOutput = path.join(outputDir, 'loadtoagent-session-terminal-compact.png');
       fs.writeFileSync(terminalCompactOutput, terminalCompactImage.toPNG());
       setTestWindowSize(win, 1600, 980);
@@ -949,7 +958,7 @@ app.whenReady().then(() => {
           resumeReady: commandPanel?.classList.contains('resume-ready') || false,
           commandEnabled: commandPanel?.querySelector('[data-agent-command-draft]')?.disabled === false,
           resumeMode: commandPanel?.classList.contains('control-resume') || false,
-          bridgeCopyVisible: Boolean(document.querySelector('[data-agent-bridge-copy]')),
+          bridgeCopyVisible: Boolean(commandPanel?.querySelector('[data-agent-bridge-copy]')),
           communicationEvents: Number(document.querySelector('[data-collaboration-communications]')?.dataset.collaborationCommunications || 0),
           provider: focusedSession?.provider || '',
           externalId: focusedSession?.externalId || '',
@@ -1124,7 +1133,15 @@ app.whenReady().then(() => {
         const selectedCurrent = document.querySelector('.agent-workflow-selected .agent-current')?.getBoundingClientRect();
         const providerRows = [...document.querySelectorAll('.provider-rail-item')];
         const lastProvider = providerRows[providerRows.length - 1]?.getBoundingClientRect();
-        const sidebarFooter = document.querySelector('.sidebar-footer')?.getBoundingClientRect();
+        const sidebarFooterElement = document.querySelector('.sidebar-footer');
+        const sidebarFooter = sidebarFooterElement?.getBoundingClientRect();
+        const sidebarFooterVisible = Boolean(
+          sidebarFooterElement
+          && getComputedStyle(sidebarFooterElement).display !== 'none'
+          && sidebarFooter
+          && sidebarFooter.width > 0
+          && sidebarFooter.height > 0
+        );
         const grid = document.querySelector('#liveSessionGrid');
         const canvasRect = document.querySelector('.agent-workflow-canvas')?.getBoundingClientRect();
         let routeCollisions = 0;
@@ -1145,7 +1162,11 @@ app.whenReady().then(() => {
           compactDirection: Boolean(upstream && selected && downstream && upstream.right < selected.left && downstream.top > Math.min(upstream.top, selected.top)),
           selectedVisible: Boolean(selectedCard && selectedCard.top < window.innerHeight && selectedCurrent && selectedCurrent.bottom <= window.innerHeight),
           guideHidden: document.querySelector('#beginnerGuide')?.classList.contains('hidden') || false,
-          sidebarNoOverlap: Boolean(lastProvider && sidebarFooter && lastProvider.bottom <= sidebarFooter.top + 1),
+          sidebarNoOverlap: Boolean(
+            lastProvider
+            && sidebarFooter
+            && (!sidebarFooterVisible || lastProvider.bottom <= sidebarFooter.top + 1)
+          ),
           routeCollisions,
           groupArrowheads: document.querySelectorAll('.agent-workflow-edge.downstream.group[marker-end]').length,
           groupPortInsideCanvas: Boolean(canvasRect && (() => { const rect = document.querySelector('[data-workflow-port="children-group-input"]')?.getBoundingClientRect(); return rect && rect.left >= canvasRect.left && rect.right <= canvasRect.right && rect.top >= canvasRect.top && rect.bottom <= canvasRect.bottom; })()),

@@ -553,6 +553,16 @@ app.whenReady().then(async () => {
         formNoOverflow: form.scrollWidth <= form.clientWidth + 2,
         inputNoOverflow: input.scrollWidth <= input.clientWidth + 2,
         footerNoOverflow: footer.scrollWidth <= footer.clientWidth + 2,
+        overflowItems: [...form.querySelectorAll('*')]
+          .filter(element => element.scrollWidth > element.clientWidth + 2)
+          .slice(0, 12)
+          .map(element => ({
+            tag: element.tagName,
+            id: element.id || '',
+            className: element.className || '',
+            scrollWidth: element.scrollWidth,
+            clientWidth: element.clientWidth,
+          })),
         textareaHeight: input.clientHeight,
         sendLabelNoWrap: Boolean(submitLabel && getComputedStyle(submitLabel).whiteSpace === 'nowrap'
           && submitLabel.getBoundingClientRect().height < 24),
@@ -716,7 +726,7 @@ app.whenReady().then(async () => {
       || !conversationMetrics.modelFormRemoved || !conversationMetrics.resetVisible
       || conversationMetrics.resetHeight < 43.5 || !conversationMetrics.commandHelpRemoved || !conversationMetrics.slashMenuReady
       || !conversationMetrics.promptNotCovered
-      || conversationMetrics.tabLabels.join('|') !== '요약|대화|과정|사용량') {
+      || conversationMetrics.tabLabels.join('|') !== '요약|대화|진행 과정|사용량') {
       throw new Error(`대화창 긴 요청·입력 가독성 기준 미달: ${JSON.stringify(conversationMetrics)}`);
     }
     win.show();

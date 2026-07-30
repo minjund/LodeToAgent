@@ -1,9 +1,10 @@
 # Releasing
 
 The current `package.json` distribution channel is `internal`, so tag builds
-may publish unsigned desktop artifacts for controlled testing. macOS in-app
-updates still require an exact trusted GitHub Release URL, filename, size, and
-SHA-256 digest before the internal unsigned exception is used.
+may publish unsigned desktop artifacts for controlled testing. Windows and
+macOS in-app updates still require an exact trusted GitHub Release URL,
+filename, size, and SHA-256 digest before the internal unsigned exception is
+used.
 
 Before changing the channel to production, configure these GitHub Actions
 secrets and restore fail-closed credential and post-build signature gates:

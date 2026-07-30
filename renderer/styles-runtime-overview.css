@@ -14,6 +14,27 @@
 
 .runtime-nav-item.active b { color: #7ce4c7; background: #123d36; }
 
+.advanced-tools-list .runtime-nav-item {
+  grid-template-columns: 22px minmax(0,1fr);
+  grid-template-rows: auto auto;
+  min-height: 56px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.runtime-nav-item > .runtime-nav-icon {
+  grid-row: 1 / 3;
+}
+
+.runtime-nav-item > b {
+  grid-column: 2;
+  justify-self: start;
+  min-width: 0;
+  padding: 2px 6px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
 .automation-overview {
   position: relative;
   margin-top: 0;
@@ -124,11 +145,15 @@ button.runtime-schedule-card { cursor: pointer; }
 button.runtime-schedule-card:hover,button.runtime-schedule-card:focus-visible { transform: translateX(3px); border-color: #3c7c6d; background: #0d211f; outline: none; }
 .runtime-schedule-card.paused { border-color: #263944; background: #0a151c; opacity: .74; }
 .runtime-schedule-card.paused .runtime-schedule-time { color: #a9916b; }
+.runtime-schedule-card.incomplete { border-color: #6f5133; background: #291f14; }
+.runtime-schedule-card.incomplete::before { background: #ffbb62; }
+.runtime-schedule-card.incomplete .runtime-schedule-time,
+.runtime-schedule-card.incomplete>i { color: #f2b66e; }
 .runtime-schedule-card::before { position: absolute; inset: 0 auto 0 0; width: 2px; content: ""; background: #3e8e79; }
 .runtime-schedule-card>i { position: absolute; top: 13px; right: 13px; color: #486878; font-size: 12px; font-style: normal; }
 .runtime-schedule-time { margin-bottom: 6px; color: #7be7c7; font: 750 11px/1.2 var(--font-mono, monospace); letter-spacing: .04em; }
-.runtime-schedule-card strong { overflow: hidden; color: #edf5f6; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.runtime-schedule-card small { overflow: hidden; margin-top: 6px; color: #91a6b1; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.runtime-schedule-card strong { color: #edf5f6; font-size: 13px; line-height: 1.35; white-space: normal; word-break: keep-all; }
+.runtime-schedule-card small { margin-top: 6px; color: #91a6b1; font-size: 12px; line-height: 1.4; white-space: normal; word-break: keep-all; }
 
 .runtime-schedule-empty,.runtime-loop-empty {
   display: flex;
@@ -146,15 +171,16 @@ button.runtime-schedule-card:hover,button.runtime-schedule-card:focus-visible { 
 .runtime-schedule-empty small,.runtime-loop-empty p { display: block; margin: 4px 0 0; color: #7f949e; font-size: 12px; line-height: 1.5; }
 
 .runtime-loop-lane { min-width: 0; padding: 20px 22px 22px; background: rgba(6,15,24,.82); }
-.runtime-loop-lane-head { justify-content: space-between; gap: 18px; min-height: 47px; margin-bottom: 16px; }
-.runtime-loop-lane-head>div>small { display: block; margin-top: 5px; color: #91a4ad; font-size: 12px; white-space: nowrap; }
-.runtime-loop-tabs { display: flex; flex: 1; justify-content: flex-start; gap: 6px; min-width: 0; padding-bottom: 5px; overflow-x: auto; scrollbar-color: #3d6d63 #0a1721; scrollbar-width: thin; }
+.runtime-loop-lane-head { display: grid; grid-template-columns: minmax(220px,.72fr) minmax(0,1.55fr); align-items: start; gap: 18px; min-height: 47px; margin-bottom: 16px; }
+.runtime-loop-lane-head>div>small { display: block; margin-top: 5px; color: #91a4ad; font-size: 12px; line-height: 1.4; white-space: normal; word-break: keep-all; }
+.runtime-loop-tabs { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 6px; min-width: 0; width: 100%; padding-bottom: 5px; overflow: visible; }
 .runtime-loop-tab {
   display: grid;
-  grid-template-columns: 30px minmax(0,148px) 6px;
-  align-items: center;
+  grid-template-columns: 30px minmax(0,1fr);
+  align-items: start;
   gap: 7px;
-  min-width: 194px;
+  min-width: 0;
+  max-width: none;
   padding: 8px 10px;
   border: 1px solid #253b49;
   border-radius: 9px;
@@ -166,11 +192,23 @@ button.runtime-schedule-card:hover,button.runtime-schedule-card:focus-visible { 
 .runtime-loop-tab.selected { border-color: color-mix(in srgb,var(--provider) 62%,#274553); color: #d6e4e7; background: color-mix(in srgb,var(--provider) 8%,#0a151f); }
 .runtime-loop-tab:focus-visible { outline: 2px solid var(--provider); outline-offset: 2px; }
 .runtime-loop-tab-mark { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid color-mix(in srgb,var(--provider) 48%,#293c49); border-radius: 8px; color: var(--provider); font-size: 12px; font-weight: 800; }
-.runtime-loop-tab b,.runtime-loop-tab small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.runtime-loop-tab b { font-size: 12px; }
+.runtime-loop-tab b,.runtime-loop-tab small { display: block; }
+.runtime-loop-tab b { font-size: 12px; line-height: 1.3; white-space: normal; word-break: keep-all; }
 .runtime-loop-tab small { margin-top: 3px; color: #8fa4ad; font-size: 12px; }
-.runtime-loop-tab>i { width: 5px; height: 5px; border-radius: 50%; background: #415866; }
-.runtime-loop-tab.selected>i { background: #51d8b1; box-shadow: 0 0 8px #51d8b1; }
+.runtime-loop-tab>i {
+  grid-column: 2;
+  width: max-content;
+  min-height: 20px;
+  padding: 2px 7px;
+  border: 1px solid #415866;
+  border-radius: 999px;
+  color: #a9bac3;
+  background: #111d25;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+}
+.runtime-loop-tab.selected>i { border-color: #347762; color: #8be6c8; background: #102820; box-shadow: none; }
 
 .runtime-loop-detail { overflow: hidden; border: 1px solid color-mix(in srgb,var(--provider) 32%,#203746); border-radius: 15px; background: #091620; box-shadow: inset 0 1px rgba(255,255,255,.025); }
 .runtime-loop-detail>header { justify-content: space-between; gap: 18px; padding: 18px 19px 16px; border-bottom: 1px solid #243b48; }
@@ -184,9 +222,9 @@ button.runtime-schedule-card:hover,button.runtime-schedule-card:focus-visible { 
 .runtime-open-task span { margin-left: 5px; }
 
 .runtime-loop-header-actions { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
-.runtime-active-phase { display: grid; min-width: 94px; min-height: 38px; align-content: center; padding: 6px 10px; border: 1px solid #2e5b51; border-radius: 9px; background: #0b2521; }
+.runtime-active-phase { display: grid; min-width: 150px; max-width: 260px; min-height: 38px; align-content: center; padding: 6px 10px; border: 1px solid #2e5b51; border-radius: 9px; background: #0b2521; }
 .runtime-active-phase small { color: #6e968d; font-size: 12px; font-weight: 750; letter-spacing: .08em; }
-.runtime-active-phase b { margin-top: 2px; color: #70e2bf; font-size: 12px; }
+.runtime-active-phase b { margin-top: 2px; color: #70e2bf; font-size: 12px; line-height: 1.35; white-space: normal; word-break: keep-all; }
 
 .runtime-now-strip { display: grid; grid-template-columns: 46px minmax(0,1fr) auto; align-items: center; gap: 13px; min-height: 82px; padding: 13px 17px; border-bottom: 1px solid #203642; background: linear-gradient(90deg,rgba(48,179,139,.14),rgba(10,26,34,.78) 42%,#0a1721); }
 .runtime-now-mark { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid #327562; border-radius: 11px; color: #8ff0cf; background: #0d3028; box-shadow: 0 0 0 4px rgba(74,209,169,.05); font: 800 10px/1 var(--font-mono,monospace); letter-spacing: .08em; }
@@ -216,7 +254,7 @@ button.runtime-schedule-card:hover,button.runtime-schedule-card:focus-visible { 
 .runtime-loop-phase.active>b { color: #64deb9; }
 .runtime-loop-return { position: absolute; right: 13%; bottom: 7px; left: 13%; height: 15px; border-right: 1px solid #2e5e58; border-bottom: 1px solid #2e5e58; border-left: 1px solid #2e5e58; border-radius: 0 0 9px 9px; color: #4f9183; }
 .runtime-loop-return>span { position: absolute; bottom: -7px; left: -5px; padding: 0 3px; background: #091620; font-size: 12px; }
-.runtime-loop-return>b { position: absolute; right: 50%; bottom: -5px; padding: 0 7px; color: #7da39a; background: #091620; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; transform: translateX(50%); }
+.runtime-loop-return>b { position: absolute; right: 50%; bottom: -5px; padding: 0 7px; color: #7da39a; background: #091620; font-size: 12px; letter-spacing: .02em; white-space: nowrap; transform: translateX(50%); }
 
 .runtime-loop-footer { justify-content: flex-end; gap: 18px; padding: 13px 17px; border-top: 1px solid #243b48; background: #0b1821; }
 .runtime-current-signal { gap: 10px; min-width: 0; }
@@ -251,7 +289,7 @@ body[data-current-view="runtime"] .automation-overview { max-width: 1640px; marg
   .runtime-overview-grid { grid-template-columns: 1fr; }
   .runtime-schedule-lane { border-right: 0; border-bottom: 1px solid #1c3443; }
   .runtime-schedule-list { grid-template-columns: repeat(2,minmax(0,1fr)); max-height: 260px; }
-  .runtime-loop-lane-head { align-items: flex-start; flex-direction: column; }
+  .runtime-loop-lane-head { grid-template-columns: 1fr; }
   .runtime-loop-tabs { width: 100%; justify-content: flex-start; }
 }
 
@@ -265,7 +303,8 @@ body[data-current-view="runtime"] .automation-overview { max-width: 1640px; marg
   .runtime-overview-counts>span,.runtime-overview-counts>b { flex: 1; justify-content: center; padding-inline: 6px; }
   .runtime-schedule-lane,.runtime-loop-lane { padding: 14px; }
   .runtime-schedule-list { grid-template-columns: 1fr; }
-  .runtime-loop-tab { min-width: 145px; }
+  .runtime-loop-tabs { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .runtime-loop-tab { min-width: 0; }
   .runtime-loop-detail>header { align-items: flex-start; }
   .runtime-loop-header-actions { align-items: flex-end; flex-direction: column-reverse; }
   .runtime-active-phase { min-width: 86px; }
@@ -288,7 +327,7 @@ body[data-current-view="runtime"] .automation-overview { max-width: 1640px; marg
   .runtime-current-signal > div { min-width: 0; max-width: 100%; }
   .runtime-loop-lane-head > div > small { white-space: normal; overflow-wrap: anywhere; }
   .runtime-loop-tabs { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; overflow: visible; }
-  .runtime-loop-tab { grid-template-columns: 26px minmax(0,1fr) 5px; min-width: 0; padding-inline: 7px; }
+  .runtime-loop-tab { grid-template-columns: 26px minmax(0,1fr); min-width: 0; padding-inline: 7px; }
   .runtime-loop-tab-mark { width: 26px; height: 26px; }
   .runtime-loop-detail > header { flex-direction: column; }
   .runtime-loop-detail h3 { white-space: normal; overflow-wrap: anywhere; }

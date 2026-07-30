@@ -27,19 +27,19 @@ function activityFor(command, options = {}) {
   const { activity } = activityFor(
     "$exe = Resolve-Path '.\\LoadToAgent.exe'; Start-Process -FilePath $exe -PassThru",
   );
-  assert.equal(activity.runtime, 'PowerShell');
+  assert.equal(activity.runtime, 'Windows 명령창');
 }
 
 {
   const { activity } = activityFor(
     "Get-Process LoadToAgent -ErrorAction SilentlyContinue | Select-Object Id,Path",
   );
-  assert.equal(activity.runtime, 'PowerShell');
+  assert.equal(activity.runtime, 'Windows 명령창');
 }
 
 {
   const { activity } = activityFor("node -e 'console.log(\"ok\")'");
-  assert.equal(activity.runtime, 'Shell');
+  assert.equal(activity.runtime, '명령창');
 }
 
 {
@@ -64,7 +64,7 @@ function activityFor(command, options = {}) {
     staleAfterMs: 5 * 60_000,
   });
   assert.equal(unobserved.status, 'unverified');
-  assert.equal(unobserved.statusDetail, '최근 실행 신호 없음');
+  assert.equal(unobserved.statusDetail, '최근 실행 활동이 확인되지 않음');
 }
 
 {

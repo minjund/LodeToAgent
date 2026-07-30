@@ -44,7 +44,7 @@ try {
   const spawn = active.collaboration.spawns[0];
   const followup = active.collaboration.communications.find(event => event.kind === 'followup');
   check('active.parent.status', active.status === 'running');
-  check('active.parent.detail', active.statusDetail === '서브에이전트 작업 진행 중');
+  check('active.parent.detail', active.statusDetail === '도움 AI 작업 진행 중');
   check('active.spawn.count', active.collaboration.spawns.length === 1);
   check('active.spawn.status', spawn.status === 'running');
   check('active.spawn.child', spawn.childId === 'claude:accuracy-child');
@@ -101,9 +101,9 @@ try {
     { type: 'user', timestamp: new Date(now - 1_000).toISOString(), message: { role: 'user', content: '계속 진행해줘' } },
   ]));
   check('states.question.status', waitingQuestion.status === 'waiting');
-  check('states.question.detail', waitingQuestion.statusDetail === '답변 또는 선택 대기');
+  check('states.question.detail', waitingQuestion.statusDetail === '내 답변을 기다리는 중');
   check('states.input-tool.status', waitingTool.status === 'waiting');
-  check('states.input-tool.detail', waitingTool.statusDetail === '선택 또는 입력 대기');
+  check('states.input-tool.detail', waitingTool.statusDetail === '내 답변을 기다리는 중');
   check('states.idle.status', idle.status === 'idle');
   check('states.idle.detail', idle.statusDetail === '다음 요청 대기');
   check('states.responding.status', responding.status === 'running');

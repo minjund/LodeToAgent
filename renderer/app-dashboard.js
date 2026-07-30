@@ -29,7 +29,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#providerRail").innerHTML = visibleProviders()
       .map((provider) => {
         const available = !!state.availability[provider.id];
-        return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}">
+        return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}" title="${esc(provider.label)}">
         <span class="provider-mini-mark">${esc(provider.mark)}</span><strong>${esc(provider.label)}</strong>
         <small>${available ? window.LoadToAgentI18n.t("ui.cli_found") : window.LoadToAgentI18n.t("ui.setup_required")}</small>
         <span class="connection-dot"></span>
@@ -209,6 +209,22 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       .filter((project) => Number(project.count || 0) > 0);
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
+    const nonFolderWork = (name) => /관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹|다시 시작한 작업/.test(String(name || ""));
+    const folderLiveProjects = liveProjects.filter((project) => !nonFolderWork(project.name));
+    const stateLiveProjects = liveProjects.filter((project) => nonFolderWork(project.name));
+    const beginnerWorkLocation = (name) => {
+      const value = String(name || "");
+      if (/관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹/.test(value)) return "여러 AI가 함께 처리 중";
+      if (/다시 시작한 작업/.test(value)) return "결과 저장 폴더 확인 필요";
+      if (/^화면 개선$/.test(value)) return "화면 관련 작업";
+      if (/^설정 개선$/.test(value)) return "설정 관련 작업";
+      return `${value} 폴더`;
+    };
+    const projectKindLabel = (item) => nonFolderWork(item.name) ? beginnerWorkLocation(item.name) : `${item.name} 폴더`;
+    const liveBreakdown = [
+      ...liveProjects.map((item) => `${projectKindLabel(item)} ${Number(item.count || 0)}건`),
+      ...(liveProjectlessCount ? [`${t("control.other_projects")} ${liveProjectlessCount}건`] : []),
+    ].join(" + ");
     const savedWorkspaceExists = state.workspace === "all"
       || (state.workspace === PROJECTLESS_WORKSPACE && projectlessCount > 0)
       || projects.some((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace))
@@ -219,13 +235,19 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       data-live-session-count="${Number(item.liveCount || 0)}"
       aria-label="${esc(t("project.filter_named", { name: item.name, count: item.count }))}"
       aria-pressed="${state.workspace === item.path ? "true" : "false"}">
-      <strong>${esc(item.name)}</strong><small>${Number(item.count || 0)}</small>
-      ${Number(item.liveCount || 0) ? `<span class="workspace-live-state" role="status" aria-label="${esc(t("project.in_progress"))}" title="${esc(t("project.in_progress"))}"><i aria-hidden="true"></i><b aria-hidden="true">${esc(t("project.in_progress"))}</b></span>` : ""}
+      <strong>${esc(beginnerWorkLocation(item.name))}</strong><small>${compactClass
+        ? `${Number(item.count || 0)}건`
+        : esc(nonFolderWork(item.name)
+          ? t("control.non_folder_count", { count: Number(item.count || 0) })
+          : t("control.folder_count", { count: Number(item.count || 0) }))}</small>
+      ${Number(item.liveCount || 0)
+        ? `<span class="workspace-live-state" aria-label="진행 중인 작업 ${Number(item.liveCount)}건"><i aria-hidden="true"></i><b>진행 중 ${Number(item.liveCount)}건</b></span>`
+        : ""}
       </button>`;
     const mobileHtml =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
-      <strong>${window.LoadToAgentI18n.t("project.all")}</strong><small>${rootSessions.length}</small>
+      <strong>${window.LoadToAgentI18n.t("project.all")}</strong><small>${esc(t("control.all_folder_count", { count: rootSessions.length }))}</small>
       </button>` +
       (projectlessCount
         ? `<button type="button" class="workspace-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
@@ -233,7 +255,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           title="${esc(window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project"))}"
           aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
         <strong>${window.LoadToAgentI18n.t("ui.no_project")}</strong>
-        <small>${projectlessCount}</small>
+        <small>${esc(t("control.folder_count", { count: projectlessCount }))}</small>
         </button>`
         : "") +
       projects.map((item) => item.saved ? `<div class="workspace-row">
@@ -244,16 +266,20 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         </div>` : projectButton(item)).join("") +
       (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
     const desktopHtml =
+      `<span class="control-room-filter-label">작업 내용별</span>` +
       `<button type="button" class="workspace-item control-room-project-chip ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
-      <strong>${esc(t("control.all_projects"))}</strong><small>${allLiveRootSessions.length}</small>
+      <strong>전체</strong><small>${allLiveRootSessions.length}건</small>
       </button>` +
-      liveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("") +
+      folderLiveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("") +
       (liveProjectlessCount
         ? `<button type="button" class="workspace-item projectless control-room-project-chip ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
           data-workspace="${PROJECTLESS_WORKSPACE}" aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
-        <strong>${esc(t("control.other_projects"))}</strong><small>${liveProjectlessCount}</small>
+        <strong>${esc(t("control.other_projects"))}</strong><small>${esc(t("control.folder_count", { count: liveProjectlessCount }))}</small>
         </button>`
+        : "") +
+      (stateLiveProjects.length
+        ? `<span class="control-room-filter-label state">현재 상태별</span>${stateLiveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("")}`
         : "") +
       (!liveProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
     const desktopList = $("#workspaceList");
@@ -279,8 +305,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     if (mobileList) mobileList.innerHTML = mobileHtml;
     const projectSelect = $("#controlRoomProjectSelect");
     if (projectSelect) {
-      projectSelect.innerHTML = `<option value="all">${esc(t("control.all_projects"))}</option>`
-        + liveProjects.map((item) => `<option value="${esc(item.path)}">${esc(item.name)}</option>`).join("")
+      projectSelect.innerHTML = `<option value="all">${esc(t("control.all_projects_filter"))}</option>`
+        + liveProjects.map((item) => `<option value="${esc(item.path)}">${esc(beginnerWorkLocation(item.name))}</option>`).join("")
         + (liveProjectlessCount ? `<option value="${PROJECTLESS_WORKSPACE}">${esc(t("control.other_projects"))}</option>` : "");
       projectSelect.value = [...projectSelect.options].some((option) => option.value === state.workspace) ? state.workspace : "all";
     }
@@ -288,8 +314,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     if (controlSort) controlSort.value = state.controlRoomSort || "recent";
     const controlSearch = $("#controlRoomSearchInput");
     if (controlSearch && controlSearch.value !== state.search) controlSearch.value = state.search;
-    $("#controlRoomSearch")?.classList.toggle("is-open", Boolean(state.search));
-    $("#controlRoomSearchBtn")?.setAttribute("aria-expanded", state.search ? "true" : "false");
+    $("#controlRoomSearch")?.classList.add("is-open");
+    $("#controlRoomSearchBtn")?.setAttribute("aria-expanded", "true");
     if (controlSearch) {
       controlSearch.tabIndex = state.search ? 0 : -1;
       controlSearch.setAttribute("aria-hidden", state.search ? "false" : "true");
@@ -329,28 +355,50 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       </div>`,
       )
       .join("");
-    const activeRootCount = sessions.filter((session) => !session.parentId && isControlRoomSession(session)).length;
+    const activeRootCount = sessions.filter((session) => !session.parentId && isControlRoomSession(session)).length
+      + unlinkedLiveTmuxSessions().length;
     const memoryRootCount = sessions.filter((session) => (
       !session.parentId && ["completed", "cancelled", "failed", "idle"].includes(session.status)
     )).length;
-    $("#navAllCount").textContent = activeRootCount;
+    const reviewNeededCount = Math.min(
+      activeRootCount,
+      sessions.filter((session) => (
+        context.needsManagementInbox?.(session)
+        && !context.matchesManagementFilter?.(session, "optional")
+      )).length,
+    );
+    const processingCount = Math.max(0, activeRootCount - reviewNeededCount);
+    $("#navAllCount").textContent = processingCount;
+    const liveCountGuide = $("#liveCountGuide");
+    if (liveCountGuide) {
+      liveCountGuide.textContent = `전체 ${activeRootCount}건: 처리 중 ${processingCount}건 + 확인 대기 ${reviewNeededCount}건`;
+    }
     $("#navActiveCount").textContent = memoryRootCount;
-    const reviewCount = sessions.filter((session) => context.needsManagementInbox?.(session)).length;
-    $("#navWaitingCount").textContent = reviewCount;
+    const reviewSessionsForNav = state.view === "waiting"
+      ? filteredSessions()
+      : sessions.filter((session) => context.needsManagementInbox?.(session));
+    const reviewCount = reviewSessionsForNav.length;
+    const reviewCompletedCount = reviewSessionsForNav
+      .filter((session) => context.matchesManagementFilter?.(session, "optional")).length;
+    $("#navWaitingCount").textContent = `확인 대기 ${Math.max(0, reviewCount - reviewCompletedCount)}건`;
+    const navWaitingUnit = $("#navWaitingUnit");
+    if (navWaitingUnit) navWaitingUnit.textContent = "";
     const scheduledCount = (state.snapshot?.automations || [])
       .filter((item) => isProviderVisible(item.provider || "codex")).length;
     const loopCount = sessions.filter(isRuntimeLoopSession).length;
-    $("#navRuntimeCount").textContent = scheduledCount + loopCount;
+    const runtimeNavCount = $("#navRuntimeCount");
+    runtimeNavCount.dataset.total = String(scheduledCount + loopCount);
+    runtimeNavCount.textContent = t("runtime.nav_count", { schedules: scheduledCount, running: loopCount });
     const tmuxSessionCount = Number(state.snapshot?.tmux?.summary?.sessions || 0);
-    $("#navTmuxCount").textContent = tmuxSessionCount;
-    $("#advancedToolsCount").textContent = scheduledCount + loopCount + Number($("#navTerminalCount").textContent || 0) + tmuxSessionCount;
+    $("#navTmuxCount").textContent = t("tmux.nav_group_count", { count: Number(state.snapshot?.tmux?.summary?.windows || 0) });
+    $("#advancedToolsCount").textContent = 3;
     const navCounts = {
       all: activeRootCount,
       active: memoryRootCount,
       waiting: reviewCount,
       runtime: scheduledCount + loopCount,
-      terminal: Number($("#navTerminalCount").textContent || 0),
-      tmux: tmuxSessionCount,
+      terminal: undefined,
+      tmux: undefined,
     };
     document.querySelectorAll(".nav-item[data-view]").forEach((button) => {
       const key = {
@@ -359,34 +407,34 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       }[button.dataset.view];
       const label = t(key);
       const count = navCounts[button.dataset.view];
-      const unitKey = { all: "tasks", active: "records", waiting: "items", runtime: "runs", terminal: "sessions", tmux: "sessions" }[button.dataset.view];
+      const unitKey = { all: "tasks", active: "records", waiting: "items", runtime: "runs", terminal: "sessions", tmux: "groups" }[button.dataset.view];
       const unit = unitKey ? t(`quality.unit.${unitKey}`) : "";
       const accessibleLabel = Number.isFinite(count) ? t("quality.nav_count_detailed", { label, count, unit }) : label;
       button.setAttribute("aria-label", accessibleLabel);
       button.setAttribute("title", accessibleLabel);
     });
-    const advancedCount = scheduledCount + loopCount + Number($("#navTerminalCount").textContent || 0) + tmuxSessionCount;
+    const advancedCount = 3;
     $("#advancedToolsNav")?.querySelector("summary")?.setAttribute("aria-label", t("quality.nav_count_detailed", {
-      label: t("management.advanced_tools"), count: advancedCount, unit: t("quality.unit.items"),
+      label: t("management.advanced_tools"), count: advancedCount, unit: t("quality.unit.types"),
     }));
     const tmuxShortcut = $("#openTmuxFromAgentWork");
-    $("#agentWorkTmuxCount").textContent = tmuxSessionCount;
+    $("#agentWorkTmuxCount").textContent = `${tmuxSessionCount}건`;
     tmuxShortcut.dataset.i18nParams = JSON.stringify({ count: tmuxSessionCount });
     tmuxShortcut.setAttribute("aria-label", t("graph.open_tmux_workspace_count", { count: tmuxSessionCount }));
   }
 
   function formatBytes(value) {
     const bytes = Math.max(0, Number(value || 0));
-    if (!bytes) return "0 B";
-    const units = ["B", "KB", "MB", "GB"];
+    if (!bytes) return "0 바이트";
+    const units = ["바이트", "킬로바이트", "메가바이트", "기가바이트"];
     const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
     const amount = bytes / 1024 ** index;
     return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`;
   }
 
-  function installationTypeLabel(value) {
+  function installationTypeLabel(value, version = "—") {
     const labels = {
-      desktop: window.LoadToAgentI18n.t("ui.desktop_installer"),
+      desktop: window.LoadToAgentI18n.t("ui.desktop_installer", { version }),
       npm: window.LoadToAgentI18n.t("ui.global_npm_installation"),
       source: window.LoadToAgentI18n.t("ui.local_development_build"),
     };
@@ -446,30 +494,51 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const downloading = update.status === "downloading";
     const downloaded = update.status === "downloaded";
     const current = update.currentVersion || state.versions.app || "";
-    $("#sidebarAppVersion").textContent = current ? `v${current}` : "v—";
+    $("#sidebarAppVersion").textContent = current || "—";
     $("#updatePanel").dataset.updateStatus = update.status || "idle";
-    $("#currentVersion").textContent = current ? `v${current}` : "v—";
-    $("#latestVersion").textContent = update.latestVersion ? `v${update.latestVersion}` : window.LoadToAgentI18n.t("ui.not_checked");
-    $("#installationType").textContent = installationTypeLabel(update.installType);
+    $("#currentVersion").textContent = current || "—";
+    $("#latestVersion").textContent = update.latestVersion || window.LoadToAgentI18n.t("ui.not_checked");
+    const compactVersion = $("#updateCompactVersion");
+    if (compactVersion) {
+      compactVersion.textContent = `현재 ${current || "확인 중"} → 새 버전 ${update.latestVersion || "확인 중"} · 약 3분 · 설치 중에는 이 화면에서 작업 상태를 볼 수 없음`;
+    }
+    const versionComparison = $("#versionComparisonLabel");
+    if (versionComparison) {
+      versionComparison.textContent = update.status === "available" || update.status === "downloading" || update.status === "downloaded"
+        ? t("update.comparison_available", { current: current || "—", version: update.latestVersion || "—" })
+        : update.status === "current"
+          ? t("update.comparison_current", { version: current || "—" })
+          : update.status === "checking"
+            ? t("update.comparison_checking")
+            : t("update.comparison_unchecked");
+    }
+    $("#installationType").textContent = installationTypeLabel(update.installType, update.latestVersion || "—");
     $("#releasePublishedAt").textContent = update.publishedAt
-      ? window.LoadToAgentI18n.t("update.published", { date: new Date(update.publishedAt).toLocaleDateString(uiLocale()) })
+      ? window.LoadToAgentI18n.t("update.published", {
+          version: update.latestVersion || "—",
+          date: new Intl.DateTimeFormat(uiLocale(), {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+          }).format(new Date(update.publishedAt)),
+        })
       : window.LoadToAgentI18n.t("ui.stable_releases_only");
-    $("#runtimeVersions").textContent = `Electron ${state.versions.electron || "—"} · Node ${state.versions.node || "—"}`;
+    $("#runtimeVersions").textContent = t("ui.technical_info_ready");
     $("#updateStateGlyph").textContent = glyph;
     $("#updateStateLabel").textContent = label;
     $("#updateStateTitle").textContent = title;
     $("#updateStateText").textContent = text;
     $("#checkUpdateBtn").disabled = update.status === "checking" || downloading;
+    $("#checkUpdateBtn").classList.toggle("hidden", available);
     $("#checkUpdateBtn").textContent =
       update.status === "checking" ? window.LoadToAgentI18n.t("ui.checking") : window.LoadToAgentI18n.t("settings.update.check");
     const install = $("#installUpdateBtn");
     install.classList.toggle("hidden", !(available && (update.asset || downloaded)));
     install.disabled = downloading;
+    const downloadLabel = window.LoadToAgentI18n.t("settings.update.download", { version: update.latestVersion || "—" });
     install.textContent = downloading
       ? window.LoadToAgentI18n.t("ui.downloading_2")
-      : downloaded
-        ? `${window.LoadToAgentI18n.t("settings.update.download")} · ${window.LoadToAgentI18n.t("ui.restart")}`
-        : window.LoadToAgentI18n.t("settings.update.download");
+      : downloadLabel;
     const progress = $("#updateProgress");
     progress.classList.toggle("hidden", !downloading && !downloaded);
     $("#updateProgressLabel").textContent = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
@@ -494,6 +563,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       ? window.LoadToAgentI18n.t("ui.the_installer_is_ready")
       : window.LoadToAgentI18n.t("ui.download_the_update_from_settings");
     $("#navUpdateBadge").classList.toggle("hidden", !available);
+    $("#navUpdateBadge").textContent = available
+      ? t("update.nav_available", { version: update.latestVersion || "—" })
+      : "";
   }
 
   function renderProviderOverview() {
@@ -552,15 +624,25 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     pruneProviderFilters();
     const allSelected = state.providerFilters.size === 0;
     const tabStopId = allSelected ? "all" : [...state.providerFilters][0];
+    const mobileSelectedId = state.providerFilters.size === 1 ? [...state.providerFilters][0] : "all";
     const button = (id, label, mark = "") => {
       const selected = id === "all" ? allSelected : state.providerFilters.has(id);
       return `<button type="button" class="provider-filter-chip ${selected ? "selected" : ""}"
         data-provider-filter="${esc(id)}" tabindex="${id === tabStopId ? "0" : "-1"}" aria-pressed="${selected ? "true" : "false"}">
         <i class="provider-filter-check" aria-hidden="true">✓</i>
-        ${mark ? `<span class="provider-filter-mark" aria-hidden="true">${esc(mark)}</span>` : ""}<b>${esc(label)}</b>
+        <b>${esc(label)}</b>
       </button>`;
     };
+    const mobileOptions = [
+      { id: "all", label: window.LoadToAgentI18n.t("ui.all_ai") },
+      ...visibleProviders().map((provider) => ({ id: provider.id, label: provider.label })),
+    ].map(({ id, label }) => `<option value="${esc(id)}" ${id === mobileSelectedId ? "selected" : ""}>${esc(label)}</option>`).join("");
     $("#providerFilter").innerHTML =
+      `<span class="provider-filter-label">${esc(window.LoadToAgentI18n.t("memory.agent"))}</span>` +
+      `<label class="mobile-provider-filter" for="mobileProviderFilterSelect">
+        <span>${esc(window.LoadToAgentI18n.t("memory.agent"))}</span>
+        <select id="mobileProviderFilterSelect" aria-label="${esc(window.LoadToAgentI18n.t("ui.ai_provider_filter"))}">${mobileOptions}</select>
+      </label>` +
       button("all", window.LoadToAgentI18n.t("ui.all_ai")) +
       visibleProviders().map((provider) => button(provider.id, provider.label, provider.mark)).join("");
   }
@@ -695,11 +777,10 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       const status = window.LoadToAgentI18n.t(visible ? "settings.providers.visible" : "settings.providers.hidden");
       return `<label class="provider-visibility-option ${visible ? "enabled" : "disabled"}" style="${providerStyle(provider.id)}">
         <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
-        <span class="provider-visibility-name"><b>${esc(provider.label)}</b><small>${esc(provider.company)}</small></span>
-        <span class="provider-visibility-status">${esc(status)}</span>
+        <span class="provider-visibility-name"><b>${esc(provider.label)}</b><small>${esc(t("settings.providers.company", { company: provider.company }))}</small></span>
         <input type="checkbox" data-provider-visibility="${esc(provider.id)}" ${visible ? "checked" : ""}
-          aria-label="${esc(`${provider.label} ${status}`)}">
-        <span class="provider-toggle" aria-hidden="true"><i></i></span>
+          aria-label="${esc(t(visible ? "settings.providers.hide_action" : "settings.providers.show_action", { provider: provider.label }))}">
+        <span class="provider-toggle" aria-hidden="true"><b>${esc(status)}</b><i></i></span>
       </label>`;
     }).join("");
   }

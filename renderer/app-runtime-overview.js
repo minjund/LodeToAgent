@@ -30,7 +30,8 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
   function visibleAutomations() {
     return ((state.snapshot && state.snapshot.automations) || [])
       .filter((item) => isProviderVisible(item.provider || "codex"))
-      .sort((a, b) => Date.parse(a.nextRunAt || 0) - Date.parse(b.nextRunAt || 0));
+      .sort((a, b) => Date.parse(a.nextRunAt || 0) - Date.parse(b.nextRunAt || 0)
+        || Number(b.enabled) - Number(a.enabled));
   }
 
   function automationSession(item) {
@@ -38,20 +39,41 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     return visibleSessions().find((session) => session.externalId === item.targetThreadId || session.id === item.targetThreadId) || null;
   }
 
+  function localComputerName() {
+    if (state.platform?.id === "win32") return "내 Windows 컴퓨터";
+    if (state.platform?.id === "darwin") return "내 Mac";
+    return "이 컴퓨터";
+  }
+
+  function automationComputer(item) {
+    if (item?.environment?.kind === "wsl") {
+      const name = item.environment.distro || item.sourceLabel;
+      return name ? `다른 Linux 컴퓨터 (${name})` : t("runtime.location_separated");
+    }
+    return localComputerName();
+  }
+
+  function koreanClock(hours, minutes = 0) {
+    const normalizedHour = Number(hours) || 0;
+    const normalizedMinute = Number(minutes) || 0;
+    return `${String(normalizedHour).padStart(2, "0")}:${String(normalizedMinute).padStart(2, "0")}`;
+  }
+
   function scheduleTime(value) {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return t("runtime.not_scheduled");
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const day = Math.round((target.getTime() - start.getTime()) / 86_400_000);
-    const time = date.toLocaleTimeString(uiLocale(), { hour: "2-digit", minute: "2-digit" });
-    if (day === 0) return t("runtime.today_at", { time });
-    if (day === 1) return t("runtime.tomorrow_at", { time });
+    const korean = String(uiLocale()).toLowerCase().startsWith("ko");
+    const time = korean
+      ? koreanClock(date.getHours(), date.getMinutes())
+      : date.toLocaleTimeString(uiLocale(), { hour: "numeric", minute: "2-digit" });
+    if (korean) {
+      const dateLabel = `${date.getMonth() + 1}/${date.getDate()}`;
+      return t("runtime.today_at", { date: dateLabel, time });
+    }
     return date.toLocaleString(uiLocale(), { month: "short", day: "numeric", weekday: "short", hour: "2-digit", minute: "2-digit" });
   }
 
-  function scheduleRule(value) {
+  function scheduleRule(value, nextRunAt = "") {
     const rule = Object.fromEntries(String(value || "").split(";").map((pair) => pair.split("=", 2)).filter((pair) => pair.length === 2));
     const interval = Math.max(1, Number.parseInt(rule.INTERVAL || "1", 10) || 1);
     const frequencyKeys = {
@@ -70,13 +92,28 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
       ? t(intervalKeys[rule.FREQ], { count: interval })
       : frequencyKeys[rule.FREQ] ? t(frequencyKeys[rule.FREQ]) : t("runtime.recurring");
     const details = [];
+    let dayLabels = [];
     if (rule.BYDAY) {
       const weekdayDates = { SU: 4, MO: 5, TU: 6, WE: 7, TH: 8, FR: 9, SA: 10 };
-      const days = rule.BYDAY.split(",")
+      dayLabels = rule.BYDAY.split(",")
         .map((day) => weekdayDates[day])
         .filter(Boolean)
         .map((day) => new Intl.DateTimeFormat(uiLocale(), { weekday: "short" }).format(new Date(2026, 0, day)));
-      if (days.length) details.push(days.join("·"));
+      if (dayLabels.length) details.push(dayLabels.join("·"));
+    }
+    if (String(uiLocale()).toLowerCase().startsWith("ko")) {
+      const minute = Number.parseInt(rule.BYMINUTE || "0", 10) || 0;
+      if (rule.FREQ === "HOURLY") {
+        const next = new Date(nextRunAt);
+        const nextClock = Number.isNaN(next.getTime()) ? "" : koreanClock(next.getHours(), next.getMinutes());
+        return nextClock ? `오늘 ${nextClock}부터 중지할 때까지 ${base} 반복` : `중지할 때까지 ${base} 반복`;
+      }
+      if (rule.FREQ === "MINUTELY") return `${base} 실행`;
+      if (rule.BYHOUR) {
+        const clock = koreanClock(Number.parseInt(rule.BYHOUR, 10) || 0, minute);
+        return [base, dayLabels.join("·"), `${clock}에 실행`].filter(Boolean).join(" ");
+      }
+      return `${base} 실행`;
     }
     if (rule.BYHOUR) {
       const hour = String(rule.BYHOUR).padStart(2, "0");
@@ -118,6 +155,11 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     }));
   }
 
+  function loopPhaseDisplay(session, phase) {
+    if (!phase || phase.key !== "observe") return phase?.label || "";
+    return "결과 확인 필요";
+  }
+
   function phaseStatusLabel(stateValue) {
     return t({ done: "runtime.phase_done", active: "runtime.phase_active", queued: "runtime.phase_queued" }[stateValue] || "runtime.phase_queued");
   }
@@ -131,17 +173,54 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     return t("runtime.elapsed_hours", { count: Math.floor(minutes / 60) });
   }
 
+  function activityAge(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
+    const locale = uiLocale();
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric", month: "long", day: "numeric",
+      hour: String(locale).toLowerCase().startsWith("ko") ? "2-digit" : "numeric",
+      minute: "2-digit",
+      ...(String(locale).toLowerCase().startsWith("ko") ? { hourCycle: "h23" } : {}),
+    }).format(date);
+  }
+
   function scheduleCard(item) {
     const session = automationSession(item);
+    const scheduleProvider = providerInfo(item.provider || "codex");
     const cwd = (item.cwds || [])[0] || "";
-    const workspace = String(cwd).replace(/\\/g, "/").split("/").filter(Boolean).pop();
-    const location = workspace || (item.environment?.kind === "wsl" && item.sourceLabel) || t("runtime.workspace_unspecified");
-    const body = `<span class="runtime-schedule-time" ${item.enabled ? `data-runtime-next-run-at="${esc(item.nextRunAt || "")}"` : ""}>${esc(item.enabled ? scheduleTime(item.nextRunAt) : t("runtime.paused"))}</span>
+    const savedWorkspace = (state.workspaces || []).find((item) => String(item.path || "").toLowerCase() === String(cwd).toLowerCase());
+    const folderName = String(cwd).replace(/\\/g, "/").split("/").filter(Boolean).pop();
+    const location = savedWorkspace?.name || folderName || (item.environment?.kind === "wsl" && item.sourceLabel) || t("runtime.workspace_unspecified");
+    const locationMissing = location === t("runtime.workspace_unspecified");
+    const scheduleReady = Boolean(item.enabled && !locationMissing);
+    const localPlatformName = ({ win32: "Windows", darwin: "macOS", linux: "Linux" })[state.platform?.id]
+      || state.platform?.label
+      || "이 컴퓨터";
+    const executionLocation = item.environment?.kind === "wsl"
+      ? automationComputer(item)
+      : t("runtime.location_this_computer", { computer: localComputerName(), platform: localPlatformName });
+    const selected = Boolean(session && session.id === state.selectedRuntimeLoopId);
+    const body = `<span class="runtime-schedule-time" ${scheduleReady ? `data-runtime-next-run-at="${esc(item.nextRunAt || "")}"` : ""}>${esc(item.enabled
+      ? locationMissing ? t("runtime.location_needed_before_next") : scheduleTime(item.nextRunAt)
+      : t("runtime.paused"))}</span>
       <strong>${esc(item.name)}</strong>
-      <small>${esc(scheduleRule(item.rrule))} · ${esc(location)}</small>`;
+      <small>${esc(locationMissing
+        ? t("runtime.choose_location_action")
+        : t(item.environment?.kind === "wsl" ? "runtime.schedule_meta_separated" : "runtime.schedule_meta_local", {
+            rule: scheduleRule(item.rrule, item.nextRunAt),
+            location: executionLocation,
+            folder: location,
+          }))}</small>
+      <em class="runtime-schedule-provider">담당 AI: ${esc(scheduleProvider.label)} · 이 일정을 바꾸려면 ${esc(scheduleProvider.label)} 앱을 여세요.</em>
+      ${locationMissing ? `<span class="runtime-schedule-action">${esc(t("runtime.choose_location_button"))}</span>` : ""}`;
+    const badge = locationMissing
+      ? t("runtime.incomplete_badge")
+      : scheduleReady ? t("runtime.enabled_badge") : t("runtime.paused_badge");
+    const cardStateClass = locationMissing ? "incomplete" : scheduleReady ? "" : "paused";
     const card = session
-      ? `<button type="button" class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}" data-automation-session="${esc(session.id)}">${body}<i aria-hidden="true">↗</i></button>`
-      : `<article class="runtime-schedule-card ${item.enabled ? "" : "paused"}" data-automation-id="${esc(item.id)}" data-automation-enabled="${item.enabled ? "true" : "false"}">${body}<i aria-hidden="true">${item.enabled ? "●" : "Ⅱ"}</i></article>`;
+      ? `<button type="button" class="runtime-schedule-card ${cardStateClass} ${selected ? "selected" : ""}" data-automation-id="${esc(item.id)}" data-automation-enabled="${scheduleReady ? "true" : "false"}" data-automation-state="${locationMissing ? "incomplete" : scheduleReady ? "enabled" : "paused"}" data-automation-session="${esc(session.id)}">${body}<i>담당 AI 열기 →</i></button>`
+      : `<article class="runtime-schedule-card ${cardStateClass}" data-automation-id="${esc(item.id)}" data-automation-enabled="${scheduleReady ? "true" : "false"}" data-automation-state="${locationMissing ? "incomplete" : scheduleReady ? "enabled" : "paused"}">${body}<i>${esc(badge)}</i></article>`;
     return `<div class="runtime-schedule-item" role="listitem">${card}</div>`;
   }
 
@@ -152,12 +231,16 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
   function loopSelector(loop, selected) {
     const provider = providerInfo(loop.provider);
     const activePhase = loopPhases(loop).find((phase) => phase.state === "active") || loopPhases(loop)[0];
+    const phaseLabel = loopPhaseDisplay(loop, activePhase);
+    const linkedSchedule = visibleAutomations().find((item) => automationSession(item)?.id === loop.id);
+    const scheduleName = linkedSchedule?.name || loop.loop?.scheduleName || t("runtime.linked_schedule_unknown");
+    const workName = loop.shortTitle || loop.displayName || loop.title;
     return `<button type="button" class="runtime-loop-tab ${selected ? "selected" : ""}" data-loop-select="${esc(loop.id)}"
       id="runtime-loop-tab-${esc(loop.id)}" role="tab" aria-controls="runtime-loop-panel-${esc(loop.id)}"
       style="${providerStyle(loop.provider)}" aria-selected="${selected ? "true" : "false"}" aria-pressed="${selected ? "true" : "false"}" tabindex="${selected ? "0" : "-1"}">
       <span class="runtime-loop-tab-mark">${esc(provider.mark)}</span>
-      <span><b>${esc(loop.title)}</b><small>${esc(provider.label)} · ${esc(activePhase.label)} · <span data-runtime-started-at="${esc(loop.startedAt || "")}">${esc(elapsedSince(loop.startedAt))}</span></small></span>
-      <i aria-hidden="true"></i>
+      <span><b>${esc(t("runtime.loop_work_name", { name: workName }))}</b><small><span>${esc(t("runtime.phase_value", { phase: phaseLabel }))}</span><span>${esc(t("runtime.working_ai", { provider: provider.label }))}</span><span>${esc(t("runtime.loop_started_schedule", { name: scheduleName }))}</span></small></span>
+      <i>${esc(t(selected ? "runtime.details_shown_below" : "runtime.view_details"))}</i>
     </button>`;
   }
 
@@ -168,7 +251,7 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     return `<div class="runtime-loop-cycle" role="img" aria-label="${esc(t("runtime.loop_flow_state", { phase: activePhase.label }))}" style="--loop-progress:${activeIndex / Math.max(1, phases.length - 1) * 100}%">
       <div class="runtime-loop-spine" aria-hidden="true"><span></span></div>
       ${phases.map((phase, index) => `<div class="runtime-loop-phase ${phase.state}" data-loop-phase="${phase.key}">
-        <span class="runtime-loop-phase-index">0${index + 1}<em>${esc(phaseStatusLabel(phase.state))}</em></span>
+        <span class="runtime-loop-phase-index">${index + 1}단계<em>${esc(phaseStatusLabel(phase.state))}</em></span>
         <i aria-hidden="true">${phase.state === "done" ? "✓" : phase.state === "active" ? "●" : "·"}</i>
         <b>${esc(phase.label)}</b>
         <small>${esc(phase.detail)}</small>
@@ -186,24 +269,36 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const iterationLabel = iteration > 0
       ? t("runtime.iteration_value", { count: iteration })
       : session.loop ? t("runtime.iteration_observed") : t("runtime.iteration_scheduled");
+    const iterationTitle = iteration > 0 || session.loop ? t("runtime.iteration") : t("runtime.start_method");
     const activePhase = loopPhases(session).find((phase) => phase.state === "active") || loopPhases(session)[0];
-    const activityTitle = window.LoadToAgentI18n.observedText(activity.title);
-    const activityDetail = window.LoadToAgentI18n.observedText(activity.detail || session.statusDetail || "");
+    const phaseKind = session.loop && typeof session.loop === "object" && String(session.loop.phase || "").trim()
+      ? "runtime.current_phase"
+      : "runtime.expected_phase";
+    const resultNeedsReview = /결과|확인/.test(String(activePhase.label || ""));
+    const activityTitle = resultNeedsReview
+      ? "AI 작업이 끝났습니다. 결과를 확인해 주세요."
+      : window.LoadToAgentI18n.observedText(activity.title);
+    const activityDetail = resultNeedsReview
+      ? "결과 화면을 열어보기만 해도 작업이 멈추거나 확인 완료로 바뀌지 않습니다."
+      : window.LoadToAgentI18n.observedText(activity.detail || session.statusDetail || "");
+    const linkedAutomation = visibleAutomations().find((item) => automationSession(item)?.id === session.id);
+    const linkedAutomationName = linkedAutomation?.name || t("runtime.linked_schedule_unknown");
     return `<article id="runtime-loop-panel-${esc(session.id)}" class="runtime-loop-detail" role="tabpanel" aria-labelledby="runtime-loop-tab-${esc(session.id)}" style="${providerStyle(session.provider)}" data-motion-key="runtime-loop:${esc(session.id)}" data-motion-value="${esc(session.updatedAt || "")}">
       <header>
-        <div><span class="runtime-loop-kicker"><i></i>${esc(t("runtime.active_loop"))}</span><h3>${esc(session.title)}</h3><p>${esc(provider.label)} · ${esc(session.model || t("session.model_unknown"))}</p></div>
-        <div class="runtime-loop-header-actions"><span class="runtime-active-phase"><small>${esc(t("runtime.current_phase"))}</small><b>${esc(activePhase.label)}</b></span><button type="button" class="runtime-open-task" data-loop-open="${esc(session.id)}">${esc(t("runtime.open_task"))}<span aria-hidden="true">↗</span></button></div>
+        <div><span class="runtime-loop-kicker"><i></i>${esc(t("runtime.active_loop"))}</span><h3>${esc(session.displayName || session.title)}</h3><p>${esc(t("runtime.linked_schedule", { name: linkedAutomationName, started: activityAge(session.startedAt || session.updatedAt) }))}</p></div>
+        <div class="runtime-loop-header-actions"><span class="runtime-active-phase"><small>${esc(t(phaseKind, { provider: provider.label }))}</small><b>${esc(activePhase.label)}</b><em>${esc(t("runtime.working_ai", { provider: provider.label }))}</em></span></div>
       </header>
       <section class="runtime-now-strip" aria-label="${esc(t("runtime.now_working"))}">
-        <span class="runtime-now-mark" aria-hidden="true">NOW</span>
-        <div><small>${esc(t("runtime.now_working"))}</small><b title="${esc(activityTitle)}">${esc(activityTitle)}</b><p title="${esc(activityDetail)}">${esc(activityDetail)}</p></div>
-        <time data-runtime-updated-at="${esc(session.updatedAt || session.startedAt || "")}">${esc(t("runtime.last_signal_time", { time: elapsedSince(session.updatedAt || session.startedAt) }))}</time>
+        <span class="runtime-now-mark" aria-hidden="true">현재</span>
+        <div><small>${esc(t("runtime.now_working"))}</small><b title="${esc(activityTitle)}">${esc(activityTitle)}</b><p title="${esc(activityDetail)}">${esc(t("runtime.detail_work", { detail: activityDetail }))}</p></div>
+        <time data-runtime-provider="${esc(provider.label)}" data-runtime-updated-at="${esc(session.updatedAt || session.startedAt || "")}">${esc(t("runtime.last_signal_time", { provider: provider.label, time: activityAge(session.updatedAt || session.startedAt) }))}</time>
       </section>
+      <div class="runtime-open-action runtime-result-next"><button type="button" class="runtime-open-task" data-loop-open="${esc(session.id)}">완료된 결과 열어 확인하기 →</button><small>결과를 본 뒤 <b>‘확인 완료’</b>를 누르면 이 작업이 확인 완료로 바뀝니다.</small></div>
       ${loopDiagram(session)}
       <footer class="runtime-loop-footer">
         <dl>
           <div><dt>${esc(t("runtime.running_time"))}</dt><dd data-runtime-started-at="${esc(session.startedAt || "")}">${esc(elapsedSince(session.startedAt))}</dd></div>
-          <div><dt>${esc(t("runtime.iteration"))}</dt><dd>${esc(iterationLabel)}</dd></div>
+          <div><dt>${esc(iterationTitle)}</dt><dd>${esc(iterationLabel)}</dd></div>
           <div><dt>${esc(t("runtime.subagents"))}</dt><dd>${runningChildren ? esc(t("runtime.subagents_running", { running: runningChildren, total: children.length })) : esc(t("runtime.subagents_total", { count: children.length }))}</dd></div>
         </dl>
       </footer>
@@ -223,7 +318,7 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
       element.textContent = elapsedSince(element.dataset.runtimeStartedAt);
     });
     section.querySelectorAll("[data-runtime-updated-at]").forEach((element) => {
-      element.textContent = t("runtime.last_signal_time", { time: elapsedSince(element.dataset.runtimeUpdatedAt) });
+      element.textContent = t("runtime.last_signal_time", { provider: element.dataset.runtimeProvider || "AI", time: activityAge(element.dataset.runtimeUpdatedAt) });
     });
   }
 
@@ -256,24 +351,44 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
       ? t("runtime.schedule_list_scroll_label")
       : interactiveScheduleCount > 0 ? t("runtime.schedule_list_action_label") : t("runtime.schedule_list_label");
     const loops = activeRootLoops();
-    const enabled = automations.filter((item) => item.enabled);
-    const paused = automations.filter((item) => !item.enabled);
+    const hasLocation = (item) => Boolean((item.cwds || [])[0] || (item.environment?.kind === "wsl" && item.sourceLabel));
+    const enabled = automations.filter((item) => item.enabled && hasLocation(item));
+    const inactiveScheduleCount = Math.max(0, automations.length - enabled.length);
     if (!loops.some((loop) => loop.id === state.selectedRuntimeLoopId)) state.selectedRuntimeLoopId = loops[0] && loops[0].id || null;
     const selected = loops.find((loop) => loop.id === state.selectedRuntimeLoopId) || loops[0] || null;
+    const selectedActivePhase = selected
+      ? (loopPhases(selected).find((phase) => phase.state === "active") || loopPhases(selected)[0])
+      : null;
+    const resultReviewCount = selectedActivePhase && /결과|확인/.test(String(selectedActivePhase.label || "")) ? 1 : 0;
+    const runningLoopCount = Math.max(0, loops.length - resultReviewCount);
     const selectedId = selected?.id || "";
+    const selectedAutomation = selected
+      ? automations.find((item) => automationSession(item)?.id === selected.id)
+      : null;
+    const displayedAutomations = selectedAutomation
+      ? [selectedAutomation, ...automations.filter((item) => item.id !== selectedAutomation.id)]
+      : automations;
+    const primaryAutomation = displayedAutomations[0] || null;
+    const secondaryAutomations = displayedAutomations.slice(1);
+    const selectedComputer = selectedAutomation ? automationComputer(selectedAutomation) : localComputerName();
+    const selectedScheduleName = selectedAutomation?.name || t("runtime.linked_schedule_unknown");
     section.innerHTML = `<header class="runtime-overview-head">
       <div class="runtime-overview-title"><span class="runtime-overview-emblem" aria-hidden="true"><i></i><b>↻</b></span><div><p>${esc(t("runtime.eyebrow"))}</p><h2>${esc(t("runtime.status_summary"))}</h2></div></div>
-      <div class="runtime-overview-counts"><span><i></i>${esc(t("runtime.schedules_count", { count: enabled.length }))}</span>${paused.length ? `<span class="paused"><i></i>${esc(t("runtime.paused_count", { count: paused.length }))}</span>` : ""}<span><i></i>${esc(t("runtime.loops_count", { count: loops.length }))}</span><b><i></i>${esc(t("runtime.live_status"))}</b></div>
+      <div class="runtime-overview-counts">
+        <span class="runtime-schedule-count"><b>반복 일정 ${automations.length}개</b><small>작동 중 ${enabled.length}개 · 일시 중지 ${inactiveScheduleCount}개</small></span>
+        <span class="runtime-work-count"><b>오늘 실행 ${loops.length}건</b><small>처리 중 ${runningLoopCount}건 · 확인 대기 ${resultReviewCount}건</small></span>
+        <p>반복 일정 1개가 하루에 여러 번 실행될 수 있어 일정 수와 실행 건수는 다를 수 있습니다.</p>
+      </div>
     </header>
     <div class="runtime-overview-grid">
-      <aside class="runtime-schedule-lane">
-        <header><div><span>${esc(t("runtime.schedule_lane"))}</span><b>${esc(t("runtime.schedule_list"))}</b></div><em>${String(automations.length).padStart(2, "0")}</em></header>
-        <div class="runtime-schedule-list" role="list" tabindex="${scheduleListFocusable ? "0" : "-1"}" aria-label="${esc(scheduleListLabel)}">${automations.length ? automations.map(scheduleCard).join("") : emptySchedules()}</div>
-      </aside>
-      <section class="runtime-loop-lane" aria-label="${esc(t("runtime.loop_lane"))}">
-        <header class="runtime-loop-lane-head"><div><span>${esc(t("runtime.loop_lane"))}</span><b>${esc(t("runtime.loop_system"))}</b><small>${esc(t("runtime.inferred_phase"))}</small></div>${loops.length ? `<div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map((loop) => loopSelector(loop, loop.id === selectedId)).join("")}</div>` : ""}</header>
+      <section class="runtime-loop-lane" aria-label="${esc(t("runtime.loop_lane", { count: loops.length }))}">
         ${selected ? loopDetail(selected) : noActiveLoop()}
+        ${loops.length > 1 ? `<details class="runtime-loop-lane-head runtime-other-work"><summary>지금 실행 중인 작업 ${loops.length - 1}건 보기 <i aria-hidden="true">⌄</i></summary><div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map(loop => loopSelector(loop, loop.id === selectedId)).join("")}</div></details>` : ""}
       </section>
+      <details class="runtime-schedule-lane">
+        <summary>반복 일정과 담당 AI 보기·변경하기 <i aria-hidden="true">⌄</i></summary>
+        <div class="runtime-schedule-list" role="list" tabindex="${scheduleListFocusable ? "0" : "-1"}" aria-label="${esc(scheduleListLabel)}">${displayedAutomations.length ? displayedAutomations.map(scheduleCard).join("") : emptySchedules()}</div>
+      </details>
     </div>`;
     // Restore scroll synchronously before another snapshot render can replace
     // this freshly-created DOM and accidentally capture zero as its position.

@@ -74,7 +74,7 @@
     sessionDragJustEnded: false,
     terminalFontSize: terminalViewPreferences.fontSize,
     terminalFocusMode: false,
-    platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows Terminal', nativeTmux: false },
+    platform: { id: 'win32', label: '내 컴퓨터', computerName: '이 컴퓨터', localShell: 'powershell', localShellLabel: '내 컴퓨터에서 실행하는 작업', nativeTmux: false },
   };
   let composer = null;
 
@@ -146,7 +146,12 @@
 
   function timeLabel(value) {
     const date = new Date(value || 0);
-    return Number.isFinite(date.getTime()) ? date.toLocaleTimeString(uiLocale(), { hour: '2-digit', minute: '2-digit' }) : '';
+    const locale = uiLocale();
+    return Number.isFinite(date.getTime()) ? date.toLocaleTimeString(locale, {
+      hour: '2-digit',
+      minute: '2-digit',
+      ...(String(locale).toLowerCase().startsWith('ko') ? { hourCycle: 'h23' } : {}),
+    }) : '';
   }
 
   function historyMessageHtml(value) {
@@ -191,21 +196,21 @@
 
   function terminalTypeLabel(session) {
     if (!session) return t('terminal.type.terminal');
-    if (session.type === 'wsl') return session.distro || 'Linux';
+    if (session.type === 'wsl') return '이 컴퓨터에서 직접 실행되지 않는 별도 작업 공간';
     if (session.type === 'agent') return providerLabel(session.provider);
-    if (session.type === 'powershell') return 'PowerShell';
+    if (session.type === 'powershell') return state.platform.computerName || state.platform.label || '이 컴퓨터';
     if (session.type === 'cmd') return t('terminal.type.command_prompt');
-    if (session.type === 'shell') return session.shell || 'Shell';
-    return String(session.type || t('terminal.type.terminal')).toUpperCase();
+    if (session.type === 'shell') return session.shell || '컴퓨터 작업';
+    return t('terminal.type.terminal');
   }
 
   function terminalTypeMark(session) {
     if (!session) return '›_';
-    if (session.type === 'wsl') return 'WSL';
+    if (session.type === 'wsl') return '›_';
     if (session.type === 'agent') return 'AI';
-    if (session.type === 'powershell') return 'PS';
-    if (session.type === 'cmd') return 'CMD';
-    if (session.type === 'shell') return 'SH';
+    if (session.type === 'powershell') return '›_';
+    if (session.type === 'cmd') return '›_';
+    if (session.type === 'shell') return '›_';
     return '›_';
   }
 
@@ -230,7 +235,9 @@
     section?.classList.toggle('terminal-focus-mode', state.terminalFocusMode);
     $('#terminalResourcePanel')?.toggleAttribute('inert', state.terminalFocusMode);
     $('#terminalHistoryPanel')?.toggleAttribute('inert', state.terminalFocusMode);
-    if ($('#terminalFontSizeLabel')) $('#terminalFontSizeLabel').textContent = `${state.terminalFontSize}px`;
+    const readableFontSize = state.terminalFontSize <= 13 ? '작게' : state.terminalFontSize <= 16 ? '보통' : '크게';
+    if ($('#terminalFontCurrentLabel')) $('#terminalFontCurrentLabel').textContent = t('terminal.view.font_size_current', { size: readableFontSize });
+    if ($('#terminalFontSizeLabel')) $('#terminalFontSizeLabel').textContent = t('terminal.view.font_size_value', { size: readableFontSize });
     if ($('#terminalFontDecreaseBtn')) $('#terminalFontDecreaseBtn').disabled = state.terminalFontSize <= 12;
     if ($('#terminalFontIncreaseBtn')) $('#terminalFontIncreaseBtn').disabled = state.terminalFontSize >= 20;
     if (focusButton) {
@@ -614,8 +621,28 @@
   function configurePlatform() {
     const localButton = $('#newPowerShellBtn');
     const linuxButton = $('#newWslBtn');
-    if (localButton) localButton.textContent = t('terminal.new_local_session', { platform: state.platform.label });
-    if (linuxButton) linuxButton.classList.toggle('hidden', state.platform.id !== 'win32');
+    const computerName = state.platform.computerName || state.platform.label || t('runtime.location_this_computer', {
+      computer: '이 컴퓨터',
+      platform: state.platform.label,
+    });
+    const distro = firstDistro();
+    if (localButton) localButton.textContent = '＋ 내 Windows 컴퓨터에서 시작';
+    if (linuxButton) {
+      linuxButton.classList.toggle('hidden', state.platform.id !== 'win32');
+      linuxButton.textContent = '＋ 다른 Linux 컴퓨터에서 시작';
+    }
+    const tmuxButton = $('#newTmuxSessionBtn');
+    if (tmuxButton) tmuxButton.textContent = t('ui.create_tmux_workspace', {
+      computer: distro?.name || distro?.displayName || t('tmux.name_unknown'),
+    });
+    const tmuxTitle = $('#tmuxSelectedComputerTitle');
+    if (tmuxTitle && !/’에서 실행한 작업 \d+건$/.test(tmuxTitle.textContent || '')) {
+      tmuxTitle.textContent = '‘업무용 컴퓨터 2’에서 실행한 작업';
+    }
+    const tmuxCreateTitle = $('#tmuxCreateTitle');
+    if (tmuxCreateTitle) tmuxCreateTitle.textContent = t('ui.create_multi_window_workspace', {
+      computer: distro?.name || distro?.displayName || t('tmux.name_unknown'),
+    });
     const explain = $('#terminalPlatformExplain');
     if (explain) explain.textContent = state.platform.id === 'win32'
       ? t('terminal.platform.windows_description')
@@ -632,8 +659,9 @@
       disableStdin: readOnly,
       convertEol: readOnly,
       screenReaderMode: true,
-      fontFamily: '"Cascadia Code", Consolas, monospace',
+      fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, "D2Coding", monospace',
       fontSize: state.terminalFontSize,
+      letterSpacing: -2,
       lineHeight: state.terminalFontSize >= 17 ? 1.32 : 1.28,
       scrollback: 10_000,
       theme: {
@@ -651,10 +679,10 @@
   }
 
   const {
-    createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux,
+    createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput,
   } = window.LoadToAgentTerminalWorkbench({
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
-    renderHistoryPanel, terminalTypeMark, terminalTypeLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
+    renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench,
     syncComposer: (...args) => composer?.sync(...args),
     tmuxRows: (...args) => tmuxRows(...args),
@@ -671,7 +699,7 @@
     tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, resetForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
-    renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, esc,
+    renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
     syncComposer: (...args) => composer?.sync(...args),
   });
 
@@ -704,6 +732,7 @@
       moveSessionByOffset,
       setTerminalFontSize,
       toggleTerminalFocusMode,
+      focusComputerWorkInput,
       isAiTerminalSession,
       composer,
     });

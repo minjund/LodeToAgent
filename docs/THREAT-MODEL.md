@@ -30,8 +30,9 @@ account is out of scope.
 - Update substitution: repository/HTTPS allow-list, exact versioned filenames,
   and mandatory SHA-256 digest. Production channels additionally require
   Authenticode or Gatekeeper signature verification and signed/notarized
-  release builds. The explicit internal macOS channel may accept unsigned DMGs
-  and clear quarantine only on the staged application bundle.
+  release builds. The explicit internal channel may accept an unsigned Windows
+  installer or macOS DMG after those checks and clears quarantine only on the
+  staged macOS application bundle.
 - Sensitive-data accumulation: 30-day default expiry for completed managed runs
   and terminal history, bounded replay, and restrictive POSIX permissions.
 - Supply-chain compromise: lockfile installs, pinned CI actions, production

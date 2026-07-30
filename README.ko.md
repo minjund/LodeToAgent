@@ -181,7 +181,7 @@ AI별 이벤트 매핑과 컨텍스트 계산 원칙은 [Provider Contracts](doc
 
 ## 보안과 로컬 데이터
 
-렌더러는 샌드박스에서 실행됩니다. 앱 내 업데이트는 신뢰된 GitHub Release URL과 SHA-256 digest를 검증하며, 정식 배포 채널은 운영체제 서명도 요구합니다. 현재 내부 테스트 채널의 macOS 업데이트는 unsigned DMG를 허용하고 설치할 앱에서만 quarantine 속성을 제거합니다. 완료된 관리 실행과 터미널 기록은 기본 30일 후 만료됩니다. 자세한 내용은 [보안 정책](SECURITY.md), [위협 모델](docs/THREAT-MODEL.md), [데이터 보존 정책](docs/DATA-RETENTION.md)을 참고하세요.
+렌더러는 샌드박스에서 실행됩니다. 앱 내 업데이트는 신뢰된 GitHub Release URL, 파일명, 크기, SHA-256 digest를 검증하며, 정식 배포 채널은 운영체제 서명도 요구합니다. 현재 내부 테스트 채널은 이 검증을 통과한 unsigned Windows 설치 파일과 macOS DMG를 허용하며, macOS에서는 설치할 앱에서만 quarantine 속성을 제거합니다. 완료된 관리 실행과 터미널 기록은 기본 30일 후 만료됩니다. 자세한 내용은 [보안 정책](SECURITY.md), [위협 모델](docs/THREAT-MODEL.md), [데이터 보존 정책](docs/DATA-RETENTION.md)을 참고하세요.
 
 ## 릴리스
 

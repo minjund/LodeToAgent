@@ -82,7 +82,7 @@ function makeSession(id, provider, opts) {
     cwd: opts.cwd,
     branch: '',
     status: 'starting',
-    statusDetail: 'CLI 시작 중',
+    statusDetail: 'AI 프로그램 시작 중',
     startedAt: now,
     updatedAt: now,
     endedAt: null,
@@ -174,8 +174,8 @@ function handleClaude(state, event) {
     state.externalId = event.session_id || state.externalId;
     state.model = event.model || state.model;
     state.status = 'running';
-    state.statusDetail = '에이전트 루프 실행 중';
-    addLifecycle(state, 'session-start', '세션 시작', { id: 'session-start', status: 'done' });
+    state.statusDetail = 'AI 반복 작업 중';
+    addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start', status: 'done' });
   }
   if (event.type === 'stream_event') {
     const inner = event.event || {};
@@ -217,7 +217,7 @@ function handleClaude(state, event) {
       if (existing) existing.status = 'done';
       else addMessage(state, 'assistant', resultText, { id: 'final-result', status: 'done' });
     }
-    addLifecycle(state, state.status === 'failed' ? 'error' : 'session-end', state.status === 'failed' ? '실행 실패' : '세션 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
+    addLifecycle(state, state.status === 'failed' ? 'error' : 'session-end', state.status === 'failed' ? '실행 실패' : '작업 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
   }
 }
 
@@ -262,8 +262,8 @@ function handleGemini(state, event) {
     state.externalId = event.session_id || event.sessionId || state.externalId;
     state.model = event.model || state.model;
     state.status = 'running';
-    state.statusDetail = '세션 시작';
-    addLifecycle(state, 'session-start', '세션 시작', { id: 'session-start' });
+    state.statusDetail = '작업 시작';
+    addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start' });
   } else if (type === 'message') {
     const role = /assistant|model/.test(String(event.role || event.author || '').toLowerCase()) ? 'assistant' : 'user';
     addMessage(state, role, event.content || event.text || event.message, { id: event.id, status: event.delta ? 'streaming' : 'done' });
@@ -280,7 +280,7 @@ function handleGemini(state, event) {
     state.status = event.error ? 'failed' : 'completed';
     state.statusDetail = event.error ? clip(event.error, 220) : '작업 완료';
     state.endedAt = new Date().toISOString();
-    addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '세션 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
+    addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '작업 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
   } else if (type === 'error') {
     addLifecycle(state, 'error', '경고 또는 오류', { id: event.id, detail: event.message || event.error, status: 'failed' });
   }
@@ -293,8 +293,8 @@ function handleGrok(state, event) {
   if (event.model) state.model = event.model;
   if (/init|session_start|started/.test(type)) {
     state.status = 'running';
-    state.statusDetail = '세션 실행 중';
-    addLifecycle(state, 'session-start', '세션 시작', { id: 'session-start' });
+    state.statusDetail = '작업 진행 중';
+    addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start' });
   }
   if (/message|agent_message|assistant/.test(type)) {
     const role = /user/.test(String(event.role || '')) ? 'user' : 'assistant';
@@ -313,7 +313,7 @@ function handleGrok(state, event) {
     state.status = event.error ? 'failed' : 'completed';
     state.statusDetail = event.error ? clip(event.error, 220) : '작업 완료';
     state.endedAt = new Date().toISOString();
-    addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '세션 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
+    addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '작업 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
   }
 }
 
@@ -366,7 +366,7 @@ class AgentRunner extends EventEmitter {
     if (!prompt) return { ok: false, error: '작업 내용을 입력하세요.' };
     if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) return { ok: false, error: '작업 폴더를 찾을 수 없습니다.' };
     const executable = findExecutable(PROVIDERS[provider].command);
-    if (!executable) return { ok: false, error: `${PROVIDERS[provider].label} CLI가 설치되어 있지 않습니다.` };
+    if (!executable) return { ok: false, error: `${PROVIDERS[provider].label} AI 프로그램이 설치되어 있지 않습니다.` };
 
     const id = runId();
     const dir = path.join(this.runsDir, id);
@@ -397,8 +397,8 @@ class AgentRunner extends EventEmitter {
     const run = { id, provider, dir, child, state, stdoutBuffer: '', stderrBuffer: '', stopping: false };
     this.active.set(id, run);
     state.status = 'running';
-    state.statusDetail = '구조화 이벤트 연결됨';
-    addLifecycle(state, 'process-start', 'CLI 프로세스 시작', { id: 'process-start', detail: `PID ${child.pid}`, status: 'running' });
+    state.statusDetail = '자세한 활동 기록 연결됨';
+    addLifecycle(state, 'process-start', 'AI 프로그램 시작', { id: 'process-start', detail: '프로그램 실행 중', status: 'running' });
     this.persist(run);
 
     child.stdout.on('data', chunk => this.consume(run, 'stdout', chunk));
@@ -406,7 +406,7 @@ class AgentRunner extends EventEmitter {
     child.on('error', error => {
       state.status = 'failed';
       state.statusDetail = error.message;
-      addLifecycle(state, 'error', '프로세스 오류', { id: 'process-error', detail: error.message, status: 'failed' });
+      addLifecycle(state, 'error', '실행 중인 프로그램 오류', { id: 'process-error', detail: error.message, status: 'failed' });
       this.persist(run);
     });
     child.on('close', (code, signal) => {
@@ -417,10 +417,10 @@ class AgentRunner extends EventEmitter {
         state.statusDetail = '사용자가 중지함';
       } else if (state.status === 'running' || state.status === 'starting' || state.status === 'paused') {
         state.status = code === 0 ? 'completed' : 'failed';
-        state.statusDetail = code === 0 ? '작업 완료' : `CLI 종료 코드 ${code}${signal ? ` · ${signal}` : ''}`;
+        state.statusDetail = code === 0 ? '작업 완료' : 'AI 프로그램 실행 실패';
       }
       state.endedAt = new Date().toISOString();
-      addLifecycle(state, 'process-end', state.status === 'completed' ? '프로세스 완료' : (state.status === 'cancelled' ? '프로세스 중지' : '프로세스 실패'), { id: 'process-end', detail: state.statusDetail, status: state.status === 'completed' ? 'done' : 'failed' });
+      addLifecycle(state, 'process-end', state.status === 'completed' ? '프로그램 실행 완료' : (state.status === 'cancelled' ? '프로그램 실행 중지' : '프로그램 실행 실패'), { id: 'process-end', detail: state.statusDetail, status: state.status === 'completed' ? 'done' : 'failed' });
       this.persist(run);
       this.active.delete(id);
       this.emit('changed', { runId: id, state });
@@ -458,7 +458,7 @@ class AgentRunner extends EventEmitter {
       else if (run.provider === 'gemini') handleGemini(run.state, event);
       else handleGrok(run.state, event);
     } else if (stream === 'stderr') {
-      addLifecycle(run.state, 'log', 'CLI 상태', { detail: clip(line, 500), status: 'running' });
+      addLifecycle(run.state, 'log', 'AI 프로그램 상태', { detail: clip(line, 500), status: 'running' });
       if (/error|failed|fatal/i.test(line)) run.state.statusDetail = clip(line, 240);
     }
     run.state.updatedAt = new Date().toISOString();
@@ -488,7 +488,7 @@ class AgentRunner extends EventEmitter {
 
   retry(id) {
     const runIdValue = String(id || '');
-    if (!/^[a-z0-9-]{4,120}$/i.test(runIdValue)) return { ok: false, error: '다시 실행할 작업 ID가 올바르지 않습니다.' };
+    if (!/^[a-z0-9-]{4,120}$/i.test(runIdValue)) return { ok: false, error: '다시 시작할 작업 정보가 올바르지 않습니다.' };
     if (this.active.has(runIdValue)) return { ok: false, error: '아직 실행 중인 작업은 다시 실행할 수 없습니다.' };
     const file = path.join(this.runsDir, runIdValue, 'meta.json');
     let meta;

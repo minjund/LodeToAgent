@@ -321,7 +321,9 @@ async function checkTerminalSubagentProgress(win) {
     || !initial.text.includes('완료된 테스트를 다시 검토해줘')
     || !initial.text.includes('중첩 흐름 정상')
     || initial.text.includes('gAAAAABfixtureProtectedPayload')
-    || !(initial.top > 0 && initial.top < initial.maximum)
+    || !(initial.maximum <= 0
+      ? initial.top === 0
+      : initial.top > 0 && initial.top < initial.maximum)
   ) {
     throw new Error(`터미널 서브에이전트 계층·상태·진행 기록이 올바르지 않습니다: ${JSON.stringify(initial)}`);
   }

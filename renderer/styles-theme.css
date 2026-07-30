@@ -1067,6 +1067,12 @@ html[data-theme="light"] .provider-filter {
   background: #f2f4f7;
 }
 
+html[data-theme="light"] .mobile-provider-filter select {
+  border-color: #cfd8e3;
+  background: #ffffff;
+  color: #1f2d3d;
+}
+
 html[data-theme="light"] .provider-filter-chip {
   border-color: transparent;
   background: transparent;

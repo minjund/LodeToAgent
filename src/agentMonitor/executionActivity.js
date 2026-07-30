@@ -112,14 +112,14 @@ function executionInput(name, args = {}, rawInput = '') {
 function runtimeLabel(activity) {
   const command = String(activity.command || '');
   const value = `${activity.tool || ''} ${command}`.toLowerCase();
-  if (/\bpowershell\b|\bpwsh\b/.test(value)) return 'PowerShell';
+  if (/\bpowershell\b|\bpwsh\b/.test(value)) return 'Windows 명령창';
   if (/(?:^|[;&|]\s*)(?:get|set|new|start|stop|remove|select|where|resolve|join|test|write|convert(?:to|from)|invoke|format)-[a-z][\w-]*/im.test(command)
     || /\[(?:pscustomobject|system\.[\w.]+)\]/i.test(command)
     || /(?:^|\s)-(?:literalpath|erroraction|expandproperty|windowstyle|passthru)\b/i.test(command)
-    || /\.ps1(?:\s|$)/i.test(command)) return 'PowerShell';
-  if (/\bcmd(?:\.exe)?\b/.test(value)) return 'Command Prompt';
-  if (/\bbash\b/.test(value)) return 'Bash';
-  return activity.kind === 'shell' ? 'Shell' : 'Background';
+    || /\.ps1(?:\s|$)/i.test(command)) return 'Windows 명령창';
+  if (/\bcmd(?:\.exe)?\b/.test(value)) return 'Windows 명령창';
+  if (/\bbash\b/.test(value)) return 'Linux 명령창';
+  return activity.kind === 'shell' ? '명령창' : '화면 밖에서 계속되는 작업';
 }
 
 function firstCommandLine(value, fallback = '') {
@@ -205,11 +205,11 @@ function createExecutionTracker(options = {}) {
       mode: input.mode,
       tool: input.tool,
       runtime: '',
-      label: compactText(input.description || firstCommandLine(input.command, input.kind === 'shell' ? '셸 명령' : '백그라운드 작업'), 180),
+      label: compactText(input.description || firstCommandLine(input.command, input.kind === 'shell' ? '명령창 명령' : '화면 밖에서 계속되는 작업'), 180),
       command: compactText(input.command, 1200),
       cwd: compactText(input.cwd, 360),
       status: 'running',
-      statusDetail: input.mode === 'background' ? '백그라운드 실행 시작' : '포그라운드 실행 시작',
+      statusDetail: input.mode === 'background' ? '화면 밖에서 계속 실행 시작' : '화면에 열린 명령 실행 시작',
       output: '',
       backgroundId: '',
       backgroundIdType: '',
@@ -261,13 +261,13 @@ function createExecutionTracker(options = {}) {
     if (status === 'running') {
       activity.mode = 'background';
       activity.statusDetail = handle && handle.id
-        ? `백그라운드 ${handle.type} ${handle.id}`
-        : '백그라운드에서 계속 실행 중';
+        ? `화면 밖에서 계속되는 작업 ${handle.id}`
+        : '화면 밖에서 계속 실행 중';
     } else {
       activity.completedAt = activity.updatedAt;
       activity.statusDetail = status === 'failed'
-        ? (code == null ? '실행 실패' : `종료 코드 ${code}`)
-        : (code == null ? '실행 완료' : `종료 코드 ${code}`);
+        ? '프로그램 실행 실패'
+        : '프로그램 실행 완료';
     }
     continuations.delete(String(callId || ''));
     return activity;
@@ -306,8 +306,8 @@ function reconcileExecutionActivities(activities = [], options = {}) {
       ...activity,
       status: 'unverified',
       statusDetail: foregroundEnded
-        ? '턴 종료 후 실행 상태 미확인'
-        : '최근 실행 신호 없음',
+        ? '요청 처리는 끝났지만 실행 상태를 확인하지 못함'
+        : '최근 실행 활동이 확인되지 않음',
       completedAt: null,
     };
   });

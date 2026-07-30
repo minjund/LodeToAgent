@@ -8,7 +8,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     sendCommand, currentTargetId, sendSignal, currentSession, guarded, renderAll, showSelection,
     refreshSessions, renderHistoryPanel, fitEntry, attachTmux, currentTmux, manageTmux,
     closeTmuxModal, errorMessage, notice, reorderSession, moveSessionByOffset,
-    setTerminalFontSize, toggleTerminalFocusMode,
+    setTerminalFontSize, toggleTerminalFocusMode, focusComputerWorkInput,
     isAiTerminalSession,
     composer,
   } = context;
@@ -69,6 +69,22 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#newWslBtn').addEventListener('click', event => runBusy(event.currentTarget, () => createTerminal('wsl')));
     $('#newTmuxSessionBtn').addEventListener('click', openTmuxModal);
     $('#refreshTmuxTerminalBtn').addEventListener('click', event => runBusy(event.currentTarget, refreshSnapshot));
+    $('#terminalModeComputerBtn')?.addEventListener('click', async () => {
+      const target = state.sessions.find(session => session.type !== 'agent' && session.type !== 'tmux'
+        && ['running', 'starting'].includes(session.status));
+      if (target) await selectSession(target.id);
+      $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'true');
+      $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'false');
+      focusComputerWorkInput();
+    });
+    $('#terminalModeQuestionBtn')?.addEventListener('click', async () => {
+      const target = state.sessions.find(session => session.type === 'agent'
+        && ['running', 'starting'].includes(session.status));
+      if (target) await selectSession(target.id);
+      $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'false');
+      $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'true');
+      document.querySelector('#terminalWorkbench [data-agent-command-draft]')?.focus({ preventScroll: true });
+    });
     const sessionList = $('#terminalSessionList');
     const historyList = $('#terminalHistoryList');
     const cancelHistoryFollow = () => {
@@ -105,8 +121,32 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         item.setAttribute('aria-grabbed', 'false');
       });
     };
-    sessionList.addEventListener('click', event => {
+    sessionList.addEventListener('click', async event => {
       if (state.sessionDragJustEnded) return;
+      const failureCause = event.target.closest('[data-terminal-failure-cause]');
+      if (failureCause) {
+        const session = state.sessions.find(item => item.id === failureCause.dataset.terminalFailureCause);
+        await selectSession(failureCause.dataset.terminalFailureCause);
+        notice(t('terminal.failure.cause_message', {
+          reason: errorMessage(session?.error || session?.statusDetail || t('terminal.failure.unknown')),
+        }), 'error');
+        return;
+      }
+      const reopen = event.target.closest('[data-terminal-restart-inline]');
+      if (reopen) {
+        const id = reopen.dataset.terminalRestartInline;
+        const restarted = await runBusy(reopen, () => guarded(
+          () => window.loadtoagent.terminalRestart(id),
+          t('terminal.session.restarted'),
+          `terminal-restart:${id}`,
+        ));
+        if (restarted) {
+          await refreshSessions();
+          await selectSession(id);
+          renderAll();
+        }
+        return;
+      }
       const item = event.target.closest('[data-terminal-id]');
       if (item) selectSession(item.dataset.terminalId);
     });
@@ -211,14 +251,14 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       $('#terminalCommandForm button[type="submit"]').disabled = true;
       $('#terminalCommandClearBtn').classList.add('hidden');
       $('#terminalCommandCount').classList.remove('warning');
-      $('#terminalCommandCount').textContent = '0 / 8,000';
+      $('#terminalCommandCount').textContent = t('terminal.composer.count', { count: 0 });
       composer?.sync();
       input.focus({ preventScroll: true });
     });
     $('#terminalCommandInput').addEventListener('input', event => {
       const targetId = currentTargetId();
       if (targetId) state.commandDrafts.set(targetId, event.target.value);
-      $('#terminalCommandCount').textContent = `${event.target.value.length.toLocaleString()} / 8,000`;
+      $('#terminalCommandCount').textContent = t('terminal.composer.count', { count: event.target.value.length.toLocaleString() });
       $('#terminalCommandClearBtn').classList.toggle('hidden', !event.target.value);
       const count = $('#terminalCommandCount');
       const wasWarning = count.dataset.warning === 'true';
@@ -257,7 +297,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       state.commandHistoryNavigation = navigation;
       state.commandDrafts.set(targetId, event.currentTarget.value);
       $('#terminalCommandClearBtn').classList.toggle('hidden', !event.currentTarget.value);
-      $('#terminalCommandCount').textContent = `${event.currentTarget.value.length.toLocaleString()} / 8,000`;
+      $('#terminalCommandCount').textContent = t('terminal.composer.count', { count: event.currentTarget.value.length.toLocaleString() });
       $('#terminalCommandForm button[type="submit"]').disabled = state.commandSending
         || event.currentTarget.disabled
         || !event.currentTarget.value.trim();
@@ -275,7 +315,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       state.commandHistoryNavigation = { targetId, index: -1, draft: '' };
       $('#terminalCommandForm button[type="submit"]').disabled = true;
       $('#terminalCommandClearBtn').classList.add('hidden');
-      $('#terminalCommandCount').textContent = '0 / 8,000';
+      $('#terminalCommandCount').textContent = t('terminal.composer.count', { count: 0 });
       $('#terminalCommandCount').classList.remove('warning');
       composer?.sync();
       input.focus({ preventScroll: true });
@@ -283,6 +323,9 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#terminalFontDecreaseBtn').addEventListener('click', () => setTerminalFontSize(state.terminalFontSize - 1));
     $('#terminalFontIncreaseBtn').addEventListener('click', () => setTerminalFontSize(state.terminalFontSize + 1));
+    $('#terminalComputerInputBtn').addEventListener('click', () => {
+      if (!focusComputerWorkInput()) notice(t('ui.select_a_session_on_the_left_first'), 'warning');
+    });
     $('#terminalFocusBtn').addEventListener('click', toggleTerminalFocusMode);
     document.querySelectorAll('[data-terminal-signal]').forEach(button => button.addEventListener('click', () => sendSignal(button.dataset.terminalSignal)));
     $('#terminalRestartBtn').addEventListener('click', async event => {

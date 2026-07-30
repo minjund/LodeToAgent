@@ -22,7 +22,11 @@ if (process.env.LOADTOAGENT_ALLOW_UNSIGNED === 'true') {
 }
 
 const systemRoot = process.env.SystemRoot || 'C:\\Windows';
-const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const programFiles = process.env.ProgramW6432 || process.env.ProgramFiles || 'C:\\Program Files';
+const powershell7 = path.join(programFiles, 'PowerShell', '7', 'pwsh.exe');
+const powershell = fs.existsSync(powershell7)
+  ? powershell7
+  : path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 for (const artifact of artifacts) {
   const script = [
     "$signature = Get-AuthenticodeSignature -LiteralPath $env:LOADTOAGENT_ARTIFACT",

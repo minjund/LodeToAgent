@@ -23,14 +23,14 @@ function runCommand(command, args = []) {
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       if (code === 0) resolve();
-      else reject(new Error(`${path.basename(command)} 종료 코드: ${code == null ? signal : code}`));
+      else reject(new Error(`${path.basename(command)} 프로그램 실행에 실패했습니다.`));
     });
   });
 }
 
 async function waitForParentExit(parentPid, options = {}) {
   const pid = Number(parentPid);
-  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('종료를 기다릴 앱 프로세스 정보가 올바르지 않습니다.');
+  if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('종료를 기다릴 프로그램 정보가 올바르지 않습니다.');
   const processExists = options.processExists || (candidate => {
     try {
       process.kill(candidate, 0);
@@ -87,7 +87,7 @@ async function installMacUpdate(options = {}) {
   const targetParent = path.dirname(targetApp);
   const targetName = path.basename(targetApp);
   let mountPath = String(options.mountPath || '');
-  if (!dmgPath || !targetApp || !logPath) throw new Error('macOS 업데이트에 필요한 경로가 비어 있습니다.');
+  if (!dmgPath || !targetApp || !logPath) throw new Error('macOS 업데이트에 필요한 파일 주소가 비어 있습니다.');
   if (!await pathIsDirectory(targetApp, fileSystem)) throw new Error('현재 설치된 앱 번들을 찾지 못했습니다.');
   if (!mountPath) mountPath = await fileSystem.mkdtemp(path.join(os.tmpdir(), 'loadtoagent-update-'));
   const stagedApp = path.join(targetParent, `.${targetName}.update-${operationId}`);

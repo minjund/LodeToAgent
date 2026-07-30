@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
+app.disableHardwareAcceleration();
 
 const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-theme-'));
 app.setPath('userData', userData);
@@ -152,6 +153,8 @@ app.whenReady().then(async () => {
       for (const view of ['all', 'active', 'waiting', 'runtime', 'terminal', 'tmux', 'settings']) {
         await win.webContents.executeJavaScript(`(() => {
           window.LoadToAgentApp.selectView(${JSON.stringify(view)});
+          window.LoadToAgentApp.state.guideCompleted.clear();
+          window.LoadToAgentApp.render();
           document.querySelector('.main-stage')?.scrollTo(0, 0);
           return true;
         })()`);

@@ -63,7 +63,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     disclosureStates: new Map(),
     guideCompleted: new Set(),
     guideExpanded: false,
-    platform: { id: "win32", label: "Windows", localShell: "powershell", localShellLabel: t("terminal.windows_shell"), nativeTmux: false },
+    platform: { id: "win32", label: "Windows", computerName: "이 컴퓨터", localShell: "powershell", localShellLabel: t("terminal.windows_shell"), nativeTmux: false },
   };
   Object.defineProperty(state, "provider", {
     enumerable: true,
@@ -182,7 +182,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   });
   const VIEW_META_KEYS = {
     all: ["ui.ai_work_overview", "ui.see_all_ai_work_at_a_glance", "ui.active_work_and_items_needing_your_review_appear_first_find"],
-    active: ["ui.active_now", "ui.see_which_ai_is_working_now", "ui.see_what_is_being_handled_then_open_a_task_for"],
+    active: ["memory.eyebrow", "ui.see_which_ai_is_working_now", "ui.see_what_is_being_handled_then_open_a_task_for"],
     waiting: ["ui.your_turn", "ui.handle_items_that_need_your_review_first", "ui.only_tasks_waiting_for_your_response_or_choice_are_shown"],
     runtime: ["runtime.eyebrow", "runtime.title", "runtime.description"],
     terminal: ["ui.continue_an_existing_conversation", "ui.continue_ai_sessions_in_the_terminal", "ui.continue_the_same_task_with_its_previous_conversation_beside_the"],
@@ -229,7 +229,9 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     progress.setAttribute("aria-valuenow", String(completed));
     $("#guideButtonProgress").textContent = completed === GUIDE_STEPS.length
       ? window.LoadToAgentI18n.t("ui.basics_completed")
-      : window.LoadToAgentI18n.t("common.progress", { current: completed, total: GUIDE_STEPS.length });
+      : completed === 0
+        ? window.LoadToAgentI18n.t("guide.progress_none", { total: GUIDE_STEPS.length })
+        : window.LoadToAgentI18n.t("common.progress", { current: completed, total: GUIDE_STEPS.length });
     $("#guideProgressText").textContent =
       completed === GUIDE_STEPS.length
         ? window.LoadToAgentI18n.t("ui.you_completed_the_basics_you_can_reopen_this_guide_anytime")
@@ -245,7 +247,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function syncViewChrome() {
     const meta = VIEW_META[state.view] || VIEW_META.all;
     document.body.dataset.currentView = state.view;
-    $("#pageEyebrow").textContent = meta.eyebrow;
+    $("#pageEyebrow").textContent = state.view === "active" ? "" : meta.eyebrow;
+    $("#pageEyebrow").classList.toggle("hidden", state.view === "active");
     $("#pageTitle").textContent = meta.title;
     $("#pageSubtitle").textContent = meta.subtitle;
     document.title = `${VIEW_TITLES[state.view] || "LoadToAgent"} · LoadToAgent`;
@@ -258,6 +261,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const advancedView = ["terminal", "tmux", "settings"].includes(state.view);
     const advancedToolsView = ["runtime", "terminal", "tmux"].includes(state.view);
     if (advancedToolsView) $("#advancedToolsNav")?.setAttribute("open", "");
+    else if (!advancedView) $("#advancedToolsNav")?.removeAttribute("open");
     $("#advancedToolsNav")?.classList.toggle("active", advancedToolsView);
     $("#mobileMoreBtn")?.classList.toggle("active", advancedView);
     if (advancedView) $("#mobileMoreBtn")?.setAttribute("aria-current", "page");
@@ -282,6 +286,25 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     }
     $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
     document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+    if (window.matchMedia("(min-width: 721px)").matches) {
+      const sidebar = document.querySelector(".sidebar");
+      if (sidebar) {
+        if (!sidebar.dataset.horizontalScrollLocked) {
+          sidebar.dataset.horizontalScrollLocked = "true";
+          sidebar.addEventListener("scroll", () => {
+            if (sidebar.scrollLeft !== 0) sidebar.scrollLeft = 0;
+          }, { passive: true });
+        }
+        const resetSidebar = () => sidebar.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        resetSidebar();
+        requestAnimationFrame(() => {
+          resetSidebar();
+          requestAnimationFrame(resetSidebar);
+        });
+        setTimeout(resetSidebar, 120);
+        setTimeout(resetSidebar, 320);
+      }
+    }
     if (options.focusMain) $("#mainContent")?.focus({ preventScroll: true });
     const resultCount = ["all", "active", "waiting"].includes(view) && typeof context.filteredSessions === "function"
       ? context.filteredSessions().length
@@ -369,6 +392,12 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState, announce };
   function readablePreview(value, maxCharacters = 120) {
     const full = String(value == null ? "" : value)
+      .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+      .replace(/^\s*[-*+]\s+/gm, "")
+      .replace(/^\s*\d+\.\s+/gm, "")
+      .replace(/[*_~`>|]/g, "")
       .replace(/\s+/g, " ")
       .trim();
     if (full.length <= maxCharacters) return { full, text: full, truncated: false };
@@ -493,7 +522,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const disclosureKey = `roadmap:${disclosureId || `${text.length}:${title}`}`;
     return `<details class="chat-roadmap" data-roadmap-collapsed="true" data-disclosure-key="${esc(disclosureKey)}">
       <summary>
-      <span class="chat-roadmap-mark" aria-hidden="true">MAP</span>
+      <span class="chat-roadmap-mark" aria-hidden="true">계획</span>
       <span>
       <b>${esc(title)}</b>
       <small>${esc(t("content.roadmap.collapsed", { count: countLabel }))}</small>
@@ -531,6 +560,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function compact(value) {
     const n = Number(value || 0);
+    if (uiLocale().startsWith("ko")) {
+      if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(n >= 1_000_000_000 ? 0 : 1)}억`;
+      if (n >= 10_000) return `${(n / 10_000).toFixed(n >= 100_000 ? 0 : 1)}만`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}천`;
+    }
     if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(n >= 10_000_000_000 ? 0 : 1)}B`;
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 100_000 ? 0 : 1)}K`;

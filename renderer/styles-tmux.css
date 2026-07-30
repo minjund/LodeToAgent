@@ -38,8 +38,9 @@
 }
 
 .tmux-logo {
-  width: 48px;
+  width: 82px;
   height: 48px;
+  flex: 0 0 82px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(80,214,178,.34);
@@ -47,14 +48,18 @@
   background: rgba(52,207,165,.08);
   color: #69e4ba;
   font-family: "Cascadia Code",Consolas,monospace;
-  font-size: 12px;
+  padding-inline: 5px;
+  font-size: 10px;
+  line-height: 1.25;
+  text-align: center;
+  word-break: keep-all;
   font-weight: 700;
   box-shadow: 0 0 24px rgba(52,207,165,.08);
 }
 
 .tmux-stats {
   display: grid;
-  grid-template-columns: repeat(6,minmax(0,1fr));
+  grid-template-columns: repeat(3,minmax(0,1fr));
   margin-top: 20px;
   border: 1px solid #21313a;
   border-radius: 13px;
@@ -73,10 +78,12 @@
 }
 
 .tmux-stats strong {
-  display: inline-block;
+  display: block;
   margin-top: 5px;
   color: #e5edf4;
-  font-size: 22px;
+  font-size: clamp(15px,1.25vw,19px);
+  line-height: 1.45;
+  word-break: keep-all;
 }
 
 .tmux-stats .accent strong {
@@ -164,15 +171,20 @@
 }
 
 .tmux-distro-node>span {
-  width: 38px;
+  width: 58px;
+  flex: 0 0 58px;
   height: 38px;
   display: grid;
   place-items: center;
   border-radius: 9px;
   background: #12342d;
   color: #69e6ba;
-  font-size: 12px;
+  padding-inline: 5px;
+  font-size: 10px;
   font-weight: 800;
+  line-height: 1.25;
+  text-align: center;
+  word-break: keep-all;
 }
 
 .tmux-distro-node>div {
@@ -870,6 +882,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   border-top: 1px solid #1c2731;
   background: rgba(5,9,13,.5);
@@ -883,12 +896,17 @@
 .tmux-pane-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: stretch;
   gap: 4px;
+  width: 100%;
 }
 
 .tmux-pane-node footer .tmux-pane-actions button {
-  height: 28px;
+  flex: 1 1 0;
+  min-height: 32px;
+  height: auto;
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .tmux-pane-node footer .tmux-pane-actions button:first-child {

@@ -214,6 +214,8 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
   const managementFilterLabel = value => {
     if (value === "all") return window.LoadToAgentI18n.t("management.filter_all");
     if (value === "optional") return window.LoadToAgentI18n.t("management.attention.optional");
+    if (value === "answer") return window.LoadToAgentI18n.t("management.filter_answer", { count: "" });
+    if (value === "approval") return window.LoadToAgentI18n.t("management.filter_approval", { count: "" });
     return window.LoadToAgentI18n.t(`management.health.${value}`);
   };
   const announceManagementFilter = value => announce(window.LoadToAgentI18n.t("management.filter_results", {
@@ -411,6 +413,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     });
     $("#sessionGrid").addEventListener("click", (event) => {
       if (sessionDragJustEnded) return;
+      if (event.target.closest(".memory-record-lineage")) return;
       const card = event.target.closest("[data-session-id]");
       if (card) openDrawer(card.dataset.sessionId);
     });
@@ -596,6 +599,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       if (control) {
         event.stopPropagation();
         window.LoadToAgentTerminal?.selectTmuxById(control.dataset.controlTmux);
+        $("#tmuxControlSection").classList.add("is-open");
         $("#tmuxControlSection").scrollIntoView({ behavior: "smooth", block: "start" });
         return;
       }

@@ -5,10 +5,25 @@ const { enrichSession } = require('../src/sessionIntelligence');
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const now = new Date().toISOString();
+const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+const lastDaily = (hour, minute = 0) => {
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  if (date > new Date()) date.setDate(date.getDate() - 1);
+  return date.toISOString();
+};
 const nextDaily = (hour, minute = 0) => {
   const date = new Date();
   date.setHours(hour, minute, 0, 0);
   if (date <= new Date()) date.setDate(date.getDate() + 1);
+  return date.toISOString();
+};
+const nextWeekday = (weekday, hour, minute = 0) => {
+  const date = new Date();
+  date.setHours(hour, minute, 0, 0);
+  const daysAhead = (weekday - date.getDay() + 7) % 7;
+  date.setDate(date.getDate() + daysAhead);
+  if (date <= new Date()) date.setDate(date.getDate() + 7);
   return date.toISOString();
 };
 
@@ -30,7 +45,7 @@ const providers = [
     docs: 'https://example.test/grok',
   },
   {
-    id: 'codex', label: 'GPT · Codex', company: 'OpenAI', accent: '#4fd1a7', mark: 'Cx', installed: true,
+    id: 'codex', label: 'GPT 코딩 도우미', company: 'OpenAI', accent: '#4fd1a7', mark: 'Cx', installed: true,
     docs: 'https://example.test/codex',
   },
 ];
@@ -43,18 +58,18 @@ const messages = [
 ];
 
 const rootSession = {
-  id: 'fixture-root', externalId: 'fixture-root-external', provider: 'claude', model: 'claude-fixture',
-  title: '현재 프로그램의 모든 화면에서 긴 사용자 요청이 카드 전체를 밀어내지 않도록 지금 목표를 읽기 좋은 길이로 요약하고 원문은 상세 대화에 보존하면서 작은 화면과 큰 화면 모두에서 버튼과 상태 정보가 안정적으로 보이게 상호작용을 검증해줘', cwd: 'D:\\fixture', originCwd: 'D:\\fixture', workspace: 'fixture', status: 'running',
-  statusDetail: '버튼 동작을 확인하는 중', updatedAt: now, parentId: null, childIds: ['fixture-child', 'fixture-resting'],
+  id: 'fixture-root', externalId: 'fixture-root-external', provider: 'claude', model: 'Claude',
+  title: '화면 설명과 버튼을 쉽게 개선하기', shortTitle: '화면 개선 결과를 확인하고 필요한 문구 수정', displayName: '화면 개선 결과를 확인하고 필요한 문구 수정', cwd: 'D:\\fixture', originCwd: 'D:\\fixture', workspace: '화면 개선 작업', status: 'running',
+  statusDetail: '화면 개선 결과를 확인하고 필요한 문구를 수정하는 중', startedAt: lastDaily(22), updatedAt: now, parentId: null, childIds: ['fixture-child', 'fixture-resting'],
   messages, usage, turnUsage: usage, context, runId: 'fixture-run',
-  lifecycle: [{ type: 'start', status: 'running', label: '검증 시작', detail: 'DOM 이벤트 확인', timestamp: now }],
+  lifecycle: [{ type: 'tool', status: 'running', label: '화면 개선 결과를 확인하고 필요한 문구를 수정하는 중', detail: '결과를 확인한 뒤 버튼 설명과 화면 배치를 수정', timestamp: now }],
   executions: [
-    { id: 'fixture-shell-running', callId: 'fixture-shell-running', kind: 'shell', mode: 'background', tool: 'exec_command', runtime: 'PowerShell', label: '개발 서버 실행', command: 'npm run dev', cwd: 'D:\\fixture', status: 'running', statusDetail: '백그라운드 cell fixture-cell-1', output: '개발 서버가 http://localhost:4173 에서 실행 중입니다.', backgroundId: 'fixture-cell-1', backgroundIdType: 'cell', exitCode: null, startedAt: now, updatedAt: now, completedAt: null, source: 'tool-call' },
-    { id: 'fixture-shell-completed', callId: 'fixture-shell-completed', kind: 'shell', mode: 'foreground', tool: 'shell_command', runtime: 'PowerShell', label: '회귀 테스트', command: 'npm test', cwd: 'D:\\fixture', status: 'completed', statusDetail: '종료 코드 0', output: '128개 테스트 통과\n실패 0개', backgroundId: '', backgroundIdType: '', exitCode: 0, startedAt: now, updatedAt: now, completedAt: now, source: 'tool-call' },
-    { id: 'fixture-background-running', callId: 'fixture-background-running', kind: 'background', mode: 'background', tool: 'background_job', runtime: 'Background', label: '인덱스 갱신', command: '', cwd: 'D:\\fixture', status: 'running', statusDetail: '백그라운드에서 계속 실행 중', output: '', backgroundId: 'fixture-task-2', backgroundIdType: 'task', exitCode: null, startedAt: now, updatedAt: now, completedAt: null, source: 'tool-call' },
+    { id: 'fixture-shell-running', callId: 'fixture-shell-running', kind: 'shell', mode: 'background', tool: 'exec_command', runtime: 'PowerShell', label: '프로그램 실행 작업', command: 'npm run dev', cwd: 'D:\\fixture', status: 'running', statusDetail: '다른 화면을 보고 있어도 계속 실행됨', output: '화면 미리보기가 실행 중입니다.', backgroundId: 'fixture-cell-1', backgroundIdType: 'cell', exitCode: null, startedAt: now, updatedAt: now, completedAt: null, source: 'tool-call' },
+    { id: 'fixture-shell-completed', callId: 'fixture-shell-completed', kind: 'shell', mode: 'foreground', tool: 'shell_command', runtime: 'PowerShell', label: '기존 기능 다시 확인', command: 'npm test', cwd: 'D:\\fixture', status: 'completed', statusDetail: '문제 없이 완료', output: '128개 테스트 통과\n실패 0개', backgroundId: '', backgroundIdType: '', exitCode: 0, startedAt: now, updatedAt: now, completedAt: now, source: 'tool-call' },
+    { id: 'fixture-background-running', callId: 'fixture-background-running', kind: 'background', mode: 'background', tool: 'background_job', runtime: 'Background', label: '화면 목록 새로 정리', command: '', cwd: 'D:\\fixture', status: 'running', statusDetail: '다른 화면을 보고 있어도 계속 실행됨', output: '', backgroundId: 'fixture-task-2', backgroundIdType: 'task', exitCode: null, startedAt: now, updatedAt: now, completedAt: null, source: 'tool-call' },
   ],
-  runtimePresence: [{ kind: 'terminal', terminalId: 'terminal-main', pid: 41001, label: 'fixture terminal' }],
-  sourceLabel: '인메모리 테스트 기록',
+  runtimePresence: [{ kind: 'terminal', terminalId: 'terminal-main', pid: 41001, label: '내 컴퓨터에서 실행하는 작업' }],
+  sourceLabel: '화면 작업 기록',
   collaboration: {
     communications: [
       { id: 'resting-assignment', kind: 'assignment', label: '새 작업 배정', from: '/root', to: '/root/resting_check', taskName: 'resting_check', childId: 'fixture-resting', text: '완료된 테스트를 다시 검토해줘', timestamp: now },
@@ -67,14 +82,10 @@ const rootSession = {
 };
 
 const childSession = {
-  ...rootSession, id: 'fixture-child', externalId: 'fixture-child-external', provider: 'gpt', model: 'gpt-fixture',
-  title: '세션 관제 화면의 읽기 흐름과 개입 경로 검증', parentId: 'fixture-root', childIds: ['fixture-grandchild'], agentName: 'button-auditor', agentRole: 'tester',
-  statusDetail: '홈 화면과 대화 참여 경로를 냉정하게 검토하는 중',
-  responseIntent: {
-    category: 'required', required: true, optional: false,
-    requestText: '서브에이전트 내부 확인 문구는 상단 목록에 직접 노출하지 않아야 합니다.',
-    confidence: 'high', source: 'structured-input',
-  },
+  ...rootSession, id: 'fixture-child', externalId: 'fixture-child-external', provider: 'gpt', model: 'GPT',
+  title: '처음 보는 사람도 화면의 작업 흐름을 바로 이해하는지 확인', parentId: 'fixture-root', childIds: ['fixture-grandchild'], agentName: '화면 확인 AI', agentRole: 'tester',
+  statusDetail: '첫 화면과 대화 입력 방법을 확인하는 중',
+  responseIntent: { category: 'none', required: false, optional: false },
   messages: [
     { id: 'm-user', role: 'user', text: '상호작용 테스트를 진행해줘', timestamp: now },
     { id: 'm-assistant', role: 'assistant', text: '버튼과 입력 동작을 확인하고 있습니다.', timestamp: now },
@@ -85,7 +96,7 @@ const childSession = {
     taskName: 'control_room_audit',
     assignment: '홈 화면에서 메인 에이전트, 서브에이전트, PowerShell의 실행 흐름이 클릭 없이 보이는지 확인하고 대화 참여 경로까지 검증해줘.',
   },
-  runtimePresence: [{ kind: 'windows', pid: 41001, parentPid: 40000, label: '공유 메인 프로세스' }], executions: [], runId: '', collaboration: { communications: [
+  runtimePresence: [{ kind: 'windows', pid: 41006, parentPid: 40000, label: '공유 메인 프로세스' }], executions: [], runId: '', collaboration: { communications: [
     { id: 'nested-assignment', kind: 'assignment', label: '새 작업 배정', from: '/root/child', to: '/root/child/nested_check', taskName: 'nested_check', childId: 'fixture-grandchild', text: '하위 흐름을 검증해줘', timestamp: now },
     { id: 'nested-started', kind: 'started', label: '서브에이전트 실행 시작', from: 'Codex 런타임', to: '/root/child/nested_check', taskName: 'nested_check', childId: 'fixture-grandchild', text: 'started', timestamp: now },
     { id: 'nested-result', kind: 'result', label: '결과 반환', from: '/root/child/nested_check', to: '/root/child', taskName: 'nested_check', childId: 'fixture-grandchild', text: '중첩 흐름 정상', timestamp: now },
@@ -94,21 +105,21 @@ const childSession = {
 
 const grandchildSession = {
   ...childSession, id: 'fixture-grandchild', externalId: 'fixture-grandchild-external', provider: 'codex', model: 'gpt-fixture',
-  title: '중첩 서브에이전트 검증', taskName: 'nested_check', parentId: 'fixture-child', childIds: [], agentName: 'nested-auditor',
-  status: 'completed', statusDetail: '중첩 검증 완료', runtimePresence: [], runId: '',
+  title: '함께 작업하는 AI의 연결 상태 확인', taskName: 'nested_check', parentId: 'fixture-child', childIds: [], agentName: '연결 확인 AI',
+  status: 'completed', statusDetail: '연결 확인 완료', runtimePresence: [], runId: '',
   result: '중첩 흐름 정상', delegation: { taskName: 'nested_check', result: '중첩 흐름 정상' },
 };
 
 const restingSession = {
   ...childSession, id: 'fixture-resting', externalId: 'fixture-resting-external', provider: 'codex', model: 'gpt-fixture',
-  title: '쉬는 서브에이전트 검증', taskName: 'resting_check', parentId: 'fixture-root', childIds: [], agentName: 'resting-auditor',
-  status: 'completed', statusDetail: '작업을 마치고 쉬는 중', runtimePresence: [], runId: '',
+  title: '완료된 도움 작업 다시 확인', taskName: 'resting_check', parentId: 'fixture-root', childIds: [], agentName: '결과 확인 AI',
+  status: 'completed', statusDetail: '작업을 마치고 내 다음 요청을 기다리는 중', runtimePresence: [], runId: '',
   result: '검토 결과 이상이 없습니다.', delegation: { taskName: 'resting_check', result: '검토 결과 이상이 없습니다.' },
 };
 
 const endedSession = {
   ...rootSession, id: 'fixture-ended', externalId: 'fixture-ended-external', provider: 'gpt', model: 'gpt-fixture',
-  title: '완료된 대화 상세 검증', status: 'completed', statusDetail: '검증 완료', parentId: null, childIds: [],
+  title: '화면 개선 작업의 처리 기록', status: 'completed', statusDetail: '처리 완료 · 컴퓨터 작업 기록과 저장된 결과는 없음', parentId: null, childIds: [],
   runtimePresence: [], executions: [], runId: '',
   messages: [
     { id: 'ended-user', role: 'user', text: '이 요청은 상세 대화에서 생략하지 말고 전체 내용을 보여주되, AI가 만든 긴 로드맵은 처음부터 전부 펼치지 말고 읽기 좋은 형태로 정리해줘. 사용자 프롬프트가 길어져도 대화 흐름을 한눈에 읽을 수 있도록 처음 200자까지만 미리 보여주고 나머지는 전체 보기 버튼으로 확인할 수 있게 해줘. 전체 내용을 펼친 상태에서는 닫기 버튼으로 다시 간단히 접을 수 있어야 하고, 화면이 자동으로 새로고침되어도 사용자가 선택한 펼침 상태가 유지되어야 해. 또한 원문을 손실 없이 클립보드로 옮길 수 있도록 각 사용자 프롬프트마다 복사 버튼을 제공하고 실제 전체 문장이 복사되는지도 검증해줘.', timestamp: now },
@@ -133,12 +144,21 @@ const endedSession = {
 
 const waitingSession = {
   ...endedSession, id: 'fixture-waiting', externalId: 'fixture-waiting-external', provider: 'gemini',
-  title: '사용자 승인 대기 검증', status: 'waiting', statusDetail: '권한 승인 대기',
+  title: '왼쪽 메뉴 이름을 ‘내 요청’으로 바꾸는 것을 승인해 주세요.', status: 'waiting', statusDetail: '내 승인이 필요한 작업',
+  messages: [
+    { id: 'waiting-user', role: 'user', text: '화면 설명을 더 쉽게 바꿔 주세요.', timestamp: now },
+    { id: 'waiting-assistant', role: 'assistant', text: '바꿀 화면: 왼쪽 메뉴 · 현재 왼쪽 메뉴 이름: “답변·확인” · 새 왼쪽 메뉴 이름: “내 요청” · 바뀌는 위치: 왼쪽 메뉴, 하단 메뉴 · 기능 변경: 없음', timestamp: now },
+  ],
+  responseIntent: {
+    category: 'required', required: true, optional: false,
+    requestText: '왼쪽 메뉴 이름 “답변·확인”을 “내 요청”으로 바꾸려 합니다. 이대로 진행해도 될까요?',
+    confidence: 'high', source: 'assistant-message',
+  },
 };
 
 const optionalSession = {
   ...endedSession, id: 'fixture-optional', externalId: 'fixture-optional-external', provider: 'claude',
-  title: '선택적 문서화 제안 검증', status: 'idle', statusDetail: '다음 요청 대기',
+  title: '변경 내용을 글로 정리할지 답변이 필요한 작업', status: 'idle', statusDetail: '다음 요청 대기',
   responseIntent: {
     category: 'optional', required: false, optional: true,
     requestText: '원하시면 변경 내역도 문서화해 드릴까요?',
@@ -148,21 +168,31 @@ const optionalSession = {
 
 const failedSession = {
   ...endedSession, id: 'fixture-failed', externalId: 'fixture-failed-external', provider: 'codex',
-  title: '실패 후 다시 실행 검증', status: 'failed', statusDetail: '테스트 실패로 사용자 확인 필요',
+  title: 'GPT 코딩 도우미 작업의 완료 여부 확인', status: 'failed', statusDetail: '완료 여부를 자동으로 확인하지 못했습니다.',
   runId: 'fixture-failed-run', completionObserved: true,
 };
 
 const pausedSession = {
   ...rootSession, id: 'fixture-paused-run', externalId: 'fixture-paused-external', provider: 'claude',
-  title: '일시정지 실행 검증', status: 'paused', statusDetail: '사용자가 실행을 일시정지함',
+  title: '잠시 멈춘 화면 확인 작업', status: 'paused', statusDetail: '사용자가 작업을 잠시 멈춤',
   runId: 'fixture-paused-run', runtimePresence: [], executions: [], childIds: [],
 };
 
+const extraLiveNames = [
+  '설정 화면 설명 확인',
+  '버튼 이름 확인',
+  '자동 시작 화면 문구 확인',
+  '컴퓨터 작업 안내 확인',
+  '다른 컴퓨터의 관련 작업을 보여 주는 화면 설명 확인',
+  '지난 작업 검색 안내 확인',
+  '요청 분류 설명 확인',
+];
 const extraLiveSessions = Array.from({ length: 7 }, (_, index) => ({
   ...rootSession,
   id: `fixture-live-${index}`,
   externalId: `fixture-live-${index}-external`,
-  title: `추가 진행 작업 ${index + 1}`,
+  title: extraLiveNames[index],
+  shortTitle: extraLiveNames[index],
   childIds: [],
   runtimePresence: [],
   ...(index === 0 ? {
@@ -171,7 +201,17 @@ const extraLiveSessions = Array.from({ length: 7 }, (_, index) => ({
   } : {}),
   executions: [],
   runId: '',
-  loop: index < 5 ? { iteration: index + 1, phase: index === 0 ? 'act' : 'observe' } : null,
+  loop: index < 5 ? {
+    iteration: index + 1,
+    phase: index === 0 ? 'act' : 'observe',
+    scheduleName: [
+      '매일 09:00 설정 화면 확인',
+      '매일 10:00 버튼 이름 확인',
+      '매일 11:00 자동 시작 화면 확인',
+      '매일 12:00 컴퓨터 작업 안내 확인',
+      '매일 13:00 작업 모음 설명 확인',
+    ][index],
+  } : null,
 }));
 
 const originSession = {
@@ -179,9 +219,9 @@ const originSession = {
   id: 'fixture-origin',
   externalId: 'fixture-origin-external',
   provider: 'codex',
-  title: 'Codex 원래 작업 열기 검증',
+  title: '화면 개선 폴더의 GPT 대화창',
   childIds: [],
-  runtimePresence: [],
+  runtimePresence: [{ kind: 'windows', pid: 41999, label: 'Codex 데스크톱 앱' }],
   executions: [],
   runId: '',
   clientKind: 'codex-desktop',
@@ -195,7 +235,7 @@ const projectlessSession = {
   id: 'fixture-projectless',
   externalId: 'fixture-projectless-external',
   provider: 'codex',
-  title: '프로젝트 없이 시작한 Codex 대화',
+  title: '화면 설명을 이해하기 쉽게 고치기',
   cwd: 'C:\\Users\\fixture\\Documents\\Codex\\2026-07-16\\new-chat',
   originCwd: 'C:\\Users\\fixture\\Documents\\Codex\\2026-07-16\\new-chat',
   workspace: 'new-chat',
@@ -206,7 +246,7 @@ const extraEndedSessions = Array.from({ length: 34 }, (_, index) => ({
   ...endedSession,
   id: `fixture-history-${index}`,
   externalId: `fixture-history-${index}-external`,
-  title: index === 0 ? '상세 오류 재시도 검증' : `지난 작업 ${String(index + 1).padStart(2, '0')}`,
+  title: index === 0 ? '오류가 난 작업 다시 시작하기' : `지난 작업 ${String(index + 1).padStart(2, '0')}`,
   provider: index % 2 ? 'gpt' : 'gemini',
   updatedAt: new Date(Date.now() - (index + 1) * 60_000).toISOString(),
 }));
@@ -216,65 +256,65 @@ const staleIdleSession = {
   id: 'fixture-stale-idle',
   externalId: 'fixture-stale-idle-external',
   provider: 'claude',
-  title: '오래전에 대기 상태가 된 tmux 대화',
+  title: '화면 개선 작업 결과 확인',
   status: 'idle',
-  statusDetail: '다음 요청 대기',
+  statusDetail: '연결된 AI 대화창을 선택해 Claude에게 새 요청을 보내세요.',
   cwd: 'D:\\fixture',
   originCwd: 'D:\\fixture',
   workspace: 'fixture',
-  updatedAt: '2020-01-01T00:00:00.000Z',
-  messages: [{ id: 'stale-assistant', role: 'assistant', text: '대기합니다.', timestamp: '2020-01-01T00:00:00.000Z' }],
+  updatedAt: twoHoursAgo,
+  messages: [{ id: 'stale-assistant', role: 'assistant', text: '대기합니다.', timestamp: twoHoursAgo }],
 };
 
 const oldParentWithRunningChild = {
   ...staleIdleSession,
   id: 'fixture-old-parent',
   externalId: 'fixture-old-parent-external',
-  title: '오래된 부모 아래 실행 중인 tmux 작업',
+  title: '화면 설명 변경 방법 선택',
   status: 'waiting',
-  statusDetail: '하위 작업 확인 대기',
+  statusDetail: '이 카드를 눌러 요청을 이 화면에서 열고, 화면 설명 변경 방법을 선택하세요.',
   cwd: '/mnt/c/Users/fixture/nested-active-project',
   originCwd: '/mnt/c/Users/fixture/nested-active-project',
-  workspace: 'nested-active-project',
+  workspace: '다시 시작한 작업',
   childIds: ['fixture-running-child'],
 };
 const runningChildOfOldParent = {
   ...rootSession,
   id: 'fixture-running-child',
   externalId: 'fixture-running-child-external',
-  title: '오래된 부모에서 계속 실행 중인 tmux 서브에이전트',
+  title: '이전 작업에서 계속 도움을 주는 AI',
   parentId: oldParentWithRunningChild.id,
   childIds: [],
   cwd: oldParentWithRunningChild.cwd,
   originCwd: oldParentWithRunningChild.originCwd,
   workspace: oldParentWithRunningChild.workspace,
   executions: [],
-  runtimePresence: [{ kind: 'tmux', paneId: 'fixture-nested-pane', label: 'FixtureLinux · nested pane' }],
+  runtimePresence: [{ kind: 'tmux', paneId: 'fixture-nested-pane', label: '다른 컴퓨터 · 컴퓨터 작업 창' }],
   runId: '',
 };
 
 const tmuxPane = {
   id: 'tmux-pane-id', nativeId: '%7', index: 0, pid: 51001, active: true, dead: false,
-  command: 'claude', cwd: '/tmp/fixture', title: 'fixture pane',
+  command: 'claude', cwd: '/tmp/fixture', displayFolder: '화면 개선 작업', title: '화면 개선 컴퓨터 작업', displayName: '진행 중: 결과 화면 문구 수정',
   agent: { ...rootSession, linkedSessionId: 'fixture-root', pid: 51001 },
 };
 const unlinkedTmuxPane = {
   ...tmuxPane, id: 'tmux-pane-unlinked', nativeId: '%8', index: 1, pid: 51002, active: false,
-  cwd: '/mnt/c/Users/fixture/tmux-only-project',
-  agent: { ...rootSession, id: 'tmux-unlinked-agent', linkedSessionId: '', pid: 51002, title: 'tmux 전용 마이그레이션 작업' },
+  cwd: '/mnt/c/Users/fixture/tmux-only-project', displayName: '진행 중: 여러 작업 안내 문구 수정',
+  agent: { ...rootSession, id: 'tmux-unlinked-agent', linkedSessionId: '', pid: 51002, title: '다른 컴퓨터에서 화면 설명 고치기' },
 };
 const staleIdleTmuxPane = {
   ...tmuxPane, id: 'tmux-pane-stale-idle', nativeId: '%10', index: 2, pid: 51004, active: false,
-  cwd: 'D:\\fixture',
+  cwd: 'D:\\fixture', displayName: '완료: 화면 개선 결과 확인',
   agent: { ...staleIdleSession, linkedSessionId: staleIdleSession.id, pid: 51004 },
 };
 const deadTmuxPane = {
-  ...tmuxPane, id: 'tmux-pane-dead', nativeId: '%9', index: 3, pid: 51003, active: false, dead: true,
+  ...tmuxPane, id: 'tmux-pane-dead', nativeId: '%9', index: 3, pid: 51003, active: false, dead: true, displayName: '종료된 확인 창',
   agent: { ...rootSession, id: 'tmux-dead-agent', linkedSessionId: '', pid: 51003 },
 };
-const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', active: true, panes: [tmuxPane, unlinkedTmuxPane, staleIdleTmuxPane, deadTmuxPane] };
-const tmuxSession = { id: 'tmux-session-id', nativeId: '$2', name: 'fixture-session', attached: false, windows: [tmuxWindow] };
-const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', tmuxVersion: 'tmux 3.4', sessions: [tmuxSession] };
+const tmuxWindow = { id: 'tmux-window-id', nativeId: '@3', index: 0, name: 'fixture-window', displayName: '화면 개선', active: true, panes: [tmuxPane, unlinkedTmuxPane, staleIdleTmuxPane, deadTmuxPane] };
+const tmuxSession = { id: 'tmux-session-id', nativeId: '$2', name: 'fixture-session', displayName: '화면 개선', attached: false, windows: [tmuxWindow] };
+const tmuxDistro = { id: 'tmux-distro-id', name: 'FixtureLinux', displayName: '화면 개선', tmuxVersion: 'tmux 3.4', sessions: [tmuxSession] };
 
 const sessionRecords = [
   rootSession, childSession, grandchildSession, restingSession, originSession, projectlessSession,
@@ -286,10 +326,18 @@ const enrichedSessionRecords = sessionRecords
   .map(session => session.id === 'fixture-child' ? {
     ...session,
     attention: {
-      category: 'required', required: true, actionable: true, kind: 'input',
-      summary: '서브에이전트 내부 확인 문구는 상단 목록에 직접 노출하지 않아야 합니다.',
-      requestedAt: now, source: 'structured-input', confidence: 'high',
+      category: 'none', required: false, actionable: false, kind: 'none',
+      summary: '', requestedAt: now, source: 'structured-input', confidence: 'high',
     },
+  } : session)
+  .map(session => session.id === 'fixture-waiting' ? {
+    ...session,
+    attention: {
+      category: 'required', required: true, actionable: true, kind: 'approval',
+      summary: '바꿀 화면: 왼쪽 메뉴 · 현재 왼쪽 메뉴 이름: “답변·확인” · 새 왼쪽 메뉴 이름: “내 요청” · 바뀌는 위치: 왼쪽 메뉴, 하단 메뉴 · 기능 변경: 없음',
+      requestedAt: now, source: 'assistant-message', confidence: 'high',
+    },
+    controlCapabilities: { ...(session.controlCapabilities || {}), sendInstruction: true },
   } : session);
 
 const snapshot = {
@@ -297,7 +345,7 @@ const snapshot = {
   sessions: enrichedSessionRecords,
   automations: [
     {
-      id: 'fixture-daily', kind: 'cron', name: '매일 품질 점검', status: 'ACTIVE', enabled: true,
+      id: 'fixture-daily', kind: 'cron', name: '매일 22:00 화면 개선 결과 확인과 문구 수정', status: 'ACTIVE', enabled: true,
       rrule: 'FREQ=DAILY;BYHOUR=22;BYMINUTE=0', nextRunAt: nextDaily(22),
       provider: 'codex', model: 'gpt-fixture', targetThreadId: 'fixture-root-external', cwds: ['D:\\fixture'],
       createdAt: now, updatedAt: now,
@@ -310,27 +358,27 @@ const snapshot = {
     },
     {
       id: 'fixture-biweekly', kind: 'cron', name: '격주 금요일 검수', status: 'ACTIVE', enabled: true,
-      rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;BYHOUR=18;BYMINUTE=30', nextRunAt: nextDaily(18),
+      rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=FR;BYHOUR=18;BYMINUTE=30', nextRunAt: nextWeekday(5, 18, 30),
       provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
       createdAt: now, updatedAt: now,
     },
     {
-      id: 'fixture-hourly', kind: 'cron', name: '2시간 상태 점검', status: 'ACTIVE', enabled: true,
-      rrule: 'FREQ=HOURLY;INTERVAL=2;BYMINUTE=15', nextRunAt: nextDaily(20),
+      id: 'fixture-hourly', kind: 'cron', name: '화면 개선 작업의 진행 상태를 2시간마다 확인', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=HOURLY;INTERVAL=2;BYMINUTE=15', nextRunAt: nextDaily(20, 15),
       provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture'],
       createdAt: now, updatedAt: now,
     },
     {
-      id: 'fixture-boundary', kind: 'cron', name: '다른 작업공간 예약', status: 'ACTIVE', enabled: true,
+      id: 'fixture-boundary', kind: 'cron', name: '화면 문구 확인', status: 'ACTIVE', enabled: true,
       rrule: 'FREQ=DAILY;BYHOUR=23;BYMINUTE=0', nextRunAt: nextDaily(23),
       provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: ['D:\\fixture-other'],
-      createdAt: now, updatedAt: now,
+      createdAt: now, updatedAt: now, sourceLabel: '다른 컴퓨터', environment: { kind: 'wsl', distro: 'FixtureLinux' },
     },
     {
-      id: 'fixture-projectless', kind: 'cron', name: '작업공간 미지정 예약', status: 'ACTIVE', enabled: true,
-      rrule: 'FREQ=DAILY;BYHOUR=23;BYMINUTE=30', nextRunAt: nextDaily(23),
+      id: 'fixture-projectless', kind: 'cron', name: '백업 결과 확인', status: 'ACTIVE', enabled: true,
+      rrule: 'FREQ=DAILY;BYHOUR=23;BYMINUTE=30', nextRunAt: nextDaily(23, 30),
       provider: 'codex', model: 'gpt-fixture', targetThreadId: '', cwds: [],
-      createdAt: now, updatedAt: now, sourceLabel: 'Local', environment: { kind: 'windows', distro: '' },
+      createdAt: now, updatedAt: now, sourceLabel: '내 컴퓨터', environment: { kind: 'windows', distro: '' },
     },
     {
       id: 'fixture-paused', kind: 'cron', name: '잠시 멈춘 야간 검수', status: 'PAUSED', enabled: false,
@@ -350,28 +398,28 @@ const snapshot = {
 };
 
 const initialTerminals = [
-  { id: 'terminal-main', type: 'powershell', title: 'Fixture PowerShell', status: 'running', pid: 41001, cwd: 'D:\\fixture' },
+  { id: 'terminal-main', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41001, cwd: 'D:\\fixture' },
   {
-    id: 'terminal-managed', type: 'agent', title: 'Fixture Managed Codex', status: 'running', pid: 41005,
+    id: 'terminal-managed', type: 'agent', title: 'GPT 대화창', status: 'running', pid: 41005,
     cwd: 'D:\\fixture', provider: 'codex', background: true, backend: 'managed-tmux',
     tmuxSocket: 'loadtoagent', managedTmuxSession: 'lta-codex-fixture',
   },
-  { id: 'terminal-ended', type: 'powershell', title: 'Fixture Ended', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
-  { id: 'terminal-failed', type: 'powershell', title: 'Fixture Failed', status: 'failed', pid: null, cwd: 'D:\\fixture' },
-  { id: 'terminal-race-a', type: 'powershell', title: 'Fixture Race A', status: 'running', pid: 41003, cwd: 'D:\\fixture' },
-  { id: 'terminal-race-b', type: 'powershell', title: 'Fixture Race B', status: 'running', pid: 41004, cwd: 'D:\\fixture' },
+  { id: 'terminal-ended', type: 'powershell', title: '완료된 컴퓨터 작업', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
+  { id: 'terminal-failed', type: 'powershell', title: '작업용-PC의 작업 화면을 열지 못했습니다', status: 'failed', pid: null, cwd: 'D:\\fixture', statusDetail: '작업 화면을 여는 프로그램이 응답하지 않았습니다.' },
+  { id: 'terminal-race-a', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41003, cwd: 'D:\\fixture' },
+  { id: 'terminal-race-b', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41004, cwd: 'D:\\fixture' },
 ];
 
 const availableUpdate = {
-  status: 'available', currentVersion: '1.0.0', latestVersion: '1.1.0', tag: 'v1.1.0',
-  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.1.0', publishedAt: now,
+  status: 'available', currentVersion: '1.5.0', latestVersion: '1.5.1', tag: 'v1.5.1',
+  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.5.1', publishedAt: now,
   notes: '설정 화면과 업데이트 흐름 상호작용 검증', progress: 0, downloadedBytes: 0, totalBytes: 8_192,
   downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop',
-  asset: { name: 'LoadToAgent-Setup-1.1.0.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.1.0/LoadToAgent-Setup-1.1.0.exe', digest: '' },
+  asset: { name: 'LoadToAgent-Setup-1.5.1.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.5.1/LoadToAgent-Setup-1.5.1.exe', digest: '' },
 };
 
 const currentUpdate = {
-  ...availableUpdate, status: 'current', latestVersion: '1.0.0', tag: 'v1.0.0', asset: null,
+  ...availableUpdate, status: 'current', latestVersion: '1.5.0', tag: 'v1.5.0', asset: null,
   notes: '현재 설치된 버전이 최신 정식 버전입니다.', totalBytes: 0,
 };
 
@@ -414,8 +462,14 @@ const api = {
     record('bootstrap');
     return {
       providers: clone(providers), availability: Object.fromEntries(providers.map(provider => [provider.id, true])),
-      workspaces: [{ name: 'fixture', path: 'D:\\fixture' }], snapshot: clone(snapshot), activeRuns: [],
-      platform: { id: 'win32', label: 'Windows', localShell: 'powershell', localShellLabel: 'Windows 명령창', nativeTmux: false },
+      workspaces: [
+        { name: '화면 개선', path: 'D:\\fixture' },
+        { name: '자동 시작 작업 결과', path: 'D:\\fixture-other' },
+        { name: '설정 개선', path: '/mnt/c/Users/fixture/nested-active-project' },
+        { name: '관련 작업 모음', path: '/mnt/c/Users/fixture/tmux-only-project' },
+        { name: '다시 시작한 작업', path: 'D:\\unregistered-origin' },
+      ], snapshot: clone(snapshot), activeRuns: [],
+      platform: { id: 'win32', label: 'Windows', computerName: '작업용-PC', localShell: 'powershell', localShellLabel: '작업용-PC에서 실행하는 작업', nativeTmux: false },
       versions: { app: '3.0.0', electron: '31.0.0', node: '20.0.0' }, update: clone(update),
     };
   },
@@ -475,11 +529,23 @@ const api = {
     },
   }),
   setProviderVisibility: preference => controlled('setProviderVisibility', [preference]),
-  listWorkspaces: async () => [{ name: 'fixture', path: 'D:\\fixture' }],
+  listWorkspaces: async () => [
+    { name: '화면 개선', path: 'D:\\fixture' },
+    { name: '자동 시작 작업 결과', path: 'D:\\fixture-other' },
+    { name: '설정 개선', path: '/mnt/c/Users/fixture/nested-active-project' },
+    { name: '관련 작업 모음', path: '/mnt/c/Users/fixture/tmux-only-project' },
+    { name: '다시 시작한 작업', path: 'D:\\unregistered-origin' },
+  ],
   addWorkspaces: async () => controlled('addWorkspaces', [], {
     canceled: false,
-    workspaces: [{ name: 'fixture', path: 'D:\\fixture' }],
-    selected: { name: 'fixture', path: 'D:\\fixture' },
+    workspaces: [
+      { name: '화면 개선', path: 'D:\\fixture' },
+      { name: '자동 시작 작업 결과', path: 'D:\\fixture-other' },
+      { name: '설정 개선', path: '/mnt/c/Users/fixture/nested-active-project' },
+      { name: '관련 작업 모음', path: '/mnt/c/Users/fixture/tmux-only-project' },
+      { name: '다시 시작한 작업', path: 'D:\\unregistered-origin' },
+    ],
+    selected: { name: '화면 개선', path: 'D:\\fixture' },
     alreadyAdded: true,
   }),
   removeWorkspace: folder => controlled('removeWorkspace', [folder], []),
@@ -500,13 +566,13 @@ const api = {
     record('terminalGet', [id]);
     const delay = Number(terminalGetDelays.get(id) || 0);
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-    return { ok: true, replay: `fixture replay for ${id}\r\n` };
+    return { ok: true, replay: `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n` };
   },
   terminalCreate: async options => {
     const created = {
       id: `terminal-created-${++terminalSequence}`,
       type: options.type,
-      title: options.title || 'Fixture terminal',
+      title: options.title || '새 컴퓨터 작업',
       status: 'running',
       pid: 42000 + terminalSequence,
       cwd: options.cwd || 'D:\\fixture',

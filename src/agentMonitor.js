@@ -182,7 +182,7 @@ function baseSession(provider, externalId, file, stat) {
     originCwd: '',
     branch: '',
     source: 'local-history',
-    sourceLabel: '로컬 세션',
+    sourceLabel: '이 컴퓨터의 지난 작업',
     clientKind: '',
     utilityKind: '',
     status: 'idle',
@@ -393,7 +393,7 @@ function parseManagedSession(runDir, options = {}) {
 }
 
 function workspaceLabel(cwd) {
-  if (!cwd) return '작업 폴더 미상';
+  if (!cwd) return '작업 시작 폴더 정보 없음';
   const normalized = String(cwd).replace(/\\/g, '/').replace(/\/$/, '');
   return normalized.split('/').filter(Boolean).pop() || cwd;
 }
@@ -519,7 +519,7 @@ class AgentMonitor extends EventEmitter {
 
   setHistoryHomes(historyHomes = []) {
     const localKind = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
-    const localLabel = process.platform === 'win32' ? 'Windows 로컬' : (process.platform === 'darwin' ? 'macOS 로컬' : 'Linux 로컬');
+    const localLabel = process.platform === 'win32' ? '이 컴퓨터의 Windows' : (process.platform === 'darwin' ? '이 컴퓨터의 macOS' : '이 컴퓨터의 Linux');
     const next = [{ home: this.home, kind: localKind, distro: '', label: localLabel }, ...historyHomes]
       .filter(item => item && item.home)
       .filter((item, index, list) => list.findIndex(other => String(other.home).toLowerCase() === String(item.home).toLowerCase()) === index)

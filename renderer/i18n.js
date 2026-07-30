@@ -108,10 +108,11 @@
     return interpolate(message[locale] ?? message.ko ?? key, params);
   }
 
-  /** Keep useful native errors, but never leak Korean backend copy into another locale. */
+  /** Show a plain action-oriented message in Korean; technical details stay out of the main UI. */
   function errorText(error, fallbackKey, params) {
     const message = String(error?.message || error || '').trim();
-    if (message && (locale === 'ko' || !/[가-힣]/.test(message))) return message;
+    if (locale === 'ko') return t(fallbackKey, params);
+    if (message && !/[가-힣]/.test(message)) return message;
     return t(fallbackKey, params);
   }
 

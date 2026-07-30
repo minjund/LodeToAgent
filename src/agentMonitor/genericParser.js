@@ -145,7 +145,7 @@ function createGenericParser(dependencies) {
         addLifecycle(session, {
           id: `init:${event.timestamp || 0}`,
           type: 'session-start',
-          label: '세션 시작',
+          label: '작업 시작',
           status: 'done',
           timestamp: event.timestamp,
         });
@@ -240,7 +240,7 @@ function createGenericParser(dependencies) {
     if (!session.usage.total && messageState.usages.length) {
       session.usage = sumUsage(messageState.usages);
     }
-    session.title = messageState.firstUser || `${provider === 'gemini' ? 'Gemini' : 'Grok'} 세션`;
+    session.title = messageState.firstUser || `${provider === 'gemini' ? 'Gemini' : 'Grok'} 작업`;
     const context = modelContextWindow(provider, session.model, root.context_window || root.contextWindow);
     session.context = contextInfo(session.turnUsage.total || session.usage.total, context);
     const age = Date.now() - fileInfo.mtimeMs;
@@ -265,7 +265,7 @@ function createGenericParser(dependencies) {
     session.statusDetail = eventState.failed
       ? '오류 발생'
       : (session.status === 'waiting'
-        ? (pendingUserInput ? '선택 또는 입력 대기' : '답변 또는 선택 대기')
+        ? '내 답변을 기다리는 중'
         : (session.status === 'running' ? '실시간 이벤트 수신 중' : '다음 요청 대기'));
     session.statusObserved = eventState.running || session.status === 'waiting';
     session.executions = eventState.executionTracker.finalize();

@@ -5,6 +5,58 @@
  * Breakpoints are ordered wide-to-narrow, followed by height and motion rules.
  */
 
+/* A desktop sidebar leaves the workbench narrower than the full window. */
+@media (min-width:1381px) and (max-width:1540px) {
+  #terminalSection .terminal-controlbar {
+    display: grid;
+    grid-template-columns: minmax(0,1fr);
+    align-items: start;
+    gap: 9px;
+  }
+
+  #terminalSection .terminal-workspace-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  #terminalSection .terminal-create-actions button {
+    min-width: 180px;
+    line-height: 1.35;
+    white-space: normal;
+    word-break: keep-all;
+  }
+
+  body[data-current-view="tmux"] .tmux-session-tree {
+    grid-template-columns: 150px minmax(0,1fr);
+    gap: 12px;
+  }
+
+  body[data-current-view="tmux"] .tmux-session-tree > .tmux-link-line,
+  body[data-current-view="tmux"] .tmux-window-tree > .tmux-link-line {
+    display: none;
+  }
+
+  body[data-current-view="tmux"] .tmux-window-tree {
+    grid-template-columns: 118px minmax(0,1fr);
+    gap: 12px;
+  }
+
+  body[data-current-view="tmux"] .tmux-pane-stack {
+    grid-template-columns: repeat(3,minmax(0,1fr));
+  }
+
+  body[data-current-view="tmux"] .tmux-session-node,
+  body[data-current-view="tmux"] .tmux-window-node {
+    min-height: 104px;
+    padding: 11px;
+  }
+
+  body[data-current-view="tmux"] .tmux-pane-main {
+    padding: 11px 10px 10px;
+  }
+
+}
+
 /* Compact screens ≤ 1380px: stack terminal toolbars while retaining side resources. */
 @media (max-width:1380px) {
   .tmux-stats {

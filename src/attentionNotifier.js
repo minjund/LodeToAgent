@@ -5,7 +5,7 @@ class AttentionNotifier {
     this.enabled = options.enabled !== false;
     this.Notification = options.Notification;
     this.isSupported = options.isSupported || (() => Boolean(this.Notification));
-    this.copy = options.copy || (() => ({ title: '내 확인이 필요합니다', body: '응답이나 선택을 기다리는 AI 세션이 있습니다.' }));
+    this.copy = options.copy || (() => ({ title: '내 답변이나 확인이 필요합니다', body: '응답이나 선택을 기다리는 AI 작업이 있습니다.' }));
     this.onOpen = options.onOpen || (() => {});
     this.onFallback = options.onFallback || (() => {});
     this.attentionIds = null;
@@ -49,8 +49,8 @@ class AttentionNotifier {
     try {
       const copy = this.copy(session) || {};
       const notification = new this.Notification({
-        title: String(copy.title || '내 확인이 필요합니다'),
-        body: String(copy.body || session.title || 'AI 세션이 응답을 기다리고 있습니다.'),
+        title: String(copy.title || '내 답변이나 확인이 필요합니다'),
+        body: String(copy.body || session.title || 'AI 작업이 응답을 기다리고 있습니다.'),
         silent: false,
       });
       this.notifications.add(notification);

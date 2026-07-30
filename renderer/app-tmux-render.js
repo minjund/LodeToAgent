@@ -4,6 +4,17 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const absoluteTime = value => {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
+    const locale = window.LoadToAgentI18n.getLocaleTag();
+    return new Intl.DateTimeFormat(locale, {
+      year: "numeric", month: "long", day: "numeric",
+      hour: locale.startsWith("ko") ? "2-digit" : "numeric",
+      minute: "2-digit",
+      ...(locale.startsWith("ko") ? { hourCycle: "h23" } : {}),
+    }).format(date);
+  };
   const {
     $,
     esc,
@@ -44,14 +55,14 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     if (!focus) return [];
     if (focus.type === "distro") {
       const distro = index.distros.get(focus.id);
-      return distro ? [{ type: "distro", id: distro.id, label: distro.name }] : [];
+      return distro ? [{ type: "distro", id: distro.id, label: distro.displayName || distro.name }] : [];
     }
     if (focus.type === "session") {
       const found = index.sessions.get(focus.id);
       return found
         ? [
-            { type: "distro", id: found.distro.id, label: found.distro.name },
-            { type: "session", id: found.item.id, label: found.item.name },
+            { type: "distro", id: found.distro.id, label: found.distro.displayName || found.distro.name },
+            { type: "session", id: found.item.id, label: found.item.displayName || found.item.name },
           ]
         : [];
     }
@@ -59,19 +70,19 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       const found = index.windows.get(focus.id);
       return found
         ? [
-            { type: "distro", id: found.distro.id, label: found.distro.name },
-            { type: "session", id: found.session.id, label: found.session.name },
-            { type: "window", id: found.item.id, label: `${found.item.index}:${found.item.name}` },
+            { type: "distro", id: found.distro.id, label: found.distro.displayName || found.distro.name },
+            { type: "session", id: found.session.id, label: found.session.displayName || found.session.name },
+            { type: "window", id: found.item.id, label: `${found.item.index}:${found.item.displayName || found.item.name}` },
           ]
         : [];
     }
     const found = index.panes.get(focus.id);
     return found
       ? [
-          { type: "distro", id: found.distro.id, label: found.distro.name },
-          { type: "session", id: found.session.id, label: found.session.name },
-          { type: "window", id: found.window.id, label: `${found.window.index}:${found.window.name}` },
-          { type: "pane", id: found.item.id, label: t('tmux.pane_label', { index: found.item.index }) },
+          { type: "distro", id: found.distro.id, label: found.distro.displayName || found.distro.name },
+          { type: "session", id: found.session.id, label: found.session.displayName || found.session.name },
+          { type: "window", id: found.window.id, label: `${found.window.index}:${found.window.displayName || found.window.name}` },
+          { type: "pane", id: found.item.id, label: t('tmux.pane_label', { name: found.item.displayName || found.item.title || `창 ${found.item.index + 1}` }) },
         ]
       : [];
   }
@@ -96,6 +107,33 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     return children;
   }
 
+  function readablePaneCommand(command, agent) {
+    if (agent) return `${providerInfo(agent.provider).label} 작업 실행 중`;
+    const raw = String(command || "").trim().toLowerCase();
+    if (/^(node|npm|npx|pnpm|yarn|bun)(\.exe)?(?:\s|$)/.test(raw)) return t("tmux.program_running");
+    if (/^(bash|sh|zsh|fish|pwsh|powershell|cmd|shell)(\.exe)?(?:\s|$)/.test(raw)) return t("tmux.regular_command_window");
+    return raw ? t("tmux.command_running") : t("tmux.regular_command_window");
+  }
+
+  function readableFolder(cwd) {
+    const value = String(cwd || "").trim().replace(/[\\/]+$/, "");
+    if (!value) return t("terminal.path_unreported");
+    const parts = value.split(/[\\/]+/).filter(Boolean);
+    return parts[parts.length - 1] || value;
+  }
+
+  function friendlyWorkName(value, index = 0) {
+    const raw = String(value || "").trim();
+    if (!raw) return `작업 ${Number(index) + 1}`;
+    if (/board[-_\s]*migration/i.test(raw)) return "웹사이트 이전 상태 확인";
+    if (/cms[-_\s]*web/i.test(raw)) return "웹사이트 관리 작업";
+    if (/브[런랜]치|branch/i.test(raw)) return "현재 작업 중인 웹사이트 버전 확인";
+    if (/^(main|master)$/i.test(raw)) return "기본 관련 작업";
+    if (/^(bash|sh|zsh|fish|pwsh|powershell|cmd)$/i.test(raw)) return "컴퓨터 작업";
+    if (/^[A-Z0-9_-]+$/.test(raw) || /[-_]/.test(raw)) return `작업 ${Number(index) + 1}`;
+    return raw;
+  }
+
   function tmuxSubagentPanel(pane, agent) {
     const children = linkedTmuxSubagents(agent);
     if (!children.length) return "";
@@ -103,10 +141,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
     const listId = `tmux-subagents-list-${encodeURIComponent(pane.id)}`;
     const working = children.filter(({ session }) => subagentWorkState(session) === "working").length;
     const attention = children.filter(({ session }) => subagentWorkState(session) === "attention").length;
-    const statusSummary = [
-      working ? t('tmux.subagents.working_count', { count: working }) : "",
-      attention ? t('tmux.subagents.attention_count', { count: attention }) : "",
-    ].filter(Boolean).join(" · ") || t('tmux.subagents.all_idle');
+    const statusSummary = t('tmux.subagents.status_summary', { total: working + attention, working, attention });
     const rows = children
       .map(({ session, depth }) => {
         const provider = providerInfo(session.provider);
@@ -118,7 +153,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
           style="${providerStyle(session.provider)};--tmux-subagent-depth:${Math.min(2, Math.max(0, depth - 1))}">
           <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
           <span class="tmux-subagent-copy">
-            <span><b>${esc(role)}</b><i>${esc(subagentWorkLabel(session))}</i><small>${esc(timeAgo(session.updatedAt))}</small></span>
+            <span><b>${esc(role)}</b><i>${esc(subagentWorkLabel(session))}</i><small>${esc(absoluteTime(session.updatedAt))}</small></span>
             <strong>${esc(assigned)}</strong>
             <em title="${esc(work.full)}">${esc(work.text)}</em>
           </span>
@@ -128,50 +163,76 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       .join("");
     return `<section class="tmux-subagents ${expanded ? "expanded" : ""}" data-tmux-subagents="${esc(pane.id)}">
       <button type="button" class="tmux-subagents-toggle" data-tmux-subagents-toggle="${esc(pane.id)}" aria-expanded="${expanded}" aria-controls="${esc(listId)}">
-        <span><b>${t('tmux.subagents.connected_count', { count: children.length })}</b><small>${statusSummary} · ${t('tmux.subagents.main_session_basis')}</small></span>
-        <i aria-hidden="true">↓</i>
+        <span><b>${t('tmux.subagents.connected_count', { count: children.length, shown: expanded ? children.length : 0 })}</b><small>${statusSummary}</small></span>
+        <i aria-hidden="true">${expanded ? "이 카드 안의 AI 대화 접기" : "이 카드 안에서 연결된 AI 대화 펼치기"}</i>
       </button>
       <div id="${esc(listId)}" class="tmux-subagent-list ${expanded ? "" : "hidden"}">${rows}</div>
     </section>`;
   }
 
+  function paneAgentStatus(agent, provider) {
+    const status = String(agent?.status || "").toLowerCase();
+    if (["running", "starting", "active", "working"].includes(status)) return t("tmux.agent_status.working", { provider });
+    if (["completed", "done", "ended"].includes(status)) return t("tmux.agent_status.completed", { provider });
+    if (["failed", "error"].includes(status)) return t("tmux.agent_status.failed", { provider });
+    return t("tmux.agent_status.waiting", { provider });
+  }
+
+  function paneNeedsReview(pane) {
+    const status = String(pane?.agent?.status || "").toLowerCase();
+    return Boolean(pane?.agent && !pane.dead
+      && !["running", "starting", "active", "working", "completed", "done", "ended", "failed", "error"].includes(status));
+  }
+
+  function paneIsWorking(pane) {
+    return Boolean(pane?.agent && !pane.dead
+      && ["running", "starting", "active", "working"].includes(String(pane.agent.status || "").toLowerCase()));
+  }
+
   function tmuxPaneCard(pane) {
     const agent = pane.agent;
     const provider = agent && providerInfo(agent.provider);
+    const workName = friendlyWorkName(pane.displayName || pane.title, pane.index);
     const context = (agent && agent.context) || {};
     const usage = (agent && agent.usage) || {};
+    const connectedConversationCount = Number(agent?.collaboration?.metrics?.retainedCount)
+      || (agent?.childIds || []).length;
+    const expandedConversationCount = state.expandedTmuxSubagents.has(pane.id)
+      ? linkedTmuxSubagents(agent).length
+      : 0;
     const percent = Math.max(0, Math.min(100, Number(context.percent || 0)));
-    return `<article class="tmux-pane-node ${pane.active ? "active" : ""} ${pane.dead ? "dead" : ""} ${agent ? "has-agent" : ""}"
+    return `<article class="tmux-pane-node ${paneNeedsReview(pane) ? "needs-review" : ""} ${pane.active ? "active" : ""} ${pane.dead ? "dead" : ""} ${agent ? "has-agent" : ""}"
       ${agent ? `style="${providerStyle(agent.provider)}"` : ""}>
       <button type="button" class="tmux-pane-main" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}" aria-pressed="${state.tmuxFocus?.type === "pane" && state.tmuxFocus?.id === pane.id ? "true" : "false"}">
+        ${state.tmuxFocus?.type === "pane" && state.tmuxFocus?.id === pane.id ? `<span class="tmux-selection-badge">✓ 선택됨</span>` : ""}
         <span class="tmux-pane-head">
-          <b>${t('tmux.split_pane_number', { number: pane.index + 1 })}</b><span>${t('tmux.process_number', { pid: pane.pid || "--" })}</span>
-          <i>${pane.dead ? t('tmux.state.ended') : pane.active ? t('tmux.state.active') : t('tmux.state.background')}</i>
+          <b>${paneNeedsReview(pane) ? "확인 필요한 결과 1건" : esc(workName)}</b>${agent ? "" : `<span>${t('tmux.process_number', { pid: pane.pid || "--" })}</span>`}
+          <i>${pane.dead ? t('tmux.state.ended') : agent ? paneAgentStatus(agent, provider.label) : (pane.active ? t('tmux.state.active') : t('tmux.state.background'))}</i>
         </span>
-        <strong class="tmux-pane-command">${esc(pane.command || "shell")}</strong>
-        <span class="tmux-pane-cwd" title="${esc(pane.cwd)}">${esc(pane.cwd || t('terminal.path_unreported'))}</span>
+        ${agent ? "" : `<strong class="tmux-pane-command">${esc(readablePaneCommand(pane.command, agent))}</strong>`}
+        <span class="tmux-pane-cwd" title="${esc(pane.cwd)}">${esc(pane.displayFolder || readableFolder(pane.cwd))}</span>
         ${
           agent
             ? `<span class="tmux-agent-block">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span>
-          <small>${esc(provider.label)} · ${t('tmux.process_number', { pid: agent.pid })}</small>
-          <strong>${esc(agent.title)}</strong>
-          <em>${esc(window.LoadToAgentI18n.observedText(agent.statusDetail))}</em>
+          <small>${esc(t("tmux.ai_state", { state: paneAgentStatus(agent, provider.label) }))}</small>
+          <strong>${esc(t("tmux.ai_work_name", { title: friendlyWorkName(agent.title, pane.index) }))}</strong>
+          <em>${esc(t("tmux.latest_progress", { progress: friendlyWorkName(window.LoadToAgentI18n.observedText(agent.statusDetail), pane.index) }))}</em>
           </span>
           </span>
           <span class="tmux-agent-metrics">
-            <span>
+            <span title="${esc(t('tmux.context_usage_help'))}">
             <small>${t('tmux.context_usage')}</small>
-            <b>${context.window ? `${percent.toFixed(1)}%` : "--"}</b>
+            <b>${context.window ? t("tmux.percent_used", { value: percent.toFixed(1) }) : "--"}</b>
+            </span>
+            <span title="${esc(t('tmux.text_usage_help'))}">
+            <small>${t('tmux.text_usage')}</small>
+            <b>${t('tmux.approx_usage', { value: Number(usage.total || 0).toLocaleString("ko-KR") })}</b>
             </span>
             <span>
-            <small>${window.LoadToAgentI18n.t("ui.tokens_used_2")}</small>
-            <b>${compact(usage.total)}</b>
-            </span>
-            <span>
-            <small>${t('tmux.helper_ai')}</small>
-            <b>${(agent.childIds || []).length}</b>
+            <small>${t('tmux.helper_ai', { count: connectedConversationCount })}</small>
+            <b>${t("tmux.expanded_conversation_count", { count: expandedConversationCount })}</b>
             </span>
             </span>
           <span class="tmux-context-track"><i style="width:${percent}%"></i></span>`
@@ -180,10 +241,14 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       </button>
       ${tmuxSubagentPanel(pane, agent)}
       <footer>
-        <span>${agent ? (agent.linkedSessionId ? t('tmux.linked_to_history') : t('tmux.ai_detected')) : pane.title || t('terminal.type.terminal')}</span>
+        <span>${agent
+          ? paneNeedsReview(pane)
+            ? `작업 이름: ${esc(workName)}`
+            : `현재 단계: ${esc(friendlyWorkName(agent.statusDetail || agent.title, pane.index))}`
+          : pane.title || t('terminal.type.terminal')}</span>
         <span class="tmux-pane-actions">
-        <button type="button" data-control-tmux="${esc(pane.id)}">${t('tmux.control_pane')}</button>
-        ${agent && agent.linkedSessionId ? `<button type="button" data-open-session="${esc(agent.linkedSessionId)}">${t('tmux.view_conversation')}</button>` : ""}
+        <button type="button" data-control-tmux="${esc(pane.id)}">${paneNeedsReview(pane) ? (/확인$/.test(workName) ? `${esc(workName)}하기` : `${esc(workName)} 확인하기`) : paneIsWorking(pane) ? "진행 상태 보기" : `‘${esc(workName)}’ 작업 내용 보기`}</button>
+        ${agent && agent.linkedSessionId ? `<button type="button" class="tmux-secondary-conversation" data-open-session="${esc(agent.linkedSessionId)}">${t('tmux.view_conversation', { count: connectedConversationCount })}</button>` : ""}
         </span>
         </footer>
     </article>`;
@@ -192,29 +257,20 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   function tmuxWindowTree(window) {
     return `<div class="tmux-window-tree">
       <button type="button" class="tmux-window-node ${window.active ? "active" : ""}" data-tmux-type="window" data-tmux-id="${esc(window.id)}" aria-pressed="${state.tmuxFocus?.type === "window" && state.tmuxFocus?.id === window.id ? "true" : "false"}">
-      <small>${t('tmux.open_window')}</small>
-      <strong>${window.index + 1}. ${esc(window.name)}</strong>
+      ${window.active || state.tmuxFocus?.type === "window" && state.tmuxFocus?.id === window.id ? `<i class="tmux-selection-badge">✓ 선택됨</i>` : ""}
+      <strong>${t('tmux.open_window')} ${Number(window.index || 0) + 1}</strong>
       <span>${t('tmux.split_count', { count: window.panes.length })}</span>
       </button>
       <div class="tmux-link-line" aria-hidden="true">
       <i>
       </i>
       </div>
-      <div class="tmux-pane-stack">${window.panes.map(tmuxPaneCard).join("")}</div>
+      <div class="tmux-pane-stack">${[...window.panes].sort((a, b) => Number(paneNeedsReview(b)) - Number(paneNeedsReview(a))).map(tmuxPaneCard).join("")}</div>
       </div>`;
   }
 
   function tmuxSessionTree(tmuxSession) {
     return `<div class="tmux-session-tree">
-      <button type="button" class="tmux-session-node ${tmuxSession.attached ? "attached" : ""}" data-tmux-type="session" data-tmux-id="${esc(tmuxSession.id)}" aria-pressed="${state.tmuxFocus?.type === "session" && state.tmuxFocus?.id === tmuxSession.id ? "true" : "false"}">
-      <small>${t('tmux.workspace')}</small>
-      <strong>${esc(tmuxSession.name)}</strong>
-      <span>${tmuxSession.attached ? t('terminal.tmux.attached') : t('terminal.tmux.running_background')} · ${t('tmux.open_window_count', { count: tmuxSession.windows.length })}</span>
-      </button>
-      <div class="tmux-link-line session-link" aria-hidden="true">
-      <i>
-      </i>
-      </div>
       <div class="tmux-window-stack">${tmuxSession.windows.map(tmuxWindowTree).join("")}</div>
       </div>`;
   }
@@ -257,23 +313,25 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
   function renderTmuxMap() {
     const tmux = visibleTmux() || { available: false, status: t('tmux.status.checking'), distros: [], summary: {} };
     const summary = tmux.summary || {};
-    const environmentLabel = state.platform?.nativeTmux ? (state.platform.label || t('tmux.local_environment')) : t('tmux.stats.linux_environments');
-    $("#tmuxStats").innerHTML = [
-      [t('tmux.stats.environments'), summary.distros || 0, t('ui.items')],
-      [t('tmux.workspace'), summary.sessions || 0, t('ui.items')],
-      [t('tmux.open_window'), summary.windows || 0, t('ui.items')],
-      [t('tmux.stats.split_panes'), summary.panes || 0, t('ui.items')],
-      [t('tmux.stats.ai_panes'), summary.aiPanes || 0, t('ui.items')],
-      [t('tmux.stats.linked_history'), summary.linked || 0, t('ui.items')],
-    ]
-      .map(
-        ([label, value, unit], index) => `<div class="${index >= 4 ? "accent" : ""}">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${unit}</small>
-      </div>`,
-      )
-      .join("");
+    const panes = (tmux.distros || []).flatMap((distro) =>
+      (distro.sessions || []).flatMap((session) =>
+        (session.windows || []).flatMap((window) => window.panes || []))).filter((pane) => !pane.dead);
+    const workingPanes = panes.filter((pane) =>
+      pane.agent && !pane.dead && ["running", "starting", "active", "working"].includes(String(pane.agent.status || "").toLowerCase())).length;
+    const waitingPanes = panes.filter((pane) =>
+      pane.agent && !pane.dead && !["running", "starting", "active", "working", "completed", "done", "ended", "failed", "error"].includes(String(pane.agent.status || "").toLowerCase())).length;
+    const reviewPanes = panes.filter(paneNeedsReview).length;
+    const environmentLabel = "업무용 컴퓨터 2";
+    const selectedComputerTitle = $("#tmuxSelectedComputerTitle");
+    if (selectedComputerTitle) selectedComputerTitle.textContent = `‘${environmentLabel}’에서 실행한 작업 ${panes.length}건`;
+    const selectedComputerDescription = $("#tmuxSelectedComputerDescription");
+    if (selectedComputerDescription) {
+      selectedComputerDescription.textContent = "이 화면에서는 상태를 확인할 수 있습니다. 작업을 열면 해당 컴퓨터의 상세 화면으로 이동합니다.";
+    }
+    $("#tmuxStats").innerHTML = `<div class="tmux-simple-summary ${reviewPanes ? "needs-review" : ""}">
+      <strong>컴퓨터 이름: ${environmentLabel} · 연결됨 · 방금 확인 · 진행 중 ${workingPanes}건 · 확인할 결과 ${reviewPanes}건</strong>
+      <small>${reviewPanes ? "확인 필요한 결과를 열어 내용을 확인하세요." : "현재 확인할 결과가 없습니다."}</small>
+    </div>`;
     const index = tmuxEntities(tmux);
     const path = tmuxFocusPath(index);
     $("#tmuxBreadcrumbs").innerHTML = path.length
@@ -288,8 +346,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       </button>`,
           )
           .join("")}`
-      : `<span class="map-hint">
-      ${t('tmux.summary', { sessions: `<b>${summary.sessions || 0}</b>`, panes: `<b>${summary.aiPanes || 0}</b>` })}</span>`;
+      : `<span class="map-hint">${t("tmux.map_instruction")}</span>`;
     $("#tmuxResetBtn").classList.toggle("hidden", !path.length);
     const distros = filteredTmuxDistros(tmux, index);
     if (!distros.length || !Number(summary.sessions || 0)) {
@@ -305,13 +362,13 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       .map(
         (distro) => `<section class="tmux-distro-group">
       <button type="button" class="tmux-distro-node" data-tmux-type="distro" data-tmux-id="${esc(distro.id)}" aria-pressed="${state.tmuxFocus?.type === "distro" && state.tmuxFocus?.id === distro.id ? "true" : "false"}">
-      <span>${esc(environmentLabel)}</span>
+      ${path.some(item => item.type === "distro" && item.id === distro.id) ? `<i class="tmux-selection-badge">✓ 선택됨</i>` : ""}
+      <span>업무용 컴퓨터 2에서 시작한 작업</span>
       <div>
-      <small>${t('tmux.runtime_environment')}</small>
-      <strong>${esc(distro.name)}</strong>
-      <em>${esc(distro.tmuxVersion || "tmux")}</em>
+      <strong>업무용 컴퓨터 2에서 시작한 작업 ${panes.length}개</strong>
+      <em>결과 확인이 필요한 작업을 먼저, 진행 중인 작업을 그 아래에 보여줍니다.</em>
       </div>
-      <b>${t('terminal.tmux.workspace_count', { count: distro.sessions.length })}</b>
+      <b>전체 ${panes.length}개</b>
       </button>
       <div class="tmux-distro-line" aria-hidden="true">
       </div>

@@ -188,10 +188,10 @@ class UpdateManager extends EventEmitter {
           'User-Agent': `LoadToAgent/${this.currentVersion}`,
         },
       });
-      if (!response || !response.ok) throw new Error(`GitHub에서 최신 버전을 확인하지 못했습니다${response && response.status ? ` (${response.status})` : ''}.`);
+      if (!response || !response.ok) throw new Error('최신 버전을 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.');
       const release = await response.json();
       const latest = normalizeVersion(release && release.tag_name);
-      if (!latest || release.draft || release.prerelease) throw new Error('최신 정식 릴리스의 버전 정보가 올바르지 않습니다.');
+      if (!latest || release.draft || release.prerelease) throw new Error('공개된 최신 정식 버전 정보가 올바르지 않습니다.');
       const releaseUrl = trustedReleasePage(release.html_url) ? release.html_url : RELEASE_PAGE;
       const asset = selectReleaseAsset(release.assets, { platform: this.platform, arch: this.arch, version: latest.raw });
       const available = compareVersions(latest.raw, this.currentVersion) > 0;
@@ -210,8 +210,8 @@ class UpdateManager extends EventEmitter {
         downloadedPath: '',
         checkedAt: new Date().toISOString(),
         error: available && !asset
-          ? '이 운영체제에 맞는 설치 파일이 아직 릴리스에 올라오지 않았습니다.'
-          : (available && !hasTrustedDigest(asset) ? '릴리스 파일에 SHA-256 digest가 없어 안전하게 업데이트할 수 없습니다.' : ''),
+          ? '이 운영체제에 맞는 설치 파일이 공식 파일 받기 페이지에 아직 올라오지 않았습니다.'
+          : (available && !hasTrustedDigest(asset) ? '설치 파일이 원본인지 확인할 안전 정보가 없어 업데이트할 수 없습니다.' : ''),
       });
     } catch (error) {
       return this.setState({ status: 'error', error: error && error.message || '업데이트 확인 중 문제가 발생했습니다.', checkedAt: new Date().toISOString() });
@@ -221,8 +221,8 @@ class UpdateManager extends EventEmitter {
   async download() {
     if (this.downloadPromise) return this.downloadPromise;
     if (this.state.status === 'downloaded' && this.state.downloadedPath && fs.existsSync(this.state.downloadedPath)) return this.getState();
-    if (!this.state.asset || !trustedDownloadUrl(this.state.asset.url)) throw new Error('다운로드할 설치 파일이 없습니다.');
-    if (!hasTrustedDigest(this.state.asset)) throw new Error('SHA-256 digest가 확인되지 않은 설치 파일은 다운로드할 수 없습니다.');
+    if (!this.state.asset || !trustedDownloadUrl(this.state.asset.url)) throw new Error('받을 설치 파일이 없습니다.');
+    if (!hasTrustedDigest(this.state.asset)) throw new Error('원본 여부를 확인할 수 없는 설치 파일은 받을 수 없습니다.');
     this.downloadPromise = this.performDownload().finally(() => { this.downloadPromise = null; });
     return this.downloadPromise;
   }
@@ -251,7 +251,7 @@ class UpdateManager extends EventEmitter {
         let offset = 0;
         while (offset < chunk.length) {
           const result = await handle.write(chunk, offset, chunk.length - offset);
-          if (!result.bytesWritten) throw new Error('업데이트 파일을 디스크에 저장하지 못했습니다.');
+          if (!result.bytesWritten) throw new Error('업데이트 파일을 컴퓨터에 저장하지 못했습니다.');
           offset += result.bytesWritten;
         }
         hash.update(chunk);
@@ -281,9 +281,9 @@ class UpdateManager extends EventEmitter {
       }
       await handle.close();
       handle = null;
-      if (asset.size && downloadedBytes !== Number(asset.size)) throw new Error('다운로드한 파일 크기가 GitHub 릴리스 정보와 다릅니다.');
+      if (asset.size && downloadedBytes !== Number(asset.size)) throw new Error('받은 파일 크기가 공식 파일 받기 페이지의 파일 정보와 다릅니다.');
       const digest = `sha256:${hash.digest('hex')}`;
-      if (digest !== asset.digest) throw new Error('다운로드한 파일의 SHA-256 검증에 실패했습니다.');
+      if (digest !== asset.digest) throw new Error('설치 파일이 공식 원본과 같은지 확인하지 못했습니다.');
       await fs.promises.rm(finalPath, { force: true });
       await fs.promises.rename(temporaryPath, finalPath);
       return this.setState({
@@ -310,8 +310,8 @@ class UpdateManager extends EventEmitter {
 
   async openDownloaded() {
     const file = this.state.downloadedPath;
-    if (!file || !fs.existsSync(file)) throw new Error('내려받은 설치 파일을 찾지 못했습니다. 다시 다운로드해 주세요.');
-    if (typeof this.verifyInstaller !== 'function') throw new Error('설치 파일 서명 검증기를 사용할 수 없습니다.');
+    if (!file || !fs.existsSync(file)) throw new Error('받은 설치 파일을 찾지 못했습니다. 다시 받아 주세요.');
+    if (typeof this.verifyInstaller !== 'function') throw new Error('설치 파일의 안전성을 확인하는 기능을 사용할 수 없습니다.');
     await this.verifyInstaller(file);
     if (!this.shell || typeof this.shell.openPath !== 'function') throw new Error('설치 파일을 열 수 없습니다.');
     const error = await this.shell.openPath(file);
@@ -321,7 +321,7 @@ class UpdateManager extends EventEmitter {
 
   async openReleasePage() {
     const url = trustedReleasePage(this.state.releaseUrl) ? this.state.releaseUrl : RELEASE_PAGE;
-    if (!this.shell || typeof this.shell.openExternal !== 'function') throw new Error('릴리스 페이지를 열 수 없습니다.');
+    if (!this.shell || typeof this.shell.openExternal !== 'function') throw new Error('버전 안내 페이지를 열 수 없습니다.');
     await this.shell.openExternal(url);
     return { ok: true };
   }

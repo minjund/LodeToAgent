@@ -125,16 +125,16 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const controlSearchInput = $("#controlRoomSearchInput");
     const controlSearchButton = $("#controlRoomSearchBtn");
     let controlSearchTimer = null;
-    const setControlSearchOpen = (open) => {
-      controlSearch?.classList.toggle("is-open", open);
-      controlSearchButton?.setAttribute("aria-expanded", open ? "true" : "false");
+    const setControlSearchOpen = () => {
+      controlSearch?.classList.add("is-open");
+      controlSearchButton?.setAttribute("aria-expanded", "true");
       if (controlSearchInput) {
-        controlSearchInput.tabIndex = open ? 0 : -1;
-        controlSearchInput.setAttribute("aria-hidden", open ? "false" : "true");
+        controlSearchInput.tabIndex = 0;
+        controlSearchInput.setAttribute("aria-hidden", "false");
       }
-      if (open) requestAnimationFrame(() => controlSearchInput?.focus());
+      requestAnimationFrame(() => controlSearchInput?.focus());
     };
-    controlSearchButton?.addEventListener("click", () => setControlSearchOpen(!controlSearch?.classList.contains("is-open")));
+    controlSearchButton?.addEventListener("click", () => setControlSearchOpen());
     controlSearchInput?.addEventListener("input", (event) => {
       clearTimeout(controlSearchTimer);
       const value = event.target.value;
@@ -154,9 +154,6 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       if (event.currentTarget.value) {
         event.currentTarget.value = "";
         event.currentTarget.dispatchEvent(new Event("input", { bubbles: true }));
-      } else {
-        setControlSearchOpen(false);
-        controlSearchButton?.focus();
       }
     });
     const setAllControlRoomGroups = (open) => {
@@ -232,6 +229,20 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       syncFilterResetButton();
       saveDashboardPreferences();
     });
+    $("#providerFilter").addEventListener("change", (event) => {
+      const select = event.target.closest("#mobileProviderFilterSelect");
+      if (!select) return;
+      state.providerFilters.clear();
+      if (select.value !== "all") state.providerFilters.add(select.value);
+      state.visibleLimit = 30;
+      renderProviderFilter();
+      renderProviderOverview();
+      renderSessions("filter");
+      announceProviderFilter();
+      $("#mobileProviderFilterSelect")?.focus();
+      syncFilterResetButton();
+      saveDashboardPreferences();
+    });
     $("#providerFilter").addEventListener("keydown", (event) => {
       moveFocus(event, event.currentTarget, "[data-provider-filter]", ["ArrowLeft", "ArrowUp"], ["ArrowRight", "ArrowDown"]);
     });
@@ -286,7 +297,10 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         toast(t("settings.providers.save_failed"));
         return;
       }
-      toast(t(input.checked ? "settings.providers.shown_toast" : "settings.providers.hidden_toast"));
+      const provider = state.providers.find((item) => item.id === providerId);
+      toast(t(input.checked ? "settings.providers.shown_toast" : "settings.providers.hidden_toast", {
+        provider: provider?.label || "선택한 AI",
+      }));
     });
     const addWorkspaceButtons = [$("#addWorkspaceBtn"), $("#mobileAddWorkspaceBtn")].filter(Boolean);
     const addWorkspace = async (event) => {

@@ -48,7 +48,7 @@ function validProvider(value) {
 function decodeBase64(value) {
   const encoded = String(value || '');
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-    throw new Error('브리지 입력 인코딩이 올바르지 않습니다.');
+    throw new Error('외부 명령창에서 받은 글자를 읽을 수 없습니다.');
   }
   return Buffer.from(encoded, 'base64').toString('utf8');
 }
@@ -69,7 +69,7 @@ class BridgeServer {
   }
 
   start() {
-    if (!this.terminalManager) return Promise.reject(new Error('터미널 관리자가 준비되지 않았습니다.'));
+    if (!this.terminalManager) return Promise.reject(new Error('명령창 기능이 아직 준비되지 않았습니다.'));
     if (this.server) return Promise.resolve(this.info());
     if (this.platform !== 'win32') {
       if (fs.existsSync(this.endpoint)) runBestEffort('bridge-stale-endpoint', () => fs.unlinkSync(this.endpoint));
@@ -126,7 +126,7 @@ class BridgeServer {
     socket.setNoDelay(true);
     const client = { socket, buffer: '', authenticated: false, terminalId: '', bridgeId: '', authTimer: null };
     client.authTimer = setTimeout(() => {
-      if (!client.authenticated) socket.destroy(new Error('브리지 인증 시간이 초과되었습니다.'));
+      if (!client.authenticated) socket.destroy(new Error('외부 명령창 연결 확인 시간이 초과되었습니다.'));
     }, AUTH_TIMEOUT_MS);
     this.clients.set(socket, client);
     socket.on('data', chunk => this.consume(client, chunk));
@@ -136,7 +136,7 @@ class BridgeServer {
 
   consume(client, chunk) {
     client.buffer += chunk.toString('utf8');
-    if (client.buffer.length > MAX_FRAME_CHARS) return client.socket.destroy(new Error('브리지 입력이 너무 큽니다.'));
+    if (client.buffer.length > MAX_FRAME_CHARS) return client.socket.destroy(new Error('외부 명령창에서 받은 내용이 너무 큽니다.'));
     let newline;
     while ((newline = client.buffer.indexOf('\n')) >= 0) {
       const line = client.buffer.slice(0, newline).trim();
@@ -146,7 +146,7 @@ class BridgeServer {
       try {
         message = JSON.parse(line);
       } catch (_invalidBridgeFrame) {
-        return client.socket.destroy(new Error('브리지 메시지가 올바르지 않습니다.'));
+        return client.socket.destroy(new Error('외부 명령창에서 받은 메시지 형식이 올바르지 않습니다.'));
       }
       try { this.handle(client, message || {}); } catch (error) {
         sendFrame(client.socket, { type: 'error', message: String(error.message || error) });
@@ -157,9 +157,9 @@ class BridgeServer {
 
   handle(client, message) {
     if (!client.authenticated) {
-      if (message.type !== 'run' || message.token !== this.token) throw new Error('LoadToAgent 브리지 인증에 실패했습니다.');
+      if (message.type !== 'run' || message.token !== this.token) throw new Error('LoadToAgent와 외부 명령창의 연결을 확인하지 못했습니다.');
       const provider = validProvider(message.provider);
-      if (!provider) throw new Error('지원하지 않는 AI 제공사입니다.');
+      if (!provider) throw new Error('선택한 AI 종류는 사용할 수 없습니다.');
       const bridgeId = crypto.randomUUID();
       const session = this.terminalManager.create({
         type: 'agent',
@@ -194,7 +194,7 @@ class BridgeServer {
     } else if (message.type === 'close') {
       this.terminalManager.close(client.terminalId);
       client.socket.end();
-    } else throw new Error('지원하지 않는 브리지 메시지입니다.');
+    } else throw new Error('이 외부 명령창 요청은 지원하지 않습니다.');
   }
 
   forwardData(payload) {

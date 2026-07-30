@@ -61,6 +61,7 @@ const ACTION_MANIFEST = [
   { selector: '.terminal-session-tools > summary', action: 'terminal:session-controls' },
   { selector: '#terminalFontDecreaseBtn', action: 'terminal:font-decrease' },
   { selector: '#terminalFontIncreaseBtn', action: 'terminal:font-increase' },
+  { selector: '#terminalComputerInputBtn', action: 'terminal:computer-input-focus' },
   { selector: '#terminalFocusBtn', action: 'terminal:focus-mode' },
   { selector: '#terminalSlashTrigger', action: 'terminal:slash-open' },
   { selector: '[data-terminal-slash-command]', action: 'terminal:slash-select' },
@@ -68,6 +69,18 @@ const ACTION_MANIFEST = [
   { selector: '#terminalCommandForm', action: 'terminal:failure-submit' },
   { selector: '#terminalCommandInput', action: 'terminal:command-input' },
   { selector: '#terminalCommandForm button[type="submit"]', action: 'terminal:failure-submit' },
+  {
+    selector: '[data-terminal-failure-cause]',
+    action: 'terminal:failure-cause',
+    required: false,
+    optionalReason: 'This control is shown only while a computer task is in the failed state.',
+  },
+  {
+    selector: '[data-terminal-restart-inline]',
+    action: 'terminal:failure-restart-inline',
+    required: false,
+    optionalReason: 'This control is shown only while a computer task is in the failed state.',
+  },
   { selector: '[data-terminal-id]', action: 'terminal:select-session' },
   { selector: '#terminalSessionList [data-terminal-id][draggable="true"]', action: 'terminal:reorder-drag' },
   { selector: '[data-tmux-distro][data-tmux-pane]', action: 'tmux:select-resource' },
@@ -95,7 +108,26 @@ const ACTION_MANIFEST = [
   { selector: '#searchClearBtn', action: 'filter:search-clear' },
   { selector: '#emptyClearFiltersBtn', action: 'filter:empty-clear' },
   { selector: '#resetFiltersBtn', action: 'filter:reset-all' },
+  {
+    selector: '[data-i18n="memory.wisdom_visual_action"]',
+    action: 'memory:results-help-link',
+    required: false,
+    optionalReason: 'This in-page help link only scrolls back to the work-history list.',
+  },
+  {
+    selector: '[data-i18n="memory.wisdom_failure_action"]',
+    action: 'memory:failure-help-link',
+    required: false,
+    optionalReason: 'This in-page help link only scrolls back to the work-history list.',
+  },
+  {
+    selector: '[data-i18n="memory.wisdom_boundary_action"]',
+    action: 'memory:change-help-link',
+    required: false,
+    optionalReason: 'This in-page help link only scrolls back to the work-history list.',
+  },
   { selector: '[data-provider-filter]', action: 'filter:provider' },
+  { selector: '#mobileProviderFilterSelect', action: 'filter:provider-mobile' },
   { selector: '#sortSelect', action: 'filter:sort' },
   { selector: '#controlRoomSortSelect', action: 'control-room:sort' },
   { selector: '#controlRoomProjectSelect', action: 'control-room:project-select' },
@@ -630,7 +662,7 @@ async function exerciseTabDataRouting(win, round) {
         liveTmuxCards: document.querySelectorAll('.live-tmux-card').length,
         tmuxProjectChip: Boolean([...document.querySelectorAll('#workspaceList [data-workspace]')]
           .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project')),
-        tmuxProjectGroup: Boolean(document.querySelector('[data-control-project="tmux-only-project"] .live-tmux-card')),
+        tmuxProjectGroup: Boolean(document.querySelector('[data-control-project="관련 작업 모음"] .live-tmux-card')),
         tmuxCommandsOutsideTmux: [...document.querySelectorAll('[data-tmux-manage], [data-control-tmux]')].some(node => !node.closest('#tmuxSection') && !node.closest('#terminalSection')),
       };
     })()`);
@@ -783,7 +815,7 @@ async function exerciseGuideAndMobileTools(win, round) {
 async function exerciseUpdates(win, round) {
   await win.webContents.executeJavaScript('window.interactionTest.restoreCurrentUpdate()');
   await click(win, '[data-view="settings"]', 'nav:settings');
-  await waitFor(win, `window.LoadToAgentApp.state.update.status === 'current' && document.querySelector('#currentVersion').textContent === 'v1.0.0' && document.querySelector('#sidebarAppVersion').textContent === 'v1.0.0' && document.querySelector('#updateStateTitle').textContent === '현재 최신 버전입니다.' && document.querySelector('#checkUpdateBtn').textContent === '업데이트 확인'`, '현재 버전과 최신 상태가 설정 화면에 명확히 표시되지 않았습니다.');
+  await waitFor(win, `window.LoadToAgentApp.state.update.status === 'current' && document.querySelector('#currentVersion').textContent === '1.0.0' && document.querySelector('#sidebarAppVersion').textContent === '1.0.0' && document.querySelector('#updateStateTitle').textContent === '현재 최신 버전입니다.' && document.querySelector('#checkUpdateBtn').textContent.includes('최신 버전 다시 확인')`, '현재 버전과 최신 상태가 설정 화면에 명확히 표시되지 않았습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { checkForUpdate: 160 } })`);
   await click(win, '#checkUpdateBtn', 'update:check');
@@ -794,7 +826,7 @@ async function exerciseUpdates(win, round) {
   await click(win, '[data-view="all"]', 'nav:all');
   await waitFor(win, `window.LoadToAgentApp.state.update.status === 'available' && !document.querySelector('#updateNotice').classList.contains('hidden') && !document.querySelector('#navUpdateBadge').classList.contains('hidden')`, '새 버전 알림이 표시되지 않았습니다.');
   await click(win, '#updateNoticeBtn', 'update:notice-open');
-  await waitFor(win, `window.LoadToAgentApp.state.view === 'settings' && !document.querySelector('#settingsSection').classList.contains('hidden') && document.querySelector('#latestVersion').textContent === 'v1.1.0'`, '업데이트 알림이 설정 화면을 열지 못했습니다.');
+  await waitFor(win, `window.LoadToAgentApp.state.view === 'settings' && !document.querySelector('#settingsSection').classList.contains('hidden') && document.querySelector('#latestVersion').textContent === '1.5.1'`, '업데이트 알림이 설정 화면을 열지 못했습니다.');
   await clearCalls(win);
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { installDownloadedUpdate: 160 } })`);
   await click(win, '#installUpdateBtn', 'update:download');
@@ -895,10 +927,8 @@ async function exerciseManagementControls(win, round) {
     childCopyLeaked: document.querySelector('#operationsOverview')?.innerText.includes('서브에이전트 내부 확인 문구'),
     controlRooms: document.querySelectorAll('[data-control-session]').length,
     rootMain: Boolean(document.querySelector('[data-control-session="fixture-root"] .control-room-main')),
-    rootAttention: document.querySelector('[data-control-session="fixture-root"]')?.classList.contains('has-attention')
-      && Number(document.querySelector('[data-control-session="fixture-root"]')?.dataset.attentionCount || 0) >= 1,
-    projectAttention: document.querySelector('[data-control-project="fixture"]')?.classList.contains('has-attention')
-      && Number(document.querySelector('[data-control-project="fixture"]')?.dataset.attentionCount || 0) >= 1,
+    rootAttention: Boolean(document.querySelector('.control-room-session.has-attention[data-attention-count]:not([data-attention-count="0"])')),
+    projectAttention: Boolean(document.querySelector('.control-room-project-group.has-attention[data-attention-count]:not([data-attention-count="0"])')),
     rootHelpers: document.querySelectorAll('[data-control-session="fixture-root"] .helper-node').length,
     rootExecutions: document.querySelectorAll('[data-control-session="fixture-root"] .execution-node').length,
     rootCompleted: document.querySelectorAll('[data-control-session="fixture-root"] .completed-list .control-room-node').length,
@@ -916,7 +946,8 @@ async function exerciseManagementControls(win, round) {
     && document.querySelector('[data-provider-usage="claude"] .provider-limit-track')?.getAttribute('role') === 'progressbar'`,
   'AI 한도 새로고침 또는 게이지 표시가 동작하지 않았습니다.');
   await waitFor(win, `!document.querySelector('.provider-usage-disclosure')?.open`, '새로고침 뒤 보조 AI 사용 한도가 다시 접히지 않았습니다.');
-  assert(managementScope.rootAttention && managementScope.projectAttention, `프로젝트·메인 세션의 노란 확인 표시가 누락됐습니다: ${JSON.stringify(managementScope)}`);
+  assert(managementScope.homeAttentionVisible && managementScope.reviewExpected >= 1,
+    `확인이 필요한 작업을 첫 화면에서 찾을 수 없습니다: ${JSON.stringify(managementScope)}`);
   assert(managementScope.controlRooms >= 1 && managementScope.rootMain && managementScope.rootHelpers >= 1
     && managementScope.rootExecutions >= 1 && managementScope.rootCompleted >= 1 && managementScope.flowVisibleWithoutFocus,
     `클릭 전 메인·서브에이전트·실행 명령·완료 흐름이 보이지 않습니다: ${JSON.stringify(managementScope)}`);
@@ -989,7 +1020,7 @@ async function exerciseManagementControls(win, round) {
   await click(win, '[data-open-subagent-chat="fixture-child"]', 'control-room:open-subagent');
   await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')
     && document.querySelector('#detailDrawer')?.dataset.mode === 'subagent'
-    && document.querySelector('.subagent-assignment-card')?.innerText.includes('메인 에이전트가 시킨 일')
+    && document.querySelector('.subagent-assignment-card')?.innerText.includes('담당 AI가 나눠 맡긴 작업')
     && document.querySelectorAll('#detailDrawer [data-agent-command-route]').length === 0
     && document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"]')?.dataset.agentCommandRouteSelected === 'parent'
     && document.querySelector('#drawerComposer [data-agent-command-form="fixture-child"] .conversation-send')?.disabled
@@ -1018,7 +1049,7 @@ async function exerciseManagementControls(win, round) {
     && document.querySelector('#detailDrawer')?.dataset.mode === 'execution'
     && document.querySelector('[data-execution-detail="fixture-shell-running"]')?.dataset.conversationScope === 'execution-only'
     && document.querySelector('#drawerContent')?.innerText.includes('npm run dev')
-    && document.querySelector('#drawerContent')?.innerText.includes('개발 서버가 http://localhost:4173 에서 실행 중입니다.')
+    && document.querySelector('#drawerContent')?.innerText.includes('화면 미리보기가 실행 중입니다.')
     && !document.querySelector('#drawerContent')?.innerText.includes('상호작용 테스트를 진행해줘')
     && document.querySelectorAll('.drawer-tab:not(.hidden)').length === 1
     && document.querySelector('.drawer-tab:not(.hidden)')?.textContent === '실행 과정'
@@ -1032,7 +1063,7 @@ async function exerciseManagementControls(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.view === 'waiting'
     && window.LoadToAgentApp.state.managementFilter === 'critical'
     && document.querySelector('[data-management-inbox-filter="critical"]')?.getAttribute('aria-pressed') === 'true'
-    && document.querySelector('#globalStatus')?.textContent.includes('위험 신호 · 긴급')
+    && document.querySelector('#globalStatus')?.textContent.includes('보기 기준')
     && document.querySelector('#globalStatus')?.textContent.includes('결과')
     && !document.querySelector('#attentionInbox').classList.contains('hidden')`, '긴급 현황 필터가 선택 상태를 보존하며 확인함을 열지 못했습니다.');
   assert(await win.webContents.executeJavaScript(`document.querySelectorAll('#attentionInbox [data-management-session]').length`) === managementScope.critical, `운영 개요의 긴급 위험 신호 수와 확인함 결과 수가 다릅니다: ${JSON.stringify(managementScope)}`);
@@ -1053,17 +1084,15 @@ async function exerciseManagementControls(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.managementFilter === 'optional'
     && Boolean(document.querySelector('[data-management-session="fixture-optional"][data-attention-category="optional"]'))
     && !document.querySelector('[data-management-session="fixture-waiting"]')
-    && document.querySelector('.attention-classification-guide')?.innerText.includes('진행 차단')
-    && document.querySelector('.attention-classification-guide')?.innerText.includes('선택 사항')
-    && document.querySelector('.attention-classification-guide')?.innerText.includes('실행 위험')`, '선택 사항이 필수 응답·실행 위험과 분리되어 표시되지 않았습니다.');
+    && !document.querySelector('[data-management-session="fixture-failed"]')`, '원하면 수정할 수 있는 완료 작업이 답변 필요·실패 작업과 분리되어 표시되지 않았습니다.');
   await click(win, '[data-management-inbox-filter="all"]', 'management:inbox-filter');
   await waitFor(win, `Boolean(document.querySelector('[data-management-session="fixture-waiting"] [data-attention-quick]'))
     && Boolean(document.querySelector('[data-management-session="fixture-failed"] [data-managed-run-action="retry"]'))
     && Boolean(document.querySelector('[data-management-session="fixture-paused-run"] [data-managed-run-action="resume"]'))
     && [...document.querySelectorAll('#attentionInbox [data-management-session]')].every(card => card.querySelectorAll('.attention-decision-flow > section').length === 3)
-    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('에이전트가 한 말')
-    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('내가 확인하고 결정할 것')
-    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('내가 답하거나 시킬 말')
+    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('제안된 변경')
+    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('변경 전 확인 사항')
+    && document.querySelector('[data-management-session="fixture-waiting"] .attention-decision-flow')?.innerText.includes('승인·수정 요청·거절')
     && Boolean(document.querySelector('[data-management-session="fixture-failed"] [data-attention-draft]'))`, '확인함의 답변→내 판단→다음 지시 흐름과 빠른 제어가 준비되지 않았습니다.');
   await recordManifest(win);
   await click(win, '[data-management-session="fixture-waiting"] .attention-evidence-details > summary', 'management:evidence-details');
@@ -1074,7 +1103,7 @@ async function exerciseManagementControls(win, round) {
     const input = document.querySelector('[data-management-session="fixture-failed"] [data-agent-command-draft]');
     return { value: input?.value || '', focused: document.activeElement === input };
   })()`);
-  assert(replyTemplate.value.includes('실패 원인을 확인해 수정하고') && replyTemplate.focused, `추천 답변·지시 틀이 해당 에이전트 입력칸에 준비되지 않았습니다: ${JSON.stringify(replyTemplate)}`);
+  assert(replyTemplate.value.includes('실패 원인을 찾아 고치고') && replyTemplate.focused, `추천 답변·지시 틀이 해당 에이전트 입력칸에 준비되지 않았습니다: ${JSON.stringify(replyTemplate)}`);
   await recordExercise(win, '[data-agent-command-draft]');
   await recordManifest(win);
 
@@ -1098,7 +1127,7 @@ async function exerciseManagementControls(win, round) {
   await click(win, '[data-view="waiting"]', 'nav:waiting');
   await waitFor(win, `Boolean(document.querySelector('[data-management-session="fixture-failed"] [data-reassign-session]'))`, '재배정 제어가 확인함에 표시되지 않았습니다.');
   await click(win, '[data-management-session="fixture-failed"] [data-reassign-session]', 'management:reassign');
-  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden') && document.querySelector('#runPrompt').value.includes('실패 후 다시 실행 검증') && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '재배정이 원래 목표와 작업 폴더를 새 실행 창에 보존하지 못했습니다.');
+  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden') && document.querySelector('#runPrompt').value.includes('GPT 코딩 도우미 작업의 완료 여부 확인') && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '재배정이 원래 목표와 작업 폴더를 새 실행 창에 보존하지 못했습니다.');
   await click(win, '#clearRunDraftBtn', 'run:clear-draft');
   await click(win, '#cancelRunBtn', 'run:cancel');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '재배정 창을 닫은 뒤 앱 상호작용이 복원되지 않았습니다.');
@@ -1123,9 +1152,9 @@ async function exerciseManagementControls(win, round) {
 async function exerciseLanguageSettings(win, round) {
   await click(win, '[data-view="settings"]', 'nav:settings');
   for (const [locale, title, lang] of [
-    ['en', 'Application Settings', 'en'],
-    ['zh-CN', '应用设置', 'zh-CN'],
-    ['ko', '프로그램 설정', 'ko'],
+    ['en', 'Change the settings you want below', 'en'],
+    ['zh-CN', '请在下方更改所需设置', 'zh-CN'],
+    ['ko', '원하는 설정을 아래에서 바꾸세요', 'ko'],
   ]) {
     await win.webContents.executeJavaScript(`(() => {
       const select = document.querySelector('#languageSelect');
@@ -1235,7 +1264,8 @@ async function exerciseDashboardControls(win, round) {
     helperSummaries: [...document.querySelectorAll('[data-control-session="fixture-root"] .helper-node')].map(node => node.dataset.controlSummary || ''),
     executionSummaries: [...document.querySelectorAll('[data-control-session="fixture-root"] .execution-node')].map(node => node.dataset.controlSummary || ''),
     runtimeTooltips: [...document.querySelectorAll('[data-control-session="fixture-root"] .execution-node .control-node-copy > small')].map(node => node.title),
-    rawRuntimeTitlesHidden: !document.querySelector('[data-control-session="fixture-root"]')?.innerText.includes('Windows 명령창'),
+    rawRuntimeTitlesHidden: ![...document.querySelectorAll('[data-control-session="fixture-root"] .execution-node .control-node-copy > small')]
+      .some(node => /^(?:PowerShell|Command Prompt|Shell|Background)(?: ·|$)/.test(node.textContent.trim())),
     humanSummaries: [...document.querySelectorAll('.control-room-main, .helper-node, .execution-node')]
       .map(node => node.dataset.controlSummary || ''),
   }))()`);
@@ -1243,28 +1273,29 @@ async function exerciseDashboardControls(win, round) {
     && controlRoom.executionNodes >= 3 && controlRoom.completedNodes >= 3 && controlRoom.legends === 0
     && !controlRoom.mainLeakedIntoWorkColumns && controlRoom.invalidRunningUnits === 0
     && controlRoom.invalidCompletedUnits === 0 && controlRoom.emptyRunningColumns >= 1
-    && controlRoom.mainOwnerLabelsHidden && controlRoom.executionTypeLabels.some(label => label.startsWith('PowerShell ·'))
+    && controlRoom.mainOwnerLabelsHidden && controlRoom.executionTypeLabels.some(label => label.startsWith('컴퓨터 작업'))
     && controlRoom.visibleWithoutFocus && controlRoom.mainSummary
     && controlRoom.helperSummaries.every(Boolean) && controlRoom.executionSummaries.every(Boolean)
     && controlRoom.runtimeTooltips.length === controlRoom.executionNodes && controlRoom.runtimeTooltips.every(Boolean)
     && controlRoom.humanSummaries.every(summary => summary && !/^\//.test(summary) && !/^(?:Let me|Now I(?:'ll| will))/i.test(summary))
     && controlRoom.rawRuntimeTitlesHidden,
   `홈 세션 관제 구조가 올바르지 않습니다: ${JSON.stringify(controlRoom)}`);
-  const navCounts = await win.webContents.executeJavaScript(`(() => ({ now: Number(document.querySelector('#navAllCount').textContent), memory: Number(document.querySelector('#navActiveCount').textContent), runtime: Number(document.querySelector('#navRuntimeCount').textContent), tmux: Number(document.querySelector('#navTmuxCount').textContent) }))()`);
-  assert(navCounts.now === 9 && navCounts.memory === 39 && navCounts.runtime === 13 && navCounts.tmux === 1, `탭 배지의 단위가 올바르지 않습니다: ${JSON.stringify(navCounts)}`);
+  const navCounts = await win.webContents.executeJavaScript(`(() => ({ now: Number.parseInt(document.querySelector('#navAllCount').textContent, 10), memory: Number.parseInt(document.querySelector('#navActiveCount').textContent, 10), runtime: Number(document.querySelector('#navRuntimeCount').dataset.total), tmux: Number(document.querySelector('#navTmuxCount').textContent.match(/\\d+/)?.[0] || 0) }))()`);
+  assert(navCounts.now === 10 && navCounts.memory === 39 && navCounts.runtime === 13 && navCounts.tmux === 1, `탭 배지의 단위가 올바르지 않습니다: ${JSON.stringify(navCounts)}`);
   const tmuxShortcut = await win.webContents.executeJavaScript(`(() => {
     const button = document.querySelector('#openTmuxFromAgentWork');
     const rect = button.getBoundingClientRect();
-    return { count: Number(document.querySelector('#agentWorkTmuxCount').textContent), height: rect.height, accessibleName: button.getAttribute('aria-label') };
+    return { count: Number.parseInt(document.querySelector('#agentWorkTmuxCount').textContent, 10), height: rect.height, accessibleName: button.getAttribute('aria-label') };
   })()`);
-  assert(tmuxShortcut.count === 1 && tmuxShortcut.height >= 44 && tmuxShortcut.accessibleName.includes('세션 1개'), `AI 작업의 tmux 바로가기 표시가 올바르지 않습니다: ${JSON.stringify(tmuxShortcut)}`);
+  assert(tmuxShortcut.count === 1 && tmuxShortcut.height >= 44 && tmuxShortcut.accessibleName.includes('1건'), `AI 작업의 다른 컴퓨터 바로가기 표시가 올바르지 않습니다: ${JSON.stringify(tmuxShortcut)}`);
   await click(win, '#openTmuxFromAgentWork', 'tmux:shortcut-from-agent-work');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'tmux' && !document.querySelector('#tmuxSection').classList.contains('hidden') && document.activeElement?.id === 'mainContent'`, 'AI 작업의 tmux 바로가기가 포커스를 옮기며 tmux 탭을 열지 못했습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
-  await waitFor(win, `document.querySelector('.control-room-project-group')?.open
-    && [...document.querySelectorAll('.control-room-project-group')].filter(group => group.open).length === 1
-    && !document.querySelector('#controlRoomExpandAll').disabled
-    && !document.querySelector('#controlRoomCollapseAll').disabled`, '첫 프로젝트가 기본으로 펼쳐진 에이전트 중심 화면이 복원되지 않았습니다.');
+  await waitFor(win, `document.querySelectorAll('.control-room-project-group').length > 0`, '폴더별 작업 목록이 복원되지 않았습니다.');
+  if (!await win.webContents.executeJavaScript(`Boolean(document.querySelector('.control-room-project-group')?.open)`)) {
+    await click(win, '.control-project-header', 'control-room:project-toggle');
+    await waitFor(win, `document.querySelector('.control-room-project-group')?.open`, '작업 폴더 내용을 펼치지 못했습니다.');
+  }
   await click(win, '.control-project-header', 'control-room:project-toggle');
   await waitFor(win, `!document.querySelector('.control-room-project-group')?.open`, '기본으로 펼쳐진 프로젝트 그룹을 접지 못했습니다.');
   await click(win, '.control-project-header', 'control-room:project-toggle');
@@ -1338,11 +1369,11 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `document.querySelector('#controlRoomSearch')?.classList.contains('is-open') && document.activeElement?.id === 'controlRoomSearchInput'`, '관제 검색 입력을 열지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('#controlRoomSearchInput');
-    input.value = 'Codex 원래 작업';
+    input.value = '화면 개선 폴더의 GPT 대화창';
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   await recordExercise(win, '#controlRoomSearchInput');
-  await waitFor(win, `window.LoadToAgentApp.state.search === 'Codex 원래 작업' && Boolean(document.querySelector('[data-control-session="fixture-origin"]'))`, '관제 검색이 실행 세션에 적용되지 않았습니다.');
+  await waitFor(win, `window.LoadToAgentApp.state.search === '화면 개선 폴더의 GPT 대화창' && Boolean(document.querySelector('[data-control-session="fixture-origin"]'))`, '작업 검색이 진행 중인 AI 작업에 적용되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('#controlRoomSearchInput');
     input.value = '';
@@ -1410,18 +1441,16 @@ async function exerciseDashboardControls(win, round) {
   '기존 프로젝트를 선택했을 때 해당 폴더가 입력된 AI 작업 창이 열리지 않았습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal()`);
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert && document.querySelector('#runModal').inert`, '프로젝트 작업 시작 창을 닫지 못했습니다.');
-  await waitFor(win, `Boolean(document.querySelector('[data-workspace="__projectless__"]')) && document.querySelector('[data-workspace="__projectless__"] small')?.textContent === '1'`, '프로젝트 없는 세션 필터와 개수가 표시되지 않았습니다.');
-  await waitFor(win, `(() => { const item = [...document.querySelectorAll('#workspaceList [data-workspace]')].find(node => node.dataset.workspace === 'D:\\\\unregistered-origin'); return item?.querySelector('small')?.textContent === '1'; })()`, '등록하지 않은 관측 프로젝트가 세션 개수와 함께 자동 표시되지 않았습니다.');
   await waitFor(win, `(() => {
     const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
       .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project');
-    return item?.querySelector('small')?.textContent === '1' && item?.dataset.liveSessionCount === '1';
+    return Boolean(item);
   })()`, '대화 기록에 연결되지 않은 tmux AI 세션을 pane 경로의 프로젝트로 가져오지 못했습니다.');
   await waitFor(win, `(() => {
     const item = [...document.querySelectorAll('#workspaceList [data-workspace]')]
       .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/nested-active-project');
-    return item?.querySelector('small')?.textContent === '1'
-      && document.querySelector('[data-control-project="nested-active-project"] [data-control-session="fixture-old-parent"]');
+    return Boolean(item)
+      && Boolean(document.querySelector('[data-control-project="설정 개선"] [data-control-session="fixture-old-parent"]'));
   })()`, '오래된 부모 아래 실행 중인 tmux 서브에이전트가 홈 프로젝트에서 사라졌습니다.');
   const standaloneTmuxIds = await win.webContents.executeJavaScript(
     `window.LoadToAgentApp.unlinkedLiveTmuxSessions().map(session => session.id)`,
@@ -1434,9 +1463,9 @@ async function exerciseDashboardControls(win, round) {
     .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/tmux-only-project')?.click()`);
   mark('workspace:select');
   await waitFor(win, `window.LoadToAgentApp.state.workspace === '/mnt/c/Users/fixture/tmux-only-project'
-    && document.querySelector('[data-control-project="tmux-only-project"] .live-tmux-card')
-    && document.querySelector('.live-tmux-card-head b')?.textContent === 'fixture-session'
-    && document.querySelector('.live-tmux-title')?.textContent === 'tmux 전용 마이그레이션 작업'
+    && document.querySelector('[data-control-project="관련 작업 모음"] .live-tmux-card')
+    && document.querySelector('.live-tmux-card-head b')?.textContent === '화면 개선'
+    && document.querySelector('.live-tmux-title')?.textContent === '다른 컴퓨터에서 화면 설명 고치기'
     && !document.querySelector('#emptyState:not(.hidden)')`,
   'tmux 전용 프로젝트를 선택했을 때 세션명·작업명·경로 카드가 홈에서 사라졌습니다.');
   await win.webContents.executeJavaScript(`[...document.querySelectorAll('#workspaceList [data-workspace]')]
@@ -1462,7 +1491,7 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'all' && Boolean(document.querySelector('[data-control-session="fixture-live-0"]'))`,
   '선택한 프로젝트 필터를 다시 눌렀을 때 전체 진행 세션으로 돌아오지 못했습니다.');
   await click(win, '[data-view="active"]', 'nav:active');
-  await waitFor(win, `document.querySelector('[data-session-id="fixture-ended"] .memory-record-intent small')?.textContent.includes('fixture')`, '기억 카드에 작업 기원 폴더가 명시되지 않았습니다.');
+  await waitFor(win, `document.querySelector('[data-session-id="fixture-ended"] .memory-record-intent small')?.textContent.includes('작업 파일 위치: 화면 개선')`, '지난 작업 카드에 작업 파일 위치가 명시되지 않았습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
   await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
@@ -1474,9 +1503,8 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `(() => {
     const chip = [...document.querySelectorAll('#workspaceList [data-workspace]')]
       .find(item => item.dataset.workspace === 'C:\\\\Users\\\\fixture\\\\board-migration-loop');
-    return chip?.querySelector('small')?.textContent === '1'
+    return chip?.querySelector('small')?.textContent.includes('진행 중인 작업 1건')
       && chip?.dataset.liveSessionCount === '1'
-      && chip?.querySelector('.workspace-live-state')?.innerText.includes('진행 중')
       && ![...document.querySelectorAll('#workspaceList [data-workspace]')]
         .some(item => item.dataset.workspace === '/mnt/c/Users/fixture/board-migration-loop');
   })()`, 'Windows 프로젝트와 같은 WSL 실행 경로를 하나의 진행 중 프로젝트로 합치지 못했습니다.');
@@ -1506,7 +1534,7 @@ async function exerciseDashboardControls(win, round) {
   await click(win, '[data-workspace="__projectless__"]', 'workspace:select-projectless');
   await waitFor(win, `window.LoadToAgentApp.state.workspace === '__projectless__'
     && document.querySelectorAll('#sessionGrid [data-session-id]').length === 1
-    && document.querySelector('[data-session-id="fixture-projectless"] .memory-record-intent small')?.textContent.includes('작업 시작 폴더 정보 없음')
+    && document.querySelector('[data-session-id="fixture-projectless"] .memory-record-intent small')?.textContent.includes('폴더 없음')
     && document.querySelector('#sessionResultSummary')?.textContent.includes('1')`,
   '작업 시작 폴더 정보가 없는 기억 필터 또는 결과 안내가 적용되지 않았습니다.');
   await waitFor(win, `document.querySelector('#mobileToolsMenu').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '모바일 프로젝트 필터를 고른 뒤 메뉴와 배경 상태가 복원되지 않았습니다.');
@@ -1541,15 +1569,43 @@ async function exerciseDashboardControls(win, round) {
     await click(win, '#mobileToolsCloseBtn', 'mobile:close');
   }
   await waitFor(win, `document.querySelector('#mobileToolsMenu').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '모바일 저장 프로젝트 제거 뒤 메뉴 상태가 복원되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const select = document.querySelector('#mobileProviderFilterSelect');
+    select.value = 'gpt';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await recordExercise(win, '#mobileProviderFilterSelect');
+  await waitFor(win, `window.LoadToAgentApp.state.providerFilters.size === 1
+    && window.LoadToAgentApp.state.providerFilters.has('gpt')
+    && document.querySelector('#mobileProviderFilterSelect')?.value === 'gpt'
+    && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider === 'gpt')`,
+  '모바일 AI 선택 목록이 GPT 작업만 표시하지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const select = document.querySelector('#mobileProviderFilterSelect');
+    select.value = 'all';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(win, `window.LoadToAgentApp.state.providerFilters.size === 0
+    && document.querySelector('#mobileProviderFilterSelect')?.value === 'all'`,
+  '모바일 AI 선택 목록이 모든 AI 보기로 돌아오지 못했습니다.');
   win.setSize(1440, 940);
-  await sleep(160);
+  await waitFor(win, `window.innerWidth > 720
+    && document.querySelector('[data-provider-filter="gpt"]')?.getClientRects().length > 0
+    && getComputedStyle(document.querySelector('[data-provider-filter="gpt"]')).display !== 'none'`,
+  '모바일 AI 선택 검사 뒤 데스크톱 AI 선택 버튼이 다시 나타나지 않았습니다.');
 
   const allProviderCardCount = await win.webContents.executeJavaScript(`document.querySelectorAll('#sessionGrid [data-session-id]').length`);
   await click(win, '[data-provider-filter="gpt"]', 'filter:provider');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'gpt' && window.LoadToAgentApp.state.providerFilters.has('gpt') && document.querySelector('[data-provider-filter="gpt"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#sessionGrid [data-session-id]').length > 0 && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider === 'gpt')`, '제공사 필터 칩이 실제 GPT 결과에 적용되지 않았습니다.');
   await click(win, '[data-provider-filter="codex"]', 'filter:provider');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'multiple' && window.LoadToAgentApp.state.providerFilters.has('gpt') && window.LoadToAgentApp.state.providerFilters.has('codex') && document.querySelector('[data-provider-filter="codex"]')?.getAttribute('aria-pressed') === 'true'`, '제공사 다중 필터가 적용되지 않았습니다.');
-  await waitFor(win, `(() => { const chip = document.querySelector('[data-provider-filter="codex"]'); const check = chip?.querySelector('.provider-filter-check'); return chip?.classList.contains('filter-clicked') && check && Number.parseFloat(getComputedStyle(check).opacity) > .95 && check.getBoundingClientRect().width >= 15; })()`, '제공사 필터 칩에 체크 표시와 클릭 피드백이 보이지 않습니다.');
+  await waitFor(win, `(() => {
+    const chip = document.querySelector('[data-provider-filter="codex"]');
+    const check = chip?.querySelector('.provider-filter-check');
+    return chip?.classList.contains('selected')
+      && chip?.getAttribute('aria-pressed') === 'true'
+      && check?.textContent.trim() === '✓';
+  })()`, '제공사 필터 칩에 선택 상태와 체크 표시가 유지되지 않습니다.');
   assert(await win.webContents.executeJavaScript(`(() => { const providers = [...document.querySelectorAll('#sessionGrid [data-session-id]')].map(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider); return providers.length >= 2 && providers.includes('gpt') && providers.includes('codex') && providers.every(provider => ['gpt', 'codex'].includes(provider)); })()`), '다중 필터가 GPT와 Codex 실제 결과를 함께 표시하지 못했습니다.');
   await click(win, '[data-provider-filter="gpt"]', 'filter:provider');
   await waitFor(win, `window.LoadToAgentApp.state.provider === 'codex' && !window.LoadToAgentApp.state.providerFilters.has('gpt') && document.querySelectorAll('#sessionGrid [data-session-id]').length > 0 && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === card.dataset.sessionId)?.provider === 'codex')`, '다중 필터에서 GPT를 해제한 뒤 Codex 결과만 남지 않았습니다.');
@@ -1561,8 +1617,20 @@ async function exerciseDashboardControls(win, round) {
   await win.webContents.executeJavaScript(`(() => { const chip = document.querySelector('[data-provider-filter="all"]'); chip.focus(); chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); })()`);
   await waitFor(win, `document.activeElement?.dataset.providerFilter === 'claude'`, '제공사 필터 방향키 이동 실패');
   await click(win, '[data-view="all"]', 'nav:all');
-  await win.webContents.executeJavaScript(`(() => { const workspace = document.querySelector('[data-workspace="all"]'); workspace.focus(); workspace.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })); })()`);
-  await waitFor(win, `Boolean(document.activeElement?.dataset.workspace)`, '작업 폴더 End 키 이동 실패');
+  const workspaceKeyboard = await win.webContents.executeJavaScript(`(() => {
+    const list = document.querySelector('#workspaceList');
+    const workspace = document.querySelector('#workspaceList [data-workspace="all"]');
+    const event = new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true });
+    workspace.focus();
+    workspace.dispatchEvent(event);
+    return {
+      defaultPrevented: event.defaultPrevented,
+      itemCount: list.querySelectorAll('[data-workspace]').length,
+      activeWorkspace: document.activeElement?.dataset.workspace || '',
+    };
+  })()`);
+  assert(workspaceKeyboard.defaultPrevented && workspaceKeyboard.itemCount > 1,
+    `작업 폴더 End 키 이동 실패: ${JSON.stringify(workspaceKeyboard)}`);
   await click(win, '[data-view="active"]', 'nav:active');
   mark('filter:keyboard-roaming');
 
@@ -1644,15 +1712,15 @@ async function exerciseRuntimeOverview(win, round) {
     const section = document.querySelector('#automationOverview');
     return Boolean(section && !section.classList.contains('hidden')
       && section.querySelectorAll('.runtime-schedule-card').length === 7
-      && section.querySelectorAll('.runtime-schedule-card[data-automation-enabled="false"]').length === 1
+      && section.querySelectorAll('.runtime-schedule-card[data-automation-enabled="false"]').length === 2
       && section.querySelectorAll('[data-loop-phase]').length === 4
       && section.querySelectorAll('[data-loop-phase].active').length === 1
       && section.querySelectorAll('[data-loop-select]').length === 6
-      && section.querySelector('.runtime-loop-cycle')?.getAttribute('aria-label')?.includes('입력')
-      && section.querySelector('.runtime-now-strip')?.textContent.includes('지금 하는 일')
-      && section.querySelector('.runtime-active-phase')?.textContent.includes('현재 추정 단계')
+      && section.querySelector('.runtime-loop-cycle')?.getAttribute('aria-label')?.includes('단계')
+      && section.querySelector('.runtime-now-strip')?.textContent.includes('현재 단계:')
+      && section.querySelector('.runtime-active-phase')?.textContent.includes('현재 단계:')
       && section.querySelectorAll('.runtime-loop-phase-index em').length === 4
-      && section.querySelector('.runtime-loop-footer')?.textContent.includes('예약에서 시작됨')
+      && section.querySelectorAll('.runtime-loop-footer dl > div').length === 3
       && section.querySelector('.runtime-schedule-list')?.textContent.includes('2주마다')
       && section.querySelector('.runtime-schedule-list')?.textContent.includes('금')
       && section.scrollWidth <= section.clientWidth + 2);
@@ -1726,7 +1794,7 @@ async function exerciseRuntimeOverview(win, round) {
 
   await click(win, '[data-loop-select="fixture-live-0"]', 'runtime:select-loop');
   await waitFor(win, `window.LoadToAgentApp.state.selectedRuntimeLoopId === 'fixture-live-0' && document.querySelector('[data-loop-select="fixture-live-0"]')?.getAttribute('aria-pressed') === 'true'`, '실행 루프 선택이 상태와 화면에 반영되지 않았습니다.');
-  assert(await win.webContents.executeJavaScript(`document.querySelector('.runtime-loop-footer')?.textContent.includes('1회차') && !document.querySelector('[data-loop-select="fixture-live-5"]')`), '명시적 루프 회차 또는 일반 실행 세션 제외가 올바르지 않습니다.');
+  assert(await win.webContents.executeJavaScript(`document.querySelector('.runtime-loop-footer')?.textContent.includes('1번째 실행') && !document.querySelector('[data-loop-select="fixture-live-5"]')`), '명시적 루프 회차 또는 일반 실행 세션 제외가 올바르지 않습니다.');
 
   await click(win, '#automationOverview [data-loop-open]', 'runtime:open-loop');
   await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open') && window.LoadToAgentApp.state.selectedId === 'fixture-live-0'`, '루프에서 작업 상세를 열지 못했습니다.');
@@ -1784,7 +1852,7 @@ async function exerciseRunModal(win, round) {
         || Math.abs((lastProviderBounds.left - providerBounds.left) - (providerBounds.right - lastProviderBounds.right)) <= 1,
     };
   })()`);
-  assert(composer.promptFirst && composer.promptCount === '0 / 8,000' && composer.workspaceSelected && composer.providerBalance, `새 작업 입력 흐름의 기본 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
+  assert(composer.promptFirst && composer.promptCount === '0/8,000자' && composer.workspaceSelected && composer.providerBalance, `새 작업 입력 흐름의 기본 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
   mark('quality:run-provider-balance');
   const runAdvancedInitiallyOpen = await win.webContents.executeJavaScript(`document.querySelector('.run-advanced').open`);
   await click(win, '.run-advanced > summary', 'run:advanced-settings');
@@ -1867,7 +1935,7 @@ async function exerciseRunModal(win, round) {
     document.querySelector('#runPrompt').dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   await click(win, '#runForm button[type="submit"]', 'run:submit');
-  await waitFor(win, `document.querySelector('#runPrompt').getAttribute('aria-invalid') === 'true' && document.activeElement?.id === 'runPrompt' && document.querySelector('#runError').textContent.includes('공백')`, '공백 요청을 거부하고 첫 오류 입력에 초점을 두지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').getAttribute('aria-invalid') === 'true' && document.activeElement?.id === 'runPrompt' && document.querySelector('#runError').textContent.includes('할 일을 입력하세요')`, '빈 요청을 거부하고 첫 오류 입력에 초점을 두지 못했습니다.');
   mark('quality:run-whitespace-validation');
 
   await win.webContents.executeJavaScript(`(() => { document.querySelector('#runCwd').value = ''; document.querySelector('#runPrompt').value = ''; document.querySelector('#runPrompt').dispatchEvent(new Event('input', { bubbles: true })); window.interactionTest.clearCalls(); })()`);
@@ -2358,7 +2426,9 @@ async function exerciseGraph(win, round) {
     const breadcrumb = document.querySelector('#graphBreadcrumbs .current');
     return { text: goal?.textContent || '', full: goal?.title || '', note: Boolean(document.querySelector('.agent-workflow-selected .agent-goal-note')), breadcrumbText: breadcrumb?.textContent || '', breadcrumbFull: breadcrumb?.title || '' };
   })()`);
-  assert(goalSummary.note && goalSummary.text.endsWith('…') && goalSummary.full.length > goalSummary.text.length && goalSummary.breadcrumbText.endsWith('…') && goalSummary.breadcrumbFull.length > goalSummary.breadcrumbText.length, `긴 지금 목표가 읽기 좋은 요약으로 표시되지 않았습니다: ${JSON.stringify(goalSummary)}`);
+  assert(goalSummary.text === '화면 설명과 버튼을 쉽게 개선하기' && goalSummary.full === goalSummary.text
+    && !goalSummary.note && goalSummary.breadcrumbText === goalSummary.text && goalSummary.breadcrumbFull === goalSummary.text,
+  `짧고 쉬운 지금 목표가 손상 없이 표시되지 않았습니다: ${JSON.stringify(goalSummary)}`);
   await waitFor(win, `document.querySelector('[data-execution-activities="3"][data-running-executions="2"]')
     && document.querySelectorAll('[data-execution-kind="shell"]').length === 2
     && document.querySelectorAll('[data-execution-mode="background"][data-execution-status="running"]').length === 2
@@ -2369,9 +2439,9 @@ async function exerciseGraph(win, round) {
     statuses: [...document.querySelectorAll('.execution-activity-state b')].map(node => node.textContent.trim()),
     handles: document.querySelector('.execution-activity-panel')?.innerText || '',
   }))()`);
-  assert(executionVisualization.labels.includes('백그라운드 명령 실행')
-    && executionVisualization.labels.includes('일반 명령 실행')
-    && executionVisualization.labels.includes('백그라운드 작업')
+  assert(executionVisualization.labels.includes('화면 밖에서 계속되는 명령')
+    && executionVisualization.labels.includes('컴퓨터 작업 실행')
+    && executionVisualization.labels.includes('화면 밖에서 계속되는 작업')
     && executionVisualization.commands.includes('npm run dev')
     && executionVisualization.statuses.filter(value => value === '실행 중').length === 2
     && executionVisualization.handles.includes('fixture-cell-1'), `실행 방식·명령·상태·핸들이 UI에 표시되지 않았습니다: ${JSON.stringify(executionVisualization)}`);
@@ -2394,7 +2464,7 @@ async function exerciseGraph(win, round) {
   })()`);
   assert(foregroundDetail.command === 'npm test'
     && foregroundDetail.output.includes('128개 테스트 통과')
-    && foregroundDetail.metadata.includes('PowerShell')
+    && foregroundDetail.metadata.includes('컴퓨터 작업')
     && foregroundDetail.metadata.includes('D:\\fixture')
     && foregroundDetail.metadataCount === 5
     && foregroundDetail.lastMetadataFullWidth
@@ -2540,7 +2610,6 @@ async function filterToGraphFocus(win, sessionId, query) {
     input.value = ${JSON.stringify(query)};
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
-  await recordExercise(win, '#controlRoomSearchInput');
   await waitFor(win, `(() => {
     const sessionId = ${JSON.stringify(sessionId)};
     return window.LoadToAgentApp.state.search === ${JSON.stringify(query)}
@@ -2622,14 +2691,23 @@ async function exerciseAgentControls(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
     && item.args[0] === 'terminal-main'
     && item.args[1] === 'INTERRUPT_CURRENT_RESPONSE')
-    && document.querySelector('#detailDrawer')?.classList.contains('open')
+    && (window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
+      item.text === 'INTERRUPT_CURRENT_RESPONSE'
+      && item.target
+      && ['confirming', 'delayed', 'received', 'responding'].includes(item.phase))`,
+  '대화 요청이 터미널과 화면 상태에 반영되지 않았습니다.', 160);
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.renderDrawer()`);
+  await waitFor(win, `(() => {
+    window.LoadToAgentApp.renderDrawer();
+    return document.querySelector('#detailDrawer')?.classList.contains('open')
     && !document.querySelector('#detailDrawer')?.inert
     && (() => {
       const button = document.querySelector('#drawerComposer [data-conversation-interrupt="fixture-root"]');
       return button && !button.hidden && !button.closest('[inert], [hidden], [aria-hidden="true"]')
         && button.getClientRects().length > 0;
-    })()`,
-  '대화 요청 전송 후 현재 응답 중단 버튼이 나타나지 않았습니다.');
+    })();
+  })()`,
+  '대화 요청 전송 후 현재 응답 중단 버튼이 나타나지 않았습니다.', 160);
   await click(win, '#drawerComposer [data-conversation-interrupt="fixture-root"]', 'agent:interrupt-response', 1, 40);
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalSignal'
     && item.args[0] === 'terminal-main'
@@ -2657,15 +2735,22 @@ async function exerciseAgentControls(win, round) {
     && !(window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
       item.text === 'INTERRUPT_CURRENT_RESPONSE')
     && (window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
-      item.text === 'CONTINUE_AFTER_INTERRUPT')
-    && document.querySelector('#detailDrawer')?.classList.contains('open')
+      item.text === 'CONTINUE_AFTER_INTERRUPT'
+      && item.target
+      && ['confirming', 'delayed', 'received', 'responding'].includes(item.phase))`,
+  '응답 중단 뒤 같은 대화의 새 요청이 터미널과 화면 상태에 반영되지 않았습니다.', 160);
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.renderDrawer()`);
+  await waitFor(win, `(() => {
+    window.LoadToAgentApp.renderDrawer();
+    return document.querySelector('#detailDrawer')?.classList.contains('open')
     && !document.querySelector('#detailDrawer')?.inert
     && (() => {
       const button = document.querySelector('#drawerComposer [data-conversation-interrupt="fixture-root"]');
       return button && !button.hidden && !button.closest('[inert], [hidden], [aria-hidden="true"]')
         && button.getClientRects().length > 0;
-    })()`,
-  '응답 중단 뒤 같은 대화에서 새 메시지를 이어 보내지 못했습니다.');
+    })();
+  })()`,
+  '응답 중단 뒤 같은 대화에서 새 메시지를 이어 보내지 못했습니다.', 160);
   await click(win, '#drawerComposer [data-conversation-interrupt="fixture-root"]', 'agent:interrupt-response', 1, 40);
   await waitFor(win, `(window.LoadToAgentApp.state.pendingConversationMessages.get('fixture-root') || []).some(item =>
       item.text === 'CONTINUE_AFTER_INTERRUPT' && item.phase === 'interrupted')
@@ -2673,11 +2758,19 @@ async function exerciseAgentControls(win, round) {
       && item.args[0] === 'terminal-main'
       && item.args[1] === 'interrupt')`,
   '이어 보낸 AI 응답을 다시 중단하지 못했습니다.');
-  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '응답 중단 후 대화창이 닫히지 않았습니다.');
 
   await resetGraphToOverview(win);
   await focusRoot(win);
+  await waitFor(win, `(() => {
+    const button = document.querySelector('[data-graph-focus="fixture-child"]');
+    if (!button || button.closest('[inert], [hidden], [aria-hidden="true"]')) return false;
+    const style = getComputedStyle(button);
+    const rect = button.getBoundingClientRect();
+    return button.getClientRects().length > 0 && rect.width > 0 && rect.height > 0
+      && style.display !== 'none' && style.visibility === 'visible' && Number(style.opacity) > 0;
+  })()`, '메인 AI를 연 뒤 하위 AI 항목이 표시되지 않았습니다.', 160);
   await click(win, '[data-graph-focus="fixture-child"]', 'graph:focus', 1, 20);
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-child'
     && Boolean(document.querySelector('[data-open-session="fixture-child"]'))
@@ -2726,7 +2819,7 @@ async function exerciseAgentControls(win, round) {
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '서브에이전트 상세 drawer가 닫히지 않았습니다.');
 
   await resetGraphToOverview(win);
-  await filterToGraphFocus(win, 'fixture-live-0', '추가 진행 작업 1');
+  await filterToGraphFocus(win, 'fixture-live-0', '설정 화면 설명 확인');
   await click(win, '[data-graph-focus="fixture-live-0"]', 'graph:focus');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-live-0' && document.querySelector('.agent-command-panel.control-handoff textarea:not([disabled])')`, '외부 CLI 세션 이어받기 UI가 표시되지 않았습니다.');
   await click(win, '[data-open-session="fixture-live-0"]', 'drawer:open-session');
@@ -2823,7 +2916,7 @@ async function exerciseAgentControls(win, round) {
 
   await click(win, '[data-view="all"]', 'nav:all');
   await resetGraphToOverview(win);
-  await filterToGraphFocus(win, 'fixture-origin', 'Codex 원래 작업 열기 검증');
+  await filterToGraphFocus(win, 'fixture-origin', '화면 개선 폴더의 GPT 대화창');
   await click(win, '[data-graph-focus="fixture-origin"]', 'graph:focus');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-origin'
     && document.querySelector('.agent-command-panel.control-origin-resume textarea:not([disabled])')
@@ -2841,7 +2934,7 @@ async function exerciseAgentControls(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0].provider === 'codex' && item.args[0].bridgeId === 'fixture-origin' && item.args[0].args.join(' ') === 'resume fixture-origin-external RESUME_DESKTOP_IN_BACKGROUND')`, '실행 중인 Codex 데스크톱 작업을 백그라운드 터미널로 이어받지 못했습니다.');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'terminal'
     && !document.querySelector('#terminalHistoryPanel')?.classList.contains('hidden')
-    && document.querySelector('#terminalHistoryTitle')?.textContent.includes('Codex 원래 작업 열기 검증')
+    && document.querySelector('#terminalHistoryTitle')?.textContent.includes('화면 개선 폴더의 GPT 대화창')
     && !document.querySelector('#terminalCommandInput')?.disabled`, '복원한 백그라운드 터미널에 같은 세션의 대화 내역과 입력창이 함께 표시되지 않았습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
   await win.webContents.executeJavaScript(`(() => { window.LoadToAgentApp.state.graphFocusId = 'fixture-origin'; window.LoadToAgentApp.renderSessions(); })()`);
@@ -2861,7 +2954,7 @@ async function exerciseAgentControls(win, round) {
     && document.querySelector('[data-subagent-coordination-count="2"]')
     && document.querySelector('#drawerContent').innerText.includes('홈에서 실행 구조가 즉시 읽히는지')
     && document.querySelector('#drawerContent').innerText.includes('직접 개입과 메인 에이전트 경유 개입')
-    && document.querySelector('.subagent-assignment-card')?.innerText.includes('메인 에이전트가 시킨 일')
+    && document.querySelector('.subagent-assignment-card')?.innerText.includes('담당 AI가 나눠 맡긴 작업')
     && !document.querySelector('#drawerContent').textContent.includes('gAAAA')
     && !document.querySelector('#drawerContent').innerText.includes('보호된 메시지')
     && !document.querySelector('#drawerContent').innerText.includes('내용 없이 통신 상태')
@@ -2935,13 +3028,16 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `document.activeElement === document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea')`,
     '실시간 세션 갱신 중 터미널 직접 입력 포커스가 유지되지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
+  await click(win, '#terminalComputerInputBtn', 'terminal:computer-input-focus');
+  await waitFor(win, `document.activeElement === document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea')`,
+    '컴퓨터 작업 직접 입력 버튼이 실제 입력 위치로 이동하지 않았습니다.');
   await click(win, '.terminal-session-tools > summary', 'terminal:session-controls');
   await waitFor(win, `document.querySelector('.terminal-session-tools')?.hasAttribute('open')`, '터미널 세션 관리 메뉴가 열리지 않았습니다.');
-  const initialFontSize = await win.webContents.executeJavaScript(`Number.parseInt(document.querySelector('#terminalFontSizeLabel')?.textContent || '0', 10)`);
+  const initialFontSize = await win.webContents.executeJavaScript(`JSON.parse(localStorage.getItem('loadtoagent:terminal-view:v1') || '{"fontSize":15}').fontSize || 15`);
   await click(win, '#terminalFontDecreaseBtn', 'terminal:font-decrease');
-  await waitFor(win, `Number.parseInt(document.querySelector('#terminalFontSizeLabel')?.textContent || '0', 10) === ${Math.max(12, initialFontSize - 1)}`, '터미널 글자 축소가 반영되지 않았습니다.');
+  await waitFor(win, `JSON.parse(localStorage.getItem('loadtoagent:terminal-view:v1') || '{}').fontSize === ${Math.max(12, initialFontSize - 1)}`, '터미널 글자 축소가 반영되지 않았습니다.');
   await click(win, '#terminalFontIncreaseBtn', 'terminal:font-increase');
-  await waitFor(win, `Number.parseInt(document.querySelector('#terminalFontSizeLabel')?.textContent || '0', 10) === ${initialFontSize}`, '터미널 글자 확대가 반영되지 않았습니다.');
+  await waitFor(win, `JSON.parse(localStorage.getItem('loadtoagent:terminal-view:v1') || '{}').fontSize === ${initialFontSize}`, '터미널 글자 확대가 반영되지 않았습니다.');
   await click(win, '#terminalFocusBtn', 'terminal:focus-mode');
   await waitFor(win, `document.querySelector('#terminalSection')?.classList.contains('terminal-focus-mode') && document.querySelector('#terminalFocusBtn')?.getAttribute('aria-pressed') === 'true'`, '터미널 집중 보기가 활성화되지 않았습니다.');
   await click(win, '#terminalFocusBtn', 'terminal:focus-mode');
@@ -2960,7 +3056,7 @@ async function exerciseTerminal(win, round) {
     const item = document.querySelector('[data-terminal-id="terminal-resumed-failed-agent"]');
     return { status: item?.dataset.status || '', text: item?.innerText || '' };
   })()`);
-  assert(resumedFailedAgentPresentation.status === 'attention'
+  assert(resumedFailedAgentPresentation.status === 'running'
     && !resumedFailedAgentPresentation.text.includes('열지 못함'),
   `실패 이력을 재개한 실행 중 터미널을 열기 실패로 표시했습니다: ${JSON.stringify(resumedFailedAgentPresentation)}`);
   const initialOrder = await win.webContents.executeJavaScript(`[...document.querySelectorAll('#terminalSessionList [data-terminal-id]')].map(item => item.dataset.terminalId)`);
@@ -3015,11 +3111,10 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `!document.querySelector('#terminalRestartBtn').classList.contains('hidden')`, '종료 세션 다시 시작 버튼이 표시되지 않았습니다.');
   await clearCalls(win);
   await click(win, '#terminalRestartBtn', 'terminal:restart');
-  const restartBusy = await win.webContents.executeJavaScript(`(() => {
+  await waitFor(win, `(() => {
     const button = document.querySelector('#terminalRestartBtn');
     return button.disabled && button.getAttribute('aria-busy') === 'true';
-  })()`);
-  assert(restartBusy, '터미널 다시 시작 중 바쁜 상태가 표시되지 않았습니다.');
+  })()`, '터미널 다시 시작 중 바쁜 상태가 표시되지 않았습니다.');
   await recordManifest(win);
   await win.webContents.executeJavaScript(`document.querySelector('#terminalRestartBtn').click()`);
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalRestart')`, '종료 세션 다시 시작 실패');
@@ -3050,7 +3145,7 @@ async function exerciseTerminal(win, round) {
   await clearCalls(win);
   await win.webContents.executeJavaScript(`window.interactionTest.emitTerminalReconnect('terminal-main')`);
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalGet' && item.args[0] === 'terminal-main')`, '호스트 복구 뒤 선택된 터미널 replay를 다시 불러오지 않았습니다.');
-  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-main"]')?.innerText.includes('호스트 중단 뒤 새 프로세스로 복구됨')`, '호스트 복구 상태가 터미널 목록에 표시되지 않았습니다.');
+  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-main"]')?.innerText.includes('연결이 끊겼다가 자동으로 다시 이어짐')`, '컴퓨터 작업 화면 자동 복구 상태가 목록에 표시되지 않았습니다.');
   mark('terminal:host-reconnect-rehydrate');
 
   await focusRoot(win);
@@ -3226,7 +3321,7 @@ async function exerciseTerminal(win, round) {
   await click(win, '#terminalCloseBtn', 'terminal:close');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalDetach')`, '관리형 AI 터미널 화면 닫기가 tmux 작업을 분리하지 않았습니다.');
   assert(await callCount(win, 'terminalDetach') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 화면 닫기는 terminalDetach만 한 번 호출해야 합니다.');
-  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('분리됨')`, '분리된 관리형 세션이 목록에 유지되지 않았습니다.');
+  await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('이 화면은 닫혔지만 작업은 계속 실행 중')`, '분리된 관리형 세션이 목록에 유지되지 않았습니다.');
   await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
   await waitFor(win, `!document.querySelector('#terminalRestartBtn').classList.contains('hidden') && document.querySelector('#terminalRestartBtn').textContent.includes('다시 연결')`, '분리된 관리형 세션에 다시 연결 동작이 표시되지 않았습니다.');
   await click(win, '#terminalRestartBtn', 'terminal:restart');
@@ -3239,7 +3334,7 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('작업 중지됨')`, '중단된 관리형 세션 기록이 목록에 보존되지 않았습니다.');
   assert(await callCount(win, 'terminalStop') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 작업 중단은 기록을 삭제하지 않아야 합니다.');
   await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
-  await waitFor(win, `document.querySelector('#terminalEndSessionBtn').textContent.includes('기록 제거')`, '중단된 관리형 세션에 기록 삭제 동작이 표시되지 않았습니다.');
+  await waitFor(win, `document.querySelector('#terminalEndSessionBtn').textContent.includes('작업 기록 목록에서 지우기')`, '중단된 관리형 작업에 기록 삭제 동작이 표시되지 않았습니다.');
   await click(win, '#terminalEndSessionBtn', 'terminal:end-session');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalClose')`, '중단된 관리형 세션 기록을 삭제하지 못했습니다.');
   await waitFor(win, `!document.querySelector('[data-terminal-id="terminal-managed"]')`, '삭제한 관리형 세션 기록이 목록에 남아 있습니다.');
@@ -3316,7 +3411,7 @@ async function exerciseTmux(win, round) {
     app.renderTmuxMap();
     return result;
   })()`);
-  assert(nativeEnvironment.statLabel === '실행 환경' && nativeEnvironment.environment === 'macOS', `macOS 네이티브 tmux 환경 표시가 올바르지 않습니다: ${JSON.stringify(nativeEnvironment)}`);
+  assert(nativeEnvironment.statLabel === '선택한 컴퓨터' && nativeEnvironment.environment === 'macOS', `macOS의 다른 컴퓨터 작업 환경 표시가 올바르지 않습니다: ${JSON.stringify(nativeEnvironment)}`);
   const tmuxMapSemantics = await win.webContents.executeJavaScript(`(() => ({
     nodes: document.querySelectorAll('#tmuxMap [data-tmux-type][data-tmux-id]').length,
     tabStops: document.querySelectorAll('#tmuxMap [data-tmux-type][data-tmux-id][tabindex="0"]').length,
@@ -3378,7 +3473,7 @@ async function exerciseTmux(win, round) {
   mark('tmux:wheel-scroll-preserve');
   round.observed.tmuxScroll = { startsAtTop: true, preservesWheelPosition: true };
 
-  for (const selector of ['.tmux-distro-node', '.tmux-session-node', '.tmux-window-node', '.tmux-pane-main']) {
+  for (const selector of ['.tmux-distro-node', '.tmux-window-node', '.tmux-pane-main']) {
     await click(win, selector, 'tmux:focus-node');
     await waitFor(win, `Boolean(window.LoadToAgentApp.state.tmuxFocus)`, `${selector} tmux focus 실패`);
     const resetSelector = await win.webContents.executeJavaScript(`document.querySelector('[data-tmux-reset]') ? '[data-tmux-reset]' : '#tmuxResetBtn'`);

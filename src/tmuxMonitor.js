@@ -289,10 +289,10 @@ function linkAgentSessions(snapshot, agentSessions, now = Date.now()) {
             args: pane.agentProcess.args,
             startedAt: pane.agentProcess.startedAt,
             linkedSessionId: linked && linked.id || null,
-            title: linked && linked.title || `${pane.agentProcess.provider} tmux 작업`,
+            title: linked && linked.title || `${pane.agentProcess.provider} 여러 명령창 작업`,
             model: linked && linked.model || '',
             status: pane.dead ? 'failed' : 'running',
-            statusDetail: linked && linked.statusDetail || `${pane.command || pane.agentProcess.command} 프로세스 실행 중`,
+            statusDetail: linked && linked.statusDetail || `${pane.command || pane.agentProcess.command} 프로그램 실행 중`,
             updatedAt: linked && linked.updatedAt || new Date(now).toISOString(),
             context: linked && linked.context || { used: 0, window: 0, percent: 0, source: 'unknown' },
             usage: linked && linked.usage || { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0 },
@@ -397,7 +397,7 @@ class TmuxMonitor {
     this.lastSnapshot = {
       generatedAt: new Date().toISOString(),
       available: results.length > 0,
-      status: results.some(item => item.sessions.length) ? '연결됨' : (results.length ? 'tmux 설치됨 · 실행 세션 없음' : (distros.length ? 'tmux 미설치 또는 서버 없음' : (this.platform === 'win32' ? 'WSL 배포판 없음' : '로컬 환경 없음'))),
+      status: results.some(item => item.sessions.length) ? '연결됨' : (results.length ? '여러 명령창 기능 준비됨 · 실행 중인 작업 없음' : (distros.length ? '여러 명령창 기능을 찾지 못함' : (this.platform === 'win32' ? '사용할 Linux 없음' : '이 컴퓨터에서 사용할 환경 없음'))),
       distros: results,
       summary: { distros: results.length, sessions: 0, windows: 0, panes: 0, aiPanes: 0, linked: 0 },
     };

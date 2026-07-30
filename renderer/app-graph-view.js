@@ -98,7 +98,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.focus_relationships", { role }))}">
         <span class="agent-node-top">
           <span class="provider-mark">${esc(provider.mark)}</span>
-          <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)} · ${esc(session.model || t("graph.model_unknown"))}</small></span>
+          <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small></span>
           ${executionModeBadge(session, true)}
           <span class="status-pill ${statusClass(presentationStatus)}">${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</span>
         </span>
@@ -196,7 +196,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <span class="agent-flow-agent">
             <i>${esc(provider.mark)}</i>
             <strong>${esc(session.agentName || t("graph.name_unknown"))}</strong>
-            <small>${esc(provider.label)}${session.model ? ` · ${esc(session.model)}` : ""}</small>
+            <small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small>
             </span>
           ${assignmentCopy}${assignmentSourceNote}${outcomeCopy}<span class="agent-flow-child-action">${esc(action)}</span>
         </span>
@@ -331,9 +331,9 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       style="${providerStyle(agent.provider)}"
       data-motion-key="live-tmux:${esc(pane.id)}"
       data-motion-value="${esc(agent.updatedAt || "")}:${pane.pid || 0}">
-      <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}" aria-label="${esc(t("graph.open_tmux_pane", { session: tmuxSession.name }))}">
+      <button type="button" class="live-tmux-pane" data-tmux-type="pane" data-tmux-id="${esc(pane.id)}" aria-label="${esc(t("graph.open_tmux_pane", { session: tmuxSession.displayName || tmuxSession.name }))}">
         <span class="live-tmux-card-head">
-          <span class="live-tmux-symbol">▦</span><span><small>${esc(t("graph.tmux_session"))}</small><b>${esc(tmuxSession.name)}</b></span>
+          <span class="live-tmux-symbol">▦</span><span><small>${esc(t("graph.tmux_session"))}</small><b>${esc(tmuxSession.displayName || tmuxSession.name)}</b></span>
           <em>${esc(stateLabel)}</em>
         </span>
         <strong class="live-tmux-title">${esc(title)}</strong>
@@ -348,7 +348,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <i>›</i>
           <span>${esc(t("graph.pane_number", { number: pane.index + 1 }))} · ${esc(pane.nativeId || pane.id)}</span>
           </span>
-        <span class="live-tmux-cwd" title="${esc(pane.cwd || "")}">${esc(pane.cwd || t("graph.workspace_unknown"))}</span>
+        <span class="live-tmux-cwd" title="${esc(pane.cwd || "")}">${esc(pane.displayFolder || pane.cwd || t("graph.workspace_unknown"))}</span>
       </button>
       <footer>
         <span>${esc(linked ? t("graph.linked_to_conversation") : t("graph.detected_from_tmux"))}</span>
@@ -476,7 +476,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       data-motion-value="${esc(child.status || "")}:${esc(child.updatedAt || "")}"
       style="${providerStyle(child.provider)}" aria-label="${esc(t("control.open_subagent", { task: assignment }))}">
       <span class="control-node-icon">${esc(provider.mark)}</span>
-      <span class="control-node-copy"><small>${esc(t("control.subagent_work"))} · ${esc(provider.label)}</small><b title="${esc(assignmentPreview.full)}">${esc(assignmentPreview.text)}</b><em title="${esc(current.full)}">${esc(t("control.current_summary", { summary: current.text }))}</em></span>
+      <span class="control-node-copy"><small>${esc(t("control.subagent_work_provider", { provider: provider.label }))}</small><b title="${esc(assignmentPreview.full)}">${esc(t("control.subagent_work_name", { title: assignmentPreview.text }))}</b><em title="${esc(current.full)}">${esc(t("control.current_summary", { summary: current.text }))}</em></span>
       <span class="control-node-state"><i aria-hidden="true"></i><b>${esc(subagentWorkLabel(child))}</b></span>
     </button>`;
   }
@@ -485,13 +485,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const { activity, owner } = item;
     const summary = inferredExecutionSummary(activity);
     const command = controlRoomSummary(activity.command || activity.description || activity.label || summary.full, 76);
-    const runtime = activity.kind === "shell"
-      ? activity.runtime || state.platform?.localShellLabel || activity.tool || "PowerShell"
-      : activity.runtime || activity.tool || t("graph.background_task");
-    const executionKind = activity.mode === "background" || activity.status === "running"
-      ? t("control.background_work_kind")
-      : t("control.command_work_kind");
-    const executionLabel = t("control.runtime_work", { runtime, kind: executionKind });
+    const runtime = executionRuntimeLabel(activity.kind === "shell"
+      ? activity.runtime || state.platform?.localShellLabel || activity.tool || "이 컴퓨터에서 실행하는 작업"
+      : activity.runtime || activity.tool || t("graph.background_task"));
+    const executionLabel = runtime;
     const ownerGoal = controlRoomAgentGoal(owner, 52);
     const running = activity.status === "running";
     const stateClass = running ? "is-running" : (activity.status === "unverified" ? "is-unverified" : "is-complete");
@@ -541,6 +538,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       ...completedChildren.map(child => ({ kind: "child", child, timestamp: child.completedAt || child.updatedAt })),
       ...completedExecutions.map(item => ({ kind: "execution", item, timestamp: item.activity.updatedAt || item.activity.startedAt })),
     ].sort((a, b) => Date.parse(b.timestamp || 0) - Date.parse(a.timestamp || 0)).slice(0, 3);
+    const completedWaitingCount = completedUnits.filter(unit => unit.kind === "child"
+      && /(다음\s*(?:요청|지시).*(?:대기|기다)|waiting.*(?:request|instruction))/i.test(`${unit.child.statusDetail || ""} ${unit.child.result || ""}`)).length;
     const current = controlRoomSummary(delivery ? t(deliverySummaryKey(delivery.phase)) : latestWorkCopy(root) || root.statusDetail || root.title, 74);
     const title = controlRoomAgentGoal(root, 64);
     const unitCount = activeUnits.length;
@@ -548,7 +547,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       data-control-summary="${esc(title.text)}"
       data-motion-key="control-main:${esc(root.id)}" data-motion-value="${esc(root.updatedAt || "")}:${esc(root.status || "")}"
       style="${providerStyle(root.provider)}">
-      <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><small>${esc(t("control.main_agent"))}</small><b>${esc(provider.label)} · ${esc(root.model || t("session.model_unknown"))}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</em></span>
+      <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><b>${esc(provider.label)}${root.model && root.model !== provider.label ? ` · ${esc(root.model)}` : ""}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</em></span>
       <strong title="${esc(title.full)}">${esc(title.text)}</strong>
       <span class="control-main-now"><small>${esc(t("graph.current_work"))}</small><b title="${esc(current.full)}">${esc(current.text)}</b></span>
       <span class="control-main-meta"><small>${esc(t("control.unit_counts", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small><b>${esc(t("graph.view_conversation"))} →</b></span>
@@ -556,7 +555,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const shownActiveUnits = activeUnits.slice(0, 6);
     const hiddenActiveUnits = Math.max(0, activeUnits.length - shownActiveUnits.length);
     const active = activeUnits.length
-      ? `${shownActiveUnits.map(unit => unit.kind === "child" ? controlRoomChildNode(unit.child) : controlRoomExecutionNode(unit.item)).join("")}${hiddenActiveUnits ? `<button type="button" class="control-room-node overflow-node" data-graph-focus="${esc(root.id)}"><span class="control-node-icon">+${hiddenActiveUnits}</span><span class="control-node-copy"><small>${esc(t("control.more_live_units"))}</small><b>${esc(t("control.open_remaining_units", { count: hiddenActiveUnits }))}</b><em>${esc(t("control.open_full_flow"))}</em></span><span class="control-node-state"><b>→</b></span></button>` : ""}`
+      ? `${shownActiveUnits.map(unit => unit.kind === "child" ? controlRoomChildNode(unit.child) : controlRoomExecutionNode(unit.item)).join("")}${hiddenActiveUnits ? `<button type="button" class="control-room-node overflow-node" data-graph-focus="${esc(root.id)}"><span class="control-node-icon">+${hiddenActiveUnits}</span><span class="control-node-copy"><small>${esc(t("control.more_live_units"))}</small><b>${esc(t("control.open_remaining_units", { count: hiddenActiveUnits }))}</b><em>${esc(t("control.open_full_flow", { title: root.title }))}</em></span><span class="control-node-state"><b>→</b></span></button>` : ""}`
       : `<div class="control-room-running-empty"><span>○</span><small>${esc(t("control.running_empty"))}</small></div>`;
     const completed = completedUnits.length
       ? completedUnits.map(unit => unit.kind === "child" ? controlRoomChildNode(unit.child) : controlRoomExecutionNode(unit.item)).join("")
@@ -569,35 +568,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         : (waiting ? "control.waiting_session" : (retained ? "control.recently_completed" : "control.live_session"));
     const retention = retained ? `<small class="control-session-retention">${esc(t("control.auto_history_in_minutes", { minutes: sessionRetentionMinutes(root) }))}</small>` : "";
     const archive = retained ? `<button type="button" class="control-session-archive" data-session-archive="${esc(root.id)}">${esc(t("control.move_to_history"))}</button>` : "";
-    const explicitEvidenceCount = actors.reduce((sum, session) => (
-      sum
-      + (session.outcome?.artifacts?.length || 0)
-      + (session.outcome?.checks?.length || 0)
-      + (session.evidence?.sources?.length || 0)
-    ), 0);
-    const evidenceObserved = explicitEvidenceCount > 0 || actors.some(session => (
-      session.outcome?.verified === true || session.evidence?.completion === "observed"
-    ));
-    const judgementRetained = actors.some(controlRoomRetainedDecision);
-    const causalStep = (index, label, value, tone) => `<li class="${tone}"><span>${index}</span><b>${esc(label)}</b><em>${esc(value)}</em></li>`;
-    const causalSpine = `<ol class="control-causal-spine" aria-label="${esc(t("control.causal_spine_label"))}">
-      ${causalStep("01", t("control.causal_intent"), t("control.causal_observed"), "complete")}
-      ${causalStep("02", t("control.causal_delegation"), descendants.length ? t("control.causal_count", { count: descendants.length }) : t("control.causal_direct"), "complete")}
-      ${causalStep("03", t("control.causal_action"), executionItems.length ? t("control.causal_count", { count: executionItems.length }) : t("control.causal_in_motion"), executionItems.length ? "complete" : "current")}
-      ${causalStep("04", t("control.causal_evidence"), evidenceObserved ? t("control.causal_count", { count: Math.max(1, explicitEvidenceCount) }) : t("control.causal_pending"), evidenceObserved ? "complete" : "pending")}
-      ${causalStep("05", t("control.causal_judgement"), hasAttention ? t("control.causal_needs_judgement") : judgementRetained ? t("control.causal_settled") : t("control.causal_pending"), hasAttention ? "current" : judgementRetained ? "complete" : "pending")}
-    </ol>`;
     return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
-      <header><div><span class="control-session-live"><i></i>${esc(t(sessionStateKey))}</span><b>${esc(title.text)}</b>${hasAttention ? `<span class="control-session-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow"))} ↗</button></header>
-      ${causalSpine}
+      <header><div><span class="control-session-live"><i></i>${esc(hasAttention ? t("control.causal_judgement") : t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow", { title: root.title }))}</button></header>
       <div class="control-room-flow">
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
-        <section class="control-room-column activity-column"><span class="control-column-label">${esc(t("control.running_work_column"))}<b>${unitCount}</b></span><div class="control-room-node-list">${active}</div></section>
+        <section class="control-room-column activity-column"><span class="control-column-label">${esc(t("control.running_work_column_counts", { delegated: activeChildren.length, executions: activeExecutions.length }))}</span><div class="control-room-node-list">${active}</div></section>
         <span class="control-flow-link complete" aria-hidden="true"><i></i></span>
-        <section class="control-room-column completed-column"><span class="control-column-label">${esc(t("control.completed_work_column"))}<b>${completedUnits.length}</b></span><div class="control-room-node-list completed-list">${completed}</div></section>
+        <section class="control-room-column completed-column"><span class="control-column-label">${esc(t("control.completed_work_column_counts", { done: Math.max(0, completedUnits.length - completedWaitingCount), completed: completedUnits.length, waiting: completedWaitingCount }))}</span><div class="control-room-node-list completed-list">${completed}</div></section>
       </div>
     </article>`;
   }
@@ -634,17 +614,31 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const orderedGroups = defaultOrderedGroups.sort(([leftKey], [rightKey]) =>
       Number(projectRank.get(leftKey) ?? Number.MAX_SAFE_INTEGER) - Number(projectRank.get(rightKey) ?? Number.MAX_SAFE_INTEGER));
     const projectGroups = orderedGroups.map(([key, { name, roots: projectRoots, tmuxEntries: projectTmuxEntries }], index) => {
+      const displayName = /관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹/.test(name)
+        ? "여러 AI가 함께 처리 중인 작업"
+        : /다시 시작한 작업/.test(name)
+          ? "다시 시작해 진행 중인 작업"
+          : `${name}${/작업$/.test(name) ? "" : " 작업"}`;
       const projectTotals = allGroups.get(key) || { roots: projectRoots, tmuxEntries: projectTmuxEntries };
       const activeCount = projectTotals.roots.filter((root) => isLiveSession(root)).length;
       const attentionCount = projectTotals.roots.filter((root) =>
         [root, ...controlRoomDescendants(root, model)].some(sessionNeedsReview)).length;
       const sessionSummary = attentionCount
-        ? t("control.project_live_attention_summary", { active: activeCount, attention: attentionCount })
-        : t("control.project_live_summary", { active: activeCount });
-      const tmuxSummary = projectTotals.tmuxEntries.length
-        ? t("control.project_tmux_summary", { count: projectTotals.tmuxEntries.length })
+        ? `확인할 결과 ${attentionCount}건${activeCount ? " · 다른 AI 작업도 진행 중" : ""}`
+        : "AI가 작업 중";
+      const firstLiveRoot = projectTotals.roots.find((root) => isLiveSession(root));
+      const currentWork = firstLiveRoot ? currentActivity(firstLiveRoot) : null;
+      const currentWorkSummary = currentWork?.title
+        ? `지금 하는 일: ${readablePreview(window.LoadToAgentI18n.observedText(currentWork.title), 48).text}`
         : "";
-      const summary = projectTotals.roots.length ? [sessionSummary, tmuxSummary].filter(Boolean).join(" · ") : tmuxSummary;
+      const tmuxSummary = projectTotals.tmuxEntries.length
+        ? "여러 AI가 함께 작업 중"
+        : "";
+      const summary = projectTotals.roots.length
+        ? [sessionSummary, currentWorkSummary, tmuxSummary].filter(Boolean).join(" · ")
+        : projectTotals.tmuxEntries.length
+          ? "다른 컴퓨터에서 AI가 작업 중"
+          : "";
       const disclosureKey = `control-project:${key}`;
       const presentation = index === 0 ? "is-primary" : "is-secondary";
       const projectFocusId = projectRoots[0]?.id || "";
@@ -655,13 +649,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="live-tmux-grid">${projectTmuxEntries.map((entry) => liveTmuxPaneCard(entry)).join("")}</div>
         </section>`
         : "";
-      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" ${index === 0 ? "open" : ""} data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
+      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
-          <span class="control-project-heading"><i aria-hidden="true">□</i><b>${esc(name)}</b><small>${esc(summary)}</small>${attentionCount ? `<span class="control-project-attention"><i aria-hidden="true">!</i>${esc(t("control.attention_count", { count: attentionCount }))}</span>` : ""}<em>${totalCount}</em></span>
+          <span class="control-project-heading"><i aria-hidden="true">□</i><span>${attentionCount ? "지금 내가 확인할 일" : "현재 상태"}</span><b>${esc(displayName)} —</b><small><span>현재 상태: ${esc(summary)}</span><em>${attentionCount ? "이 작업 상세 보기" : "작업 진행 화면 보기"}</em></small></span>
           <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
         </summary>
-        ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_full_flow"))} ↗</span></button>` : ""}
+        ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_project_flow", { name }))}</span></button>` : ""}
         <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}${tmuxCards}</div>
       </details>`;
     }).join("");
@@ -842,13 +836,33 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     })[activity.status] || activity.status;
   }
 
+  function executionRuntimeLabel(value) {
+    const runtime = String(value || "");
+    if (/powershell|cmd(?:\.exe)?/i.test(runtime)) return t("terminal.type.command_prompt");
+    if (/^background$/i.test(runtime)) return t("graph.background_task");
+    return runtime || t("graph.runtime_unknown");
+  }
+
+  function executionStatusDetail(activity) {
+    const detail = String(activity.statusDetail || "");
+    const backgroundHandle = detail.match(/^(?:백그라운드|background)\s+(?:cell|task)\s+(.+)$/i);
+    if (backgroundHandle) return `${t("graph.execution_handle")} ${backgroundHandle[1]}`;
+    if (/^백그라운드에서 계속 실행 중$/i.test(detail)) return t("graph.execution_continues_offscreen");
+    const exitCode = detail.match(/^종료 코드\s+(-?\d+)$/);
+    if (exitCode) return Number(exitCode[1]) === 0
+      ? t("graph.execution_exit_success")
+      : t("graph.execution_exit_result", { code: exitCode[1] });
+    return detail;
+  }
+
   function executionActivityCard(activity, ownerId = "") {
     const label = executionActivityLabel(activity);
     const command = readablePreview(activity.command || activity.label || label, 150);
     const handle = activity.backgroundId
-      ? `${activity.backgroundIdType || t("graph.execution_handle")} · ${activity.backgroundId}`
+      ? `${t("graph.execution_handle")} · ${activity.backgroundId}`
       : "";
-    const runtime = activity.runtime || activity.tool || t("graph.runtime_unknown");
+    const runtime = executionRuntimeLabel(activity.runtime || activity.tool);
+    const statusDetail = executionStatusDetail(activity);
     return `<details class="execution-activity-card ${esc(activity.kind || "background")} ${esc(activity.mode || "foreground")} ${esc(activity.status || "completed")}"
       data-disclosure-key="${esc(`graph:execution:${ownerId}:${activity.id}`)}"
       data-execution-activity="${esc(activity.id)}"
@@ -864,12 +878,12 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
             ${handle ? `<small>${esc(handle)}</small>` : ""}
           </span>
         </span>
-        <span class="execution-activity-state"><span><i aria-hidden="true"></i><b>${esc(executionActivityStatus(activity))}</b></span><small>${esc(activity.statusDetail || timeAgo(activity.updatedAt || activity.startedAt))}</small><span class="execution-activity-disclosure"><b class="open-label">${esc(t("graph.execution_details"))}</b><b class="close-label">${esc(t("graph.execution_details_close"))}</b><i aria-hidden="true">⌄</i></span></span>
+        <span class="execution-activity-state"><span><i aria-hidden="true"></i><b>${esc(executionActivityStatus(activity))}</b></span><small>${esc(statusDetail || timeAgo(activity.updatedAt || activity.startedAt))}</small><span class="execution-activity-disclosure"><b class="open-label">${esc(t("graph.execution_details"))}</b><b class="close-label">${esc(t("graph.execution_details_close"))}</b><i aria-hidden="true">⌄</i></span></span>
       </summary>
       <div class="execution-activity-detail">
         <div class="execution-detail-command"><header><span>${esc(t("graph.execution_command"))}</span><button type="button" data-copy-text="${esc(activity.command || activity.label || command.full)}">${esc(t("graph.copy_command"))}</button></header><code>${esc(activity.command || activity.label || command.full)}</code></div>
         <dl>
-          <div><dt>${esc(t("graph.execution_status_label"))}</dt><dd>${esc(executionActivityStatus(activity))}${activity.statusDetail ? ` · ${esc(activity.statusDetail)}` : ""}</dd></div>
+          <div><dt>${esc(t("graph.execution_status_label"))}</dt><dd>${esc(executionActivityStatus(activity))}${statusDetail ? ` · ${esc(statusDetail)}` : ""}</dd></div>
           <div><dt>${esc(t("graph.execution_runtime"))}</dt><dd>${esc(runtime)}</dd></div>
           ${activity.cwd ? `<div><dt>${esc(t("graph.execution_workdir"))}</dt><dd title="${esc(activity.cwd)}">${esc(activity.cwd)}</dd></div>` : ""}
           ${handle ? `<div><dt>${esc(t("graph.execution_handle"))}</dt><dd>${esc(handle)}</dd></div>` : ""}

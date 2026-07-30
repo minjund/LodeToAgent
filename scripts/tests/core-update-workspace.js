@@ -239,7 +239,7 @@ function registerCliAndUpdateTests(context) {
     });
     const missingDigest = await missingDigestManager.check();
     assert.equal(missingDigest.asset, null);
-    assert.match(missingDigest.error, /SHA-256 digest/);
+    assert.match(missingDigest.error, /원본인지 확인할 안전 정보/);
     const downloaded = await manager.download();
     assert.equal(downloaded.status, 'downloaded');
     assert.equal(fs.readFileSync(downloaded.downloadedPath, 'utf8'), payload.toString());
@@ -254,6 +254,7 @@ function registerCliAndUpdateTests(context) {
       platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
       environment: { SystemRoot: 'C:\\Windows' },
+      allowUnsignedWindowsUpdates: true,
       verifyInstaller,
       spawn: (command, args, options) => {
         spawnCall = { command, args, options };
@@ -267,6 +268,7 @@ function registerCliAndUpdateTests(context) {
     assert.equal(automatic.mode, 'automatic');
     assert.equal(unrefCalled, true);
     assert.equal(verifiedInstallers[0].installerPath, downloaded.downloadedPath);
+    assert.equal(verifiedInstallers[0].allowUnsignedWindowsUpdates, true);
     assert.equal(spawnCall.command, path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
     assert.equal(spawnCall.options.detached, true);
     assert.equal(spawnCall.options.windowsHide, true);
@@ -355,17 +357,46 @@ function registerCliAndUpdateTests(context) {
       /PowerShell unavailable/,
     );
     const signatureCalls = [];
-    await verifyDownloadedInstaller({
+    const signedWindowsResult = await verifyDownloadedInstaller({
       platform: 'win32',
       installerPath: downloaded.downloadedPath,
       environment: { SystemRoot: 'C:\\Windows' },
-      execFile: async (command, args, options) => { signatureCalls.push({ command, args, options }); },
+      execFile: async (command, args, options) => {
+        signatureCalls.push({ command, args, options });
+        return { stdout: 'Valid\r\n' };
+      },
     });
+    assert.deepStrictEqual(signedWindowsResult, { platform: 'win32', verified: true, unsignedAllowed: false });
     assert.equal(signatureCalls.length, 1);
     assert(signatureCalls[0].args.includes('-EncodedCommand'));
     assert.equal(signatureCalls[0].options.env.LOADTOAGENT_VERIFY_PATH, downloaded.downloadedPath);
+    assert.equal(signatureCalls[0].options.env.LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS, 'false');
     const encodedIndex = signatureCalls[0].args.indexOf('-EncodedCommand') + 1;
     assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /Get-AuthenticodeSignature/);
+    assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /NotSigned/);
+
+    const unsignedWindowsResult = await verifyDownloadedInstaller({
+      platform: 'win32',
+      installerPath: downloaded.downloadedPath,
+      environment: { SystemRoot: 'C:\\Windows' },
+      allowUnsignedWindowsUpdates: true,
+      execFile: async (command, args, options) => {
+        assert.equal(options.env.LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS, 'true');
+        return { stdout: 'NotSigned\r\n' };
+      },
+    });
+    assert.deepStrictEqual(unsignedWindowsResult, { platform: 'win32', verified: false, unsignedAllowed: true });
+
+    await assert.rejects(
+      verifyDownloadedInstaller({
+        platform: 'win32',
+        installerPath: downloaded.downloadedPath,
+        environment: { SystemRoot: 'C:\\Windows' },
+        allowUnsignedWindowsUpdates: true,
+        execFile: async () => { throw new Error('Invalid Authenticode signature: HashMismatch'); },
+      }),
+      /HashMismatch/,
+    );
 
     const macSignatureCalls = [];
     const signedMacResult = await verifyDownloadedInstaller({

@@ -1,6 +1,6 @@
 {
   "name": "loadtoagent",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",
@@ -28,6 +28,7 @@
   },
   "loadToAgent": {
     "distributionChannel": "internal",
+    "allowUnsignedWindowsUpdates": true,
     "allowUnsignedMacUpdates": true
   },
   "files": [

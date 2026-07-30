@@ -41,7 +41,7 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
 
 function requireManager(getManager) {
   const terminalManager = getManager();
-  if (!terminalManager) throw new Error('터미널 관리자가 준비되지 않았습니다.');
+  if (!terminalManager) throw new Error('명령창 기능이 아직 준비되지 않았습니다.');
   return terminalManager;
 }
 

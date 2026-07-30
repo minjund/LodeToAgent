@@ -176,13 +176,29 @@
     function syncMode() {
       const form = $('#terminalCommandForm');
       const trigger = $('#terminalSlashTrigger');
+      const attachTrigger = $('#terminalAttachTrigger');
       const hint = $('#terminalCommandModeHint');
       if (!form || !trigger || !hint) return;
       const aiTarget = Boolean(isAiTarget?.());
+      const targetProvider = providerName();
       form.dataset.aiTarget = aiTarget ? 'true' : 'false';
       trigger.classList.toggle('hidden', !aiTarget);
       trigger.disabled = !aiTarget;
-      hint.textContent = t(aiTarget ? 'terminal.composer.ai_hint' : 'terminal.composer.shell_hint');
+      attachTrigger?.classList.toggle('hidden', !aiTarget);
+      if (attachTrigger) attachTrigger.disabled = !aiTarget;
+      hint.textContent = t(aiTarget ? 'terminal.composer.ai_hint' : 'terminal.composer.shell_hint', {
+        provider: targetProvider,
+      });
+      if (aiTarget) {
+        trigger.setAttribute('aria-label', `${targetProvider}에게 보낼 질문 예시 보기`);
+        const label = trigger.querySelector('span');
+        if (label) label.textContent = '질문 예시 보기';
+        attachTrigger?.setAttribute('aria-label', `${targetProvider}에게 보낼 파일 첨부`);
+      }
+      const submit = form.querySelector('.terminal-command-submit');
+      const submitLabel = submit?.querySelector('span');
+      if (submit) submit.setAttribute('aria-label', aiTarget ? `${targetProvider}에게 보내기` : '컴퓨터에서 실행하기');
+      if (submitLabel) submitLabel.textContent = aiTarget ? `${targetProvider}에게 보내기` : '컴퓨터에서 실행하기';
     }
 
     function sync(options = {}) {
@@ -261,6 +277,7 @@
       if (bound) return;
       bound = true;
       $('#terminalSlashTrigger')?.addEventListener('click', openMenu);
+      $('#terminalAttachTrigger')?.addEventListener('click', openMenu);
       $('#terminalLongDraftToggle')?.addEventListener('click', toggleLongDraft);
       $('#terminalSlashMenu')?.addEventListener('mousedown', event => {
         if (event.target.closest('[data-terminal-slash-command]')) event.preventDefault();

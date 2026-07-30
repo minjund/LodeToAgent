@@ -41,8 +41,27 @@
   const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast, refreshProviderUsage = async () => null } = app;
 
   let initializationError = "";
+  const setConnectedAt = (value) => {
+    const connectionTitle = $("#appConnectionState")?.querySelector("b");
+    if (connectionTitle) {
+      connectionTitle.removeAttribute("data-i18n");
+      const connectedCount = (state.providers || []).filter((provider) => (
+        !state.hiddenProviders.has(provider.id) && state.availability?.[provider.id]
+      )).length;
+      connectionTitle.textContent = t("ui.app_connected", { count: connectedCount });
+    }
+    const lastSync = $("#lastSync");
+    if (lastSync) {
+      lastSync.removeAttribute("data-i18n");
+      lastSync.textContent = t("ui.connection_checked");
+      lastSync.hidden = true;
+    }
+  };
   const showInitializationError = (message) => {
     initializationError = String(message || t("ui.connection_failed"));
+    const connectionTitle = $("#appConnectionState")?.querySelector("b");
+    if (connectionTitle) connectionTitle.textContent = t("ui.connection_failed");
+    $("#lastSync").hidden = false;
     $("#lastSync").textContent = t("ui.connection_failed");
     $("#appConnectionState")?.classList.add("connection-error");
     $("#appErrorMessage").textContent = initializationError;
@@ -106,14 +125,14 @@
     $("#appConnectionState")?.classList.remove("connection-error");
     $("#appErrorBanner").classList.add("hidden");
     app.initialized = true;
-    $("#lastSync").textContent = timeOnly(state.snapshot && state.snapshot.generatedAt);
+    setConnectedAt(state.snapshot && state.snapshot.generatedAt);
     let snapshotRenderFrame = 0;
     let latestSnapshot = null;
     window.loadtoagent.onSnapshot((snapshot) => {
       state.rawSnapshot = snapshot;
       state.snapshot = projectVisibleSnapshot(snapshot);
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
-      $("#lastSync").textContent = timeOnly(snapshot.generatedAt);
+      setConnectedAt(snapshot.generatedAt);
       latestSnapshot = snapshot;
       if (snapshotRenderFrame) return;
       snapshotRenderFrame = requestAnimationFrame(() => {
@@ -149,7 +168,7 @@
       return;
     }
     render("locale");
-    $("#lastSync").textContent = timeOnly(state.snapshot.generatedAt);
+    setConnectedAt(state.snapshot.generatedAt);
   });
 
   init().catch((error) => {
