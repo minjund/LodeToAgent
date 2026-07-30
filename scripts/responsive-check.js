@@ -125,12 +125,38 @@ async function layoutMetrics(win) {
     const topbar = document.querySelector('.topbar');
     const topbarRect = topbar?.getBoundingClientRect();
     const topbarCopyRect = topbar?.firstElementChild?.getBoundingClientRect();
+    const stageOverflowItems = stage && stageRect
+      ? [...stage.querySelectorAll('*')]
+        .filter(item => {
+          const rect = item.getBoundingClientRect();
+          return rect.width > 0 && (
+            rect.left < stageRect.left - 1
+            || rect.right > stageRect.right + 1
+            || item.scrollWidth > item.clientWidth + 2
+          );
+        })
+        .slice(0, 10)
+        .map(item => {
+          const rect = item.getBoundingClientRect();
+          return {
+            tag: item.tagName,
+            id: item.id,
+            className: String(item.className || '').slice(0, 100),
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            width: Math.round(rect.width),
+            scrollWidth: item.scrollWidth,
+            clientWidth: item.clientWidth,
+          };
+        })
+      : [];
     return {
       width: window.innerWidth,
       height: window.innerHeight,
       compact,
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       stageOverflow: Boolean(stage && stage.scrollWidth > stage.clientWidth + 2),
+      stageOverflowItems,
       stageScrollLeft: stage?.scrollLeft || 0,
       stageRect: stageRect ? { left: stageRect.left, right: stageRect.right, top: stageRect.top, bottom: stageRect.bottom, width: stageRect.width } : null,
       topbarRect: topbarRect ? { left: topbarRect.left, right: topbarRect.right, width: topbarRect.width } : null,

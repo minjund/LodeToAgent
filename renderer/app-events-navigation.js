@@ -55,7 +55,7 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
       state.guideExpanded = false;
       saveGuideState();
       renderSessions("guide");
-      $("#guideBtn").focus({ preventScroll: true });
+      $("#mainContent").focus({ preventScroll: true });
     });
     $("#beginnerGuide").addEventListener("click", (event) => {
       const action = event.target.closest("[data-guide-action]")?.dataset.guideAction;

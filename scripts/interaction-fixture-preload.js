@@ -411,15 +411,15 @@ const initialTerminals = [
 ];
 
 const availableUpdate = {
-  status: 'available', currentVersion: '1.5.0', latestVersion: '1.5.1', tag: 'v1.5.1',
-  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.5.1', publishedAt: now,
+  status: 'available', currentVersion: '1.5.1', latestVersion: '1.5.2', tag: 'v1.5.2',
+  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.5.2', publishedAt: now,
   notes: '설정 화면과 업데이트 흐름 상호작용 검증', progress: 0, downloadedBytes: 0, totalBytes: 8_192,
   downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop',
-  asset: { name: 'LoadToAgent-Setup-1.5.1.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.5.1/LoadToAgent-Setup-1.5.1.exe', digest: '' },
+  asset: { name: 'LoadToAgent-Setup-1.5.2.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.5.2/LoadToAgent-Setup-1.5.2.exe', digest: '' },
 };
 
 const currentUpdate = {
-  ...availableUpdate, status: 'current', latestVersion: '1.5.0', tag: 'v1.5.0', asset: null,
+  ...availableUpdate, status: 'current', latestVersion: '1.5.1', tag: 'v1.5.1', asset: null,
   notes: '현재 설치된 버전이 최신 정식 버전입니다.', totalBytes: 0,
 };
 

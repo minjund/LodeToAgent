@@ -5,6 +5,19 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.5.2 - 2026-07-30
+
+- Improve light-mode contrast across every primary view, including status
+  labels, settings, review cards, runtime guidance, and terminal controls.
+- Restyle the **New AI task** action so its title and `Ctrl+N` shortcut remain
+  crisp on one consistent button background at wide and compact widths.
+- Move getting-started help, keyboard shortcuts, connection status, and screen
+  appearance controls into Settings and simplify the global header.
+- Add clearer project filtering for work history, align project actions and
+  labels, and normalize button spacing across responsive layouts.
+- Expand automated theme, text-contrast, and overflow coverage for
+  desktop, wide, drawer, modal, terminal, and mobile states.
+
 ## 1.5.0 - 2026-07-28
 
 - Reframe the dashboard around a five-stage causal spine from intent and

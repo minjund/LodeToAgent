@@ -1,0 +1,1054 @@
+/*
+ * Typography and control rhythm
+ * -----------------------------
+ * One final source of truth for readable type, button geometry, and the
+ * spacing between related actions. Feature layers still own color and layout.
+ */
+
+:root {
+  --font-sans: Geist, "Segoe UI Variable Text", "Segoe UI", sans-serif;
+  --font-display: var(--font-sans);
+  --control-height: 44px;
+  --control-height-compact: 40px;
+  --control-padding-inline: 14px;
+  --control-padding-inline-compact: 12px;
+  --control-content-gap: 8px;
+  --action-group-gap: 10px;
+  --intent-serif: var(--font-display);
+}
+
+html:lang(ko) {
+  --font-sans: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-display: var(--font-sans);
+}
+
+html:lang(zh-CN) {
+  --font-sans: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-display: var(--font-sans);
+}
+
+html,
+body,
+button,
+input,
+textarea,
+select {
+  font-family: var(--font-sans);
+}
+
+body {
+  font-weight: 400;
+  line-height: 1.5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+:is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--font-display);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+:is(b, strong) {
+  font-weight: 500;
+}
+
+:is(p, li, dd, blockquote) {
+  line-height: 1.6;
+}
+
+:is(small, label, dt) {
+  line-height: 1.45;
+}
+
+button {
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+button :is(b, strong) {
+  font-weight: 500;
+}
+
+/* Latin display text can use restrained optical tracking. CJK stays neutral. */
+html:lang(en) :is(.topbar h1, .memory-hero h2, .settings-head h2, .terminal-section-title h2, .tmux-title h2) {
+  letter-spacing: -.025em;
+}
+
+html:lang(ko) *,
+html:lang(zh-CN) * {
+  letter-spacing: 0;
+}
+
+html:lang(ko) :is(h1, h2, h3, h4, h5, h6, p, li, button, summary, label),
+html:lang(zh-CN) :is(h1, h2, h3, h4, h5, h6, p, li, button, summary, label) {
+  word-spacing: 0;
+}
+
+html:lang(ko) :is(h1, h2, h3, h4, h5, h6, p, li, button, summary, label) {
+  word-break: keep-all;
+}
+
+/* Standard text actions share one 44px geometry. */
+:is(
+  .primary-button,
+  .ghost-button,
+  .new-run-cta,
+  .theme-toggle-button,
+  .top-icon-action,
+  .guide-toggle,
+  .top-helper-menu > summary,
+  .app-error-actions > button,
+  .update-actions > button,
+  .management-quick-actions > button,
+  .management-control-buttons > button,
+  .attention-card-header-actions > button,
+  .session-reset-dialog-actions > button,
+  .modal-actions > button,
+  .chat-prompt-actions > button,
+  .agent-command-actions > button,
+  .conversation-composer button[type="submit"],
+  .run-prompt-examples > button,
+  .theme-choice button,
+  .provider-usage-head button
+) {
+  min-height: var(--control-height);
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--control-content-gap);
+  padding: 8px var(--control-padding-inline);
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* Dense toolbars stay compact, but use the same internal rhythm. */
+:is(
+  .filter-button,
+  .control-room-add-project,
+  .control-room-search button,
+  .control-room-disclosure-actions > button,
+  .control-room-page-buttons > button,
+  .terminal-create-actions > button,
+  .terminal-key-actions > button,
+  .terminal-controlbar button,
+  .terminal-resource-panel button,
+  .terminal-session-tools button,
+  .tmux-actions > button,
+  .tmux-section-actions > button,
+  .tmux-pane-actions > button,
+  .terminal-tmux-tools > button,
+  .drawer-flow-button,
+  .execution-detail-command button,
+  .execution-detail-output button
+) {
+  min-height: var(--control-height-compact);
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px var(--control-padding-inline-compact);
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* Icon-only controls remain square and never inherit text-button padding. */
+:is(.icon-button, .close-button) {
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  min-height: var(--control-height);
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+}
+
+.provider-refresh-button {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.section-title.provider-section-title {
+  min-height: 40px;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-section-title > span {
+  min-width: 0;
+  line-height: 1.45;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: normal;
+}
+
+.provider-section-title .provider-refresh-button {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.provider-section-title .provider-refresh-button b {
+  display: none;
+}
+
+.top-helper-menu:not([open]) > div {
+  display: none;
+}
+
+.settings-help-card {
+  display: grid;
+  grid-template-columns: minmax(220px, .72fr) minmax(0, 1.28fr);
+  align-items: center;
+  gap: 22px;
+  margin: 14px 0 12px;
+  padding: 18px 19px;
+  border: 1px solid #2a403e;
+  border-radius: 16px;
+  background: radial-gradient(circle at 100% 0, rgba(89, 216, 255, .08), transparent 32%), linear-gradient(120deg, #0f1a20, #0a1219);
+}
+
+.settings-help-copy {
+  min-width: 0;
+}
+
+.settings-help-copy > span {
+  color: #5d857a;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.settings-help-copy h3 {
+  margin: 5px 0 0;
+  color: #e3eceb;
+  font-size: 15px;
+}
+
+.settings-help-copy p {
+  margin: 6px 0 0;
+  color: #8797a1;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.settings-help-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(150px, .8fr);
+  gap: 10px;
+}
+
+.settings-help-card #guideBtn,
+.settings-help-card #shortcutHelpBtn,
+.settings-help-card #appConnectionState {
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  height: auto;
+  margin: 0;
+}
+
+.settings-help-card #guideBtn,
+.settings-help-card #shortcutHelpBtn {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.settings-help-card #appConnectionState {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.settings-help-card #appConnectionState small {
+  white-space: normal;
+}
+
+body[data-current-view="settings"] .settings-help-card {
+  order: -1;
+}
+
+html[data-theme="light"] .settings-help-card {
+  border-color: #b8c7c4;
+  background: radial-gradient(circle at 100% 0, rgba(57, 153, 130, .08), transparent 32%), linear-gradient(120deg, #f8fbfa, #f1f6f4);
+}
+
+html[data-theme="light"] .settings-help-copy h3 {
+  color: #1d3632;
+}
+
+html[data-theme="light"] .settings-help-copy p {
+  color: #526b67;
+}
+
+html[data-theme="light"] .settings-help-card :is(#guideBtn, #shortcutHelpBtn, #appConnectionState) {
+  border-color: #a8bac4;
+  color: #263f4d;
+  background: #eef5f7;
+}
+
+/* A new task belongs on the processing screen, not in the review queue. */
+body[data-current-view="waiting"] #newRunBtn {
+  display: none !important;
+}
+
+body[data-current-view="all"] #newRunBtn {
+  display: inline-flex !important;
+}
+
+/* Related actions use one repeatable distance instead of per-screen values. */
+:is(
+  .top-actions,
+  .app-error-actions,
+  .update-actions,
+  .modal-actions,
+  .management-quick-actions,
+  .management-control-buttons,
+  .attention-card-header-actions,
+  .session-reset-dialog-actions,
+  .chat-prompt-actions,
+  .agent-command-actions,
+  .terminal-create-actions,
+  .terminal-key-actions,
+  .terminal-helper-actions,
+  .tmux-actions,
+  .tmux-section-actions,
+  .tmux-pane-actions,
+  .control-room-disclosure-actions
+) {
+  gap: var(--action-group-gap);
+}
+
+/* Keep labels centered when a button contains icons, shortcuts, or two lines. */
+:is(
+  .primary-button,
+  .ghost-button,
+  .new-run-cta,
+  .management-quick-actions > button,
+  .management-control-buttons > button,
+  .terminal-create-actions > button,
+  .tmux-section-actions > button,
+  .agent-command-actions > button
+) > :is(span, b, small) {
+  line-height: inherit;
+}
+
+/* Past-work filters are a visible tool row on desktop instead of a hidden menu. */
+.mobile-memory-filters {
+  min-width: 0;
+}
+
+.mobile-memory-filters > summary {
+  display: none;
+}
+
+.mobile-memory-filters > .memory-filter-panel {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.memory-filter-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.memory-filter-field > span,
+.provider-filter-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.memory-project-filter {
+  flex: 0 1 220px;
+}
+
+.memory-sort-filter {
+  flex: 0 1 240px;
+}
+
+.memory-filter-field > select {
+  width: 100%;
+  min-width: 0;
+}
+
+.provider-filter {
+  align-self: end;
+}
+
+.provider-filter-label {
+  padding-inline: 6px 3px;
+  white-space: nowrap;
+}
+
+/* The project summary and its one real action share a stable baseline. */
+.control-room-project-frame {
+  min-width: 0;
+  position: relative;
+}
+
+.control-room-project-frame > .control-room-project-group {
+  width: 100%;
+}
+
+body[data-current-view="all"] details.control-room-project-group > summary.control-project-header {
+  min-height: 58px !important;
+  padding: 8px 196px 8px 14px !important;
+}
+
+body[data-current-view="all"] .control-project-heading {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px max-content minmax(0, 1fr);
+  grid-template-rows: 24px auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+}
+
+body[data-current-view="all"] .control-project-heading > i {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+
+body[data-current-view="all"] .control-project-heading > span {
+  width: fit-content;
+  min-height: 24px;
+  grid-column: 2;
+  grid-row: 1;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #17242c;
+  color: #a9bcc6;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-current-view="all"] .control-room-project-group.has-attention .control-project-heading > span {
+  background: #32240e;
+  color: #ffe0a0;
+}
+
+body[data-current-view="all"] .control-project-heading > b {
+  min-width: 0;
+  grid-column: 3;
+  grid-row: 1;
+  display: block;
+  overflow: hidden;
+  color: #dce6ec;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+body[data-current-view="all"] .control-project-heading > small {
+  min-width: 0;
+  grid-column: 2 / -1;
+  grid-row: 2;
+  display: block;
+  overflow: hidden;
+  color: #9aabba;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+body[data-current-view="all"] .control-project-flow-link {
+  min-height: 44px;
+  position: absolute;
+  z-index: 3;
+  top: 9px;
+  right: 14px;
+  padding: 0;
+  font-weight: 500;
+}
+
+body[data-current-view="all"] .control-project-flow-link > span {
+  min-width: 164px;
+  min-height: 36px;
+  justify-content: center;
+  padding: 7px 12px;
+  border-color: rgba(82, 198, 157, .48);
+  background: #123027;
+  color: #b9f1dc;
+  line-height: 1.25;
+  text-align: center;
+}
+
+body[data-current-view="all"] .control-project-handle {
+  right: 184px;
+  top: 15px;
+}
+
+/* Explicit light surfaces prevent dark-mode text colors leaking into light mode. */
+html[data-theme="light"] body[data-current-view="all"] .home-attention-strip {
+  border-color: #d9e0e7;
+  background: #ffffff;
+  color: #223044;
+}
+
+html[data-theme="light"] body[data-current-view="all"] :is(.home-attention-title, .home-attention-item, .home-attention-more):hover {
+  background: #f4f7fa;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .home-attention-list .home-attention-item:first-child {
+  border-color: #efc8c1;
+  background: #fff8f6;
+}
+
+html[data-theme="light"] body[data-current-view="all"] :is(.home-attention-title b, .home-attention-item b) {
+  color: #223044;
+}
+
+html[data-theme="light"] body[data-current-view="all"] :is(.home-attention-title small, .home-attention-item small, .home-attention-item em, .home-attention-item time) {
+  color: #5d6b7d;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .home-attention-item u {
+  border-color: #9bcdbb;
+  background: #edf8f3;
+  color: #087a5b;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .home-attention-title strong {
+  background: #fff2d9;
+  color: #8b5700;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-heading > span {
+  background: #e9eef2;
+  color: #435365;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-room-project-group.has-attention .control-project-heading > span {
+  background: #fff2d7;
+  color: #875400;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-heading > b {
+  color: #223044;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-heading > small {
+  color: #5d6b7d;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-flow-link > span {
+  border-color: #9bcdbb;
+  background: #edf8f3;
+  color: #176b50;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-flow-link:hover > span,
+html[data-theme="light"] body[data-current-view="all"] .control-project-flow-link:focus-visible > span {
+  border-color: #67ad93;
+  background: #e3f4ed;
+  color: #0d5d44;
+}
+
+/*
+ * Light-mode contrast
+ * -------------------
+ * Feature layers contain a number of dark-theme pastel labels. Keep the final
+ * light palette here so those colors cannot leak onto white surfaces.
+ */
+html[data-theme="light"] {
+  --text: #17242d;
+  --muted: #52616a;
+  --dim: #5d6a72;
+  --intent-muted: #4f5e58;
+  --intent-dim: #5b6862;
+}
+
+html[data-theme="light"] body[data-current-view] :where(p, small, time, dd, dt, em, span) {
+  color: #4f5d67;
+}
+
+html[data-theme="light"] body[data-current-view] :where(h1, h2, h3, h4, h5, h6, strong, b) {
+  color: #17242d;
+}
+
+html[data-theme="light"] body :where(
+  .brand small,
+  .nav-group-label,
+  .section-title,
+  .subtitle,
+  .section-explain,
+  .field-label,
+  .home-attention-column-heading,
+  .home-attention-item small,
+  .home-attention-item em,
+  .live-count-guide,
+  .memory-review-help-desktop,
+  .memory-record-open,
+  .terminal-mode-instruction,
+  .terminal-send-disabled-hint,
+  .terminal-command-count,
+  .run-prompt-count,
+  .chat-prompt-length,
+  .chat-answer-kind,
+  .subagent-call-clock,
+  .subagent-call-timing,
+  .provider-visibility-copy > span,
+  .language-select > span,
+  .settings-help-copy > span,
+  .runtime-loop-kicker,
+  #drawerProvider
+) {
+  color: #4f5d67;
+}
+
+html[data-theme="light"] body :where(
+  .nav-item b,
+  .advanced-tools-nav > summary b,
+  #navUpdateBadge
+) {
+  color: #536171;
+}
+
+html[data-theme="light"] body .nav-item b :is(span, small),
+html[data-theme="light"] body .advanced-tools-nav > summary b :is(span, small) {
+  color: inherit;
+}
+
+html[data-theme="light"] body .nav-item.active,
+html[data-theme="light"] body .nav-item.active :is(span, b, small) {
+  color: #087258;
+}
+
+html[data-theme="light"] body :where(
+  .eyebrow,
+  .live-section-title p,
+  .status-running
+) {
+  color: #087458;
+}
+
+html[data-theme="light"] body .status-completed {
+  color: #52616a;
+}
+
+html[data-theme="light"] body :is(.provider-mini-mark, .provider-mark) {
+  color: color-mix(in srgb, var(--provider) 52%, #17242d);
+  background: color-mix(in srgb, var(--provider) 9%, #ffffff);
+  border-color: color-mix(in srgb, var(--provider) 26%, #cfd8df);
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-project-flow-link > span {
+  color: #176b50;
+}
+
+html[data-theme="light"] body[data-current-view="all"] .control-room-project-group.has-attention .control-project-heading > span {
+  color: #835000;
+}
+
+html[data-theme="light"] .new-run-cta,
+html[data-theme="light"] .new-run-cta:hover {
+  border-color: transparent;
+  background: #087258;
+  color: #ffffff;
+  box-shadow: 0 8px 22px rgba(8, 114, 88, .22);
+}
+
+html[data-theme="light"] .new-run-cta:hover {
+  background: #065f4a;
+}
+
+html[data-theme="light"] .new-run-cta :is(
+  .new-run-cta-icon,
+  .new-run-cta-copy,
+  .new-run-cta-copy b,
+  .new-run-cta-copy small,
+  .new-run-cta-copy kbd
+) {
+  background: transparent;
+  color: #ffffff !important;
+  opacity: 1;
+}
+
+html[data-theme="light"] .new-run-cta-copy small {
+  color: #e4fff6 !important;
+}
+
+html[data-theme="light"] .new-run-cta-copy kbd {
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  margin-left: 3px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, .46);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, .14) !important;
+  box-shadow: none;
+  line-height: 1;
+}
+
+html[data-theme="light"] body :is(
+  .primary-button,
+  button.accent,
+  .terminal-create-actions .accent,
+  .conversation-send
+) :is(b, strong, span, small, em) {
+  color: inherit;
+}
+
+html[data-theme="light"] body :is(
+  .conversation-interrupt,
+  .conversation-interrupt-label,
+  .danger,
+  [data-attention-action="reject"]
+) {
+  color: #a63d4f;
+}
+
+html[data-theme="light"] :is(.terminal-screen, .terminal-xterm, .xterm) span {
+  color: inherit;
+}
+
+html[data-theme="light"] body :is(
+  .attention-now-action,
+  .runtime-loop-kicker,
+  .control-project-attention,
+  .control-session-attention
+) {
+  color: #835000;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .attention-now-action {
+  border-color: #ead7a8;
+  color: #704500;
+  background: #fff7df;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .approval-name-preview > span {
+  border-color: #ccd9de;
+  background: #f3f7f8;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .approval-name-preview small {
+  color: #52616a;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .approval-name-preview b {
+  color: #17242d;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .approval-action-effect {
+  border-color: #b7d3c4;
+  color: #285848 !important;
+  background: #edf7f1;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .approval-action-effect b {
+  color: #1f5d43;
+}
+
+html[data-theme="light"] body[data-current-view="waiting"] .recommended-choice {
+  color: #ffffff;
+  background: #176b50;
+}
+
+html[data-theme="light"] body[data-current-view="runtime"] .runtime-overview-counts > p {
+  border-color: #c8d8d1;
+  color: #44584f;
+  background: #f2f8f5;
+}
+
+html[data-theme="light"] body[data-current-view="runtime"] .runtime-result-next {
+  border-color: #b7d3c4;
+  background: #edf7f1;
+}
+
+html[data-theme="light"] body[data-current-view="runtime"] .runtime-result-next :is(small, b) {
+  color: #344e44;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-card {
+  border-color: #d4dde2;
+  color: #17242d;
+  background: #ffffff;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-copy h3 {
+  color: #17242d;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-copy p {
+  color: #4f5d67;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .update-compact-version {
+  border-color: #b7d3c4;
+  color: #285848;
+  background: #edf7f1;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-target-icon {
+  color: #a9e4cf;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-workbench {
+  border-color: #273b43;
+  color: #eef5f7;
+  background: #070c12;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-target-meta b {
+  color: #eef5f7;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-target-meta span,
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-connection-state span,
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-answer-destination {
+  color: #b9d1c9;
+}
+
+html[data-theme="light"] body .drawer-composer .conversation-composer .agent-command-actions button[type="submit"]:disabled .conversation-send-label {
+  color: #52616a;
+}
+
+html[data-theme="light"] body[data-current-view="active"] .session-result-summary {
+  border-color: #d4dde2;
+  color: #3d4c55;
+  background: #eef3f5;
+}
+
+html[data-theme="light"] body[data-current-view="active"] .memory-list-group-heading {
+  border-color: #d4dde2;
+  color: #34434c;
+  background: #f1f5f6;
+}
+
+html[data-theme="light"] body[data-current-view="active"] .memory-list-group-heading.review {
+  border-color: #b7d3c4;
+  color: #1f5d43;
+  background: #eef8f2;
+}
+
+html[data-theme="light"] body[data-current-view="active"] .memory-review-status {
+  border-color: #b7d3c4;
+  color: #245e46;
+  background: #edf7f1;
+}
+
+html[data-theme="light"] body[data-current-view="active"] .memory-record-open {
+  border-color: #b9d1c8;
+  color: #176b50;
+  background: #f0f8f4;
+}
+
+html[data-theme="light"] body .chat-row.user :is(.chat-content, .user-prompt-text) {
+  color: #23364a;
+}
+
+@media (max-width: 1200px) and (min-width: 721px) {
+  body[data-current-view="active"] .session-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body[data-current-view="active"] .session-tools > .search-box,
+  body[data-current-view="active"] .mobile-memory-filters {
+    width: 100%;
+  }
+
+  .mobile-memory-filters > .memory-filter-panel {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+
+  .memory-project-filter,
+  .memory-sort-filter {
+    width: 100%;
+  }
+
+  .provider-filter {
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --control-padding-inline: 12px;
+    --control-padding-inline-compact: 10px;
+    --action-group-gap: 10px;
+  }
+
+  .settings-help-card {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 15px;
+  }
+
+  .settings-help-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-help-card #guideBtn,
+  .settings-help-card #shortcutHelpBtn,
+  .settings-help-card #appConnectionState {
+    display: flex;
+    grid-column: auto;
+  }
+
+  :is(
+    .modal-actions,
+    .management-quick-actions,
+    .management-control-buttons,
+    .session-reset-dialog-actions,
+    .terminal-create-actions,
+    .tmux-section-actions
+  ) {
+    row-gap: var(--action-group-gap);
+  }
+
+  .top-helper-menu[open] > div {
+    width: min(100%, calc(100vw - 28px));
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mobile-memory-filters > summary {
+    min-height: var(--control-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    list-style: none;
+    cursor: pointer;
+  }
+
+  .mobile-memory-filters > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mobile-memory-filters > summary > i {
+    font-style: normal;
+    transition: transform .16s ease;
+  }
+
+  .mobile-memory-filters[open] > summary > i {
+    transform: rotate(180deg);
+  }
+
+  .mobile-memory-filters > .memory-filter-panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 8px;
+  }
+
+  .memory-project-filter,
+  .memory-sort-filter {
+    width: 100%;
+  }
+
+  .provider-filter {
+    display: block;
+  }
+
+  .provider-filter-label,
+  .provider-filter > .provider-filter-chip {
+    display: none;
+  }
+
+  .mobile-provider-filter {
+    display: block;
+  }
+
+  body[data-current-view="all"] details.control-room-project-group > summary.control-project-header {
+    min-height: 80px !important;
+    padding: 9px 11px !important;
+  }
+
+  body[data-current-view="all"] .control-project-heading {
+    grid-template-columns: 18px max-content minmax(0, 1fr);
+    grid-template-rows: 24px auto;
+  }
+
+  body[data-current-view="all"] .control-project-heading > small {
+    white-space: normal;
+  }
+
+  body[data-current-view="all"] .control-project-flow-link {
+    width: calc(100% - 24px);
+    min-height: var(--control-height);
+    position: relative;
+    top: auto;
+    right: auto;
+    margin: 0 12px 10px;
+  }
+
+  body[data-current-view="all"] .control-project-flow-link > span {
+    width: 100%;
+  }
+
+  body[data-current-view="all"] .control-project-handle {
+    display: none;
+  }
+
+  body[data-current-view="all"] .topbar .top-actions {
+    flex-wrap: wrap !important;
+  }
+
+  .control-room-project-group:not([open]) > .control-project-body {
+    display: none;
+  }
+
+  body[data-current-view="all"] .home-attention-list .home-attention-item:first-child {
+    min-height: 0;
+    align-items: start;
+    row-gap: 8px;
+    padding: 34px 12px 12px;
+  }
+
+  body[data-current-view="all"] .home-attention-item .home-attention-column-heading {
+    top: 10px;
+    left: 12px;
+  }
+
+  body[data-current-view="all"] .home-attention-item > span:nth-child(2) {
+    display: grid;
+    gap: 6px;
+  }
+
+  body[data-current-view="all"] .home-attention-item b {
+    margin-top: 0;
+    line-height: 1.5;
+  }
+
+  :is(.control-room-main, .control-main-now, .control-main-now b) {
+    max-width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    overflow-wrap: anywhere;
+  }
+}

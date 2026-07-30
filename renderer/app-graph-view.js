@@ -649,15 +649,17 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="live-tmux-grid">${projectTmuxEntries.map((entry) => liveTmuxPaneCard(entry)).join("")}</div>
         </section>`
         : "";
-      return `<details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
+      return `<div class="control-room-project-frame">
+        <details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
-          <span class="control-project-heading"><i aria-hidden="true">□</i><span>${attentionCount ? "지금 내가 확인할 일" : "현재 상태"}</span><b>${esc(displayName)} —</b><small><span>현재 상태: ${esc(summary)}</span><em>${attentionCount ? "이 작업 상세 보기" : "작업 진행 화면 보기"}</em></small></span>
+          <span class="control-project-heading"><i aria-hidden="true">□</i><span>${esc(t(attentionCount ? "control.attention_now" : "control.current_status"))}</span><b>${esc(displayName)}</b><small>${esc(t("control.current_status_summary", { summary }))}</small></span>
           <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
         </summary>
-        ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}"><span>${esc(t("control.open_project_flow", { name }))}</span></button>` : ""}
         <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}${tmuxCards}</div>
-      </details>`;
+        </details>
+        ${projectFocusId ? `<button type="button" class="control-project-flow-link" data-graph-focus="${esc(projectFocusId)}" aria-label="${esc(t("control.open_project_flow", { name }))}"><span>${esc(t(attentionCount ? "control.open_attention_detail_short" : "control.open_project_progress_short"))}</span></button>` : ""}
+      </div>`;
     }).join("");
     return `<div class="control-room-overview" data-control-room-overview="true">
       ${projectGroups}

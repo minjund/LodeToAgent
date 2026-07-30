@@ -310,6 +310,13 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         + (liveProjectlessCount ? `<option value="${PROJECTLESS_WORKSPACE}">${esc(t("control.other_projects"))}</option>` : "");
       projectSelect.value = [...projectSelect.options].some((option) => option.value === state.workspace) ? state.workspace : "all";
     }
+    const memoryProjectSelect = $("#memoryWorkspaceFilter");
+    if (memoryProjectSelect) {
+      memoryProjectSelect.innerHTML = `<option value="all">${esc(t("project.all"))}</option>`
+        + projects.map((item) => `<option value="${esc(item.path)}">${esc(item.name)} · ${esc(t("memory.metric_count", { count: Number(item.count || 0) }))}</option>`).join("")
+        + (projectlessCount ? `<option value="${PROJECTLESS_WORKSPACE}">${esc(t("ui.no_project"))} · ${esc(t("memory.metric_count", { count: projectlessCount }))}</option>` : "");
+      memoryProjectSelect.value = [...memoryProjectSelect.options].some((option) => option.value === state.workspace) ? state.workspace : "all";
+    }
     const controlSort = $("#controlRoomSortSelect");
     if (controlSort) controlSort.value = state.controlRoomSort || "recent";
     const controlSearch = $("#controlRoomSearchInput");

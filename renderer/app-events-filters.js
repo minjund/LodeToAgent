@@ -112,6 +112,16 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       saveDashboardPreferences();
       announce(t("filter.workspace_results", { project: event.target.selectedOptions[0]?.textContent || t("control.all_projects"), count: filteredSessions().length }));
     });
+    const memoryProjectSelect = $("#memoryWorkspaceFilter");
+    memoryProjectSelect?.addEventListener("change", (event) => {
+      state.workspace = event.target.value;
+      state.visibleLimit = 30;
+      renderWorkspaces();
+      renderSessions("filter");
+      syncFilterResetButton();
+      saveDashboardPreferences();
+      announce(t("filter.workspace_results", { project: event.target.selectedOptions[0]?.textContent || t("project.all"), count: filteredSessions().length }));
+    });
     const controlSortSelect = $("#controlRoomSortSelect");
     controlSortSelect?.addEventListener("change", (event) => {
       state.controlRoomSort = event.target.value;

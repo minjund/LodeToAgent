@@ -49,6 +49,36 @@ body :is(time, dt, dd) {
   line-height: 1.5;
 }
 
+html[data-theme="light"] body small,
+html[data-theme="light"] body :is(time, dt, dd) {
+  color: #4f5d67 !important;
+}
+
+html[data-theme="light"] body :is(
+  .primary-button,
+  button.accent,
+  .terminal-create-actions .accent,
+  .conversation-send
+) small {
+  color: inherit !important;
+}
+
+html[data-theme="light"] body .new-run-cta :is(small, kbd) {
+  color: #ffffff !important;
+}
+
+html[data-theme="dark"] body .new-run-cta :is(small, kbd) {
+  color: #102733 !important;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] #terminalCommandModeHint {
+  color: #b9d1c9 !important;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"] .terminal-send-disabled-hint {
+  color: #52616a !important;
+}
+
 body :is(
   [class*="-meta"],
   [class*="-label"],
@@ -663,7 +693,7 @@ body :is(input, textarea)::placeholder {
 
 .new-run-cta-copy b,
 .new-run-cta-icon {
-  color: #102733;
+  color: inherit;
 }
 
 .new-run-cta {
@@ -672,8 +702,8 @@ body :is(input, textarea)::placeholder {
 
 .new-run-cta-copy small,
 .new-run-cta-copy kbd {
-  background-color: #b8d2e1;
-  color: #102733 !important;
+  background-color: transparent;
+  color: inherit;
 }
 
 .runtime-segment > header em,

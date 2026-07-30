@@ -576,6 +576,10 @@ body[data-current-view="active"] .memory-record.review-pending .memory-record-op
   text-underline-offset: 3px;
 }
 
+html[data-theme="light"] body[data-current-view="active"] .memory-record.review-pending .memory-record-open {
+  color: #176b50 !important;
+}
+
 /* Round 51: each number, mode, and next action forms one novice-readable unit. */
 body[data-current-view="runtime"] .runtime-overview-counts {
   display: grid !important;
