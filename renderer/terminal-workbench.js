@@ -134,6 +134,11 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     return Boolean(session && (session.type === 'agent' || linkedAgentSession(session)));
   }
 
+  function hasRunningQuestionTarget(session = currentSession(), remote = currentTmux()) {
+    if (session) return session.status === 'running' && isAiTerminalSession(session);
+    return Boolean(remote && !remote.pane.dead && visibleBoundAgent());
+  }
+
   function terminalPresentation(session) {
     const agent = session?.type === 'agent' ? session : linkedAgentSession(session);
     if (agent?.attention?.category === 'required' || agent?.status === 'waiting') return { tone: 'attention', label: t('ui.waiting_for_review') };
@@ -201,12 +206,19 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     $('#navTerminalCount').textContent = t('terminal.nav_usable', { count: running });
     const terminalNav = document.querySelector('.nav-item[data-view="terminal"]');
     if (terminalNav) terminalNav.setAttribute('aria-label', t('quality.nav_count_detailed', { label: t('app.nav.session_terminal'), count: running, unit: t('quality.unit.sessions') }));
-    const advancedCount = 3;
+    const advancedCount = 4;
     const advancedCounter = document.getElementById('advancedToolsCount');
     if (advancedCounter) advancedCounter.textContent = String(advancedCount);
-    document.querySelector('#advancedToolsNav > summary')?.setAttribute('aria-label', t('quality.nav_count_detailed', {
+    const advancedBaseLabel = t('quality.nav_count_detailed', {
       label: t('management.advanced_tools'), count: advancedCount, unit: t('quality.unit.types'),
-    }));
+    });
+    const update = window.LoadToAgentApp?.state?.update || {};
+    const updateAvailable = ['available', 'downloading', 'downloaded'].includes(update.status);
+    const updateLabel = t('update.available_version', { version: update.latestVersion || '—' });
+    const advancedLabel = updateAvailable ? `${advancedBaseLabel} · ${updateLabel}` : advancedBaseLabel;
+    const advancedSummary = document.querySelector('#advancedToolsNav > summary');
+    advancedSummary?.setAttribute('aria-label', advancedLabel);
+    advancedSummary?.setAttribute('title', advancedLabel);
     $('#terminalSessionSummary').textContent = t('terminal.summary.overall', {
       total: general.length,
       open: running,
@@ -218,7 +230,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       workWindows,
     });
     const selectedSession = general.find(session => session.id === state.selectedId);
-    const questionMode = selectedSession?.type === 'agent' || Boolean(linkedAgentSession(selectedSession));
+    const inferredQuestionMode = selectedSession?.type === 'agent' || Boolean(linkedAgentSession(selectedSession));
+    const questionMode = state.interactionMode === 'question'
+      || (state.interactionMode === 'auto' && inferredQuestionMode);
+    const questionTargetReady = hasRunningQuestionTarget(currentSession(), currentTmux());
     const selectedProvider = providerLabel(linkedAgentSession(selectedSession)?.provider || selectedSession?.provider || 'claude');
     $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', questionMode ? 'false' : 'true');
     $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', questionMode ? 'true' : 'false');
@@ -226,7 +241,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     $('#terminalModeQuestionBtn')?.setAttribute('aria-checked', questionMode ? 'true' : 'false');
     if ($('#terminalModeTitle')) {
       $('#terminalModeTitle').textContent = questionMode
-        ? `지금 선택된 방식: ${selectedProvider}에게 질문만 보내기`
+        ? questionTargetReady
+          ? `지금 선택된 방식: ${selectedProvider}에게 질문만 보내기`
+          : t('terminal.agent.select_target')
         : "지금 선택된 방식: 컴퓨터 작업 요청하기";
     }
     if (document.body?.dataset?.currentView === 'terminal' && $('#pageTitle')) {
@@ -236,7 +253,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     }
     if ($('#terminalModeInstruction')) {
       $('#terminalModeInstruction').textContent = questionMode
-        ? "현재 ‘질문만 하기’가 선택되어 있습니다. 아래 입력칸에 질문을 적으세요."
+        ? questionTargetReady
+          ? "현재 ‘질문만 하기’가 선택되어 있습니다. 아래 입력칸에 질문을 적으세요."
+          : t('terminal.agent.no_input_target')
         : "현재 ‘컴퓨터 작업 요청하기’가 선택되어 있습니다. 아래 입력칸에 할 일을 적고 ‘보내기’를 누르세요.";
     }
     const renderKey = JSON.stringify([
@@ -324,7 +343,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const managedSession = Boolean(session && session.backend === 'managed-tmux');
     const reconnectable = managedSession && session.status === 'detached';
     const hasTarget = Boolean(session || remote);
-    const canInput = Boolean((remote && !remote.pane.dead) || (session && session.status === 'running'));
+    const questionBlocked = state.interactionMode === 'question' && !hasRunningQuestionTarget(session, remote);
+    const canInput = Boolean((remote && !remote.pane.dead) || (session && session.status === 'running'))
+      && !questionBlocked;
     const closeButton = $('#terminalCloseBtn');
     closeButton.disabled = !hasTarget;
     closeButton.textContent = remote && !session
@@ -344,6 +365,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     restartButton.classList.toggle('hidden', !showRestart);
     restartButton.disabled = !showRestart;
     restartButton.textContent = reconnectable ? t('terminal.reconnect') : t('terminal.restart');
+    if (showRestart) document.querySelector('.terminal-session-tools')?.setAttribute('open', '');
     const terminalCommandInput = $('#terminalCommandInput');
     terminalCommandInput.disabled = !canInput;
     const commandForm = $('#terminalCommandForm');
@@ -354,6 +376,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const commandButtonLabel = commandButton.querySelector('span');
     if (commandButtonLabel) commandButtonLabel.textContent = state.commandSending ? t('terminal.sending') : t('common.send');
     document.querySelectorAll('[data-terminal-signal]').forEach(button => { button.disabled = !canInput; });
+    const computerInputButton = $('#terminalComputerInputBtn');
+    const showComputerInput = Boolean(canInput && session && !aiTerminal);
+    computerInputButton?.classList.toggle('hidden', !showComputerInput);
+    if (computerInputButton) computerInputButton.disabled = !showComputerInput;
     $('#terminalAttachBtn').classList.toggle('hidden', !remote || Boolean(session));
     $('#terminalTmuxTools').classList.toggle('hidden', !remote || Boolean(session));
     if (session) {
@@ -413,10 +439,14 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     }
     const commandLabel = $('#terminalCommandLabel');
     const commandInput = $('#terminalCommandInput');
-    if (commandLabel) commandLabel.textContent = bound
+    if (commandLabel) commandLabel.textContent = questionBlocked
+      ? t('terminal.agent.select_target')
+      : bound
       ? `현재 ‘${String(bound.title || displayTerminalTitle(session)).trim()}’ 작업에 대해 ${boundProvider || providerLabel(bound.provider)}에게 질문`
       : (remote ? window.LoadToAgentI18n.t("ui.send_to_tmux_terminal") : window.LoadToAgentI18n.t("ui.send_command_to_terminal"));
-    if (commandInput) commandInput.placeholder = !hasTarget
+    if (commandInput) commandInput.placeholder = questionBlocked
+      ? t('terminal.agent.no_input_target')
+      : !hasTarget
       ? window.LoadToAgentI18n.t("ui.select_a_session_on_the_left_first")
       : (bound ? t('terminal.command.continue_ai_placeholder', { provider: boundProvider || providerLabel(bound.provider) }) : t('ui.enter_a_command_to_run'));
     if (commandInput) {
@@ -430,7 +460,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     }
     if (terminalNotice) terminalNotice.classList.toggle('hidden', Boolean(bound) && !terminalNotice.dataset.tone);
     const answerDestination = $('#terminalAnswerDestination');
-    if (answerDestination) answerDestination.textContent = bound
+    if (answerDestination) answerDestination.textContent = questionBlocked
+      ? t('terminal.agent.no_input_target')
+      : bound
       ? `보낸 질문과 ${boundProvider || providerLabel(bound.provider)}의 답변이 이곳에 차례대로 표시됩니다.`
       : "실행 결과는 이 입력칸 위에 표시됩니다.";
     syncComposer?.();
@@ -476,10 +508,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     renderTarget();
   }
 
-  async function selectSession(id) {
+  async function selectSession(id, interactionMode = '') {
     saveCurrentDraft();
     const generation = ++state.captureGeneration;
     state.selectedId = id;
+    const selectedSession = state.sessions.find(item => item.id === id);
+    state.interactionMode = interactionMode || (isAiTerminalSession(selectedSession) ? 'question' : 'computer');
     state.selectedTmux = null;
     renderSessions();
     renderTmuxResources();
@@ -489,11 +523,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (!$('#terminalCommandInput')?.disabled) $('#terminalCommandInput').focus({ preventScroll: true });
   }
 
-  async function selectTmux(distroName, paneId) {
+  async function selectTmux(distroName, paneId, interactionMode = '') {
     const row = tmuxRows().find(item => item.distro.name === distroName && item.pane.nativeId === paneId);
     if (!row) return notice(t('terminal.error.selected_split_missing'), 'error');
     saveCurrentDraft();
     const generation = ++state.captureGeneration;
+    if (interactionMode) state.interactionMode = interactionMode;
     state.selectedId = null;
     state.selectedTmux = row;
     state.remoteCapture = '';
@@ -514,7 +549,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (!row) return notice(t('terminal.error.selected_tmux_missing'), 'error');
     state.mode = 'tmux';
     moveWorkbench('tmux');
-    return selectTmux(row.distro.name, row.pane.nativeId);
+    return selectTmux(row.distro.name, row.pane.nativeId, 'computer');
   }
 
   function renderAll() {
@@ -634,6 +669,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const remote = currentTmux();
     if (!session && !remote) {
       notice(t('terminal.command.select_first'), 'error');
+      return false;
+    }
+    if (state.interactionMode === 'question' && !hasRunningQuestionTarget(session, remote)) {
+      notice(t('terminal.agent.no_input_target'), 'error');
       return false;
     }
     state.commandSending = true;

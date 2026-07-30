@@ -265,7 +265,11 @@ async function checkMobileControls(win) {
   await win.webContents.executeJavaScript(`document.querySelector('#mainContent').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))`);
   await waitFor(win, `document.querySelector('#mobileToolsMenu').classList.contains('hidden')`, '모바일 더보기 메뉴를 닫지 못했습니다.');
   win.setSize(1440, 940);
-  await waitFor(win, `document.querySelector('.view-nav [data-view="settings"]').getClientRects().length > 0`, '데스크톱 내비게이션 레이아웃으로 복원되지 않았습니다.');
+  await waitFor(win, `window.innerWidth > 1280
+    && document.querySelector('#advancedToolsNav > summary').getClientRects().length > 0
+    && getComputedStyle(document.querySelector('#advancedToolsNav > summary')).display !== 'none'
+    && document.querySelector('#mobileMoreBtn').getClientRects().length === 0`,
+  '데스크톱 내비게이션 레이아웃으로 복원되지 않았습니다.');
   return { ...opened, wheel };
 }
 
@@ -505,6 +509,12 @@ async function checkTerminalHistory(win) {
       top: list.scrollTop,
       stageTop: document.querySelector('.main-stage').scrollTop,
       overscroll: getComputedStyle(list).overscrollBehaviorY,
+      clientHeight: list.clientHeight,
+      scrollHeight: list.scrollHeight,
+      display: getComputedStyle(list).display,
+      overflowY: getComputedStyle(list).overflowY,
+      panelClass: document.querySelector('#terminalHistoryPanel')?.className || '',
+      panelDisplay: getComputedStyle(document.querySelector('#terminalHistoryPanel')).display,
     };
   })()`);
   await win.webContents.executeJavaScript(`(() => {
@@ -523,6 +533,8 @@ async function checkTerminalHistory(win) {
       top: list.scrollTop,
       stageTop: document.querySelector('.main-stage').scrollTop,
       nestedTop: [...list.querySelectorAll('.terminal-history-copy')].reduce((sum, element) => sum + element.scrollTop, 0),
+      clientHeight: list.clientHeight,
+      scrollHeight: list.scrollHeight,
     };
   })()`);
   if (wheelAfter.top <= wheelBefore.top || wheelAfter.stageTop !== wheelBefore.stageTop || wheelAfter.nestedTop !== 0 || wheelBefore.overscroll !== 'contain') {

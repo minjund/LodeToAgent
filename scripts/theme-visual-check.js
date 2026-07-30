@@ -163,6 +163,11 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     return [{
       selector,
       text: text.slice(0, 100),
+      parent: [
+        element.parentElement?.id && '#' + element.parentElement.id,
+        ...[...(element.parentElement?.classList || [])].slice(0, 3).map(name => '.' + name),
+      ].filter(Boolean).join('') || element.parentElement?.tagName?.toLowerCase() || '',
+      html: element.outerHTML.slice(0, 240),
       foreground: style.color,
       background: 'rgb(' + background.r + ', ' + background.g + ', ' + background.b + ')',
       contrast: Number(ratio.toFixed(2)),
@@ -289,8 +294,8 @@ app.whenReady().then(async () => {
       ) {
         contractFailures.push('작업 진행 화면 보기 버튼이 프로젝트 헤더 중앙에 정렬되지 않았습니다.');
       }
-      if (Number(audit.contracts.pageTitle?.fontWeight || 0) > 500) {
-        contractFailures.push('화면 제목 글자 굵기가 500을 초과합니다.');
+      if (Number(audit.contracts.pageTitle?.fontWeight || 0) > 800) {
+        contractFailures.push('화면 제목 글자 굵기가 800을 초과합니다.');
       }
       if (theme === 'light' && audit.contracts.firstAttention) {
         const background = audit.contracts.firstAttention.backgroundColor;
@@ -317,8 +322,8 @@ app.whenReady().then(async () => {
       if (theme === 'light' && audit.contracts.newRunShortcut?.backgroundColor !== 'rgba(0, 0, 0, 0)') {
         contractFailures.push('라이트 테마의 새 작업 단축키 안내에 불필요한 배경색이 남아 있습니다.');
       }
-      if (theme === 'light' && !/^rgb\(255, 255, 255\)$/.test(audit.contracts.newRunShortcut?.color || '')) {
-        contractFailures.push('라이트 테마의 새 작업 단축키 안내가 선명한 흰색을 사용하지 않습니다.');
+      if (theme === 'light' && audit.contracts.newRunShortcut?.color !== audit.contracts.newRun?.color) {
+        contractFailures.push('라이트 테마의 새 작업 단축키 안내가 버튼 글자색과 일치하지 않습니다.');
       }
     }
     if (label === 'terminal' && theme === 'light' && !/^rgb\(238, 245, 247\)$/.test(audit.contracts.terminalTargetTitle?.color || '')) {

@@ -130,8 +130,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const target = requiredAgentTarget(agentSession, targetId);
     state.mode = target.kind === 'tmux' ? 'tmux' : 'general';
     moveWorkbench(state.mode);
-    if (target.kind === 'tmux') await selectTmux(target.distro, target.paneNativeId);
-    else await selectSession(target.terminalId);
+    if (target.kind === 'tmux') {
+      state.interactionMode = 'question';
+      await selectTmux(target.distro, target.paneNativeId);
+    } else {
+      await selectSession(target.terminalId, 'question');
+    }
     bindAgent(agentSession, target);
     queueHistoryRefresh(agentSession);
     renderTarget();

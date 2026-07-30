@@ -5,6 +5,23 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.5.3 - 2026-07-31
+
+- Rebuild the project-first studio shell so project context, work states,
+  history, and advanced tools remain clear from 320px mobile layouts through
+  wide desktop screens without overlapping or wasting tool-view space.
+- Normalize button, card, modal, drawer, and settings spacing with consistent
+  touch targets, readable wrapping, keyboard focus, and improved light-theme
+  action contrast.
+- Keep the terminal question composer, history, controls, and console inside
+  the viewport at compact widths while preserving focus, drafts, and explicit
+  computer-versus-AI input modes.
+- Clarify review, runtime, remote-computer, update, and projectless-history
+  states, including continuous transitions after a user answers a waiting AI.
+- Expand interaction coverage to exercise every required visible control and
+  add responsive, theme, readability, scrolling, and visual regression checks
+  for the updated layouts.
+
 ## 1.5.2 - 2026-07-30
 
 - Improve light-mode contrast across every primary view, including status

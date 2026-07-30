@@ -332,6 +332,8 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const section = $("#automationOverview");
     const previousScheduleList = section.querySelector(".runtime-schedule-list");
     const previousLoopTabs = section.querySelector(".runtime-loop-tabs");
+    const otherWorkOpen = Boolean(section.querySelector(".runtime-other-work")?.open);
+    const scheduleLaneOpen = Boolean(section.querySelector(".runtime-schedule-lane")?.open);
     const previousSelectedId = section.querySelector(".runtime-loop-tab.selected")?.dataset.loopSelect || "";
     const scheduleScrollTop = previousScheduleList?.scrollTop || 0;
     const loopScrollLeft = previousLoopTabs?.scrollLeft || 0;
@@ -383,9 +385,9 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     <div class="runtime-overview-grid">
       <section class="runtime-loop-lane" aria-label="${esc(t("runtime.loop_lane", { count: loops.length }))}">
         ${selected ? loopDetail(selected) : noActiveLoop()}
-        ${loops.length > 1 ? `<details class="runtime-loop-lane-head runtime-other-work"><summary>지금 실행 중인 작업 ${loops.length - 1}건 보기 <i aria-hidden="true">⌄</i></summary><div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map(loop => loopSelector(loop, loop.id === selectedId)).join("")}</div></details>` : ""}
+        ${loops.length > 1 ? `<details class="runtime-loop-lane-head runtime-other-work"${otherWorkOpen ? " open" : ""}><summary>지금 실행 중인 작업 ${loops.length - 1}건 보기 <i aria-hidden="true">⌄</i></summary><div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map(loop => loopSelector(loop, loop.id === selectedId)).join("")}</div></details>` : ""}
       </section>
-      <details class="runtime-schedule-lane">
+      <details class="runtime-schedule-lane"${scheduleLaneOpen ? " open" : ""}>
         <summary>반복 일정과 담당 AI 보기·변경하기 <i aria-hidden="true">⌄</i></summary>
         <div class="runtime-schedule-list" role="list" tabindex="${scheduleListFocusable ? "0" : "-1"}" aria-label="${esc(scheduleListLabel)}">${displayedAutomations.length ? displayedAutomations.map(scheduleCard).join("") : emptySchedules()}</div>
       </details>

@@ -64,7 +64,7 @@ html[data-theme="light"] body :is(
 }
 
 html[data-theme="light"] body .new-run-cta :is(small, kbd) {
-  color: #ffffff !important;
+  color: #082733 !important;
 }
 
 html[data-theme="dark"] body .new-run-cta :is(small, kbd) {

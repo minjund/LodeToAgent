@@ -684,12 +684,12 @@ html[data-theme="light"] .new-run-cta :is(
   .new-run-cta-copy kbd
 ) {
   background: transparent;
-  color: #ffffff !important;
+  color: #082733 !important;
   opacity: 1;
 }
 
 html[data-theme="light"] .new-run-cta-copy small {
-  color: #e4fff6 !important;
+  color: #082733 !important;
 }
 
 html[data-theme="light"] .new-run-cta-copy kbd {
@@ -698,9 +698,9 @@ html[data-theme="light"] .new-run-cta-copy kbd {
   min-height: 19px;
   margin-left: 3px;
   padding: 1px 5px;
-  border: 1px solid rgba(255, 255, 255, .46);
+  border: 1px solid rgba(8, 39, 51, .24);
   border-radius: 5px;
-  background: rgba(255, 255, 255, .14) !important;
+  background: rgba(8, 39, 51, .08) !important;
   box-shadow: none;
   line-height: 1;
 }

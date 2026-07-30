@@ -340,9 +340,13 @@ app.whenReady().then(async () => {
     const mobileMetrics = await win.webContents.executeJavaScript(`(() => {
       const card = document.querySelector('#sessionGrid .memory-record');
       const cardRect = card?.getBoundingClientRect();
-      const bottomNav = document.querySelector('.sidebar');
-      const bottomNavRect = bottomNav?.getBoundingClientRect();
-      const usableBottom = bottomNavRect?.top > 0 ? bottomNavRect.top : window.innerHeight;
+      const mobileNav = document.querySelector('#projectViewTabs');
+      const mobileNavRect = mobileNav?.getBoundingClientRect();
+      const activeNavButton = mobileNav?.querySelector('[data-view].active');
+      const activeNavRect = activeNavButton?.getBoundingClientRect();
+      const moreButton = document.querySelector('#mobileMoreBtn');
+      const moreRect = moreButton?.getBoundingClientRect();
+      const usableBottom = window.innerHeight;
       const visibleCardHeight = cardRect ? Math.max(0, Math.min(cardRect.bottom, usableBottom) - Math.max(cardRect.top, 0)) : 0;
       return {
         width: window.innerWidth,
@@ -361,11 +365,16 @@ app.whenReady().then(async () => {
           visibility: getComputedStyle(card).visibility,
           opacity: Number(getComputedStyle(card).opacity || 1),
         } : null,
-        bottomNavVisible: getComputedStyle(bottomNav).display !== 'none',
+        mobileNavVisible: Boolean(mobileNavRect && activeNavRect && moreRect
+          && getComputedStyle(mobileNav).display !== 'none'
+          && mobileNavRect.width > 0 && mobileNavRect.height >= 44
+          && activeNavRect.width >= 44 && activeNavRect.height >= 44
+          && moreRect.width >= 44 && moreRect.height >= 44
+          && mobileNavRect.top >= 0 && mobileNavRect.bottom <= window.innerHeight),
       };
     })()`);
     const mobileOutput = await capture(win, 'loadtoagent-philosophical-memory-mobile.png', 'active', '#sessionSection');
-    if (mobileMetrics.view !== 'active' || mobileMetrics.activeNav !== 'active' || mobileMetrics.sectionOpacity < .99 || mobileMetrics.pageOverflow || mobileMetrics.stageOverflow || !mobileMetrics.firstCardVisible || !mobileMetrics.bottomNavVisible) {
+    if (mobileMetrics.view !== 'active' || mobileMetrics.activeNav !== 'active' || mobileMetrics.sectionOpacity < .99 || mobileMetrics.pageOverflow || mobileMetrics.stageOverflow || !mobileMetrics.firstCardVisible || !mobileMetrics.mobileNavVisible) {
       throw new Error(`기억 모바일 계약 실패: ${JSON.stringify(mobileMetrics)}`);
     }
 

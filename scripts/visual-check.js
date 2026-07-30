@@ -33,16 +33,31 @@ async function waitForRenderer(win, expression, attempts = 40, intervalMs = 200)
 }
 
 async function captureStableState(win, setupExpression, verifyExpression, attempts = 10) {
+  let lastBeforeCapture = null;
+  let lastAfterCapture = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     await win.webContents.executeJavaScript(setupExpression);
     await new Promise(resolve => setTimeout(resolve, 480));
-    if (!await win.webContents.executeJavaScript(verifyExpression)) continue;
+    lastBeforeCapture = await win.webContents.executeJavaScript(verifyExpression);
+    if (!lastBeforeCapture) continue;
     await win.webContents.executeJavaScript(`(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } void document.body.offsetHeight; return true; })()`);
     await new Promise(resolve => setTimeout(resolve, 80));
     const image = await win.webContents.capturePage();
-    if (await win.webContents.executeJavaScript(verifyExpression)) return image;
+    lastAfterCapture = await win.webContents.executeJavaScript(verifyExpression);
+    if (lastAfterCapture) return image;
   }
-  throw new Error('검증할 화면 상태가 유지되는 동안 캡처하지 못했습니다.');
+  const diagnostics = await win.webContents.executeJavaScript(`(() => {
+    const composer = document.querySelector('#terminalCommandForm')?.getBoundingClientRect();
+    return {
+      view: document.body.dataset.currentView || '',
+      sectionHidden: document.querySelector('#terminalSection')?.classList.contains('hidden'),
+      historyClass: document.querySelector('#terminalHistoryPanel')?.className || '',
+      backdropClass: document.querySelector('#drawerBackdrop')?.className || '',
+      composer: composer ? { top: composer.top, bottom: composer.bottom, height: composer.height } : null,
+      viewportHeight: window.innerHeight,
+    };
+  })()`);
+  throw new Error(`검증할 화면 상태가 유지되는 동안 캡처하지 못했습니다: ${JSON.stringify({ lastBeforeCapture, lastAfterCapture, diagnostics })}`);
 }
 
 function setTestWindowSize(win, width, height) {
@@ -181,6 +196,16 @@ app.whenReady().then(() => {
       if (!secondTerminalReplay) throw new Error('두 번째 로컬 PTY에 보낸 명령 결과를 수신하지 못했습니다.');
       const terminalMetrics = await win.webContents.executeJavaScript(`(async () => {
         const terminalSessions = await window.loadtoagent.terminalList();
+        const bounds = selector => {
+          const element = document.querySelector(selector);
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return {
+            top: Number(rect.top.toFixed(1)),
+            bottom: Number(rect.bottom.toFixed(1)),
+            height: Number(rect.height.toFixed(1)),
+          };
+        };
         return {
           sectionVisible: !document.querySelector('#terminalSection')?.classList.contains('hidden'),
           appView: window.LoadToAgentApp.state.view,
@@ -196,6 +221,13 @@ app.whenReady().then(() => {
           onlyGeneralSessions: [...document.querySelectorAll('.terminal-session-item')].every(item => terminalSessions.find(session => session.id === item.dataset.terminalId)?.type !== 'tmux'),
           composerVisible: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 0 && rect.bottom <= window.innerHeight + 2); })(),
           consolePaneVisible: Boolean(document.querySelector('.terminal-console-pane')),
+          viewportHeight: window.innerHeight,
+          mainStageBounds: bounds('.main-stage'),
+          sectionBounds: bounds('#terminalSection'),
+          layoutBounds: bounds('#terminalSection .terminal-layout'),
+          workbenchBounds: bounds('#terminalWorkbench'),
+          stageBounds: bounds('#terminalStage'),
+          composerBounds: bounds('#terminalCommandForm'),
         };
       })()`);
       if (!terminalMetrics.sectionVisible || terminalMetrics.sessions < 2 || terminalMetrics.duplicateTabs !== 0 || terminalMetrics.xterms < 2 || !terminalMetrics.workbenchInGeneral || !terminalMetrics.tmuxSectionHidden || terminalMetrics.tmuxControlsMixedIn || !terminalMetrics.onlyGeneralSessions || !terminalMetrics.composerVisible || !terminalMetrics.consolePaneVisible) throw new Error(`일반 명령창 UX가 불완전합니다: ${JSON.stringify(terminalMetrics)}`);
@@ -702,13 +734,23 @@ app.whenReady().then(() => {
         inputEnabled: !document.querySelector('#terminalCommandInput')?.disabled,
         composerVisible: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 0 && rect.bottom <= window.innerHeight + 2); })(),
         composerRect: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        historyRect: (() => { const rect = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        workbenchRect: (() => { const rect = document.querySelector('.terminal-workbench')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        terminalStageRect: (() => { const rect = document.querySelector('#terminalStage')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
         layoutRect: (() => { const rect = document.querySelector('#terminalSection .terminal-layout')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
+        viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
+        questionModePressed: document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') || '',
         stageScrollTop: document.querySelector('.main-stage')?.scrollTop || 0,
         currentView: document.body.dataset.currentView || '',
-        consoleVisible: (() => { const rect = document.querySelector('.terminal-console-pane')?.getBoundingClientRect(); return Boolean(rect && rect.width > 500 && rect.height > 400); })(),
+        consoleVisible: (() => { const rect = document.querySelector('.terminal-console-pane')?.getBoundingClientRect(); return Boolean(rect && rect.width > 500 && rect.height > 180); })(),
+        stackedWithoutOverlap: (() => {
+          const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
+          const composer = document.querySelector('#terminalCommandForm')?.getBoundingClientRect();
+          return Boolean(history && composer && history.bottom <= composer.top + 2);
+        })(),
       }))()`);
-      if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('질문을 받을 AI') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || !sessionTerminalMetrics.inputCopy.includes('에게 질문') || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible) {
+      if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('질문을 받을 AI') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || !sessionTerminalMetrics.inputCopy.includes('에게 질문') || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible || !sessionTerminalMetrics.stackedWithoutOverlap) {
         throw new Error(`기존 AI 세션 대화와 터미널 결합 화면이 올바르지 않습니다: ${JSON.stringify(sessionTerminalMetrics)}`);
       }
       const continuityMetrics = await win.webContents.executeJavaScript(`(async () => {
@@ -753,7 +795,10 @@ app.whenReady().then(() => {
       fs.writeFileSync(sessionTerminalOutput, sessionTerminalImage.toPNG());
       setTestWindowSize(win, 1180, 900);
       const terminalCompactImage = await captureStableState(win,
-        "document.querySelector('.main-stage')?.scrollTo(0, 0)",
+        `(() => {
+          document.querySelector('.terminal-session-tools')?.removeAttribute('open');
+          document.querySelector('.main-stage')?.scrollTo(0, 0);
+        })()`,
         `(() => {
           const section = document.querySelector('#terminalSection');
           return Boolean(section && !section.classList.contains('hidden')
@@ -780,13 +825,24 @@ app.whenReady().then(() => {
             const consolePane = document.querySelector('.terminal-console-pane')?.getBoundingClientRect();
             return Boolean(history && consolePane && history.right <= consolePane.left + 2);
           })(),
+          historyVisible: (() => {
+            const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
+            return Boolean(history && history.width > 100 && history.height > 100);
+          })(),
+          historyAboveComposer: (() => {
+            const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
+            return Boolean(history && composer
+              && history.bottom <= composer.top + 2
+              && Math.abs(history.left - composer.left) <= 2
+              && Math.abs(history.right - composer.right) <= 2);
+          })(),
           questionMode: document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') === 'true',
           actionsVisible: Boolean(actionButtons.length >= 3 && actionButtons.every(rect => rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1 && rect.bottom <= window.innerHeight + 1)),
           actionRects: actionButtons,
           actionLabels: actionButtons.map(item => item.text),
         };
       })()`);
-      if (!terminalCompactMetrics.sessionStripAboveWorkbench || !terminalCompactMetrics.composerVisible || !terminalCompactMetrics.noHorizontalOverflow || !terminalCompactMetrics.historyBesideConsole || !terminalCompactMetrics.questionMode || terminalCompactMetrics.actionsVisible) throw new Error(`중간 너비 AI 질문창 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
+      if (!terminalCompactMetrics.sessionStripAboveWorkbench || !terminalCompactMetrics.composerVisible || !terminalCompactMetrics.noHorizontalOverflow || !terminalCompactMetrics.historyVisible || !terminalCompactMetrics.historyAboveComposer || !terminalCompactMetrics.questionMode || terminalCompactMetrics.actionsVisible) throw new Error(`중간 너비 AI 질문창 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
       const terminalCompactOutput = path.join(outputDir, 'loadtoagent-session-terminal-compact.png');
       fs.writeFileSync(terminalCompactOutput, terminalCompactImage.toPNG());
       setTestWindowSize(win, 1600, 980);
@@ -1108,7 +1164,33 @@ app.whenReady().then(() => {
       })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('.subagent-assignment-card')`);
       const subagentConversationOutput = path.join(outputDir, 'loadtoagent-subagent-conversation.png');
       fs.writeFileSync(subagentConversationOutput, subagentConversationImage.toPNG());
-      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => ({ focusId: window.LoadToAgentApp.state.graphFocusId, drawerMode: window.LoadToAgentApp.state.drawerMode, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route], #drawerComposer .conversation-terminal-toggle, #drawerComposer [data-agent-command-count], #drawerComposer .agent-command-actions > small') && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent' && document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled && Boolean(document.querySelector('#drawerComposer [data-agent-command-draft]')), actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')), placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''), drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2 }))()`);
+      const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => {
+        const app = window.LoadToAgentApp;
+        window.__ensureLoadToAgentDensityFixture?.();
+        const root = app.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(densityFocusId)});
+        const child = app.state.snapshot.sessions.find(item => item.id === 'visual-density:child:2');
+        if (root) app.state.details.set(root.id, root);
+        if (child) app.state.details.set(child.id, child);
+        app.state.graphFocusId = ${JSON.stringify(densityFocusId)};
+        app.state.selectedId = child?.id || app.state.selectedId;
+        app.state.drawerMode = 'subagent';
+        app.renderDrawer();
+        return {
+          focusId: app.state.graphFocusId,
+          drawerMode: app.state.drawerMode,
+          workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0),
+          coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length,
+          coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open,
+          visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length,
+          inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route], #drawerComposer .conversation-terminal-toggle, #drawerComposer [data-agent-command-count], #drawerComposer .agent-command-actions > small')
+            && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent'
+            && document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled
+            && Boolean(document.querySelector('#drawerComposer [data-agent-command-draft]')),
+          actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')),
+          placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''),
+          drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2,
+        };
+      })()`);
       if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 2 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.inlineRelay || !subagentConversationMetrics.actualWorkVisible || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 작업 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
 

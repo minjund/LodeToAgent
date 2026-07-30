@@ -258,10 +258,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       if (active) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
     });
-    const advancedView = ["terminal", "tmux", "settings"].includes(state.view);
-    const advancedToolsView = ["runtime", "terminal", "tmux"].includes(state.view);
-    if (advancedToolsView) $("#advancedToolsNav")?.setAttribute("open", "");
-    else if (!advancedView) $("#advancedToolsNav")?.removeAttribute("open");
+    const advancedView = ["runtime", "terminal", "tmux", "settings"].includes(state.view);
+    const advancedToolsView = advancedView;
     $("#advancedToolsNav")?.classList.toggle("active", advancedToolsView);
     $("#mobileMoreBtn")?.classList.toggle("active", advancedView);
     if (advancedView) $("#mobileMoreBtn")?.setAttribute("aria-current", "page");

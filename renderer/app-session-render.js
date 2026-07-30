@@ -173,7 +173,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       <span class="memory-record-mark" aria-hidden="true">${verified && !decisionRetained ? "!" : verified ? "✓" : "○"}</span>
       <span class="memory-record-intent">
         <small>${isProjectlessSession(session)
-          ? `${esc(t("memory.last_activity", { time: memoryActivityTime(session.updatedAt) }))}`
+          ? `${esc(t("memory.start_folder"))}: ${esc(t("ui.no_project"))} · ${esc(t("memory.last_activity", { time: memoryActivityTime(session.updatedAt) }))}`
           : `${esc(t("memory.start_folder"))}: ${esc(sessionWorkspaceLabel(session))} · ${esc(t("memory.last_activity", { time: memoryActivityTime(session.updatedAt) }))}`}</small>
         <b id="${accessibleId}-title" title="${esc(titlePreview.full)}">${esc(reviewPending ? `${provider.label}가 끝낸 작업을 확인해 주세요` : t("memory.work_name", { title: titlePreview.text }))}</b>
         ${reviewPending ? `<span id="${accessibleId}-proof" class="memory-review-status">현재 상태: 확인 필요</span>` : ""}
@@ -337,7 +337,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     });
     const activeEmpty = homeView && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
-    $("#liveSection").classList.toggle("hidden", !homeView || graphLiveCount === 0);
+    $("#liveSection").classList.toggle("hidden", !homeView);
     $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
     const reviewCount = memoryView ? regular.filter(sessionNeedsResultReview).length : 0;
     const completedCount = Math.max(0, regular.length - reviewCount);

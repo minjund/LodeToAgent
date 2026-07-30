@@ -13,6 +13,7 @@ const { registerSessionIntelligenceTests } = require('./tests/session-intelligen
 const { registerConversationDeliveryTests } = require('./tests/conversation-delivery');
 const { registerTerminalAgentActionTests } = require('./tests/terminal-agent-actions');
 const { registerTerminalComposerTests } = require('./tests/terminal-composer');
+const { registerTerminalInteractionTests } = require('./tests/terminal-interactions');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -26,12 +27,13 @@ registerSessionIntelligenceTests(context);
 registerConversationDeliveryTests(context);
 registerTerminalAgentActionTests(context);
 registerTerminalComposerTests(context);
+registerTerminalInteractionTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 106) {
-  throw new Error(`회귀 테스트 등록 수가 106개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 108) {
+  throw new Error(`회귀 테스트 등록 수가 108개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

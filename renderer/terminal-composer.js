@@ -184,8 +184,11 @@
       form.dataset.aiTarget = aiTarget ? 'true' : 'false';
       trigger.classList.toggle('hidden', !aiTarget);
       trigger.disabled = !aiTarget;
-      attachTrigger?.classList.toggle('hidden', !aiTarget);
-      if (attachTrigger) attachTrigger.disabled = !aiTarget;
+      // File selection is not wired to the desktop bridge yet. Keep the
+      // placeholder unavailable instead of presenting a button that opens the
+      // unrelated slash-command menu.
+      attachTrigger?.classList.add('hidden');
+      if (attachTrigger) attachTrigger.disabled = true;
       hint.textContent = t(aiTarget ? 'terminal.composer.ai_hint' : 'terminal.composer.shell_hint', {
         provider: targetProvider,
       });
@@ -193,7 +196,6 @@
         trigger.setAttribute('aria-label', `${targetProvider}에게 보낼 질문 예시 보기`);
         const label = trigger.querySelector('span');
         if (label) label.textContent = '질문 예시 보기';
-        attachTrigger?.setAttribute('aria-label', `${targetProvider}에게 보낼 파일 첨부`);
       }
       const submit = form.querySelector('.terminal-command-submit');
       const submitLabel = submit?.querySelector('span');
@@ -277,7 +279,6 @@
       if (bound) return;
       bound = true;
       $('#terminalSlashTrigger')?.addEventListener('click', openMenu);
-      $('#terminalAttachTrigger')?.addEventListener('click', openMenu);
       $('#terminalLongDraftToggle')?.addEventListener('click', toggleLongDraft);
       $('#terminalSlashMenu')?.addEventListener('mousedown', event => {
         if (event.target.closest('[data-terminal-slash-command]')) event.preventDefault();

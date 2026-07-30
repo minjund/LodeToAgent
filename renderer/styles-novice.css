@@ -90,10 +90,6 @@ html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQue
 }
 
 /* Round 47 final cascade: keep the beginner-first hierarchy after legacy rules. */
-body[data-current-view="all"] .provider-usage-disclosure {
-  display: none !important;
-}
-
 body[data-current-view="all"] .live-section {
   border-color: #2f4652;
   box-shadow: none;
@@ -888,10 +884,6 @@ html[data-theme="light"] body[data-current-view="tmux"] .tmux-pane-node.needs-re
 }
 
 /* Round 47: every first action and every count explains itself. */
-body[data-current-view="all"] .provider-usage-disclosure {
-  display: none !important;
-}
-
 body[data-current-view="all"] .live-section {
   border-color: #2f4652;
   box-shadow: none;
@@ -3540,7 +3532,6 @@ body[data-current-view="waiting"] .conversation-composer button:disabled {
 
 body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"]) :is(
   .terminal-create-actions,
-  .terminal-session-tools,
   .terminal-computer-input-button,
   .terminal-target-facts i:not(:first-child)
 ) {
@@ -4144,7 +4135,6 @@ body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="tr
 
 body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"]) :is(
   #terminalResourcePanel,
-  #terminalHistoryPanel,
   .terminal-console-head,
   .terminal-viewport
 ) {
@@ -4593,7 +4583,7 @@ body[data-current-view="tmux"] .tmux-section:has(.tmux-simple-summary.needs-revi
 }
 
 body[data-current-view="tmux"] .tmux-section:has(.tmux-simple-summary.needs-review) #newTmuxSessionBtn {
-  display: none !important;
+  display: inline-flex !important;
 }
 
 body[data-current-view="tmux"] #refreshTmuxTerminalBtn {
@@ -4635,10 +4625,6 @@ body[data-current-view="settings"] .provider-visibility-status {
 
 .terminal-mode-guide > button[aria-pressed="true"] em {
   display: block;
-}
-
-body[data-current-view="all"] .provider-usage-disclosure {
-  display: none !important;
 }
 
 body[data-current-view="all"] .live-section {

@@ -418,9 +418,9 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       if (card) openDrawer(card.dataset.sessionId);
     });
     $("#sessionGrid").addEventListener("keydown", (event) => {
-      if (event.target.closest("button, input, select, textarea, [contenteditable='true']")) return;
       const card = event.target.closest("[data-session-id]");
-      if (card && (event.key === "Enter" || event.key === " ")) {
+      if (!card || event.target !== card) return;
+      if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         openDrawer(card.dataset.sessionId);
       }

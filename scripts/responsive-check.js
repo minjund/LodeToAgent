@@ -69,7 +69,11 @@ async function layoutMetrics(win) {
   return win.webContents.executeJavaScript(`(() => {
     const stage = document.querySelector('.main-stage');
     const sidebar = document.querySelector('.sidebar');
-    const navItems = [...document.querySelectorAll('.view-nav .nav-item')];
+    const projectNav = document.querySelector('#projectContextNav');
+    const projectNavRect = projectNav?.getBoundingClientRect();
+    const projectToolsSummary = document.querySelector('#advancedToolsNav > summary');
+    const projectToolsRect = projectToolsSummary?.getBoundingClientRect();
+    const navItems = [...document.querySelectorAll('#projectViewTabs > .nav-item')];
     const visibleNavItems = navItems.filter(item => {
       const rect = item.getBoundingClientRect();
       return getComputedStyle(item).display !== 'none' && rect.width > 0 && rect.height > 0;
@@ -106,7 +110,7 @@ async function layoutMetrics(win) {
       .every(label => getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0 && label.textContent.trim());
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
     const tmuxShortcutRect = tmuxShortcut?.getBoundingClientRect();
-    const tmuxNav = document.querySelector('.sidebar [data-view="tmux"]');
+    const tmuxNav = projectToolsSummary;
     const tmuxNavRect = tmuxNav?.getBoundingClientRect();
     const tmuxRouteVisible = Boolean(
       tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40
@@ -124,7 +128,15 @@ async function layoutMetrics(win) {
     const stageRect = stage?.getBoundingClientRect();
     const topbar = document.querySelector('.topbar');
     const topbarRect = topbar?.getBoundingClientRect();
-    const topbarCopyRect = topbar?.firstElementChild?.getBoundingClientRect();
+    const topbarCopy = [
+      document.querySelector('#sessionTokenOverview'),
+      document.querySelector('.topbar-page-copy'),
+    ].find(element => {
+      const rect = element?.getBoundingClientRect();
+      const style = element && getComputedStyle(element);
+      return Boolean(rect && style && style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0);
+    });
+    const topbarCopyRect = topbarCopy?.getBoundingClientRect();
     const stageOverflowItems = stage && stageRect
       ? [...stage.querySelectorAll('*')]
         .filter(item => {
@@ -160,11 +172,16 @@ async function layoutMetrics(win) {
       stageScrollLeft: stage?.scrollLeft || 0,
       stageRect: stageRect ? { left: stageRect.left, right: stageRect.right, top: stageRect.top, bottom: stageRect.bottom, width: stageRect.width } : null,
       topbarRect: topbarRect ? { left: topbarRect.left, right: topbarRect.right, width: topbarRect.width } : null,
-      topbarCopyRect: topbarCopyRect ? { left: topbarCopyRect.left, right: topbarCopyRect.right, width: topbarCopyRect.width } : null,
+      topbarCopyRect: topbarCopyRect ? { left: topbarCopyRect.left, right: topbarCopyRect.right, width: topbarCopyRect.width, height: topbarCopyRect.height } : null,
+      projectNavRect: projectNavRect ? { left: projectNavRect.left, right: projectNavRect.right, top: projectNavRect.top, bottom: projectNavRect.bottom, width: projectNavRect.width } : null,
+      projectNavigationInMain: Boolean(projectNav && stage?.contains(projectNav) && !sidebar?.contains(projectNav)
+        && projectNavRect && stageRect && projectNavRect.left >= stageRect.left - 1 && projectNavRect.right <= stageRect.right + 1),
+      projectToolsVisible: compact || Boolean(projectToolsRect && projectToolsRect.width > 0 && projectToolsRect.height > 0),
+      projectToolsAccessible: compact || Boolean(projectToolsSummary?.getAttribute('aria-label')?.trim()),
       sectionOverflow,
       sectionOverflowDetails,
-      sidebarInsideViewport: Boolean(sidebarRect && sidebarRect.left >= -1 && sidebarRect.right <= window.innerWidth + 1 && sidebarRect.bottom <= window.innerHeight + 1),
-      compactNavAtBottom: !compact || Boolean(sidebarRect && sidebarRect.top > window.innerHeight / 2 && Math.abs(sidebarRect.bottom - window.innerHeight) <= 1),
+      sidebarInsideViewport: compact || Boolean(sidebarRect && sidebarRect.left >= -1 && sidebarRect.right <= window.innerWidth + 1 && sidebarRect.bottom <= window.innerHeight + 1),
+      sidebarHiddenOnCompact: !compact || getComputedStyle(sidebar).display === 'none',
       navCount: navItems.length,
       visibleNavItems: visibleNavItems.map(item => item.dataset.view || item.id),
       visibleNavItemRects: visibleNavItems.map(item => {
@@ -194,8 +211,8 @@ async function layoutMetrics(win) {
       projectFilterAvailable: !['all', 'active'].includes(window.LoadToAgentApp?.state?.view)
         || (window.innerWidth <= 720
           ? Boolean(document.querySelector('#mobileWorkspaceList'))
-          : Boolean(document.querySelector('#controlRoomProjectToolbar') && document.querySelector('#workspaceList'))),
-      compactContentClearance: !compact || Boolean(stageRect && sidebarRect && stageRect.bottom <= sidebarRect.top + 1),
+          : Boolean(document.querySelector('#projectSidebarList [data-workspace]'))),
+      compactContentClearance: !compact || Boolean(stageRect && stageRect.bottom <= window.innerHeight + 1),
       terminalActionLabels,
       tmuxShortcutVisible: !liveSectionVisible || tmuxRouteVisible,
       tmuxShortcutInsideViewport: !liveSectionVisible || tmuxRouteInsideViewport,
@@ -210,9 +227,392 @@ async function layoutMetrics(win) {
 
 function assertLayout(metrics, context) {
   const compactNavValid = !metrics.compact
-    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'runtime', 'mobileMoreBtn']);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.compactNavAtBottom || metrics.navCount < 5 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.projectLayoutValid || !metrics.compactContentClearance || !compactNavValid || (!metrics.compact && !metrics.tmuxShortcutVisible) || (!metrics.compact && !metrics.tmuxShortcutInsideViewport)) {
+    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'mobileMoreBtn']);
+  const desktopNavValid = metrics.compact
+    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting']);
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !metrics.projectNavigationInMain || !metrics.projectToolsVisible || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.projectLayoutValid || !metrics.compactContentClearance || !compactNavValid || !desktopNavValid || (!metrics.compact && !metrics.tmuxShortcutVisible) || (!metrics.compact && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function settingsLayoutMetrics(win) {
+  return win.webContents.executeJavaScript(`(() => {
+    const visible = element => {
+      const rect = element?.getBoundingClientRect();
+      const style = element && getComputedStyle(element);
+      return Boolean(rect && style && style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0);
+    };
+    const rectOf = element => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? {
+        left: Math.round(rect.left * 10) / 10,
+        right: Math.round(rect.right * 10) / 10,
+        top: Math.round(rect.top * 10) / 10,
+        bottom: Math.round(rect.bottom * 10) / 10,
+        width: Math.round(rect.width * 10) / 10,
+        height: Math.round(rect.height * 10) / 10,
+      } : null;
+    };
+    const horizontalOverlap = (first, second) => {
+      const a = first.getBoundingClientRect();
+      const b = second.getBoundingClientRect();
+      return Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1
+        && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
+    };
+    const overlappingPairs = (elements, siblingsOnly = false) => {
+      const overlaps = [];
+      for (let index = 0; index < elements.length; index += 1) {
+        for (let otherIndex = index + 1; otherIndex < elements.length; otherIndex += 1) {
+          if (siblingsOnly && elements[index].parentElement !== elements[otherIndex].parentElement) continue;
+          if (horizontalOverlap(elements[index], elements[otherIndex])) {
+            overlaps.push([
+              elements[index].id || elements[index].className || elements[index].tagName,
+              elements[otherIndex].id || elements[otherIndex].className || elements[otherIndex].tagName,
+            ]);
+          }
+        }
+      }
+      return overlaps;
+    };
+    const gridColumnCount = element => {
+      const columns = element && getComputedStyle(element).gridTemplateColumns;
+      return columns && columns !== 'none' ? columns.trim().split(/\\s+/).filter(Boolean).length : 0;
+    };
+    const section = document.querySelector('#settingsSection');
+    const sectionRect = section?.getBoundingClientRect();
+    const cards = [...(section?.querySelectorAll(':scope > .language-settings-card, :scope > .theme-settings-card, :scope > .settings-help-card, :scope > .provider-visibility-card, :scope > .update-panel, :scope > .settings-meta-grid') || [])]
+      .filter(visible);
+    const options = [...document.querySelectorAll('#providerVisibilityList > .provider-visibility-option')].filter(visible);
+    const controls = [...(section?.querySelectorAll('button, select, .provider-visibility-option') || [])].filter(visible);
+    const helpActions = [
+      document.querySelector('#guideBtn'),
+      document.querySelector('#shortcutHelpBtn'),
+      document.querySelector('#appConnectionState'),
+    ].filter(visible);
+    const cardOverflow = cards.filter(card => {
+      const rect = card.getBoundingClientRect();
+      return card.scrollWidth > card.clientWidth + 2
+        || !sectionRect
+        || rect.left < sectionRect.left - 1
+        || rect.right > sectionRect.right + 1;
+    }).map(card => ({
+      id: card.id,
+      className: card.className,
+      rect: rectOf(card),
+      scrollWidth: card.scrollWidth,
+      clientWidth: card.clientWidth,
+    }));
+    const optionOverflow = options.filter(option => {
+      const rect = option.getBoundingClientRect();
+      const listRect = option.parentElement?.getBoundingClientRect();
+      return option.scrollWidth > option.clientWidth + 2
+        || !listRect
+        || rect.left < listRect.left - 1
+        || rect.right > listRect.right + 1
+        || rect.left < -1
+        || rect.right > window.innerWidth + 1;
+    }).map(option => ({
+      provider: option.querySelector('.provider-visibility-name b')?.textContent.trim() || '',
+      rect: rectOf(option),
+      scrollWidth: option.scrollWidth,
+      clientWidth: option.clientWidth,
+    }));
+    const controlMetrics = controls.map(control => ({
+      id: control.id,
+      className: control.className,
+      tag: control.tagName,
+      rect: rectOf(control),
+    }));
+    const shortControls = controlMetrics.filter(control => control.rect.height < 43.5);
+    const controlsOutsideViewport = controlMetrics.filter(control => control.rect.left < -1 || control.rect.right > window.innerWidth + 1);
+    const helpActionMetrics = helpActions.map(action => {
+      const label = action.matches('#guideBtn')
+        ? action.querySelector(':scope > span:nth-child(2)')
+        : action.querySelector('b, div');
+      return {
+        id: action.id,
+        rect: rectOf(action),
+        labelHeight: rectOf(label)?.height || 0,
+      };
+    });
+    const helpActionWidths = helpActionMetrics.map(action => action.rect.width);
+    const helpActionVisualOrder = [...helpActionMetrics]
+      .sort((first, second) => first.rect.top - second.rect.top || first.rect.left - second.rect.left)
+      .map(action => action.id);
+    return {
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      sectionAvailable: visible(section),
+      documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
+      sectionOverflow: Boolean(section && section.scrollWidth > section.clientWidth + 2),
+      sectionRect: rectOf(section),
+      cardCount: cards.length,
+      cardOverflow,
+      cardSiblingOverlaps: overlappingPairs(cards),
+      optionCount: options.length,
+      optionOverflow,
+      optionSiblingOverlaps: overlappingPairs(options),
+      controlCount: controls.length,
+      shortControls,
+      controlsOutsideViewport,
+      controlSiblingOverlaps: overlappingPairs(controls, true),
+      helpActionMetrics,
+      helpActionVisualOrder,
+      helpActionWidthDelta: helpActionWidths.length
+        ? Math.max(...helpActionWidths) - Math.min(...helpActionWidths)
+        : Number.POSITIVE_INFINITY,
+      overwrappedHelpActions: helpActionMetrics.filter(action => action.rect.height > 120 || action.labelHeight > 84),
+      providerCardColumns: gridColumnCount(document.querySelector('.provider-visibility-card')),
+      providerListColumns: gridColumnCount(document.querySelector('#providerVisibilityList')),
+      helpCardColumns: gridColumnCount(document.querySelector('.settings-help-card')),
+    };
+  })()`);
+}
+
+function assertSettingsLayout(metrics, context) {
+  const expectedProviderCardColumns = metrics.viewportWidth <= 1375 ? 1 : 2;
+  const expectedProviderListColumns = metrics.viewportWidth <= 999 ? 1 : 2;
+  const expectedHelpCardColumns = metrics.viewportWidth <= 880 ? 1 : 2;
+  const helpActionsInExpectedOrder = JSON.stringify(metrics.helpActionVisualOrder) === JSON.stringify(['guideBtn', 'shortcutHelpBtn', 'appConnectionState']);
+  const helpActionsAligned = metrics.viewportWidth > 880
+    || (metrics.helpActionMetrics.length === 3 && metrics.helpActionWidthDelta <= 1 && metrics.overwrappedHelpActions.length === 0);
+  if (!metrics.sectionAvailable || metrics.documentOverflow || metrics.sectionOverflow || metrics.cardCount < 5 || metrics.cardOverflow.length || metrics.cardSiblingOverlaps.length || metrics.optionCount < 1 || metrics.optionOverflow.length || metrics.optionSiblingOverlaps.length || metrics.controlCount < 8 || metrics.shortControls.length || metrics.controlsOutsideViewport.length || metrics.controlSiblingOverlaps.length || !helpActionsInExpectedOrder || !helpActionsAligned || metrics.providerCardColumns !== expectedProviderCardColumns || metrics.providerListColumns !== expectedProviderListColumns || metrics.helpCardColumns !== expectedHelpCardColumns) {
+    throw new Error(`${context} 설정 카드·버튼 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function stickyNavigationMetrics(win) {
+  return win.webContents.executeJavaScript(`(async () => {
+    const stage = document.querySelector('.main-stage');
+    const topbar = document.querySelector('.topbar');
+    const projectNav = document.querySelector('#projectContextNav');
+    if (!stage || !topbar || !projectNav) return { available: false };
+    const originalScrollTop = stage.scrollTop;
+    const scrollRange = Math.max(0, stage.scrollHeight - stage.clientHeight);
+    stage.scrollTop = Math.min(scrollRange, Math.max(220, Math.round(stage.clientHeight * .72)));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const scrolledTop = stage.scrollTop;
+    const topbarRect = topbar.getBoundingClientRect();
+    const projectNavRect = projectNav.getBoundingClientRect();
+    const style = getComputedStyle(projectNav);
+    const topbarStyle = getComputedStyle(topbar);
+    const visibleTopbarChildren = [...topbar.children].filter(child => {
+      const rect = child.getBoundingClientRect();
+      const childStyle = getComputedStyle(child);
+      return childStyle.display !== 'none' && childStyle.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    }).map(child => ({
+      id: child.id,
+      className: child.className,
+      text: child.textContent.trim().slice(0, 80),
+      rect: { top: child.getBoundingClientRect().top, bottom: child.getBoundingClientRect().bottom, height: child.getBoundingClientRect().height },
+    }));
+    stage.scrollTop = originalScrollTop;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return {
+      available: true,
+      scrollRange,
+      scrolledTop,
+      restoredScrollTop: stage.scrollTop,
+      originalScrollTop,
+      position: style.position,
+      topbarRect: { top: topbarRect.top, bottom: topbarRect.bottom, height: topbarRect.height },
+      topbarStyle: {
+        minHeight: topbarStyle.minHeight,
+        paddingTop: topbarStyle.paddingTop,
+        paddingBottom: topbarStyle.paddingBottom,
+      },
+      visibleTopbarChildren,
+      projectNavRect: { top: projectNavRect.top, bottom: projectNavRect.bottom },
+      noStickyOverlap: topbarRect.bottom <= projectNavRect.top + 1,
+      projectNavInsideViewport: projectNavRect.top >= -1 && projectNavRect.bottom <= window.innerHeight + 1,
+    };
+  })()`);
+}
+
+function assertStickyNavigation(metrics, context) {
+  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.position !== 'sticky' || !metrics.noStickyOverlap || !metrics.projectNavInsideViewport || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+    throw new Error(`${context} 고정 프로젝트 탐색 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+  }
+}
+
+async function setupDashboardStickyFixture(win) {
+  return win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const sessions = app.state.snapshot?.sessions || [];
+    if (!window.__responsiveDashboardStickyOriginal) {
+      window.__responsiveDashboardStickyOriginal = {
+        sessions: [...sessions],
+        view: app.state.view,
+        workspace: app.state.workspace,
+        selectedId: app.state.selectedId,
+        graphFocusId: app.state.graphFocusId,
+      };
+    }
+    const providers = ['codex', 'claude', 'gemini', 'grok'];
+    const now = Date.now();
+    const fixtures = Array.from({ length: 8 }, (_, index) => {
+      const running = index < 4;
+      const id = 'responsive-sticky-' + index;
+      return {
+        id,
+        externalId: id,
+        parentId: null,
+        childIds: [],
+        depth: 0,
+        provider: providers[index % providers.length],
+        model: index % 2 ? 'responsive-model-long-name' : 'gpt-5.6',
+        cwd: '/responsive/sticky-dashboard/project-' + index,
+        originCwd: '/responsive/sticky-dashboard/project-' + index,
+        workspace: 'responsive-sticky-project-' + (index % 2),
+        title: id + ' 토큰 카드가 채워진 대시보드 고정 영역 검증 세션',
+        status: running ? 'running' : 'completed',
+        statusDetail: running ? '반응형 고정 영역을 확인하는 중' : '반응형 고정 영역 확인 완료',
+        createdAt: new Date(now - (index + 1) * 120000).toISOString(),
+        updatedAt: new Date(now - index * 1000).toISOString(),
+        messages: [],
+        lifecycle: [],
+        runtimePresence: [],
+        usage: {
+          input: 48000 - index * 1300,
+          cachedInput: 9000 - index * 300,
+          output: 12000 - index * 500,
+          reasoning: 6000 - index * 250,
+          total: 75000 - index * 4200,
+        },
+        context: { window: 200000, used: 92000 - index * 3000, percent: 46 - index },
+      };
+    });
+    window.__responsiveDashboardStickyFixtures = fixtures;
+    window.__ensureResponsiveDashboardStickyFixture = () => {
+      app.state.snapshot.sessions = window.__responsiveDashboardStickyFixtures;
+      app.state.workspace = 'all';
+      app.state.view = 'all';
+      app.state.selectedId = null;
+      app.state.graphFocusId = null;
+      app.render('filter');
+    };
+    window.__ensureResponsiveDashboardStickyFixture();
+    document.querySelector('.main-stage')?.scrollTo(0, 0);
+    return fixtures.length;
+  })()`);
+}
+
+async function cleanupDashboardStickyFixture(win) {
+  return win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const original = window.__responsiveDashboardStickyOriginal;
+    if (!original) return '';
+    app.state.snapshot.sessions = original.sessions;
+    app.state.workspace = original.workspace;
+    app.state.selectedId = original.selectedId;
+    app.state.graphFocusId = original.graphFocusId;
+    app.render('filter');
+    document.querySelector('.main-stage')?.scrollTo(0, 0);
+    delete window.__responsiveDashboardStickyOriginal;
+    delete window.__responsiveDashboardStickyFixtures;
+    delete window.__ensureResponsiveDashboardStickyFixture;
+    return original.view || 'all';
+  })()`);
+}
+
+async function dashboardStickyNavigationMetrics(win) {
+  return win.webContents.executeJavaScript(`(async () => {
+    window.__ensureResponsiveDashboardStickyFixture?.();
+    const stage = document.querySelector('.main-stage');
+    const topbar = document.querySelector('.topbar');
+    const projectNav = document.querySelector('#projectContextNav');
+    const historyRail = document.querySelector('#projectHistoryRail');
+    const tokenOverview = document.querySelector('#sessionTokenOverview');
+    const tokenItems = [...document.querySelectorAll('#sessionTokenList > .session-token-item')];
+    if (!stage || !topbar || !projectNav || !historyRail || !tokenOverview) return { available: false };
+    const visible = element => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    };
+    const rectOf = element => {
+      const rect = element.getBoundingClientRect();
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    };
+    const originalScrollTop = stage.scrollTop;
+    stage.scrollTop = 0;
+    const initialTopbarRect = rectOf(topbar);
+    const initialProjectNavRect = rectOf(projectNav);
+    const tokenOverviewRect = rectOf(tokenOverview);
+    const tokenData = tokenItems.map(item => {
+      const meter = item.querySelector('[role="progressbar"]');
+      const title = item.getAttribute('title') || '';
+      return {
+        id: title.match(/^responsive-sticky-\\d+/)?.[0] || '',
+        title,
+        value: Number(meter?.getAttribute('aria-valuenow') || 0),
+        label: meter?.getAttribute('aria-label') || '',
+        visible: visible(item),
+      };
+    });
+    const scrollRange = Math.max(0, stage.scrollHeight - stage.clientHeight);
+    stage.scrollTop = Math.min(scrollRange, Math.max(260, Math.ceil(initialTopbarRect.height + initialProjectNavRect.height + 48)));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const scrolledTop = stage.scrollTop;
+    const stageRect = rectOf(stage);
+    const topbarRect = rectOf(topbar);
+    const projectNavRect = rectOf(projectNav);
+    const historyRailRect = rectOf(historyRail);
+    const stickyCandidates = [topbar, projectNav, historyRail].map(element => ({
+      id: element.id || element.className,
+      position: getComputedStyle(element).position,
+      rect: rectOf(element),
+    }));
+    const stickyOwners = stickyCandidates.filter(item => item.position === 'sticky');
+    const stickyCollisions = [];
+    for (let index = 0; index < stickyOwners.length; index += 1) {
+      for (let otherIndex = index + 1; otherIndex < stickyOwners.length; otherIndex += 1) {
+        const first = stickyOwners[index];
+        const second = stickyOwners[otherIndex];
+        const horizontal = Math.min(first.rect.right, second.rect.right) - Math.max(first.rect.left, second.rect.left);
+        const vertical = Math.min(first.rect.bottom, second.rect.bottom) - Math.max(first.rect.top, second.rect.top);
+        if (horizontal > 1 && vertical > 1) stickyCollisions.push([first.id, second.id]);
+      }
+    }
+    stage.scrollTop = originalScrollTop;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return {
+      available: true,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      scrollRange,
+      scrolledTop,
+      originalScrollTop,
+      restoredScrollTop: stage.scrollTop,
+      initialTopbarRect,
+      tokenOverviewRect,
+      tokenCardCount: tokenItems.length,
+      visibleTokenCardCount: tokenData.filter(item => item.visible).length,
+      tokenData,
+      topbarPosition: getComputedStyle(topbar).position,
+      projectNavPosition: getComputedStyle(projectNav).position,
+      historyRailPosition: getComputedStyle(historyRail).position,
+      stickyOwners: stickyOwners.map(item => item.id),
+      stickyCollisions,
+      topbarRect,
+      projectNavRect,
+      historyRailRect,
+      topbarClearedStickyLayer: topbarRect.bottom <= projectNavRect.top + 1,
+      projectNavPinnedToStage: Math.abs(projectNavRect.top - stageRect.top) <= 1,
+      projectNavInsideViewport: projectNavRect.top >= stageRect.top - 1 && projectNavRect.bottom <= stageRect.bottom + 1,
+    };
+  })()`);
+}
+
+function assertDashboardStickyNavigation(metrics, context) {
+  const minimumVisibleTokens = metrics.viewportWidth <= 720 ? 1 : metrics.viewportWidth <= 1180 ? 2 : 4;
+  const expectedTokenIds = ['responsive-sticky-0', 'responsive-sticky-1', 'responsive-sticky-2', 'responsive-sticky-3'];
+  const tokenDataPresent = metrics.tokenData?.length === 4
+    && metrics.tokenData.every(item => item.title.startsWith(item.id) && item.label && item.value > 0)
+    && JSON.stringify(metrics.tokenData.map(item => item.id)) === JSON.stringify(expectedTokenIds);
+  const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectContextNav']);
+  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || !metrics.projectNavPinnedToStage || !metrics.projectNavInsideViewport || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+    throw new Error(`${context} 토큰 대시보드 고정 영역 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
 
@@ -360,7 +760,7 @@ async function workflowMetrics(win) {
     const output = document.querySelector('[data-workflow-port="focus-output"]');
     const identity = document.querySelector('.agent-workflow-selected .agent-identity');
     const tmuxShortcut = document.querySelector('#openTmuxFromAgentWork');
-    const tmuxNav = document.querySelector('.sidebar [data-view="tmux"]');
+    const tmuxNav = document.querySelector('#advancedToolsNav > summary');
     const helpTitle = [...document.querySelectorAll('.downstream-stack .agent-flow-session-title')]
       .find(element => element.title.includes('deliberately_long_task_name'));
     const helpCard = helpTitle?.closest('.child-session');
@@ -524,6 +924,7 @@ app.whenReady().then(async () => {
   try {
     win = await waitForWindow();
     await waitForRenderer(win);
+    win.setMinimumSize(320, 500);
     const sizes = [
       [1600, 980],
       [1224, 792],
@@ -539,6 +940,57 @@ app.whenReady().then(async () => {
     const reports = [];
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
+
+    const settingsReports = [];
+    const stickyNavigationReports = [];
+    const settingsSizes = [
+      [1376, 900],
+      [1375, 900],
+      [1181, 820],
+      [1180, 820],
+      [1000, 760],
+      [999, 760],
+      [881, 720],
+      [880, 720],
+      [738, 680],
+      [721, 680],
+      [320, 700],
+    ];
+    for (const [width, height] of settingsSizes) {
+      setWindowSize(win, width, height);
+      await wait(240);
+      await openView(win, 'settings');
+      const metrics = await settingsLayoutMetrics(win);
+      assertSettingsLayout(metrics, `${width}×${height}`);
+      if (width === 1375 || width === 738 || width === 320) {
+        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-settings-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      }
+      if (width === 1181 || width === 320) {
+        const stickyMetrics = await stickyNavigationMetrics(win);
+        assertStickyNavigation(stickyMetrics, `${width}×${height}`);
+        stickyNavigationReports.push({ requested: `${width}×${height}`, ...stickyMetrics });
+      }
+      settingsReports.push({ requested: `${width}×${height}`, ...metrics });
+    }
+
+    const dashboardStickyReports = [];
+    await setupDashboardStickyFixture(win);
+    for (const [width, height] of [[1600, 900], [1180, 820], [1080, 700], [720, 640], [360, 520]]) {
+      setWindowSize(win, width, height);
+      await wait(240);
+      await openView(win, 'all');
+      const metrics = await dashboardStickyNavigationMetrics(win);
+      assertDashboardStickyNavigation(metrics, `${width}×${height}`);
+      if (width === 1080 || width === 360) {
+        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-sticky-dashboard-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      }
+      dashboardStickyReports.push({ requested: `${width}×${height}`, ...metrics });
+    }
+    if (!dashboardStickyReports.some(report => report.initialTopbarRect.height >= 100)) {
+      throw new Error(`토큰 카드로 높이가 달라지는 대시보드 상단을 검증하지 못했습니다: ${JSON.stringify(dashboardStickyReports.map(report => ({ requested: report.requested, height: report.initialTopbarRect.height, visibleTokens: report.visibleTokenCardCount })))}`);
+    }
+    const restoredDashboardView = await cleanupDashboardStickyFixture(win);
+    if (restoredDashboardView) await openView(win, restoredDashboardView);
 
     const managementDetailReports = [];
     for (const [width, height] of [[1600, 900], [480, 720]]) {
@@ -716,7 +1168,7 @@ app.whenReady().then(async () => {
       workflowReports.push(metrics);
     }
 
-    console.log(`responsive check passed ${JSON.stringify({ views: reports, workflows: workflowReports, managementDetails: managementDetailReports })}`);
+    console.log(`responsive check passed ${JSON.stringify({ views: reports, settings: settingsReports, stickyNavigation: stickyNavigationReports, dashboardStickyNavigation: dashboardStickyReports, workflows: workflowReports, managementDetails: managementDetailReports })}`);
   } catch (error) {
     exitCode = 1;
     console.error(error && error.stack || error);

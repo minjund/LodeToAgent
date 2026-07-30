@@ -6,6 +6,8 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, esc, state, providerInfo, timeAgo,
+    rememberDisclosureStates = () => {},
+    restoreDisclosureStates = () => {},
     readablePreview = value => ({ text: String(value || "") }),
     currentActivity = session => ({ title: session.statusDetail || "", detail: "" }),
     latestWorkCopy = session => session.statusDetail || "",
@@ -382,7 +384,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const activeCount = Math.max(0, reviewSessions.length - counts.optional);
     const navWaitingCount = $("#navWaitingCount");
     if (navWaitingCount) {
-      navWaitingCount.textContent = `확인 대기 ${activeCount}건`;
+      navWaitingCount.textContent = activeCount;
     }
     const countLabel = filter === "all"
       ? `확인 대기 ${activeCount}건`
@@ -551,6 +553,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   function renderOperationsOverview() {
     const section = $("#operationsOverview");
     if (!section) return;
+    rememberDisclosureStates(section);
     section.classList.remove("hidden");
     section.removeAttribute("aria-hidden");
     section.innerHTML = `<div class="home-intent-stack">
@@ -567,6 +570,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     </div>`;
     const attentionCount = renderHomeAttention($("#homeAttentionMount"));
     renderProviderUsage($("#homeProviderUsageMount"));
+    restoreDisclosureStates(section);
     document.body.dataset.homeAttentionCount = String(attentionCount);
     if (state.view === "all") {
       $("#pageEyebrow").textContent = t("control.home_eyebrow");

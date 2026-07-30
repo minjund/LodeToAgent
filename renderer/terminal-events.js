@@ -70,20 +70,35 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#newTmuxSessionBtn').addEventListener('click', openTmuxModal);
     $('#refreshTmuxTerminalBtn').addEventListener('click', event => runBusy(event.currentTarget, refreshSnapshot));
     $('#terminalModeComputerBtn')?.addEventListener('click', async () => {
+      state.interactionMode = 'computer';
       const target = state.sessions.find(session => session.type !== 'agent' && session.type !== 'tmux'
         && ['running', 'starting'].includes(session.status));
-      if (target) await selectSession(target.id);
+      if (target) await selectSession(target.id, 'computer');
+      else renderAll();
       $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'true');
       $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'false');
       focusComputerWorkInput();
     });
     $('#terminalModeQuestionBtn')?.addEventListener('click', async () => {
-      const target = state.sessions.find(session => session.type === 'agent'
+      state.interactionMode = 'question';
+      const selected = currentSession();
+      const target = selected && isAiTerminalSession(selected) && ['running', 'starting'].includes(selected.status)
+        ? selected
+        : state.sessions.find(session => isAiTerminalSession(session)
         && ['running', 'starting'].includes(session.status));
-      if (target) await selectSession(target.id);
+      const remote = currentTmux();
+      const boundTmuxTarget = Boolean(remote && !remote.pane.dead && state.boundAgent
+        && state.boundTargetId === `tmux:${remote.distro.name}:${remote.pane.nativeId}`);
+      if (target) await selectSession(target.id, 'question');
+      else if (boundTmuxTarget) renderAll();
+      else {
+        renderAll();
+        notice(t('terminal.agent.no_input_target'), 'warning');
+      }
       $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'false');
       $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'true');
-      document.querySelector('#terminalWorkbench [data-agent-command-draft]')?.focus({ preventScroll: true });
+      if (target || boundTmuxTarget) document.querySelector('#terminalWorkbench [data-agent-command-draft]')?.focus({ preventScroll: true });
+      else $('#terminalModeQuestionBtn')?.focus({ preventScroll: true });
     });
     const sessionList = $('#terminalSessionList');
     const historyList = $('#terminalHistoryList');
@@ -127,8 +142,9 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       if (failureCause) {
         const session = state.sessions.find(item => item.id === failureCause.dataset.terminalFailureCause);
         await selectSession(failureCause.dataset.terminalFailureCause);
+        const recordedReason = String(session?.statusDetail || '').trim();
         notice(t('terminal.failure.cause_message', {
-          reason: errorMessage(session?.error || session?.statusDetail || t('terminal.failure.unknown')),
+          reason: recordedReason || (session?.error ? errorMessage(session.error) : t('terminal.failure.unknown')),
         }), 'error');
         return;
       }
@@ -195,7 +211,8 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     sessionList.addEventListener('keydown', event => {
       const item = event.target.closest('[data-terminal-id]');
       if (item && !event.altKey && ['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-        const items = Array.from(sessionList.querySelectorAll('[data-terminal-id]'));
+        const items = Array.from(sessionList.querySelectorAll('[data-terminal-id]'))
+          .filter(candidate => !candidate.closest('details:not([open])'));
         const current = Math.max(0, items.indexOf(item));
         const next = event.key === 'Home'
           ? 0
@@ -217,7 +234,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#terminalTmuxList').addEventListener('click', event => {
       const item = event.target.closest('[data-tmux-distro][data-tmux-pane]');
-      if (item) selectTmux(item.dataset.tmuxDistro, item.dataset.tmuxPane);
+      if (item) selectTmux(item.dataset.tmuxDistro, item.dataset.tmuxPane, 'computer');
     });
     $('#terminalTmuxList').addEventListener('keydown', event => {
       if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;

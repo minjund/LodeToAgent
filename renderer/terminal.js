@@ -52,6 +52,7 @@
     eventsBound: false,
     initPromise: null,
     mode: 'general',
+    interactionMode: 'auto',
     boundAgent: null,
     boundTargetId: '',
     historyCollapsed: false,
@@ -73,10 +74,16 @@
     draggedSessionId: '',
     sessionDragJustEnded: false,
     terminalFontSize: terminalViewPreferences.fontSize,
+    pendingInputFocusId: '',
     terminalFocusMode: false,
     platform: { id: 'win32', label: '내 컴퓨터', computerName: '이 컴퓨터', localShell: 'powershell', localShellLabel: '내 컴퓨터에서 실행하는 작업', nativeTmux: false },
   };
   let composer = null;
+  let inputFocusRevision = 0;
+  let inputFocusRestoreGeneration = 0;
+  document.addEventListener('focusin', () => {
+    inputFocusRevision += 1;
+  }, true);
 
   const STATUS_LABELS = {};
 
@@ -776,17 +783,31 @@
   }
 
   function deactivate() {
+    inputFocusRestoreGeneration += 1;
+    state.pendingInputFocusId = '';
     state.active = false;
     stopCapture();
   }
 
   function updateSnapshot(snapshot, workspaces = state.workspaces) {
+    const focusedTerminalPair = [...state.terminals.entries()].find(([, entry]) =>
+      entry.host.contains(document.activeElement)) || null;
+    const focusedTerminal = focusedTerminalPair?.[1] || null;
+    const focusedTerminalId = focusedTerminalPair?.[0] || state.pendingInputFocusId;
+    const restoreGeneration = focusedTerminalPair
+      ? ++inputFocusRestoreGeneration
+      : inputFocusRestoreGeneration;
+    let restoreFocusRevision = inputFocusRevision;
+    if (focusedTerminalPair) state.pendingInputFocusId = focusedTerminalId;
     const projected = snapshot && window.LoadToAgentApp?.projectVisibleSnapshot
       ? window.LoadToAgentApp.projectVisibleSnapshot(snapshot)
       : snapshot;
     state.snapshot = projected || state.snapshot;
     state.workspaces = Array.isArray(workspaces) ? workspaces : state.workspaces;
-    if (!state.initialized) return;
+    if (!state.initialized) {
+      state.pendingInputFocusId = '';
+      return;
+    }
     if (state.boundAgent && state.snapshot && Array.isArray(state.snapshot.sessions)) {
       const updated = state.snapshot.sessions.find(session => session.id === state.boundAgent.id);
       // Keep the conversation associated with its live terminal even when a
@@ -802,6 +823,50 @@
     renderSessions();
     renderTmuxResources();
     renderTarget();
+    if (focusedTerminal && !focusedTerminal.host.classList.contains('hidden')) {
+      const clearPendingFocus = () => {
+        if (restoreGeneration === inputFocusRestoreGeneration
+          && state.pendingInputFocusId === focusedTerminalId) state.pendingInputFocusId = '';
+      };
+      const restoreInputFocus = (finalAttempt = false) => {
+        if (restoreGeneration !== inputFocusRestoreGeneration
+          || state.pendingInputFocusId !== focusedTerminalId) return;
+        const pending = state.terminals.get(focusedTerminalId);
+        const activeElement = document.activeElement;
+        const terminalStillSelected = state.active
+          && state.mode === 'general'
+          && state.selectedId === focusedTerminalId;
+        const focusStillRestorable = inputFocusRevision === restoreFocusRevision
+          && (!activeElement
+            || activeElement === document.body
+            || activeElement === document.documentElement
+            || pending?.host.contains(activeElement));
+        if (!pending
+          || !pending.host.isConnected
+          || pending.host.classList.contains('hidden')
+          || !terminalStillSelected
+          || !focusStillRestorable) {
+          clearPendingFocus();
+          return;
+        }
+        if (!pending.host.contains(activeElement)) {
+          pending.terminal.focus();
+          restoreFocusRevision = inputFocusRevision;
+        }
+        if (finalAttempt) clearPendingFocus();
+      };
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          restoreInputFocus();
+          // The application snapshot renderer also runs in an animation frame.
+          // Its final DOM synchronization can finish after this module's frame,
+          // so make one last focus restoration in the following task.
+          setTimeout(() => restoreInputFocus(true), 0);
+        });
+      });
+    } else if (focusedTerminalPair) {
+      state.pendingInputFocusId = '';
+    }
     if (state.active && state.selectedTmux) startCapture();
   }
 

@@ -21,10 +21,14 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
     $(".view-nav").addEventListener("click", (event) => {
       const button = event.target.closest(".nav-item");
       if (!button || !button.dataset.view) return;
+      const advancedTools = $("#advancedToolsNav");
+      const selectedFromAdvancedTools = Boolean(advancedTools?.contains(button));
       selectView(button.dataset.view);
+      advancedTools?.removeAttribute("open");
+      if (selectedFromAdvancedTools) advancedTools?.querySelector(":scope > summary")?.focus({ preventScroll: true });
     });
     $(".view-nav").addEventListener("keydown", (event) => {
-      if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+      if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
       const buttons = Array.from(document.querySelectorAll(".view-nav .nav-item[data-view]"))
         .filter((button) => !button.hidden && button.getClientRects().length > 0 && getComputedStyle(button).visibility !== "hidden");
       const current = Math.max(0, buttons.indexOf(event.target.closest(".nav-item[data-view]")));
@@ -32,9 +36,19 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
         ? 0
         : event.key === "End"
           ? buttons.length - 1
-          : (current + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+          : (current + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + buttons.length) % buttons.length;
       event.preventDefault();
       buttons[next]?.focus();
+    });
+    document.addEventListener("pointerdown", (event) => {
+      const menu = $("#advancedToolsNav");
+      if (menu?.open && !menu.contains(event.target)) menu.removeAttribute("open");
+    });
+    $("#advancedToolsNav")?.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.currentTarget.removeAttribute("open");
+      event.currentTarget.querySelector("summary")?.focus();
     });
     $("#updateNoticeBtn").addEventListener("click", () => {
       selectView("settings");

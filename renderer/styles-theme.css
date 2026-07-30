@@ -502,8 +502,8 @@ html[data-theme="light"] :is(
   button.accent,
   .terminal-create-actions .accent
 ) {
-  border-color: #438df5;
-  background: #438df5;
+  border-color: #286acb;
+  background: #286acb;
   color: #ffffff;
 }
 
@@ -520,8 +520,8 @@ html[data-theme="light"] :is(
   button.accent,
   .terminal-create-actions .accent
 ):hover:not(:disabled) {
-  border-color: #2879e8;
-  background: #2879e8;
+  border-color: #1f5fb8;
+  background: #1f5fb8;
   color: #ffffff;
 }
 
@@ -1527,8 +1527,8 @@ html[data-theme="light"] :is(
 }
 
 html[data-theme="light"] .tmux-section-actions .accent {
-  border-color: #438df5;
-  background: #438df5;
+  border-color: #286acb;
+  background: #286acb;
   color: #ffffff;
 }
 

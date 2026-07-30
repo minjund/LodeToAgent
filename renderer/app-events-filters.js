@@ -4,7 +4,7 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
 
   function bindFilterAndWorkspaceEvents() {
     const startProjectTask = (path) => {
@@ -43,7 +43,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       cards[Math.min(previousCount, cards.length - 1)]?.focus({ preventScroll: true });
       announce(window.LoadToAgentI18n.t("filter.more_loaded", { count: Math.max(0, cards.length - previousCount) }));
     });
-    const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList")].filter(Boolean);
+    const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList"), $("#projectSidebarList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
       const activeList = event.currentTarget;
       const remove = event.target.closest("[data-remove-workspace]");
@@ -68,16 +68,33 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       }
       const item = event.target.closest("[data-workspace]");
       if (item) {
-        const label = item.querySelector("strong")?.textContent.trim() || t("project.all");
-        state.workspace = item.dataset.workspace !== "all" && state.workspace === item.dataset.workspace
+        const requestedWorkspace = item.dataset.workspace;
+        state.workspace = requestedWorkspace !== "all" && state.workspace === requestedWorkspace
           ? "all"
-          : item.dataset.workspace;
+          : requestedWorkspace;
+        const label = state.workspace === "all"
+          ? t("project.all")
+          : item.querySelector("strong")?.textContent.trim() || t("project.all");
         state.visibleLimit = 30;
         renderWorkspaces();
-        renderSessions("filter");
+        renderGlobalStats();
+        if (activeList.id === "projectSidebarList" && state.view !== "all") selectView("all", { motionKind: "filter" });
+        else renderSessions("filter");
+        if (activeList.id === "projectSidebarList" && state.workspace !== "all") {
+          const selectedFlow = $("#liveSessionGrid")?.querySelector(".control-room-project-group");
+          if (selectedFlow) {
+            selectedFlow.open = true;
+            if (selectedFlow.dataset.disclosureKey) state.disclosureStates.set(selectedFlow.dataset.disclosureKey, true);
+            syncControlRoomDisclosureButtons();
+          }
+        }
         syncFilterResetButton();
         saveDashboardPreferences();
         announce(t("filter.workspace_results", { project: label, count: filteredSessions().length }));
+        if (activeList.id === "projectSidebarList") {
+          document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+          requestAnimationFrame(() => $("#projectViewTabs")?.querySelector("[data-view].active")?.focus({ preventScroll: true }));
+        }
         if (activeList.id === "mobileWorkspaceList") {
           const menu = $("#mobileToolsMenu");
           setDialogOpenState(menu, false);
@@ -101,6 +118,14 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         const horizontal = event.currentTarget.id === "workspaceList";
         moveFocus(event, event.currentTarget, "[data-workspace]", horizontal ? ["ArrowLeft", "ArrowUp"] : ["ArrowUp"], horizontal ? ["ArrowRight", "ArrowDown"] : ["ArrowDown"]);
       });
+    });
+    $("#projectHistoryRail")?.addEventListener("click", (event) => {
+      const open = event.target.closest("[data-open-session]");
+      if (open) {
+        openDrawer(open.dataset.openSession);
+        return;
+      }
+      if (event.target.closest("#openProjectHistoryBtn")) selectView("active", { motionKind: "view" });
     });
     const controlProjectSelect = $("#controlRoomProjectSelect");
     controlProjectSelect?.addEventListener("change", (event) => {
