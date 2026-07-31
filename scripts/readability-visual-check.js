@@ -453,6 +453,7 @@ app.whenReady().then(async () => {
         aiTarget: form.dataset.aiTarget,
         menuVisible: !menu.classList.contains('hidden'),
         optionCount: options.length,
+        optionHeights: options.map(option => option.getBoundingClientRect().height),
         allOptionsReadable: options.every(option => option.getBoundingClientRect().height >= 48),
         noOverflow: form.scrollWidth <= form.clientWidth + 2 && menu.scrollWidth <= menu.clientWidth + 2,
         ariaExpanded: input.getAttribute('aria-expanded'),

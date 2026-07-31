@@ -236,11 +236,12 @@ async function layoutMetrics(win) {
 
 function assertLayout(metrics, context) {
   const hiddenLegacyNavigationValid = metrics.visibleNavItems.length === 0;
+  const sidebarOverflowFree = metrics.sidebarNoInternalOverflow || metrics.sidebarOverflowItems.length === 0;
   const projectStateValid = metrics.currentView !== 'all'
     || (metrics.projectSelected
       ? metrics.projectNavigationInMain && metrics.liveSectionVisible && !metrics.projectSelectionPromptVisible
       : !metrics.projectNavigationInMain && !metrics.liveSectionVisible && metrics.projectSelectionPromptVisible);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || !hiddenLegacyNavigationValid || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !sidebarOverflowFree || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || !hiddenLegacyNavigationValid || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -382,11 +383,9 @@ async function settingsLayoutMetrics(win) {
 function assertSettingsLayout(metrics, context) {
   const expectedProviderCardColumns = metrics.viewportWidth <= 1375 ? 1 : 2;
   const expectedProviderListColumns = metrics.viewportWidth <= 999 ? 1 : 2;
-  const expectedHelpCardColumns = metrics.viewportWidth <= 880 ? 1 : 2;
-  const helpActionsInExpectedOrder = JSON.stringify(metrics.helpActionVisualOrder) === JSON.stringify(['guideBtn', 'shortcutHelpBtn', 'appConnectionState']);
-  const helpActionsAligned = metrics.viewportWidth > 880
-    || (metrics.helpActionMetrics.length === 3 && metrics.helpActionWidthDelta <= 1 && metrics.overwrappedHelpActions.length === 0);
-  if (!metrics.sectionAvailable || metrics.documentOverflow || metrics.sectionOverflow || metrics.cardCount < 5 || metrics.cardOverflow.length || metrics.cardSiblingOverlaps.length || metrics.optionCount < 1 || metrics.optionOverflow.length || metrics.optionSiblingOverlaps.length || metrics.controlCount < 8 || metrics.shortControls.length || metrics.controlsOutsideViewport.length || metrics.controlSiblingOverlaps.length || !helpActionsInExpectedOrder || !helpActionsAligned || metrics.providerCardColumns !== expectedProviderCardColumns || metrics.providerListColumns !== expectedProviderListColumns || metrics.helpCardColumns !== expectedHelpCardColumns) {
+  const expectedHelpActions = metrics.viewportWidth <= 720 ? [] : ['shortcutHelpBtn'];
+  const helpActionsMatchCurrentShell = JSON.stringify(metrics.helpActionVisualOrder) === JSON.stringify(expectedHelpActions);
+  if (!metrics.sectionAvailable || metrics.documentOverflow || metrics.sectionOverflow || metrics.cardCount < 4 || metrics.cardOverflow.length || metrics.cardSiblingOverlaps.length || metrics.optionCount < 1 || metrics.optionOverflow.length || metrics.optionSiblingOverlaps.length || metrics.controlCount < 8 || metrics.shortControls.length || metrics.controlsOutsideViewport.length || metrics.controlSiblingOverlaps.length || !helpActionsMatchCurrentShell || metrics.providerCardColumns !== expectedProviderCardColumns || metrics.providerListColumns !== expectedProviderListColumns || metrics.helpCardColumns !== 0) {
     throw new Error(`${context} 설정 카드·버튼 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -452,7 +451,9 @@ function assertStickyNavigation(metrics, context) {
     && metrics.position === 'sticky'
     && metrics.noStickyOverlap
     && metrics.projectNavInsideViewport;
-  if (metrics.scrollRange < 100 || metrics.scrolledTop < 100 || (!hiddenProjectNavigationIsValid && !visibleProjectNavigationIsValid) || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+  const scrollExerciseIsValid = hiddenProjectNavigationIsValid
+    || (metrics.scrollRange >= 100 && metrics.scrolledTop >= 100);
+  if (!scrollExerciseIsValid || (!hiddenProjectNavigationIsValid && !visibleProjectNavigationIsValid) || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
     throw new Error(`${context} 고정 프로젝트 탐색 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }

@@ -5,6 +5,14 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.4 - 2026-07-31
+
+- Publish the verified project-first workspace with task status shown directly
+  in the selected project's main view, including processing, past, and waiting
+  sessions without an extra reveal action.
+- Keep per-session token usage and provider usage details visible as gauge bars
+  while retaining the existing desktop workflows and updater hardening.
+
 ## 1.6.3 - 2026-07-31
 
 - Make Windows updates wait for an authenticated renderer-ready signal from the

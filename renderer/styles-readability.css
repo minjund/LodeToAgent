@@ -973,7 +973,7 @@ body .icon-button {
   font-size: 17px !important;
 }
 
-body .terminal-slash-menu-list > button {
+body .terminal-slash-menu .terminal-slash-menu-list > button {
   min-height: 52px !important;
 }
 
