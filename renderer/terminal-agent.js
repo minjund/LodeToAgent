@@ -12,6 +12,55 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     ? terminalTypeLabel
     : terminal => String(terminal?.type || t('terminal.type.terminal'));
 
+  function normalizedDeliveryState(result, fallback = 'accepted') {
+    if (result?.deliveryState === 'rejected') return 'rejected';
+    if (result?.deliveryState === 'unknown') return 'unknown';
+    if (result?.deliveryState === 'accepted') return 'accepted';
+    return fallback;
+  }
+
+  function rejectedError(message, code = 'DELIVERY_REJECTED') {
+    const error = new Error(message);
+    error.code = code;
+    error.deliveryState = 'rejected';
+    return error;
+  }
+
+  function resultError(result, fallback) {
+    const error = new Error(result?.error || fallback);
+    error.code = result?.code || 'DELIVERY_REJECTED';
+    error.deliveryId = result?.deliveryId || '';
+    error.deliveryState = result ? normalizedDeliveryState(result, 'rejected') : 'unknown';
+    return error;
+  }
+
+  function markRejectedBeforeDelivery(error) {
+    const value = error instanceof Error ? error : new Error(String(error || ''));
+    if (!value.code) value.code = 'DELIVERY_REJECTED';
+    value.deliveryState = 'rejected';
+    return value;
+  }
+
+  async function initializeBeforeDelivery() {
+    try {
+      await init();
+    } catch (error) {
+      throw markRejectedBeforeDelivery(error);
+    }
+  }
+
+  function reportPostDeliveryError(scope, error) {
+    window.LoadToAgentRendererUtils?.reportRecoverableError?.(scope, error);
+  }
+
+  function deliveryNotice(message, tone = 'success') {
+    try {
+      notice(message, tone);
+    } catch (error) {
+      reportPostDeliveryError('terminal-agent-notice', error);
+    }
+  }
+
   function tmuxRows(snapshot = state.snapshot) {
     const rows = [];
     for (const distro of snapshot && snapshot.tmux && snapshot.tmux.distros || []) {
@@ -51,7 +100,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       });
     }
     for (const terminal of state.sessions) {
-      if (terminal.status !== 'running') continue;
+      const reconnectable = terminal.status === 'detached'
+        && terminal.type === 'agent'
+        && terminal.backend === 'managed-tmux'
+        && terminal.bridgeId === agentSession.id;
+      if (terminal.status !== 'running' && !reconnectable) continue;
       if (blockedTerminalIds.has(terminal.id)) continue;
       const exactBridge = terminal.bridgeId === agentSession.id;
       const exactPresence = presence.some(item => item.terminalId === terminal.id);
@@ -65,6 +118,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         label: terminal.title,
         detail: `${terminalLabel(terminal)} · ${t('session.program_pid', { pid: terminal.pid || '--' })}`,
         terminalId: terminal.id,
+        reconnectable,
       });
     }
     // The control-room composer is available before the terminal workbench has
@@ -87,27 +141,52 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
   function requiredAgentTarget(agentSession, targetId = '') {
     const targets = agentTargets(agentSession);
-    if (!targets.length) throw new Error(t('terminal.agent.no_input_target'));
+    if (!targets.length) throw rejectedError(t('terminal.agent.no_input_target'));
     if (targetId) {
       const selected = targets.find(target => target.id === targetId);
-      if (!selected) throw new Error(t('terminal.agent.target_expired'));
+      if (!selected) throw rejectedError(t('terminal.agent.target_expired'));
       return selected;
     }
-    if (targets.length > 1) throw new Error(t('terminal.agent.select_target'));
+    if (targets.length > 1) throw rejectedError(t('terminal.agent.select_target'));
     return targets[0];
   }
 
-  async function dispatchAgentCommand(agentSession, command, targetId = '') {
-    await init();
+  async function dispatchAgentCommand(agentSession, command, targetId = '', options = {}) {
+    await initializeBeforeDelivery();
     const text = String(command || '').trim();
-    if (!text) throw new Error(t('terminal.agent.command_required'));
+    if (!text) throw rejectedError(t('terminal.agent.command_required'));
     const target = requiredAgentTarget(agentSession, targetId);
-    const result = target.kind === 'tmux'
-      ? await window.loadtoagent.tmuxSendText({ distro: target.distro, target: target.paneNativeId, text, enter: true })
-      : await window.loadtoagent.terminalCommand(target.terminalId, text);
-    if (!result || result.ok === false) throw new Error(result && result.error || t('terminal.agent.send_failed'));
-    notice(t('terminal.agent.command_sent', { target: target.label }), 'success');
-    return { ok: true, target };
+    let result;
+    if (target.kind === 'tmux') {
+      result = await window.loadtoagent.tmuxSendText({
+        distro: target.distro,
+        target: target.paneNativeId,
+        text,
+        enter: true,
+        deliveryId: options.deliveryId || '',
+      });
+    } else {
+      if (target.reconnectable) {
+        try {
+          await window.loadtoagent.terminalReconnect(target.terminalId);
+        } catch (error) {
+          throw markRejectedBeforeDelivery(error);
+        }
+      }
+      result = await window.loadtoagent.terminalCommand(target.terminalId, text, { deliveryId: options.deliveryId || '' });
+    }
+    if (!result || result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
+    const deliveryState = normalizedDeliveryState(result);
+    deliveryNotice(t(deliveryState === 'unknown'
+      ? 'terminal.agent.delivery_uncertain'
+      : 'terminal.agent.command_sent', { target: target.label }), deliveryState === 'unknown' ? 'warning' : 'success');
+    return {
+      ok: true,
+      target,
+      deliveryState,
+      duplicate: Boolean(result.duplicate),
+      promptSent: deliveryState === 'accepted',
+    };
   }
 
   async function interruptAgent(target) {
@@ -151,11 +230,16 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   }
 
   async function resumeForAgent(agentSession, draft = '', sendDraft = false, options = {}) {
-    await init();
-    const support = resumeSupport(agentSession);
-    if (!support.supported) throw new Error(support.reason);
+    await initializeBeforeDelivery();
+    let support;
+    try {
+      support = resumeSupport(agentSession);
+    } catch (error) {
+      throw markRejectedBeforeDelivery(error);
+    }
+    if (!support.supported) throw rejectedError(support.reason);
     const cwd = String(agentSession.cwd || preferredWorkspace() || '').trim();
-    if (!cwd) throw new Error(t('terminal.agent.cwd_missing'));
+    if (!cwd) throw rejectedError(t('terminal.agent.cwd_missing'));
     const environment = agentSession.environment || {};
     const tmuxPresence = (agentSession.runtimePresence || []).find(item => item.kind === 'tmux') || {};
     const tmuxPresenceId = String(tmuxPresence.id || '');
@@ -168,7 +252,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       ? String(environment.distro || tmuxPresence.distro || distroFromPresenceId
         || (state.wslDistros.length === 1 ? state.wslDistros[0] : '')).trim()
       : '';
-    if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
+    if (wslCwd && !distro) throw rejectedError(t('terminal.agent.wsl_distro_missing'));
     const prompt = String(draft || '').trim();
     const nativeCommand = sendDraft && /^(?:\/|!)(?:\S|$)/.test(prompt);
     const title = t('terminal.agent.resume_title', {
@@ -179,7 +263,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     // created by the previous send is already running. Reuse the explicit
     // bridge target so a delayed receipt cannot spawn a second Claude process
     // for the same session and prompt.
-    await refreshSessions();
+    try {
+      await refreshSessions();
+    } catch (error) {
+      throw markRejectedBeforeDelivery(error);
+    }
     const reusable = state.sessions.find(session =>
       session
       && session.type === 'agent'
@@ -187,9 +275,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       && session.bridgeId === agentSession.id
       && session.status === 'running') || null;
     if (reusable) {
+      let deliveryState = sendDraft && prompt ? 'accepted' : '';
       if (sendDraft && prompt) {
-        const result = await window.loadtoagent.terminalCommand(reusable.id, prompt);
-        if (!result || result.ok === false) throw new Error(result?.error || t('terminal.agent.send_failed'));
+        const result = await window.loadtoagent.terminalCommand(reusable.id, prompt, { deliveryId: options.deliveryId || '' });
+        if (!result || result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
+        deliveryState = normalizedDeliveryState(result);
       }
       const target = {
         id: reusable.id,
@@ -198,37 +288,57 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         detail: `${terminalLabel(reusable)} · ${t('session.program_pid', { pid: reusable.pid || '--' })}`,
         terminalId: reusable.id,
       };
-      if (options.focus === false) return { ...target, promptSent: Boolean(sendDraft && prompt), background: true, reused: true };
-      state.mode = 'general';
-      moveWorkbench('general');
-      await selectSession(reusable.id);
-      bindAgent(agentSession, target);
-      queueHistoryRefresh(agentSession);
-      renderTarget();
-      const input = $('#terminalCommandInput');
-      if (input) {
-        input.value = sendDraft ? '' : String(draft || '');
-        state.commandDrafts.set(target.id, input.value);
-        syncComposer?.();
-        input.focus({ preventScroll: true });
+      const promptSent = Boolean(sendDraft && prompt && deliveryState === 'accepted');
+      if (options.focus === false) return { ...target, promptSent, deliveryState, background: true, reused: true };
+      try {
+        state.mode = 'general';
+        moveWorkbench('general');
+        await selectSession(reusable.id);
+        bindAgent(agentSession, target);
+        queueHistoryRefresh(agentSession);
+        renderTarget();
+        const input = $('#terminalCommandInput');
+        if (input) {
+          input.value = promptSent ? '' : String(draft || '');
+          state.commandDrafts.set(target.id, input.value);
+          syncComposer?.();
+          input.focus({ preventScroll: true });
+        }
+      } catch (error) {
+        if (!sendDraft) throw error;
+        reportPostDeliveryError('terminal-agent-reused-focus', error);
       }
-      notice(sendDraft && prompt
-        ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
-        : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
-      return { ...target, promptSent: Boolean(sendDraft && prompt), reused: true };
+      deliveryNotice(deliveryState === 'unknown'
+        ? t('terminal.agent.delivery_uncertain', { target: target.label })
+        : sendDraft && prompt
+          ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
+          : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }),
+      deliveryState === 'unknown' ? 'warning' : 'success');
+      return { ...target, promptSent, deliveryState, reused: true };
     }
-    const launchArgs = resumeLaunchArgs(support, sendDraft && !nativeCommand ? prompt : '');
+    const promptViaTerminal = Boolean(sendDraft && prompt
+      && (nativeCommand || support.promptMode === 'terminal' || /[\r\n]/.test(prompt)));
+    const promptInArgs = Boolean(sendDraft && prompt && !promptViaTerminal);
+    let launchArgs;
+    let recoveryArgs;
+    try {
+      launchArgs = resumeLaunchArgs(support, promptInArgs ? prompt : '');
+      recoveryArgs = resumeLaunchArgs(support);
+    } catch (error) {
+      throw markRejectedBeforeDelivery(error);
+    }
     const created = await window.loadtoagent.terminalCreate({
       type: 'agent',
       provider: support.provider,
       args: launchArgs,
-      recoveryArgs: resumeLaunchArgs(support),
+      recoveryArgs,
       cwd,
       distro,
       bridgeId: agentSession.id,
       reuseBridge: true,
       initialCommand: sendDraft ? prompt : '',
-      initialCommandInArgs: Boolean(sendDraft && prompt && !nativeCommand),
+      initialCommandInArgs: promptInArgs,
+      deliveryId: options.deliveryId || '',
       title,
       // Conversation sends must keep the resumed PTY alive. A transient
       // one-shot process can exit after spawn (for example when the session is
@@ -238,10 +348,16 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       rows: 32,
     });
     if (!created || !created.id) throw new Error(t('terminal.agent.resume_terminal_failed'));
-    await refreshSessions();
-    if (nativeCommand && !created.promptSent) {
-      const commandResult = await window.loadtoagent.terminalCommand(created.id, prompt);
-      if (!commandResult || commandResult.ok === false) throw new Error(commandResult?.error || t('terminal.agent.send_failed'));
+    try {
+      await refreshSessions();
+    } catch (error) {
+      reportPostDeliveryError('terminal-agent-post-create-refresh', error);
+    }
+    let deliveryState = normalizedDeliveryState(created, created.promptSent || promptInArgs ? 'accepted' : '');
+    if (promptViaTerminal && !created.promptSent && deliveryState !== 'unknown') {
+      const commandResult = await window.loadtoagent.terminalCommand(created.id, prompt, { deliveryId: options.deliveryId || '' });
+      if (!commandResult || commandResult.ok === false) throw resultError(commandResult, t('terminal.agent.send_failed'));
+      deliveryState = normalizedDeliveryState(commandResult);
     }
     const target = {
       id: created.id,
@@ -250,29 +366,39 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       detail: `${terminalLabel(created)} · ${t('session.program_pid', { pid: created.pid || '--' })}`,
       terminalId: created.id,
     };
+    const promptSent = Boolean(sendDraft && prompt && deliveryState === 'accepted');
     if (options.focus === false) return {
       ...target,
-      promptSent: Boolean(sendDraft && prompt),
+      promptSent,
+      deliveryState,
       background: true,
       reused: Boolean(created.reused),
     };
-    state.mode = 'general';
-    moveWorkbench('general');
-    await selectSession(created.id);
-    bindAgent(agentSession, target);
-    queueHistoryRefresh(agentSession);
-    renderTarget();
-    const input = $('#terminalCommandInput');
-    if (input) {
-      input.value = sendDraft ? '' : String(draft || '');
-      state.commandDrafts.set(target.id, input.value);
-      syncComposer?.();
-      input.focus({ preventScroll: true });
+    try {
+      state.mode = 'general';
+      moveWorkbench('general');
+      await selectSession(created.id);
+      bindAgent(agentSession, target);
+      queueHistoryRefresh(agentSession);
+      renderTarget();
+      const input = $('#terminalCommandInput');
+      if (input) {
+        input.value = promptSent ? '' : String(draft || '');
+        state.commandDrafts.set(target.id, input.value);
+        syncComposer?.();
+        input.focus({ preventScroll: true });
+      }
+    } catch (error) {
+      if (!sendDraft) throw error;
+      reportPostDeliveryError('terminal-agent-created-focus', error);
     }
-    notice(sendDraft && prompt
-      ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
-      : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
-    return { ...target, promptSent: Boolean(sendDraft && prompt), reused: Boolean(created.reused) };
+    deliveryNotice(deliveryState === 'unknown'
+      ? t('terminal.agent.delivery_uncertain', { target: target.label })
+      : sendDraft && prompt
+        ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
+        : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }),
+    deliveryState === 'unknown' ? 'warning' : 'success');
+    return { ...target, promptSent, deliveryState, reused: Boolean(created.reused) };
   }
 
   async function resetForAgent(agentSession, options = {}) {

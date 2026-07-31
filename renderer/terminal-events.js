@@ -70,17 +70,39 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#newWslBtn').addEventListener('click', event => runBusy(event.currentTarget, () => createTerminal('wsl')));
     $('#newTmuxSessionBtn').addEventListener('click', openTmuxModal);
     $('#refreshTmuxTerminalBtn').addEventListener('click', event => runBusy(event.currentTarget, refreshSnapshot));
-    $('#terminalModeComputerBtn')?.addEventListener('click', async () => {
+
+    const modeGuide = document.querySelector('.terminal-mode-guide');
+    const terminalModeRadios = () => [...(modeGuide?.querySelectorAll('[role="radio"]') || [])]
+      .filter(button => !button.disabled && !button.hidden);
+    const syncTerminalModeRadios = preferred => {
+      const radios = terminalModeRadios();
+      const selected = preferred && radios.includes(preferred)
+        ? preferred
+        : radios.find(button => button.getAttribute('aria-checked') === 'true') || radios[0];
+      radios.forEach(button => {
+        button.tabIndex = button === selected ? 0 : -1;
+      });
+    };
+    const setTerminalModeState = questionMode => {
+      const questionButton = $('#terminalModeQuestionBtn');
+      const computerButton = $('#terminalModeComputerBtn');
+      questionButton?.setAttribute('aria-checked', questionMode ? 'true' : 'false');
+      questionButton?.setAttribute('aria-pressed', questionMode ? 'true' : 'false');
+      computerButton?.setAttribute('aria-checked', questionMode ? 'false' : 'true');
+      computerButton?.setAttribute('aria-pressed', questionMode ? 'false' : 'true');
+      syncTerminalModeRadios(questionMode ? questionButton : computerButton);
+    };
+    const selectComputerMode = async ({ preserveModeFocus = false } = {}) => {
       state.interactionMode = 'computer';
       const target = state.sessions.find(session => session.type !== 'agent' && session.type !== 'tmux'
         && ['running', 'starting'].includes(session.status));
       if (target) await selectSession(target.id, 'computer');
       else renderAll();
-      $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'true');
-      $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'false');
-      focusComputerWorkInput();
-    });
-    $('#terminalModeQuestionBtn')?.addEventListener('click', async () => {
+      setTerminalModeState(false);
+      if (preserveModeFocus) $('#terminalModeComputerBtn')?.focus({ preventScroll: true });
+      else focusComputerWorkInput();
+    };
+    const selectQuestionMode = async ({ preserveModeFocus = false } = {}) => {
       state.interactionMode = 'question';
       const selected = currentSession();
       const target = selected && isAiTerminalSession(selected) && ['running', 'starting'].includes(selected.status)
@@ -96,11 +118,39 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         renderAll();
         notice(t('terminal.agent.no_input_target'), 'warning');
       }
-      $('#terminalModeComputerBtn')?.setAttribute('aria-pressed', 'false');
-      $('#terminalModeQuestionBtn')?.setAttribute('aria-pressed', 'true');
-      if (target || boundTmuxTarget) document.querySelector('#terminalWorkbench [data-agent-command-draft]')?.focus({ preventScroll: true });
+      setTerminalModeState(true);
+      if (preserveModeFocus) $('#terminalModeQuestionBtn')?.focus({ preventScroll: true });
+      else if (target || boundTmuxTarget) document.querySelector('#terminalWorkbench [data-agent-command-draft]')?.focus({ preventScroll: true });
       else $('#terminalModeQuestionBtn')?.focus({ preventScroll: true });
+    };
+    $('#terminalModeComputerBtn')?.addEventListener('click', () => selectComputerMode());
+    $('#terminalModeQuestionBtn')?.addEventListener('click', () => selectQuestionMode());
+    modeGuide?.addEventListener('keydown', async event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const radio = event.target.closest('[role="radio"]');
+      const radios = terminalModeRadios();
+      if (!radio || !radios.length) return;
+      const current = Math.max(0, radios.indexOf(radio));
+      const nextIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? radios.length - 1
+          : (current + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + radios.length) % radios.length;
+      const next = radios[nextIndex];
+      event.preventDefault();
+      syncTerminalModeRadios(next);
+      next.focus({ preventScroll: true });
+      if (next.id === 'terminalModeQuestionBtn') await selectQuestionMode({ preserveModeFocus: true });
+      else await selectComputerMode({ preserveModeFocus: true });
     });
+    syncTerminalModeRadios();
+    if (modeGuide) {
+      new MutationObserver(() => syncTerminalModeRadios()).observe(modeGuide, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['aria-checked'],
+      });
+    }
     const sessionList = $('#terminalSessionList');
     const historyList = $('#terminalHistoryList');
     const cancelHistoryFollow = () => {

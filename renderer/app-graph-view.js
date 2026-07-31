@@ -47,6 +47,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     sending: "control.delivery_sending",
     confirming: "control.delivery_confirming",
     delayed: "control.delivery_delayed",
+    uncertain: "control.delivery_uncertain",
     received: "control.delivery_received",
     responding: "control.delivery_responding",
     interrupted: "control.delivery_interrupted",
@@ -56,6 +57,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     sending: "drawer.delivery_sending_title",
     confirming: "drawer.delivery_confirming_title",
     delayed: "drawer.delivery_delayed_title",
+    uncertain: "drawer.delivery_uncertain_title",
     received: "drawer.delivery_received_title",
     responding: "drawer.delivery_responding_title",
     interrupted: "drawer.delivery_interrupted_title",
@@ -733,6 +735,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const projectRank = new Map(projectOrder.map((key, index) => [key, index]));
     const orderedGroups = defaultOrderedGroups.sort(([leftKey], [rightKey]) =>
       Number(projectRank.get(leftKey) ?? Number.MAX_SAFE_INTEGER) - Number(projectRank.get(rightKey) ?? Number.MAX_SAFE_INTEGER));
+    const canReorderProjects = orderedGroups.length > 1;
     const projectGroups = orderedGroups.map(([key, { name, roots: projectRoots, tmuxEntries: projectTmuxEntries }], index) => {
       const displayName = /관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹/.test(name)
         ? "여러 AI가 함께 처리 중인 작업"
@@ -771,10 +774,11 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         : "";
       return `<div class="control-room-project-frame">
         <details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" ${state.workspace !== "all" ? "open" : ""} data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
-        <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
-          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
+        <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="${canReorderProjects ? "true" : "false"}"
+          ${canReorderProjects ? 'aria-grabbed="false" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-describedby="projectReorderHelp"' : ""}
+          aria-label="${esc(canReorderProjects ? t("project.drag_label", { name }) : displayName)}">
           <span class="control-project-heading"><i aria-hidden="true">□</i><span>${esc(t(attentionCount ? "control.attention_now" : "control.current_status"))}</span><b>${esc(displayName)}</b><small>${esc(t("control.current_status_summary", { summary }))}</small></span>
-          <span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>
+          ${canReorderProjects ? `<span class="control-project-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>` : ""}
         </summary>
         <div class="control-project-body">${projectRoots.map(root => controlRoomSession(root, model)).join("")}${tmuxCards}</div>
         </details>

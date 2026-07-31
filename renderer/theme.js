@@ -16,6 +16,17 @@
   let theme = readTheme();
   document.documentElement.dataset.theme = theme;
 
+  function syncNativeThemeAppearance() {
+    try {
+      const result = window.loadtoagent?.setThemeAppearance?.(theme);
+      result?.catch?.(() => {});
+    } catch (_error) {
+      // The page theme must remain usable even if the optional native bridge is unavailable.
+    }
+  }
+
+  syncNativeThemeAppearance();
+
   function label(key, fallback) {
     return window.LoadToAgentI18n?.t?.(key) || fallback;
   }
@@ -39,6 +50,7 @@
     document.querySelectorAll('[data-theme-choice]').forEach(button => {
       const selected = button.dataset.themeChoice === theme;
       button.setAttribute('aria-checked', selected ? 'true' : 'false');
+      button.tabIndex = selected ? 0 : -1;
       button.classList.toggle('active', selected);
     });
     const settingsTitle = document.querySelector('#themeSettingsTitle');
@@ -54,6 +66,7 @@
     const changed = theme !== nextTheme;
     theme = nextTheme;
     document.documentElement.dataset.theme = theme;
+    syncNativeThemeAppearance();
     if (options.persist !== false) {
       try {
         localStorage.setItem(STORAGE_KEY, theme);
@@ -80,6 +93,25 @@
       }
       const choice = event.target.closest('[data-theme-choice]');
       if (choice) setTheme(choice.dataset.themeChoice);
+    });
+    document.addEventListener('keydown', event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      const choice = event.target.closest('[data-theme-choice][role="radio"]');
+      const group = choice?.closest('[role="radiogroup"]');
+      if (!choice || !group) return;
+      const choices = [...group.querySelectorAll('[data-theme-choice][role="radio"]')]
+        .filter(button => !button.disabled && !button.hidden);
+      if (!choices.length) return;
+      const current = Math.max(0, choices.indexOf(choice));
+      const nextIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? choices.length - 1
+          : (current + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + choices.length) % choices.length;
+      const next = choices[nextIndex];
+      event.preventDefault();
+      setTheme(next.dataset.themeChoice);
+      next.focus({ preventScroll: true });
     });
     window.addEventListener('loadtoagent:locale-changed', syncControls);
   }

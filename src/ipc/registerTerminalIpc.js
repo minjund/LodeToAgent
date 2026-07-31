@@ -23,9 +23,9 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
     requireTrustedSender(event);
     return requireManager(manager).write(id, data);
   });
-  ipcMain.handle('terminals:command', (event, id, command) => {
+  ipcMain.handle('terminals:command', (event, id, command, options) => {
     requireTrustedSender(event);
-    return requireManager(manager).command(id, command);
+    return requireManager(manager).command(id, command, options || {});
   });
   ipcMain.handle('terminals:resize', (event, id, cols, rows) => {
     requireTrustedSender(event);

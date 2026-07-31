@@ -13,7 +13,22 @@ const MUTATING_OPERATIONS = [
 ];
 
 function registerTmuxIpc({ handleTrusted, controller, refresh }) {
-  handleTrusted('tmux:send-text', options => controller.sendText(options || {}));
+  handleTrusted('tmux:send-text', async options => {
+    try {
+      return await controller.sendText(options || {});
+    } catch (error) {
+      if (error?.deliveryState === 'rejected') {
+        return {
+          ok: false,
+          error: String(error.message || error),
+          code: String(error.code || ''),
+          deliveryId: String(error.deliveryId || options?.deliveryId || ''),
+          deliveryState: 'rejected',
+        };
+      }
+      throw error;
+    }
+  });
   handleTrusted('tmux:send-key', options => controller.sendKey(options || {}));
   handleTrusted('tmux:capture', options => controller.capture(options || {}));
 

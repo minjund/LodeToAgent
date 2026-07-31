@@ -235,13 +235,16 @@ async function layoutMetrics(win) {
 }
 
 function assertLayout(metrics, context) {
-  const hiddenLegacyNavigationValid = metrics.visibleNavItems.length === 0;
+  const expectedPrimaryNavigation = metrics.compact
+    ? ['all', 'active', 'waiting', 'mobileMoreBtn']
+    : ['all', 'active', 'waiting'];
+  const primaryNavigationValid = JSON.stringify(metrics.visibleNavItems) === JSON.stringify(expectedPrimaryNavigation);
   const sidebarOverflowFree = metrics.sidebarNoInternalOverflow || metrics.sidebarOverflowItems.length === 0;
   const projectStateValid = metrics.currentView !== 'all'
     || (metrics.projectSelected
       ? metrics.projectNavigationInMain && metrics.liveSectionVisible && !metrics.projectSelectionPromptVisible
       : !metrics.projectNavigationInMain && !metrics.liveSectionVisible && metrics.projectSelectionPromptVisible);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !sidebarOverflowFree || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || !hiddenLegacyNavigationValid || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || (!metrics.compact && !metrics.projectToolsVisible) || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !primaryNavigationValid || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !sidebarOverflowFree || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -397,6 +400,13 @@ async function stickyNavigationMetrics(win) {
     const projectNav = document.querySelector('#projectContextNav');
     if (!stage || !topbar || !projectNav) return { available: false };
     const originalScrollTop = stage.scrollTop;
+    const nativeScrollRange = Math.max(0, stage.scrollHeight - stage.clientHeight);
+    const exerciseSpacer = nativeScrollRange < 240 ? document.createElement('div') : null;
+    if (exerciseSpacer) {
+      exerciseSpacer.setAttribute('aria-hidden', 'true');
+      exerciseSpacer.style.cssText = 'width:1px;height:260px;min-height:260px;flex:0 0 260px;pointer-events:none';
+      stage.append(exerciseSpacer);
+    }
     const scrollRange = Math.max(0, stage.scrollHeight - stage.clientHeight);
     stage.scrollTop = Math.min(scrollRange, Math.max(220, Math.round(stage.clientHeight * .72)));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -418,9 +428,12 @@ async function stickyNavigationMetrics(win) {
       rect: { top: child.getBoundingClientRect().top, bottom: child.getBoundingClientRect().bottom, height: child.getBoundingClientRect().height },
     }));
     stage.scrollTop = originalScrollTop;
+    exerciseSpacer?.remove();
+    stage.scrollTop = originalScrollTop;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     return {
       available: true,
+      nativeScrollRange,
       scrollRange,
       scrolledTop,
       restoredScrollTop: stage.scrollTop,
@@ -442,18 +455,13 @@ async function stickyNavigationMetrics(win) {
 }
 
 function assertStickyNavigation(metrics, context) {
-  const hiddenProjectNavigationIsValid = metrics.available
-    && metrics.projectNavVisible === false
-    && metrics.topbarRect.height > 0
-    && metrics.visibleTopbarChildren.length > 0;
   const visibleProjectNavigationIsValid = metrics.available
     && metrics.projectNavVisible
     && metrics.position === 'sticky'
     && metrics.noStickyOverlap
     && metrics.projectNavInsideViewport;
-  const scrollExerciseIsValid = hiddenProjectNavigationIsValid
-    || (metrics.scrollRange >= 100 && metrics.scrolledTop >= 100);
-  if (!scrollExerciseIsValid || (!hiddenProjectNavigationIsValid && !visibleProjectNavigationIsValid) || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+  const scrollExerciseIsValid = metrics.scrollRange >= 100 && metrics.scrolledTop >= 100;
+  if (!scrollExerciseIsValid || !visibleProjectNavigationIsValid || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
     throw new Error(`${context} 고정 프로젝트 탐색 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -543,11 +551,12 @@ async function dashboardStickyNavigationMetrics(win) {
     window.__ensureResponsiveDashboardStickyFixture?.();
     const stage = document.querySelector('.main-stage');
     const topbar = document.querySelector('.topbar');
-    const projectNav = document.querySelector('#projectTaskToolbar');
+    const projectNav = document.querySelector('#projectContextNav');
+    const projectToolbar = document.querySelector('#projectTaskToolbar');
     const historyRail = document.querySelector('#projectHistoryRail');
     const tokenOverview = document.querySelector('#sessionTokenOverview');
     const tokenItems = [...document.querySelectorAll('#sessionTokenList > .session-token-item')];
-    if (!stage || !topbar || !projectNav || !historyRail || !tokenOverview) return { available: false };
+    if (!stage || !topbar || !projectNav || !projectToolbar || !historyRail || !tokenOverview) return { available: false };
     const visible = element => {
       const rect = element.getBoundingClientRect();
       const style = getComputedStyle(element);
@@ -581,7 +590,7 @@ async function dashboardStickyNavigationMetrics(win) {
     const topbarRect = rectOf(topbar);
     const projectNavRect = rectOf(projectNav);
     const historyRailRect = rectOf(historyRail);
-    const stickyCandidates = [topbar, projectNav, historyRail].map(element => ({
+    const stickyCandidates = [topbar, projectNav, projectToolbar, historyRail].map(element => ({
       id: element.id || element.className,
       position: getComputedStyle(element).position,
       rect: rectOf(element),
@@ -614,6 +623,7 @@ async function dashboardStickyNavigationMetrics(win) {
       tokenData,
       topbarPosition: getComputedStyle(topbar).position,
       projectNavPosition: getComputedStyle(projectNav).position,
+      projectToolbarPosition: getComputedStyle(projectToolbar).position,
       historyRailPosition: getComputedStyle(historyRail).position,
       stickyOwners: stickyOwners.map(item => item.id),
       stickyCollisions,
@@ -634,8 +644,8 @@ function assertDashboardStickyNavigation(metrics, context) {
     && metrics.tokenData.every(item => item.id && item.title && item.visible
       && (item.value > 0 ? Boolean(item.label) : /수치 미확인|unavailable|未知/.test(item.title)))
     && JSON.stringify(metrics.tokenData.map(item => item.id)) === JSON.stringify(expectedTokenIds);
-  const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectTaskToolbar']);
-  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || metrics.projectNavRect.width <= 0 || metrics.projectNavRect.height <= 0 || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+  const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectContextNav']);
+  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.projectToolbarPosition !== 'static' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || metrics.projectNavRect.width <= 0 || metrics.projectNavRect.height <= 0 || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
     throw new Error(`${context} 토큰 대시보드 고정 영역 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }

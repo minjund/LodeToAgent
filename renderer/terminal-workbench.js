@@ -565,7 +565,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       entry.terminal.dispose();
       entry.host.remove();
       state.terminals.delete(id);
-      state.commandDrafts.delete(id);
+      if (!rehydratedIds.has(id)) state.commandDrafts.delete(id);
     }
     if (state.selectedId && !state.sessions.some(item => item.id === state.selectedId)) state.selectedId = null;
     renderAll();
@@ -672,14 +672,82 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       notice(t('terminal.agent.no_input_target'), 'error');
       return false;
     }
+    const questionDelivery = state.interactionMode === 'question';
+    const targetId = session?.id || (remote ? `tmux:${remote.distro.name}:${remote.pane.nativeId}` : '');
+    const deliveryKey = questionDelivery ? `${targetId}\u0000${text}` : '';
+    const deliveries = state.commandDeliveries instanceof Map
+      ? state.commandDeliveries
+      : (state.commandDeliveries = new Map());
+    if (questionDelivery && deliveries.get(deliveryKey)?.state === 'unknown') {
+      notice(t('terminal.agent.delivery_uncertain', {
+        target: session?.title || remote?.pane?.nativeId || t('terminal.agent.ai_terminal'),
+      }), 'warning');
+      return false;
+    }
     state.commandSending = true;
     renderTarget();
     try {
-      const result = session
-        ? await guarded(() => window.loadtoagent.terminalCommand(session.id, text), t('terminal.command.sent'))
-        : await guarded(() => window.loadtoagent.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), t('terminal.command.executed_in_split'));
+      if (!questionDelivery) {
+        const result = session
+          ? await guarded(() => window.loadtoagent.terminalCommand(session.id, text), t('terminal.command.sent'))
+          : await guarded(() => window.loadtoagent.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), t('terminal.command.executed_in_split'));
+        if (result && remote) setTimeout(captureRemote, 160);
+        return Boolean(result);
+      }
+
+      const deliveryId = `delivery:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
+      const operation = () => session
+        ? window.loadtoagent.terminalCommand(session.id, text, { deliveryId })
+        : window.loadtoagent.tmuxSendText({
+          distro: remote.distro.name,
+          target: remote.pane.nativeId,
+          text,
+          enter: true,
+          deliveryId,
+        });
+      let result = null;
+      let transportError = null;
+      try {
+        result = await operation();
+      } catch (error) {
+        transportError = error;
+      }
+      // The terminal host ledger makes one same-ID retry safe: if the first
+      // write succeeded but its response was lost, this returns the recorded
+      // result without writing the question again. tmux stays single-attempt;
+      // its durable ledger handles an explicit later retry instead.
+      if (transportError && session && transportError.deliveryState !== 'rejected') {
+        try {
+          result = await operation();
+          transportError = null;
+        } catch (error) {
+          transportError = error;
+        }
+      }
+      const deliveryState = result?.deliveryState === 'rejected' || transportError?.deliveryState === 'rejected'
+        ? 'rejected'
+        : result?.deliveryState === 'accepted'
+        ? 'accepted'
+        : result?.deliveryState === 'unknown' || transportError || !result || result.ok === false
+          ? 'unknown'
+          : 'accepted';
+      if (deliveryState === 'rejected') {
+        deliveries.delete(deliveryKey);
+        notice(t('agent.delivery_retry_ready'), 'warning');
+        return false;
+      }
+      if (deliveryState === 'unknown') {
+        deliveries.set(deliveryKey, { id: deliveryId, state: 'unknown' });
+        while (deliveries.size > 64) deliveries.delete(deliveries.keys().next().value);
+        notice(t('terminal.agent.delivery_uncertain', {
+          target: session?.title || remote?.pane?.nativeId || t('terminal.agent.ai_terminal'),
+        }), 'warning');
+        return false;
+      }
+      deliveries.delete(deliveryKey);
+      notice(session ? t('terminal.command.sent') : t('terminal.command.executed_in_split'), 'success');
       if (result && remote) setTimeout(captureRemote, 160);
-      return Boolean(result);
+      return true;
     } finally {
       state.commandSending = false;
       renderTarget();

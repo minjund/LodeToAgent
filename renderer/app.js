@@ -62,6 +62,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     selectedRuntimeLoopId: null,
     tmuxFocus: null,
     agentCommandDrafts: new Map(),
+    agentCommandDeliveries: new Map(),
     agentCommandTargets: new Map(),
     agentCommandRoutes: new Map(),
     agentCommandSending: new Set(),
@@ -115,6 +116,77 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       const key = element.dataset.disclosureKey;
       if (state.disclosureStates.has(key)) element.open = state.disclosureStates.get(key);
     });
+  }
+  const FOCUS_IDENTITY_ATTRIBUTES = [
+    "data-session-id", "data-session-sortable", "data-workspace", "data-remove-workspace",
+    "data-open-session", "data-provider-card", "data-provider-filter", "data-provider-visibility",
+    "data-token-provider", "data-graph-focus", "data-supervision-focus", "data-result-review",
+    "data-view", "data-mobile-view", "data-action",
+  ];
+  function selectorValue(value) {
+    if (window.CSS?.escape) return window.CSS.escape(String(value));
+    return String(value).replace(/(["\\])/g, "\\$1");
+  }
+  function stableFocusLocator(element) {
+    if (element.id) return { rootId: "", selector: `[id="${selectorValue(element.id)}"]` };
+    const root = element.parentElement?.closest("[id]") || document;
+    const rootId = root instanceof HTMLElement ? root.id : "";
+    const discovered = element.getAttributeNames()
+      .filter(name => name.startsWith("data-")
+        && !name.startsWith("data-i18n")
+        && !["data-motion-value", "data-busy"].includes(name));
+    const attributes = [...new Set([...FOCUS_IDENTITY_ATTRIBUTES, ...discovered])]
+      .filter(name => element.hasAttribute(name));
+    for (const attribute of attributes) {
+      const selector = `${element.localName}[${attribute}="${selectorValue(element.getAttribute(attribute))}"]`;
+      if (root.querySelectorAll(selector).length === 1) return { rootId, selector };
+    }
+    if (attributes.length > 1) {
+      const selector = `${element.localName}${attributes
+        .map(attribute => `[${attribute}="${selectorValue(element.getAttribute(attribute))}"]`)
+        .join("")}`;
+      if (root.querySelectorAll(selector).length === 1) return { rootId, selector };
+    }
+    return null;
+  }
+  function captureRenderFocus(root = document) {
+    const element = document.activeElement;
+    if (!(element instanceof HTMLElement)
+      || element === document.body
+      || element === document.documentElement
+      || !root.contains(element)) return null;
+    const locator = stableFocusLocator(element);
+    if (!locator) return null;
+    const selection = element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? { start: element.selectionStart, end: element.selectionEnd, direction: element.selectionDirection }
+      : null;
+    return { element, locator, selection };
+  }
+  function restoreRenderFocus(token) {
+    if (!token || token.element.isConnected) return false;
+    const current = document.activeElement;
+    if (current && current !== document.body && current !== document.documentElement) return false;
+    const root = token.locator.rootId ? document.getElementById(token.locator.rootId) : document;
+    const replacement = root?.querySelector(token.locator.selector);
+    if (!(replacement instanceof HTMLElement)
+      || replacement.matches(":disabled")
+      || replacement.closest("[hidden], [inert], [aria-hidden='true'], .hidden")) return false;
+    replacement.focus({ preventScroll: true });
+    if (document.activeElement !== replacement) return false;
+    if (token.selection && (replacement instanceof HTMLInputElement || replacement instanceof HTMLTextAreaElement)) {
+      try {
+        replacement.setSelectionRange(token.selection.start, token.selection.end, token.selection.direction || "none");
+      } catch (_error) {}
+    }
+    return true;
+  }
+  function preserveFocusDuringRender(callback, root = document) {
+    const token = captureRenderFocus(root);
+    try {
+      return callback();
+    } finally {
+      restoreRenderFocus(token);
+    }
   }
   document.documentElement.dataset.motion = motionPreference.matches ? "reduced" : "full";
   motionPreference.addEventListener("change", (event) => {
@@ -400,6 +472,40 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       document.body.classList.remove("dialog-open");
     }
   }
+  function closeMobileToolsAboveBreakpoint() {
+    if (window.innerWidth <= 720) return;
+    const menu = $("#mobileToolsMenu");
+    if (!menu || menu.classList.contains("hidden")) return;
+    const focusWasInside = menu.contains(document.activeElement);
+    setDialogOpenState(menu, false);
+    menu.classList.add("hidden");
+    $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
+    motionState.activeDialogTrigger = null;
+    if (!currentDialog()) {
+      $("#appShell")?.removeAttribute("inert");
+      document.body.classList.remove("dialog-open");
+    }
+    if (focusWasInside) {
+      const dialog = currentDialog();
+      const nextFocus = dialog ? dialogFocusable(dialog)[0] : $("#mainContent");
+      nextFocus?.focus({ preventScroll: true });
+    }
+  }
+  let memoryFiltersDesktopLayout = window.innerWidth > 720;
+  function syncMemoryFilterDisclosure(force = false) {
+    const desktopLayout = window.innerWidth > 720;
+    if (!force && desktopLayout === memoryFiltersDesktopLayout) return;
+    memoryFiltersDesktopLayout = desktopLayout;
+    if (typeof document.querySelector !== "function") return;
+    const filters = document.querySelector(".mobile-memory-filters");
+    if (filters) filters.open = desktopLayout;
+  }
+  function handleResponsiveResize() {
+    closeMobileToolsAboveBreakpoint();
+    syncMemoryFilterDisclosure();
+  }
+  syncMemoryFilterDisclosure(true);
+  window.addEventListener?.("resize", handleResponsiveResize);
   function announce(message) {
     const region = $("#globalStatus");
     if (!region) return;
@@ -996,6 +1102,9 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     motionState,
     rememberDisclosureStates,
     restoreDisclosureStates,
+    captureRenderFocus,
+    restoreRenderFocus,
+    preserveFocusDuringRender,
     STATUS,
     VIEW_TITLES,
     VIEW_META,

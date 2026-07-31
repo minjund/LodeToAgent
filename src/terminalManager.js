@@ -19,6 +19,7 @@ const MAX_SESSIONS = 24;
 const MAX_INPUT_CHARS = 128 * 1024;
 const MAX_AGENT_ARGUMENT_CHARS = 8 * 1024;
 const MAX_REPLAY_CHARS = 2 * 1024 * 1024;
+const MAX_DELIVERY_RECORDS = 256;
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
 const STORE_VERSION = 2;
 const PERSIST_DELAY_MS = 150;
@@ -42,17 +43,68 @@ function normalizedArguments(value, maxChars = 2_000) {
     : [];
 }
 
+function normalizedDeliveryId(value) {
+  const id = cleanText(value, 240);
+  return /^[A-Za-z0-9:._-]+$/.test(id) ? id : '';
+}
+
+function deliveryFingerprint(value) {
+  return crypto.createHash('sha256').update(String(value == null ? '' : value), 'utf8').digest('hex');
+}
+
+function rejectedDeliveryError(message, code = 'DELIVERY_REJECTED', deliveryId = '') {
+  const error = new Error(message);
+  error.code = code;
+  error.deliveryState = 'rejected';
+  error.deliveryId = deliveryId;
+  return error;
+}
+
+function markDeliveryRejected(error, deliveryId) {
+  const value = error instanceof Error ? error : new Error(String(error || '질문을 보내지 못했습니다.'));
+  if (!value.code) value.code = 'DELIVERY_REJECTED';
+  value.deliveryState = 'rejected';
+  value.deliveryId = deliveryId;
+  return value;
+}
+
+function restoredDeliveries(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-MAX_DELIVERY_RECORDS).map(record => {
+    const id = normalizedDeliveryId(record?.id);
+    const state = record?.state === 'accepted' ? 'accepted' : (record?.state === 'prepared' ? 'prepared' : '');
+    const timestamp = cleanText(record?.timestamp, 50);
+    const target = cleanText(record?.target, 400);
+    const fingerprint = String(record?.fingerprint || '').trim().toLowerCase();
+    return id && state ? {
+      id,
+      state,
+      timestamp,
+      ...(target ? { target } : {}),
+      ...(/^[a-f0-9]{64}$/.test(fingerprint) ? { fingerprint } : {}),
+    } : null;
+  }).filter(Boolean);
+}
+
+function validAgentSessionId(value) {
+  const sessionId = cleanText(value, MAX_AGENT_ARGUMENT_CHARS);
+  return Boolean(sessionId && sessionId !== '--' && !sessionId.startsWith('-'));
+}
+
 function resumableAgentArguments(options = {}) {
   const args = normalizedArguments(options.args, MAX_AGENT_ARGUMENT_CHARS);
   if (options.type !== 'agent') return args;
   if (options.provider === 'codex' && args[0] === 'resume') {
     const sessionIndex = args[1] === '--' ? 2 : 1;
-    return args[sessionIndex] ? args.slice(0, sessionIndex + 1) : args;
+    if (!validAgentSessionId(args[sessionIndex])) return args;
+    return args[1] === '--'
+      ? ['resume', '--', args[sessionIndex]]
+      : ['resume', args[sessionIndex]];
   }
-  if (options.provider === 'claude' || options.provider === 'gemini') {
+  if (options.provider === 'claude' || options.provider === 'gemini' || options.provider === 'grok') {
     const resumeIndex = args.indexOf('--resume');
-    return resumeIndex >= 0 && args[resumeIndex + 1]
-      ? args.slice(0, resumeIndex + 2)
+    return resumeIndex >= 0 && validAgentSessionId(args[resumeIndex + 1])
+      ? ['--resume', args[resumeIndex + 1]]
       : args;
   }
   return args;
@@ -295,6 +347,28 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   };
 }
 
+function managedTmuxAttachSpec(options, platform = process.platform) {
+  if (!options?.managedTmuxSession) throw new Error('재연결할 명령창 묶음 정보가 없습니다.');
+  const tmuxArgs = [
+    '-L', options.tmuxSocket,
+    'attach-session', '-t', `=${options.managedTmuxSession}`,
+  ];
+  if (platform !== 'win32') {
+    return {
+      file: 'tmux',
+      args: tmuxArgs,
+      cwd: options.cwd,
+      label: options.title || options.provider || '관리형 AI 명령창',
+    };
+  }
+  return {
+    file: 'wsl.exe',
+    args: ['-d', options.distro, '--cd', options.cwd, '--', 'tmux', ...tmuxArgs],
+    cwd: os.homedir(),
+    label: options.title || options.provider || '관리형 AI 명령창',
+  };
+}
+
 function publicSession(session, includeReplay = false) {
   const value = {
     id: session.id,
@@ -370,15 +444,19 @@ function persistedSession(session) {
     exitCode: session.exitCode,
     signal: session.signal,
     replay: session.replay,
+    deliveries: restoredDeliveries(session.deliveries),
   };
 }
 
 function hasSafeAgentResume(options = {}) {
   if (options.type !== 'agent') return true;
   const args = resumableAgentArguments(options);
-  if (options.provider === 'codex') return args[0] === 'resume' && Boolean(args[1]);
+  if (options.provider === 'codex') {
+    if (args[0] !== 'resume') return false;
+    return validAgentSessionId(args[args[1] === '--' ? 2 : 1]);
+  }
   const resumeIndex = args.indexOf('--resume');
-  return resumeIndex >= 0 && Boolean(args[resumeIndex + 1]);
+  return resumeIndex >= 0 && validAgentSessionId(args[resumeIndex + 1]);
 }
 
 class TerminalManager extends EventEmitter {
@@ -444,6 +522,7 @@ class TerminalManager extends EventEmitter {
           cols: options.cols,
           rows: options.rows,
           replay: String(value.replay || '').slice(-MAX_REPLAY_CHARS),
+          deliveries: restoredDeliveries(value.deliveries),
           process: null,
           generation: 0,
           recoveryPending: value.status === 'running' || value.status === 'starting',
@@ -466,7 +545,7 @@ class TerminalManager extends EventEmitter {
   }
 
   persistNow() {
-    if (!this.storeFile) return;
+    if (!this.storeFile) return true;
     if (this.persistTimer) {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
@@ -485,9 +564,11 @@ class TerminalManager extends EventEmitter {
       this.fileSystem.renameSync(temporary, this.storeFile);
       restrictPathPermissions(path.dirname(this.storeFile), { fileSystem: this.fileSystem, platform: this.platform });
       restrictPathPermissions(this.storeFile, { fileSystem: this.fileSystem, platform: this.platform });
+      return true;
     } catch (error) {
       runBestEffort('terminal-persistence-temp-cleanup', () => this.fileSystem.unlinkSync(temporary));
       this.persistenceError('save', error);
+      return false;
     }
   }
 
@@ -520,6 +601,7 @@ class TerminalManager extends EventEmitter {
         const reattachMessage = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
         session.replay = `${session.replay}${reattachMessage}`.slice(-MAX_REPLAY_CHARS);
         try {
+          session.spec = managedTmuxAttachSpec(session.options, this.platform);
           this.spawn(session);
           recovered.push(publicSession(session, true));
         } catch (_recoveryFailed) {
@@ -615,26 +697,137 @@ class TerminalManager extends EventEmitter {
   reusableAgentBridge(options = {}) {
     const key = agentBridgeKey(options);
     if (!key) return null;
-    return [...this.sessions.values()]
-      .filter(session => agentBridgeKey(session.options) === key
-        && session.process
-        && session.status === 'running')
+    const candidates = [...this.sessions.values()]
+      .filter(session => agentBridgeKey(session.options) === key)
       .sort((left, right) => (
         (Date.parse(right.updatedAt || 0) || 0) - (Date.parse(left.updatedAt || 0) || 0)
-      ))[0] || null;
+      ));
+    const running = candidates.find(session => session.process && session.status === 'running');
+    if (running) return running;
+    return candidates.find(session => session.options.sessionBackend === 'managed-tmux'
+      && session.status === 'detached'
+      && this.managedTmuxRuntime.exists(session.options)) || null;
+  }
+
+  deliveryRecord(deliveryId) {
+    const id = normalizedDeliveryId(deliveryId);
+    if (!id) return null;
+    for (const session of this.sessions.values()) {
+      const record = (session.deliveries || []).find(item => item.id === id);
+      if (record) return { session, record };
+    }
+    return null;
+  }
+
+  preparedDeliveryRecord(target, fingerprint, sessionId = '') {
+    if (!target || !fingerprint) return null;
+    for (const session of this.sessions.values()) {
+      if (sessionId && session.id !== sessionId) continue;
+      const record = (session.deliveries || []).find(item => (
+        item.state === 'prepared'
+        && item.target === target
+        && item.fingerprint === fingerprint
+      ));
+      if (record) return { session, record };
+    }
+    return null;
+  }
+
+  rememberDelivery(session, deliveryId, state, options = {}) {
+    const id = normalizedDeliveryId(deliveryId);
+    if (!id || !session) return null;
+    const deliveries = Array.isArray(session.deliveries) ? session.deliveries : [];
+    const previousDeliveries = deliveries.map(item => ({ ...item }));
+    let record = deliveries.find(item => item.id === id);
+    if (!record) {
+      record = { id, state, timestamp: new Date().toISOString() };
+      deliveries.push(record);
+    } else {
+      record.state = state;
+      record.timestamp = new Date().toISOString();
+    }
+    if (options.target) record.target = cleanText(options.target, 400);
+    if (/^[a-f0-9]{64}$/.test(String(options.fingerprint || ''))) record.fingerprint = options.fingerprint;
+    session.deliveries = deliveries.slice(-MAX_DELIVERY_RECORDS);
+    if (!this.persistNow() && options.required) {
+      session.deliveries = previousDeliveries;
+      throw rejectedDeliveryError(
+        '전달 장부를 안전하게 저장하지 못해 질문을 보내지 않았습니다.',
+        'DELIVERY_LEDGER_UNAVAILABLE',
+        id,
+      );
+    }
+    return record;
+  }
+
+  forgetDelivery(session, deliveryId) {
+    const id = normalizedDeliveryId(deliveryId);
+    if (!id || !session) return true;
+    const previousDeliveries = (session.deliveries || []).map(item => ({ ...item }));
+    session.deliveries = previousDeliveries.filter(item => item.id !== id);
+    if (this.persistNow()) return true;
+    session.deliveries = previousDeliveries;
+    return false;
+  }
+
+  duplicateDeliveryResult(found, requestedDeliveryId = '') {
+    const state = found.record.state === 'accepted' ? 'accepted' : 'unknown';
+    return {
+      ...publicSession(found.session, true),
+      ok: true,
+      reused: true,
+      duplicate: true,
+      promptSent: state === 'accepted',
+      deliveryId: requestedDeliveryId || found.record.id,
+      ...(requestedDeliveryId && requestedDeliveryId !== found.record.id
+        ? { originalDeliveryId: found.record.id }
+        : {}),
+      deliveryState: state,
+    };
   }
 
   create(rawOptions = {}) {
     const launchOptions = normalizeLaunchOptions(rawOptions, this.platform);
     const initialCommand = String(rawOptions.initialCommand || '').trim();
-    if (initialCommand.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
+    const initialCommandInArgs = Boolean(initialCommand && rawOptions.initialCommandInArgs);
+    const requestedDeliveryId = String(rawOptions.deliveryId || '').trim();
+    const deliveryId = normalizedDeliveryId(requestedDeliveryId);
+    if (requestedDeliveryId && !deliveryId) {
+      throw rejectedDeliveryError('전달 요청 식별자가 올바르지 않습니다.');
+    }
+    if (initialCommand.length > MAX_INPUT_CHARS) {
+      throw rejectedDeliveryError('한 번에 보낼 수 있는 입력 크기를 초과했습니다.', 'DELIVERY_TOO_LARGE', deliveryId);
+    }
+    const fingerprint = initialCommand ? deliveryFingerprint(initialCommand) : '';
+    const deliveryTarget = agentBridgeKey(launchOptions)
+      || `agent:${launchOptions.provider}:${launchOptions.cwd}`;
+    const knownDelivery = deliveryId ? this.deliveryRecord(deliveryId) : null;
+    if (knownDelivery) {
+      if (agentBridgeKey(knownDelivery.session.options) !== agentBridgeKey(launchOptions)) {
+        throw rejectedDeliveryError('이 전달 요청은 다른 AI 대화에 이미 사용됐습니다.', 'DELIVERY_ID_CONFLICT', deliveryId);
+      }
+      if (fingerprint && knownDelivery.record.fingerprint && knownDelivery.record.fingerprint !== fingerprint) {
+        throw rejectedDeliveryError('이 전달 요청은 다른 내용에 이미 사용됐습니다.', 'DELIVERY_ID_CONFLICT', deliveryId);
+      }
+      return this.duplicateDeliveryResult(knownDelivery);
+    }
+    const matchingPrepared = deliveryId && fingerprint
+      ? this.preparedDeliveryRecord(deliveryTarget, fingerprint)
+      : null;
+    if (matchingPrepared) return this.duplicateDeliveryResult(matchingPrepared, deliveryId);
     if (rawOptions.reuseBridge) {
       const reusable = this.reusableAgentBridge(launchOptions);
       if (reusable) {
-        if (initialCommand) this.command(reusable.id, initialCommand);
+        const reconnected = !reusable.process || reusable.status !== 'running';
+        if (reconnected) this.reconnect(reusable.id);
+        const delivery = initialCommand
+          ? this.command(reusable.id, initialCommand, { deliveryId })
+          : { ok: true, deliveryId, deliveryState: 'accepted' };
         return {
           ...publicSession(reusable, true),
+          ...delivery,
           reused: true,
+          reconnected,
           promptSent: Boolean(initialCommand),
         };
       }
@@ -643,13 +836,17 @@ class TerminalManager extends EventEmitter {
     this.reclaimFinishedSessions(1);
     if (this.sessions.size >= MAX_SESSIONS) throw new Error(`동시에 열 수 있는 명령창은 최대 ${MAX_SESSIONS}개입니다.`);
     const recoveryArgs = Array.isArray(rawOptions.recoveryArgs)
-      ? normalizedArguments(rawOptions.recoveryArgs, MAX_AGENT_ARGUMENT_CHARS)
+      ? resumableAgentArguments({
+          type: launchOptions.type,
+          provider: launchOptions.provider,
+          args: rawOptions.recoveryArgs,
+        })
       : null;
-    const options = recoveryArgs ? { ...launchOptions, args: recoveryArgs } : launchOptions;
     const id = `terminal:${Date.now().toString(36)}:${crypto.randomBytes(4).toString('hex')}`;
-    if (options.sessionBackend === 'managed-tmux' && !options.managedTmuxSession) {
-      options.managedTmuxSession = safeTmuxName(`lta-${options.provider}-${id.split(':').slice(1).join('-')}`);
+    if (launchOptions.sessionBackend === 'managed-tmux' && !launchOptions.managedTmuxSession) {
+      launchOptions.managedTmuxSession = safeTmuxName(`lta-${launchOptions.provider}-${id.split(':').slice(1).join('-')}`);
     }
+    const options = recoveryArgs ? { ...launchOptions, args: recoveryArgs } : launchOptions;
     const spec = launchSpec(launchOptions, this.platform, this.agentProviders);
     const now = new Date().toISOString();
     const session = {
@@ -667,6 +864,7 @@ class TerminalManager extends EventEmitter {
       cols: options.cols,
       rows: options.rows,
       replay: '',
+      deliveries: [],
       process: null,
       generation: 0,
       recoveryPending: false,
@@ -675,8 +873,26 @@ class TerminalManager extends EventEmitter {
     };
     this.sessions.set(id, session);
     try {
+      if (deliveryId && initialCommandInArgs) this.rememberDelivery(session, deliveryId, 'prepared', {
+        required: true,
+        target: deliveryTarget,
+        fingerprint,
+      });
       this.spawn(session);
+      if (deliveryId && initialCommandInArgs) this.rememberDelivery(session, deliveryId, 'accepted', {
+        target: deliveryTarget,
+        fingerprint,
+      });
     } catch (error) {
+      if (deliveryId && initialCommandInArgs && error?.terminalProcessStarted === false) {
+        if (this.forgetDelivery(session, deliveryId)) {
+          error = markDeliveryRejected(error, deliveryId);
+        } else {
+          error.deliveryId = deliveryId;
+          error.deliveryState = 'unknown';
+        }
+      }
+      if (error?.code === 'DELIVERY_LEDGER_UNAVAILABLE') this.sessions.delete(session.id);
       // Keep failed launches visible until the user explicitly closes them.
       // The failed session contains the startup error in replay and can be
       // inspected, restarted, or removed from the session terminal.
@@ -687,7 +903,9 @@ class TerminalManager extends EventEmitter {
     return {
       ...publicSession(session, true),
       reused: false,
-      promptSent: Boolean(initialCommand && rawOptions.initialCommandInArgs),
+      promptSent: initialCommandInArgs,
+      deliveryId,
+      deliveryState: deliveryId && initialCommandInArgs ? 'accepted' : '',
     };
   }
 
@@ -703,6 +921,7 @@ class TerminalManager extends EventEmitter {
     session.signal = null;
     session.updatedAt = new Date().toISOString();
     this.emitState('updated', session);
+    let processHandle = null;
     try {
       const spawnOptions = {
         name: 'xterm-256color',
@@ -713,7 +932,7 @@ class TerminalManager extends EventEmitter {
         useConpty: this.platform === 'win32',
       };
       if (this.platform !== 'win32') spawnOptions.encoding = 'utf8';
-      const processHandle = this.pty().spawn(session.spec.file, session.spec.args, spawnOptions);
+      processHandle = this.pty().spawn(session.spec.file, session.spec.args, spawnOptions);
       session.process = processHandle;
       session.pid = Number(processHandle.pid) > 0 ? Number(processHandle.pid) : null;
       session.status = 'running';
@@ -752,6 +971,7 @@ class TerminalManager extends EventEmitter {
       });
       this.emitState('updated', session);
     } catch (error) {
+      error.terminalProcessStarted = Boolean(processHandle);
       session.process = null;
       session.pid = null;
       session.status = 'failed';
@@ -793,11 +1013,87 @@ class TerminalManager extends EventEmitter {
     return { ok: true };
   }
 
-  command(id, value) {
-    const command = String(value == null ? '' : value).replace(/\r?\n/g, '\r');
-    if (!command.trim()) return { ok: false, error: '명령을 입력하세요.' };
-    this.write(id, `${command}\r`);
-    return { ok: true };
+  command(id, value, deliveryOptions = {}) {
+    const command = String(value == null ? '' : value).replace(/\r\n?/g, '\n');
+    const requestedDeliveryId = String(deliveryOptions?.deliveryId || '').trim();
+    const deliveryId = normalizedDeliveryId(requestedDeliveryId);
+    if (requestedDeliveryId && !deliveryId) {
+      throw rejectedDeliveryError('전달 요청 식별자가 올바르지 않습니다.');
+    }
+    if (!command.trim()) return {
+      ok: false,
+      error: '명령을 입력하세요.',
+      code: 'DELIVERY_EMPTY',
+      deliveryId,
+      deliveryState: 'rejected',
+    };
+    if (command.length > MAX_INPUT_CHARS) {
+      throw rejectedDeliveryError('한 번에 보낼 수 있는 입력 크기를 초과했습니다.', 'DELIVERY_TOO_LARGE', deliveryId);
+    }
+    const fingerprint = deliveryFingerprint(command);
+    const known = deliveryId ? this.deliveryRecord(deliveryId) : null;
+    if (known) {
+      if (known.session.id !== String(id || '')
+        || (known.record.fingerprint && known.record.fingerprint !== fingerprint)) {
+        throw rejectedDeliveryError(
+          '이 전달 요청은 다른 명령창 또는 다른 내용에 이미 사용됐습니다.',
+          'DELIVERY_ID_CONFLICT',
+          deliveryId,
+        );
+      }
+      return {
+        ok: true,
+        duplicate: true,
+        deliveryId,
+        deliveryState: known.record.state === 'accepted' ? 'accepted' : 'unknown',
+      };
+    }
+    let session;
+    try {
+      session = this.required(id);
+      const matchingPrepared = deliveryId
+        ? (this.preparedDeliveryRecord(session.id, fingerprint, session.id)
+          || this.preparedDeliveryRecord(agentBridgeKey(session.options), fingerprint, session.id))
+        : null;
+      if (matchingPrepared) return {
+        ok: true,
+        duplicate: true,
+        deliveryId,
+        originalDeliveryId: matchingPrepared.record.id,
+        deliveryState: 'unknown',
+      };
+      if ((!session.process || session.status !== 'running')
+        && session.options.sessionBackend === 'managed-tmux'
+        && session.status === 'detached') {
+        this.reconnect(session.id);
+      }
+      if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+    } catch (error) {
+      if (deliveryId) throw markDeliveryRejected(error, deliveryId);
+      throw error;
+    }
+    if (deliveryId) this.rememberDelivery(session, deliveryId, 'prepared', {
+      required: true,
+      target: session.id,
+      fingerprint,
+    });
+    try {
+      const payload = command.includes('\n')
+        ? `\x1b[200~${command}\x1b[201~\r`
+        : `${command}\r`;
+      session.process.write(payload);
+    } catch (error) {
+      if (deliveryId) {
+        error.deliveryId = deliveryId;
+        error.deliveryState = 'unknown';
+      }
+      throw error;
+    }
+    if (deliveryId) this.rememberDelivery(session, deliveryId, 'accepted', {
+      target: session.id,
+      fingerprint,
+    });
+    return { ok: true, deliveryId, deliveryState: 'accepted' };
   }
 
   resize(id, cols, rows) {
@@ -850,6 +1146,9 @@ class TerminalManager extends EventEmitter {
     this.releaseProcess(session);
     session.pid = null;
     session.replay = '';
+    // The first-launch spec may contain an initial prompt. An explicit restart
+    // must always rebuild from the persisted, prompt-free recovery options.
+    session.spec = launchSpec(session.options, this.platform, this.agentProviders);
     this.spawn(session);
     return publicSession(session, true);
   }
@@ -872,6 +1171,9 @@ class TerminalManager extends EventEmitter {
     }
     session.recoveredAfterHostRestart = false;
     session.recoverySkippedReason = '';
+    // Reconnection is attach-only. It must never create a new provider process
+    // if the managed tmux target disappears after the existence check.
+    session.spec = managedTmuxAttachSpec(session.options, this.platform);
     this.spawn(session);
     return publicSession(session, true);
   }

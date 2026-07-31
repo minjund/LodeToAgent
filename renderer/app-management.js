@@ -565,10 +565,8 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       state.providerUsage = await window.loadtoagent.providerUsage({ force: Boolean(force) });
     } finally {
       state.providerUsageLoading = false;
-      if (state.view === "all" && state.workspace !== "all") {
-        renderOperationsOverview();
-        renderGlobalStats();
-      }
+      if (state.view === "all" && state.workspace !== "all") renderOperationsOverview();
+      renderGlobalStats();
     }
     return state.providerUsage;
   }

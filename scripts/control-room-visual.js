@@ -297,8 +297,9 @@ app.whenReady().then(async () => {
       || overviewMetrics.usageSummaryVisible || overviewMetrics.usageSummaryText
       || overviewMetrics.usageProviderCards !== 0 || overviewMetrics.usageGauges !== 0
       || !overviewMetrics.sidebarNavigationRemoved || !overviewMetrics.sidebarAllProjectsRemoved
-      || overviewMetrics.projectContextVisible || overviewMetrics.projectContextTabs.length !== 0
-      || overviewMetrics.projectToolsVisible
+      || !overviewMetrics.projectContextVisible
+      || JSON.stringify(overviewMetrics.projectContextTabs) !== JSON.stringify(['all', 'active', 'waiting'])
+      || !overviewMetrics.projectToolsVisible
       || overviewMetrics.controlRooms < 1
       || !overviewMetrics.rootVisible || !overviewMetrics.mainNode || overviewMetrics.helperNodes < 1
       || !overviewMetrics.compositeSessionLabel.includes('내 답변 대기')
@@ -390,7 +391,7 @@ app.whenReady().then(async () => {
       projectFolderHeaderHidden: document.querySelector('.control-room-project-group > .control-project-header')?.getBoundingClientRect().height === 0,
       projectFlowLinkHidden: document.querySelector('.control-project-flow-link')?.getBoundingClientRect().height === 0,
       projectFrameFlattened: getComputedStyle(document.querySelector('.control-room-project-frame')).borderTopWidth === '0px',
-      contextSummaryHidden: !document.querySelector('#projectContextNav')?.getBoundingClientRect().height,
+      contextNavigationVisible: Boolean(document.querySelector('#projectContextNav')?.getBoundingClientRect().height),
       history: (() => {
         const rail = document.querySelector('#projectHistoryRail');
         const current = document.querySelector('#liveSessionGrid');
@@ -417,7 +418,7 @@ app.whenReady().then(async () => {
       duplicateProgressHeadingHidden: document.querySelector('.live-section-title')?.getBoundingClientRect().height === 0,
     }))()`);
     if (projectContextMetrics.project !== 'CMS_WEB'
-      || !projectContextMetrics.contextSummaryHidden
+      || !projectContextMetrics.contextNavigationVisible
       || !projectContextMetrics.tokenScope.includes('선택한 AI')
       || projectContextMetrics.tokenScope.includes('CMS_WEB')
       || projectContextMetrics.tokenItems !== 4
@@ -458,11 +459,11 @@ app.whenReady().then(async () => {
       '프로젝트 전체 컨텍스트로 돌아오지 못했습니다.',
     );
     const projectToolsMetrics = {
-      hidden: !await win.webContents.executeJavaScript(
+      visible: await win.webContents.executeJavaScript(
         `Boolean(document.querySelector('#advancedToolsNav > summary')?.getBoundingClientRect().width)`,
       ),
     };
-    if (!projectToolsMetrics.hidden) throw new Error(`프로젝트 추가 기능 요약이 숨겨지지 않았습니다: ${JSON.stringify(projectToolsMetrics)}`);
+    if (!projectToolsMetrics.visible) throw new Error(`프로젝트 추가 기능 요약이 표시되지 않았습니다: ${JSON.stringify(projectToolsMetrics)}`);
 
     const usageDetailMetrics = {
       removed: !await win.webContents.executeJavaScript(

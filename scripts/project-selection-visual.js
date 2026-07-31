@@ -201,8 +201,10 @@ app.whenReady().then(async () => {
     })()`);
     if (!settingsHelpLayout.helpCardRemoved
       || !settingsHelpLayout.shortcutInBrand
-      || settingsHelpLayout.shortcutWidth > 32
-      || settingsHelpLayout.shortcutHeight > 32
+      || settingsHelpLayout.shortcutWidth < 44
+      || settingsHelpLayout.shortcutHeight < 44
+      || settingsHelpLayout.shortcutWidth > 48
+      || settingsHelpLayout.shortcutHeight > 48
       || settingsHelpLayout.legacyHelpCopyVisible) {
       throw new Error(`설정 도움말 제거·브랜드 단축키 배치 검증 실패: ${JSON.stringify(settingsHelpLayout)}`);
     }

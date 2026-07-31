@@ -47,7 +47,7 @@ function checkStatus(value) {
 function controlCapabilities(session) {
   const live = LIVE_STATUSES.has(session.status);
   const managed = Boolean(session.runId);
-  const resumable = Boolean(session.externalId && ['claude', 'codex', 'gemini'].includes(session.provider));
+  const resumable = Boolean(session.externalId && ['claude', 'codex', 'gemini', 'grok'].includes(session.provider));
   const directlyControllable = (session.runtimePresence || []).some(item => item && (item.terminalId || item.paneId || item.nativeId));
   const canSend = directlyControllable || resumable;
   return {

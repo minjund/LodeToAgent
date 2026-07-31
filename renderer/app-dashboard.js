@@ -17,6 +17,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     isProviderVisible = () => true,
     isRuntimeLoopSession = () => false,
     isControlRoomSession = session => session?.status === "running" || session?.status === "starting",
+    preserveFocusDuringRender = callback => callback(),
   } = context;
 
   function displaySessions() {
@@ -78,10 +79,11 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#providerRail").innerHTML = visibleProviders()
       .map((provider) => {
         const available = !!state.availability[provider.id];
-        return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}" title="${esc(provider.label)}">
+        const connectionStatus = available ? window.LoadToAgentI18n.t("ui.cli_found") : window.LoadToAgentI18n.t("ui.setup_required");
+        return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}" title="${esc(provider.label)}" role="img" aria-label="${esc(`${provider.label}: ${connectionStatus}`)}">
         <span class="provider-mini-mark">${esc(provider.mark)}</span><strong>${esc(provider.label)}</strong>
-        <small>${available ? window.LoadToAgentI18n.t("ui.cli_found") : window.LoadToAgentI18n.t("ui.setup_required")}</small>
-        <span class="connection-dot"></span>
+        <small>${esc(connectionStatus)}</small>
+        <span class="connection-dot" aria-hidden="true"></span>
       </div>`;
       })
       .join("");
@@ -1118,7 +1120,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   return {
-    renderProviderRail,
+    renderProviderRail: (...args) => preserveFocusDuringRender(() => renderProviderRail(...args)),
     isProjectlessSession,
     sessionOriginPath,
     observedProjects,
@@ -1127,14 +1129,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     matchesWorkspaceFilter,
     unlinkedLiveTmuxSessions,
     controlRoomRootSessions,
-    renderWorkspaces,
-    renderGlobalStats,
+    renderWorkspaces: (...args) => preserveFocusDuringRender(() => renderWorkspaces(...args)),
+    renderGlobalStats: (...args) => preserveFocusDuringRender(() => renderGlobalStats(...args)),
     formatBytes,
     installationTypeLabel,
     updatePresentation,
     renderUpdateSettings,
-    renderProviderOverview,
-    renderProviderFilter,
+    renderProviderOverview: (...args) => preserveFocusDuringRender(() => renderProviderOverview(...args)),
+    renderProviderFilter: (...args) => preserveFocusDuringRender(() => renderProviderFilter(...args)),
     toggleProviderFilter,
     announceProviderFilter,
     filteredSessions,
@@ -1143,6 +1145,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     moveSessionOrder,
     ensureProjectOrder,
     moveProjectOrder,
-    renderProviderVisibilitySettings,
+    renderProviderVisibilitySettings: (...args) => preserveFocusDuringRender(() => renderProviderVisibilitySettings(...args)),
   };
 };

@@ -122,7 +122,7 @@ app.whenReady().then(() => {
           promptVisible: Boolean(promptRect && promptRect.width > 0 && promptRect.height > 0 && promptStyle.display !== 'none'),
           promptUnboxed: Boolean(promptStyle && promptStyle.borderTopWidth === '0px' && promptStyle.backgroundColor === 'rgba(0, 0, 0, 0)'),
           projectToolbarHidden: document.querySelector('#projectTaskToolbar')?.classList.contains('hidden') || false,
-          visibleLegacyNav: [...document.querySelectorAll('#projectContextNav button, #projectContextNav summary')]
+          visiblePrimaryNavControls: [...document.querySelectorAll('#projectContextNav button, #projectContextNav summary')]
             .filter(item => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().height > 0).length,
           oldJargonVisible: ['AI AGENT OBSERVATORY', 'SESSION STREAM', 'AGENT MIND MAP', 'NEW TMUX SESSION'].filter(label => visibleText.includes(label)),
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
@@ -130,7 +130,7 @@ app.whenReady().then(() => {
       })()`);
       if (!beginnerMetrics.guideHidden || beginnerMetrics.promptText !== '프로젝트를 선택해주세요'
         || !beginnerMetrics.promptVisible || !beginnerMetrics.promptUnboxed || !beginnerMetrics.projectToolbarHidden
-        || beginnerMetrics.visibleLegacyNav !== 0 || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+        || beginnerMetrics.visiblePrimaryNavControls !== 4 || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`프로젝트 선택 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);

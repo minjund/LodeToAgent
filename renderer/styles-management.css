@@ -472,7 +472,7 @@
 .attention-card-header-actions button {
   min-height: 34px;
   padding: 7px 11px;
-  border: 1px solid color-mix(in srgb, var(--management-provider, var(--cyan)) 45%, var(--border));
+  border: 1px solid color-mix(in srgb, var(--management-provider, var(--cyan)) 45%, var(--line));
   border-radius: 9px;
   color: var(--text);
   background: color-mix(in srgb, var(--management-provider, var(--cyan)) 10%, var(--panel));

@@ -48,9 +48,9 @@ function createWorkbench(root, options = {}) {
     window: {
       LoadToAgentI18n: { t: key => key },
       loadtoagent: {
-        terminalCommand: async (id, text) => {
-          terminalCalls.push([id, text]);
-          return { ok: true };
+        terminalCommand: async (id, text, deliveryOptions) => {
+          terminalCalls.push([id, text, deliveryOptions]);
+          return options.terminalCommandResult || { ok: true };
         },
       },
     },
@@ -65,6 +65,7 @@ function createWorkbench(root, options = {}) {
     interactionMode: options.interactionMode || 'computer',
     commandSending: false,
     commandDrafts: new Map(),
+    commandDeliveries: new Map(),
     terminals: new Map(),
     remoteTerminal: {
       host: createElement(),
@@ -156,6 +157,56 @@ function registerTerminalInteractionTests(context) {
     });
     await agentBound.workbench.selectTmux('FixtureLinux', '%7');
     assert.equal(agentBound.state.interactionMode, 'question');
+  });
+
+  test('AI 질문 화면의 확인 불명 응답은 초안을 유지하고 같은 질문을 다시 보내지 않는다', async () => {
+    const session = {
+      id: 'terminal:agent-unknown',
+      type: 'agent',
+      provider: 'codex',
+      status: 'running',
+      title: 'GPT terminal',
+      cwd: '/tmp',
+    };
+    const { workbench, terminalCalls, notices } = createWorkbench(root, {
+      session,
+      interactionMode: 'question',
+      boundAgent: { id: 'codex:unknown', provider: 'codex', title: 'GPT task' },
+      terminalCommandResult: { ok: true, deliveryState: 'unknown' },
+    });
+
+    const first = await workbench.sendCommand('한 번만 보낼 질문');
+    const second = await workbench.sendCommand('한 번만 보낼 질문');
+
+    assert.equal(first, false);
+    assert.equal(second, false);
+    assert.equal(terminalCalls.length, 1);
+    assert.match(terminalCalls[0][2].deliveryId, /^delivery:/);
+    assert.deepStrictEqual(notices, [
+      ['terminal.agent.delivery_uncertain', 'warning'],
+      ['terminal.agent.delivery_uncertain', 'warning'],
+    ]);
+
+    const rejected = createWorkbench(root, {
+      session: { ...session, id: 'terminal:agent-rejected' },
+      interactionMode: 'question',
+      boundAgent: { id: 'codex:rejected', provider: 'codex', title: 'GPT task' },
+      terminalCommandResult: {
+        ok: false,
+        error: '질문을 쓰기 전에 안전하게 중단',
+        deliveryState: 'rejected',
+      },
+    });
+    const rejectedFirst = await rejected.workbench.sendCommand('초안을 유지하고 재시도할 질문');
+    const rejectedSecond = await rejected.workbench.sendCommand('초안을 유지하고 재시도할 질문');
+    assert.equal(rejectedFirst, false);
+    assert.equal(rejectedSecond, false);
+    assert.equal(rejected.terminalCalls.length, 2);
+    assert.notEqual(rejected.terminalCalls[0][2].deliveryId, rejected.terminalCalls[1][2].deliveryId);
+    assert.deepStrictEqual(rejected.notices, [
+      ['agent.delivery_retry_ready', 'warning'],
+      ['agent.delivery_retry_ready', 'warning'],
+    ]);
   });
 }
 

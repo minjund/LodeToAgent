@@ -79,11 +79,14 @@
       : null;
 
     let phase = "confirming";
-    if (entry.status === "failed") phase = "failed";
-    else if (entry.status === "interrupted") phase = "interrupted";
-    else if (assistantMessage) phase = "responded";
+    // Provider transcripts are the authoritative delivery evidence. A lost
+    // terminal acknowledgement must not permanently override an observed turn.
+    if (assistantMessage) phase = "responded";
     else if (userMessage && responseStartEvent) phase = "responding";
     else if (userMessage) phase = "received";
+    else if (entry.status === "interrupted") phase = "interrupted";
+    else if (entry.status === "uncertain") phase = "uncertain";
+    else if (entry.status === "failed") phase = "failed";
     else if (entry.status === "sending") phase = "sending";
     else if (elapsedMs >= CONFIRMATION_DELAY_MS) phase = "delayed";
 

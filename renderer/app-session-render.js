@@ -50,6 +50,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderOperationsOverview,
     progressHtml,
     healthHtml,
+    preserveFocusDuringRender = callback => callback(),
   } = context;
 
   function keepDesktopSidebarAtTop() {
@@ -384,61 +385,65 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   }
 
   function renderSessions(motionKind = "refresh", deferMotion = false) {
-    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
-      motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
-    );
-    context.rememberDisclosureStates?.(document);
-    try {
-      return renderSessionsContent(motionKind, deferMotion);
-    } finally {
-      context.restoreDisclosureStates?.(document);
-      restoreScroll();
-      if (motionKind === "view") {
-        const resetSidebar = () => {
-          const sidebar = $(".sidebar");
-          if (sidebar) sidebar.scrollTop = 0;
-        };
-        resetSidebar();
-        requestAnimationFrame(() => {
+    return preserveFocusDuringRender(() => {
+      const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+        motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
+      );
+      context.rememberDisclosureStates?.(document);
+      try {
+        return renderSessionsContent(motionKind, deferMotion);
+      } finally {
+        context.restoreDisclosureStates?.(document);
+        restoreScroll();
+        if (motionKind === "view") {
+          const resetSidebar = () => {
+            const sidebar = $(".sidebar");
+            if (sidebar) sidebar.scrollTop = 0;
+          };
           resetSidebar();
-          requestAnimationFrame(resetSidebar);
-        });
+          requestAnimationFrame(() => {
+            resetSidebar();
+            requestAnimationFrame(resetSidebar);
+          });
+        }
       }
-    }
+    });
   }
 
   function render(motionKind = "refresh") {
-    const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
-      motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
-    );
-    context.rememberDisclosureStates?.(document);
-    try {
-      const previousLayout = captureMotionLayout();
-      renderProviderRail();
-      renderWorkspaces();
-      renderGlobalStats();
-      renderProviderOverview();
-      renderProviderFilter();
-      renderProviderVisibilitySettings();
-      renderSessions(motionKind, true);
-      if (state.selectedId && $("#detailDrawer").classList.contains("open")) context.renderDrawer();
-      playMotionLayout(previousLayout, motionKind);
-      if (motionKind === "view") animateVisibleSections();
-    } finally {
-      context.restoreDisclosureStates?.(document);
-      restoreScroll();
-      if (motionKind === "view") {
-        const resetSidebar = () => {
-          const sidebar = $(".sidebar");
-          if (sidebar) sidebar.scrollTop = 0;
-        };
-        resetSidebar();
-        requestAnimationFrame(() => {
+    return preserveFocusDuringRender(() => {
+      const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+        motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
+      );
+      context.rememberDisclosureStates?.(document);
+      try {
+        const previousLayout = captureMotionLayout();
+        renderProviderRail();
+        renderWorkspaces();
+        renderGlobalStats();
+        renderProviderOverview();
+        renderProviderFilter();
+        renderProviderVisibilitySettings();
+        renderSessions(motionKind, true);
+        if (state.selectedId && $("#detailDrawer").classList.contains("open")) context.renderDrawer();
+        playMotionLayout(previousLayout, motionKind);
+        if (motionKind === "view") animateVisibleSections();
+      } finally {
+        context.restoreDisclosureStates?.(document);
+        restoreScroll();
+        if (motionKind === "view") {
+          const resetSidebar = () => {
+            const sidebar = $(".sidebar");
+            if (sidebar) sidebar.scrollTop = 0;
+          };
           resetSidebar();
-          requestAnimationFrame(resetSidebar);
-        });
+          requestAnimationFrame(() => {
+            resetSidebar();
+            requestAnimationFrame(resetSidebar);
+          });
+        }
       }
-    }
+    });
   }
 
   return {

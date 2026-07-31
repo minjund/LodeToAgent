@@ -65,7 +65,11 @@ let appLocale = 'ko';
 let providerVisibilityStore = null;
 let pendingAttentionSessionId = '';
 let rendererBootstrapped = false;
-const tmuxController = new TmuxController({ platform: process.platform });
+const tmuxController = new TmuxController({
+  platform: process.platform,
+  deliveryStoreFile: () => userFile('tmux-deliveries.json'),
+  onPersistenceError: (operation, error) => reportRecoverableError(`tmux-deliveries:${operation}`, error),
+});
 let availability = {};
 let detailRequestId = 0;
 const pendingDetails = new Map();
@@ -134,6 +138,30 @@ else app.on('second-instance', () => {
 
 function userFile(name) {
   return path.join(app.getPath('userData'), name);
+}
+
+function readAppearanceTheme() {
+  try {
+    const saved = JSON.parse(fs.readFileSync(userFile('appearance.json'), 'utf8'));
+    return saved && saved.theme === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function appearanceBackground(theme) {
+  return theme === 'light' ? '#edf2f5' : '#070a0e';
+}
+
+function setAppearanceTheme(value) {
+  const theme = value === 'light' ? 'light' : 'dark';
+  try {
+    fs.writeFileSync(userFile('appearance.json'), JSON.stringify({ theme }), 'utf8');
+  } catch (error) {
+    reportRecoverableError('appearance-save', error);
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setBackgroundColor(appearanceBackground(theme));
+  return { theme };
 }
 
 function mainText(key, values = {}) {
@@ -225,7 +253,7 @@ function createWindow() {
     minWidth: 360,
     minHeight: 520,
     title: 'LoadToAgent · AI 작업 도우미',
-    backgroundColor: '#080b12',
+    backgroundColor: appearanceBackground(readAppearanceTheme()),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -689,6 +717,7 @@ function registerIpcHandlers() {
       updateBackgroundTrayMenu();
       return { locale: appLocale };
     },
+    setThemeAppearance: setAppearanceTheme,
     setProviderVisibility: saveProviderVisibility,
     updateManager: () => updateManager,
     installUpdate: installDownloadedUpdate,

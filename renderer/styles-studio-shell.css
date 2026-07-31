@@ -261,10 +261,6 @@ body {
   background: var(--studio-bg);
 }
 
-#projectContextNav {
-  display: none !important;
-}
-
 .app-shell {
   background:
     radial-gradient(circle at 70% -20%, rgba(49, 217, 160, .055), transparent 32%),
@@ -283,7 +279,7 @@ body {
 .sidebar > .brand {
   min-height: 72px;
   margin: 0;
-  padding: 17px 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--studio-line);
   background: rgba(6, 10, 14, .55);
 }
@@ -294,12 +290,12 @@ body {
 
 .brand-shortcut-button {
   position: relative;
-  width: 30px !important;
-  min-width: 30px !important;
-  height: 30px !important;
-  min-height: 30px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
   display: inline-grid;
-  flex: 0 0 30px;
+  flex: 0 0 44px;
   place-items: center;
   margin-left: auto;
   padding: 0;
@@ -314,7 +310,7 @@ body {
 
 .brand-shortcut-button::after {
   position: absolute;
-  inset: -7px;
+  inset: 0;
   content: "";
 }
 
@@ -350,7 +346,7 @@ body {
   flex: 0 0 clamp(135px, 23vh, 230px);
   min-height: 135px;
   max-height: 230px;
-  padding: 16px 12px 12px;
+  padding: 10px 12px 12px;
   overflow: hidden;
   border-bottom: 1px solid var(--studio-line);
 }
@@ -3512,7 +3508,7 @@ html[data-theme="light"] .shortcut-help-list kbd {
     [data-current-view="tmux"],
     [data-current-view="settings"]
   ) {
-    --sidebar: 72px;
+    --sidebar: 88px;
   }
 
   body:is(
@@ -3558,11 +3554,11 @@ html[data-theme="light"] .shortcut-help-list kbd {
     [data-current-view="tmux"],
     [data-current-view="settings"]
   ) .brand-shortcut-button {
-    width: 28px !important;
-    min-width: 28px !important;
-    height: 28px !important;
-    min-height: 28px !important;
-    flex-basis: 28px;
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+    min-height: 44px !important;
+    flex-basis: 44px;
     margin-left: 0;
   }
 }

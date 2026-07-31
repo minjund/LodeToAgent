@@ -174,7 +174,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const projectPath = selectedProjectPath();
     if (!projectPath) {
       toast(t("run.select_project_first"));
-      $("#projectSidebarList")?.focus({ preventScroll: true });
+      const projectTarget = $("#projectSidebarList [data-workspace]") || $("#sidebarNewProjectBtn");
+      projectTarget?.focus({ preventScroll: true });
       return false;
     }
     rememberDialogTrigger();

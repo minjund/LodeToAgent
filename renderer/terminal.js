@@ -65,6 +65,7 @@
     historyRenderPending: false,
     historyFlushFrame: 0,
     commandDrafts: new Map(),
+    commandDeliveries: new Map(),
     commandHistory: new Map(),
     commandHistoryNavigation: { targetId: '', index: -1, draft: '' },
     commandSending: false,
@@ -192,17 +193,17 @@
     const sessionId = String(agentSession.externalId || '').trim();
     if (!sessionId) return { supported: false, reason: t('terminal.resume.no_session_id') };
     const provider = String(agentSession.provider || '').toLowerCase();
-    if (!['codex', 'claude', 'gemini'].includes(provider)) {
+    if (!['codex', 'claude', 'gemini', 'grok'].includes(provider)) {
       return { supported: false, reason: t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }) };
     }
     const args = provider === 'codex' ? ['resume', sessionId] : ['--resume', sessionId];
-    return { supported: true, provider, sessionId, args };
+    return { supported: true, provider, sessionId, args, promptMode: provider === 'grok' ? 'terminal' : 'arguments' };
   }
 
   function resumeLaunchArgs(support, prompt = '') {
     const args = [...support.args];
     const text = String(prompt || '').trim();
-    if (text) {
+    if (text && support.promptMode !== 'terminal') {
       if (support.provider === 'codex' && args[0] === 'resume') args.splice(1, 0, '--');
       else args.push('--');
       args.push(text);

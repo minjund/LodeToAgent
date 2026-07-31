@@ -5,6 +5,18 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.5 - 2026-08-01
+
+- Make terminal questions delivery-safe across Claude, Codex, Gemini, and Grok
+  by tracking delivery identifiers, suppressing duplicates, and distinguishing
+  accepted, rejected, and uncertain sends instead of reporting false failures.
+- Reattach managed tmux sessions without starting a second provider process,
+  preserve pending drafts for safe retries, and keep delivery records durable
+  across app restarts on macOS, Windows, and WSL.
+- Preserve keyboard focus and scroll position through live session refreshes,
+  and refine project navigation, settings, modals, responsive layouts, and
+  light-theme contrast with a final shared polish layer.
+
 ## 1.6.4 - 2026-07-31
 
 - Publish the verified project-first workspace with task status shown directly

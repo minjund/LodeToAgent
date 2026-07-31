@@ -18,6 +18,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     sending: "control.delivery_sending",
     confirming: "control.delivery_confirming",
     delayed: "control.delivery_delayed",
+    uncertain: "control.delivery_uncertain",
     received: "control.delivery_received",
     responding: "control.delivery_responding",
     interrupted: "control.delivery_interrupted",

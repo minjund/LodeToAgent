@@ -92,11 +92,58 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     return session?.parentId ? `${session.id}:${route}` : session.id;
   }
 
+  function deliveryStateOf(value, fallback = "unknown") {
+    if (value?.deliveryState === "rejected") return "rejected";
+    if (value?.deliveryState === "accepted") return "accepted";
+    if (value?.deliveryState === "unknown") return "unknown";
+    return fallback;
+  }
+
+  function commandDeliveryMap() {
+    if (!state.agentCommandDeliveries || typeof state.agentCommandDeliveries.get !== "function") {
+      state.agentCommandDeliveries = new Map();
+    }
+    return state.agentCommandDeliveries;
+  }
+
+  function commandDeliveryKey(sessionId, targetId, command) {
+    const normalized = String(command || "").replace(/\r\n?/g, "\n").trim();
+    return `${sessionId || ""}\u001f${targetId || ""}\u001f${normalized}`;
+  }
+
+  function commandDeliveryId(key) {
+    if (!key) return "";
+    const deliveries = commandDeliveryMap();
+    const existing = deliveries.get(key);
+    if (existing?.id && ["prepared", "unknown"].includes(existing.state)) return existing.id;
+    const id = `delivery:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
+    deliveries.set(key, { id, state: "prepared" });
+    while (deliveries.size > 128) deliveries.delete(deliveries.keys().next().value);
+    return id;
+  }
+
+  function settleCommandDelivery(key, id, deliveryState) {
+    if (!key || !id) return;
+    const deliveries = commandDeliveryMap();
+    if (deliveryState === "unknown") deliveries.set(key, { id, state: "unknown" });
+    else deliveries.delete(key);
+  }
+
+  function removePendingConversation(sessionId, entry) {
+    if (!entry) return;
+    clearTimeout(entry.confirmationTimer);
+    const remaining = (state.pendingConversationMessages.get(sessionId) || []).filter(item => item !== entry);
+    if (remaining.length) state.pendingConversationMessages.set(sessionId, remaining);
+    else state.pendingConversationMessages.delete(sessionId);
+    context.renderDrawer?.();
+  }
+
   function beginConversationMessage(session, command) {
     const detail = state.details.get(session.id);
     const baselineMessages = [...(session.messages || []), ...(detail?.messages || [])];
     const entry = {
       id: `local:${session.id}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      deliveryId: `delivery:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`,
       text: command,
       timestamp: new Date().toISOString(),
       status: "sending",
@@ -133,6 +180,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         context.render?.();
         context.renderDrawer?.();
       }, delay + 40);
+    } else if (status === "uncertain") {
+      entry.dispatchedAt = entry.dispatchedAt || new Date().toISOString();
+      entry.phase = "uncertain";
+      entry.uncertainAt = new Date().toISOString();
+      clearTimeout(entry.confirmationTimer);
+      entry.confirmationTimer = 0;
     } else if (status === "failed") {
       entry.phase = "failed";
       entry.failedAt = new Date().toISOString();
@@ -155,7 +208,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function agentControlMode(session, targets) {
-    if (targets.length && isLiveSession(session)) return "direct";
+    // A discovered terminal target is stronger evidence than the transcript's
+    // projected status. This also keeps provider-neutral managed terminals
+    // writable after their UI attachment has been detached.
+    if (targets.length) return "direct";
     const resume = agentResumeSupport(session);
     if (resume.supported) {
       if (originAppInfo(session)) return "origin-resume";
@@ -377,12 +433,36 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
       selectView("terminal");
       const draft = state.agentCommandDrafts.get(sessionId) || "";
-      await window.LoadToAgentTerminal.resumeForAgent(session, draft, sendDraft);
+      const deliveryKey = sendDraft && draft.trim()
+        ? commandDeliveryKey(sessionId, "resume", draft)
+        : "";
+      const deliveryId = commandDeliveryId(deliveryKey);
+      let resumed = null;
+      try {
+        resumed = await window.LoadToAgentTerminal.resumeForAgent(session, draft, sendDraft, { deliveryId });
+      } catch (error) {
+        if (sendDraft && deliveryStateOf(error) === "rejected") {
+          settleCommandDelivery(deliveryKey, deliveryId, "rejected");
+          context.toast(t("agent.delivery_retry_ready"));
+          return;
+        }
+        if (sendDraft) settleCommandDelivery(deliveryKey, deliveryId, "unknown");
+        context.toast(t(sendDraft ? "agent.delivery_uncertain" : "agent.reconnect_failed"));
+        return;
+      }
+      if (sendDraft && resumed?.deliveryState === "unknown") {
+        settleCommandDelivery(deliveryKey, deliveryId, "unknown");
+        context.toast(t("agent.delivery_uncertain"));
+        return;
+      }
+      if (sendDraft) settleCommandDelivery(deliveryKey, deliveryId, "accepted");
       if (sendDraft && draft.trim()) state.agentCommandDrafts.delete(sessionId);
-      document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+      try {
+        document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+      } catch (error) {
+        window.LoadToAgentRendererUtils.reportRecoverableError("agent-resume-post-delivery", error);
+      }
       context.toast(t("agent.reconnected", { provider: providerInfo(session.provider).label }));
-    } catch (error) {
-      context.toast(errorText(error, "agent.reconnect_failed"));
     } finally {
       state.agentCommandSending.delete(sessionId);
     }
@@ -422,9 +502,38 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if (drawerSubmission) {
         state.agentCommandSending.add(sessionId);
         const pendingMessage = conversationSubmission ? beginConversationMessage(session, command) : null;
+        const deliveryKey = pendingMessage ? "" : commandDeliveryKey(targetSession.id, `resume:${mode}`, routedCommand);
+        const deliveryId = pendingMessage?.deliveryId || commandDeliveryId(deliveryKey);
         try {
-          const resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false });
-          if (pendingMessage) pendingMessage.target = resumedTarget;
+          let resumedTarget = null;
+          let transportError = null;
+          try {
+            resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false, deliveryId });
+          } catch (error) {
+            transportError = error;
+          }
+          if (pendingMessage && resumedTarget) pendingMessage.target = resumedTarget;
+          const deliveryState = transportError
+            ? deliveryStateOf(transportError)
+            : deliveryStateOf(resumedTarget, "accepted");
+          if (deliveryState === "rejected") {
+            settleCommandDelivery(deliveryKey, deliveryId, "rejected");
+            removePendingConversation(sessionId, pendingMessage);
+            context.toast(t("agent.delivery_retry_ready"));
+            return;
+          }
+          if (transportError || resumedTarget?.deliveryState === "unknown") {
+            settleCommandDelivery(deliveryKey, deliveryId, "unknown");
+            updateConversationMessage(
+              sessionId,
+              pendingMessage,
+              "uncertain",
+              transportError ? errorText(transportError, "agent.delivery_uncertain") : t("agent.delivery_uncertain"),
+            );
+            context.toast(t("agent.delivery_uncertain"));
+            return;
+          }
+          settleCommandDelivery(deliveryKey, deliveryId, "accepted");
           state.agentCommandDrafts.delete(sessionId);
           if (input) input.value = "";
           updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -435,9 +544,6 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           context.toast(t(routingEnabled && routeContext.route === "parent"
             ? "agent.command_routed_via_parent"
             : inputMode === "terminal" ? "agent.terminal_command_sent_background" : "agent.command_sent_background"));
-        } catch (error) {
-          updateConversationMessage(sessionId, pendingMessage, "failed", errorText(error, "agent.send_failed"));
-          context.toast(errorText(error, "agent.send_failed"));
         } finally {
           state.agentCommandSending.delete(sessionId);
           context.renderDrawer?.();
@@ -456,6 +562,9 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     state.agentCommandSending.add(sessionId);
     if (input) state.agentCommandDrafts.set(sessionId, input.value);
     const pendingMessage = conversationSubmission ? beginConversationMessage(session, command) : null;
+    if (pendingMessage) pendingMessage.target = target;
+    const deliveryKey = pendingMessage ? "" : commandDeliveryKey(targetSession.id, target.id, routedCommand);
+    const deliveryId = pendingMessage?.deliveryId || commandDeliveryId(deliveryKey);
     const submit = form.querySelector('[type="submit"]');
     if (submit) {
       submit.disabled = true;
@@ -471,8 +580,58 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       }
     }
     try {
-      const dispatched = await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id);
-      if (pendingMessage) pendingMessage.target = dispatched?.target || target;
+      let dispatched = null;
+      let transportError = null;
+      try {
+        dispatched = await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id, { deliveryId });
+      } catch (error) {
+        transportError = error;
+      }
+
+      if (transportError && target.kind !== "tmux") {
+        const latest = snapshotSession(targetSession.id) || targetSession;
+        const support = agentResumeSupport(latest);
+        const shouldRecover = support.supported
+          && (drawerSubmission || !agentCommandTargets(latest).length);
+        if (shouldRecover) {
+          state.agentCommandDrafts.set(sessionId, command);
+          try {
+            dispatched = await window.LoadToAgentTerminal.resumeForAgent(
+              latest,
+              routedCommand,
+              true,
+              { focus: drawerSubmission ? false : true, deliveryId },
+            );
+            transportError = null;
+          } catch (resumeError) {
+            transportError = resumeError;
+          }
+        }
+      }
+
+      const deliveryState = transportError
+        ? deliveryStateOf(transportError)
+        : deliveryStateOf(dispatched, "accepted");
+      if (deliveryState === "rejected") {
+        settleCommandDelivery(deliveryKey, deliveryId, "rejected");
+        removePendingConversation(sessionId, pendingMessage);
+        context.toast(t("agent.delivery_retry_ready"));
+        return;
+      }
+      if (transportError || dispatched?.deliveryState === "unknown") {
+        settleCommandDelivery(deliveryKey, deliveryId, "unknown");
+        updateConversationMessage(
+          sessionId,
+          pendingMessage,
+          "uncertain",
+          transportError ? errorText(transportError, "agent.delivery_uncertain") : t("agent.delivery_uncertain"),
+        );
+        context.toast(t("agent.delivery_uncertain"));
+        return;
+      }
+
+      settleCommandDelivery(deliveryKey, deliveryId, "accepted");
+      if (pendingMessage) pendingMessage.target = dispatched?.target || dispatched || target;
       state.agentCommandDrafts.delete(sessionId);
       if (input) input.value = "";
       updateConversationMessage(sessionId, pendingMessage, "awaiting");
@@ -480,37 +639,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         context.toast(t("agent.native_command_sent"));
         return;
       }
-      context.toast(t(routingEnabled && routeContext.route === "parent"
-        ? "agent.command_routed_via_parent"
-        : inputMode === "terminal" ? "agent.terminal_command_sent" : "agent.command_sent", { target: target.label }));
-    } catch (error) {
-      const latest = snapshotSession(targetSession.id) || targetSession;
-      const support = agentResumeSupport(latest);
-      const shouldRecover = support.supported
-        && (drawerSubmission || !agentCommandTargets(latest).length);
-      if (shouldRecover) {
-        try {
-          state.agentCommandDrafts.set(sessionId, command);
-          const resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(
-            latest,
-            routedCommand,
-            true,
-            { focus: drawerSubmission ? false : true },
-          );
-          if (pendingMessage) pendingMessage.target = resumedTarget;
-          state.agentCommandDrafts.delete(sessionId);
-          if (input) input.value = "";
-          updateConversationMessage(sessionId, pendingMessage, "awaiting");
-          context.toast(t("agent.recovered_and_sent"));
-          return;
-        } catch (resumeError) {
-          updateConversationMessage(sessionId, pendingMessage, "failed", errorText(resumeError, "agent.recovery_failed"));
-          context.toast(errorText(resumeError, "agent.recovery_failed"));
-        }
-      } else {
-        updateConversationMessage(sessionId, pendingMessage, "failed", errorText(error, "agent.send_failed"));
-        context.toast(errorText(error, "agent.send_failed"));
-      }
+      context.toast(t(dispatched?.reused && transportError === null
+        ? "agent.recovered_and_sent"
+        : routingEnabled && routeContext.route === "parent"
+          ? "agent.command_routed_via_parent"
+          : inputMode === "terminal" ? "agent.terminal_command_sent" : "agent.command_sent", { target: target.label }));
     } finally {
       state.agentCommandSending.delete(sessionId);
       if (drawerSubmission) context.renderDrawer?.();
@@ -681,6 +814,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     agentCommandTargets,
     agentResumeSupport,
     originAppInfo,
+    updateConversationMessage,
     agentControlMode,
     agentCommandRouteOptions,
     selectedAgentCommandRoute,

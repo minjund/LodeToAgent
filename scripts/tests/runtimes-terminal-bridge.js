@@ -511,6 +511,56 @@ function registerTerminalLifecycleTests(context) {
     manager.close(session.id);
   });
 
+  test('관리형 AI 전송은 복구 인자가 있어도 새 tmux 세션을 만들고 질문은 한 번만 실행한다', () => {
+    const spawns = [];
+    class FakePty {
+      constructor() { this.pid = 8_021; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const storeFile = path.join(temp, 'managed-tmux-send-with-recovery.json');
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args) => {
+          spawns.push({ file, args });
+          return new FakePty();
+        },
+      },
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => ({ ok: true }),
+      },
+    });
+
+    const session = manager.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      bridgeId: 'codex:send-with-recovery',
+      args: ['resume', 'send-with-recovery', '실제 질문'],
+      recoveryArgs: ['resume', 'send-with-recovery'],
+      initialCommand: '실제 질문',
+      initialCommandInArgs: true,
+      reuseBridge: true,
+    });
+
+    assert.equal(session.status, 'running');
+    assert.match(session.managedTmuxSession, /^lta-codex-/);
+    assert.equal(spawns.length, 1);
+    assert.equal(spawns[0].args.includes(session.managedTmuxSession), true);
+    assert.equal(spawns[0].args.filter(item => item === '실제 질문').length, 1);
+    const stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions[0];
+    assert.deepStrictEqual(stored.options.args, ['resume', 'send-with-recovery']);
+    assert.equal(JSON.stringify(stored).includes('실제 질문'), false);
+    manager.close(session.id);
+  });
+
   test('관리형 attach 화면이 자연 종료되어도 살아 있는 tmux 작업은 detached로 보존한다', () => {
     let tmuxExists = true;
     class FakePty {
@@ -695,7 +745,10 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(recovered[0].managedTmuxSession, created.managedTmuxSession);
     assert.equal(spawned.length, 2);
     assert.equal(spawned[1].file, 'tmux');
-    assert.equal(spawned[1].args.includes(created.managedTmuxSession), true);
+    assert.deepStrictEqual(spawned[1].args, [
+      '-L', 'loadtoagent',
+      'attach-session', '-t', `=${created.managedTmuxSession}`,
+    ]);
     assert.match(afterCrash.get(created.id, true).replay, /실행 중이던 작업에 다시 연결/);
     afterCrash.close(created.id);
   });
@@ -774,10 +827,169 @@ function registerTerminalLifecycleTests(context) {
     manager.close(session.id);
   });
 
+  test('관리형 AI 재접속은 새 AI를 시작하거나 이전 질문을 재실행하지 않는다', () => {
+    const spawns = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-attach-only.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: {
+        spawn: (file, args) => {
+          spawns.push({ file, args });
+          return new FakePty(8_550 + spawns.length);
+        },
+      },
+    });
+    const session = manager.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      args: ['resume', '--', 'attach-only', '이전 질문'],
+      recoveryArgs: ['resume', '--', 'attach-only'],
+      initialCommand: '이전 질문',
+      initialCommandInArgs: true,
+    });
+    manager.detach(session.id);
+
+    manager.reconnect(session.id);
+
+    assert.equal(spawns.length, 2);
+    assert.deepStrictEqual(spawns[1].args, [
+      '-L', 'loadtoagent',
+      'attach-session', '-t', `=${session.managedTmuxSession}`,
+    ]);
+    assert.equal(spawns[1].args.includes('new-session'), false);
+    assert.equal(spawns[1].args.includes('codex'), false);
+    assert.equal(spawns[1].args.includes('이전 질문'), false);
+    manager.close(session.id);
+
+    const wslSpawns = [];
+    const wslManager = new TerminalManager({
+      platform: 'win32',
+      storeFile: path.join(temp, 'managed-tmux-wsl-attach-only.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: {
+        spawn: (file, args) => {
+          wslSpawns.push({ file, args });
+          return new FakePty(8_600 + wslSpawns.length);
+        },
+      },
+    });
+    const wslSession = wslManager.create({
+      type: 'agent',
+      provider: 'gemini',
+      cwd: '/mnt/c/workspace',
+      distro: 'Ubuntu',
+      sessionBackend: 'managed-tmux',
+      args: ['--resume', 'wsl-attach-only', '--', 'WSL의 이전 질문'],
+      recoveryArgs: ['--resume', 'wsl-attach-only'],
+      initialCommand: 'WSL의 이전 질문',
+      initialCommandInArgs: true,
+    });
+    wslManager.detach(wslSession.id);
+    wslManager.reconnect(wslSession.id);
+    assert.equal(wslSpawns.length, 2);
+    assert.deepStrictEqual(wslSpawns[1], {
+      file: 'wsl.exe',
+      args: [
+        '-d', 'Ubuntu', '--cd', '/mnt/c/workspace', '--',
+        'tmux', '-L', 'loadtoagent', 'attach-session', '-t', `=${wslSession.managedTmuxSession}`,
+      ],
+    });
+    assert.equal(wslSpawns[1].args.includes('gemini'), false);
+    assert.equal(JSON.stringify(wslSpawns[1]).includes('WSL의 이전 질문'), false);
+    wslManager.close(wslSession.id);
+  });
+
+  test('분리된 같은 AI 대화로 보내면 새 세션 없이 재접속해 명령을 한 번만 쓴다', () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit() {}
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: path.join(temp, 'managed-tmux-detached-send.json'),
+      killTree: () => {},
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => ({ ok: true }),
+      },
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(8_600 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const shared = {
+      type: 'agent',
+      provider: 'claude',
+      cwd: root,
+      bridgeId: 'claude:detached-send',
+      reuseBridge: true,
+    };
+    const original = manager.create({
+      ...shared,
+      args: ['--resume', 'detached-send'],
+      recoveryArgs: ['--resume', 'detached-send'],
+    });
+    manager.detach(original.id);
+
+    const delivered = manager.create({
+      ...shared,
+      args: ['--resume', 'detached-send', '--', '후속 지시'],
+      recoveryArgs: ['--resume', 'detached-send'],
+      initialCommand: '후속 지시',
+      initialCommandInArgs: true,
+    });
+
+    assert.equal(delivered.id, original.id);
+    assert.equal(delivered.reused, true);
+    assert.equal(delivered.status, 'running');
+    assert.equal(delivered.promptSent, true);
+    assert.equal(manager.list().length, 1);
+    assert.equal(processes.length, 2);
+    assert.deepStrictEqual(processes[0].writes, []);
+    assert.deepStrictEqual(processes[1].writes, ['후속 지시\r']);
+    manager.close(original.id);
+  });
+
   test('터미널 호스트 프로토콜이 detach·reconnect·stop 생명주기를 전달한다', async () => {
     class FakeManager extends EventEmitter {
       constructor() { super(); this.calls = []; }
       list() { return []; }
+      command(id, value, options) {
+        this.calls.push(['command', id, value, options]);
+        if (value === '보내기 전 거절') {
+          const error = new Error('장부를 저장하지 못해 보내지 않음');
+          error.code = 'DELIVERY_LEDGER_UNAVAILABLE';
+          error.deliveryState = 'rejected';
+          throw error;
+        }
+        return { ok: true, deliveryState: 'accepted' };
+      }
       detach(id) { this.calls.push(['detach', id]); return { id, status: 'detached' }; }
       reconnect(id) { this.calls.push(['reconnect', id]); return { id, status: 'running' }; }
       stop(id) { this.calls.push(['stop', id]); return { id, status: 'stopped' }; }
@@ -800,10 +1012,17 @@ function registerTerminalLifecycleTests(context) {
     });
     try {
       await client.connect();
+      assert.equal((await client.command('terminal:managed', '한 번만 보내기', { deliveryId: 'delivery:host:1' })).deliveryState, 'accepted');
+      await assert.rejects(
+        client.command('terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }),
+        error => error.code === 'DELIVERY_LEDGER_UNAVAILABLE' && error.deliveryState === 'rejected',
+      );
       assert.equal((await client.detach('terminal:managed')).status, 'detached');
       assert.equal((await client.reconnect('terminal:managed')).status, 'running');
       assert.equal((await client.stop('terminal:managed')).status, 'stopped');
       assert.deepStrictEqual(manager.calls, [
+        ['command', 'terminal:managed', '한 번만 보내기', { deliveryId: 'delivery:host:1' }],
+        ['command', 'terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }],
         ['detach', 'terminal:managed'],
         ['reconnect', 'terminal:managed'],
         ['stop', 'terminal:managed'],
@@ -940,6 +1159,29 @@ function registerTerminalLifecycleTests(context) {
     manager.dispose();
   });
 
+  test('여러 줄 질문은 bracketed paste 한 번과 마지막 Enter 한 번으로 보낸다', () => {
+    class FakePty {
+      constructor() { this.pid = 9_501; this.writes = []; }
+      onData() {}
+      onExit() {}
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => {},
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({ type: 'agent', provider: 'claude', cwd: root, sessionBackend: 'direct' });
+
+    manager.command(session.id, '첫째 줄\r\n둘째 줄\n셋째 줄', { deliveryId: 'delivery:multiline:1' });
+
+    assert.deepStrictEqual(processHandle.writes, ['\x1b[200~첫째 줄\n둘째 줄\n셋째 줄\x1b[201~\r']);
+    manager.dispose();
+  });
+
   test('같은 AI 대화 전송은 하나의 명령창을 재사용하고 원래 질문을 복구 인자에 남기지 않는다', () => {
     const processes = [];
     class FakePty {
@@ -997,6 +1239,175 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(JSON.stringify(stored).includes('첫 질문'), false);
     assert.equal(JSON.stringify(stored).includes('두 번째 질문'), false);
     manager.dispose();
+  });
+
+  test('전달 확인 응답만 유실된 같은 요청은 질문을 다시 쓰지 않는다', () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit() {}
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile: path.join(temp, 'terminal-delivery-dedup.json'),
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(11_100 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const request = {
+      type: 'agent',
+      provider: 'claude',
+      cwd: root,
+      bridgeId: 'claude:delivery-dedup',
+      sessionBackend: 'direct',
+      reuseBridge: true,
+      args: ['--resume', 'delivery-dedup', '--', '한 번만 보낼 질문'],
+      recoveryArgs: ['--resume', 'delivery-dedup'],
+      initialCommand: '한 번만 보낼 질문',
+      initialCommandInArgs: true,
+      deliveryId: 'delivery:dedup:1',
+    };
+
+    const first = manager.create(request);
+    const retry = manager.create(request);
+
+    assert.equal(retry.id, first.id);
+    assert.equal(retry.reused, true);
+    assert.equal(retry.duplicate, true);
+    assert.equal(retry.deliveryState, 'accepted');
+    assert.equal(processes.length, 1);
+    assert.deepStrictEqual(processes[0].writes, []);
+    assert.throws(() => manager.create({
+      ...request,
+      args: ['--resume', 'delivery-dedup', '--', '같은 ID의 다른 질문'],
+      initialCommand: '같은 ID의 다른 질문',
+    }), /다른 내용/);
+    manager.persistNow();
+    const afterHostRestartProcesses = [];
+    const afterHostRestart = new TerminalManager({
+      platform: 'win32',
+      storeFile: path.join(temp, 'terminal-delivery-dedup.json'),
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(11_200 + afterHostRestartProcesses.length);
+          afterHostRestartProcesses.push(handle);
+          return handle;
+        },
+      },
+    });
+    const retryAfterRestart = afterHostRestart.create(request);
+    assert.equal(retryAfterRestart.id, first.id);
+    assert.equal(retryAfterRestart.duplicate, true);
+    assert.equal(retryAfterRestart.deliveryState, 'accepted');
+    assert.equal(afterHostRestartProcesses.length, 0);
+    afterHostRestart.dispose({ preserveSessions: true });
+    manager.dispose({ preserveSessions: true });
+
+    const stored = JSON.parse(fs.readFileSync(path.join(temp, 'terminal-delivery-dedup.json'), 'utf8'));
+    stored.sessions[0].deliveries[0].state = 'prepared';
+    fs.writeFileSync(path.join(temp, 'terminal-delivery-dedup.json'), JSON.stringify(stored), 'utf8');
+    const rendererRestartProcesses = [];
+    const rendererRestart = new TerminalManager({
+      platform: 'win32',
+      storeFile: path.join(temp, 'terminal-delivery-dedup.json'),
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          rendererRestartProcesses.push(true);
+          return new FakePty(11_300);
+        },
+      },
+    });
+    const retryWithNewId = rendererRestart.create({ ...request, deliveryId: 'delivery:dedup:renderer-restart' });
+    assert.equal(retryWithNewId.duplicate, true);
+    assert.equal(retryWithNewId.deliveryState, 'unknown');
+    assert.deepStrictEqual(rendererRestartProcesses, []);
+    rendererRestart.dispose();
+  });
+
+  test('전달 장부를 저장하지 못하면 PTY에 질문을 쓰기 전에 안전하게 중단한다', () => {
+    const failingFileSystem = Object.create(fs);
+    failingFileSystem.writeFileSync = () => { throw new Error('simulated disk failure'); };
+    failingFileSystem.unlinkSync = () => {};
+    let spawns = 0;
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile: path.join(temp, 'terminal-delivery-store-blocked.json'),
+      fileSystem: failingFileSystem,
+      killTree: () => {},
+      onPersistenceError: () => {},
+      ptyModule: {
+        spawn: () => {
+          spawns += 1;
+          throw new Error('전달 장부 저장 전에 PTY를 시작하면 안 됩니다.');
+        },
+      },
+    });
+
+    assert.throws(() => manager.create({
+      type: 'agent',
+      provider: 'claude',
+      cwd: root,
+      bridgeId: 'claude:persistence-blocked',
+      sessionBackend: 'direct',
+      args: ['--resume', 'persistence-blocked', '--', '보내면 안 되는 질문'],
+      recoveryArgs: ['--resume', 'persistence-blocked'],
+      initialCommand: '보내면 안 되는 질문',
+      initialCommandInArgs: true,
+      deliveryId: 'delivery:persistence:blocked',
+    }), /전달 장부/);
+    assert.equal(spawns, 0);
+    manager.dispose();
+
+    const spawnStoreFile = path.join(temp, 'terminal-delivery-spawn-rejected.json');
+    let spawnAttempts = 0;
+    class RetryablePty {
+      constructor() { this.pid = 11_500; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const spawnManager = new TerminalManager({
+      platform: 'win32',
+      storeFile: spawnStoreFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          spawnAttempts += 1;
+          if (spawnAttempts === 1) throw new Error('provider executable missing');
+          return new RetryablePty();
+        },
+      },
+    });
+    const spawnRequest = {
+      type: 'agent', provider: 'gemini', cwd: root,
+      bridgeId: 'gemini:spawn-rejected', sessionBackend: 'direct', reuseBridge: true,
+      args: ['--resume', 'spawn-rejected', '--', '실행 전에 거절될 질문'],
+      recoveryArgs: ['--resume', 'spawn-rejected'],
+      initialCommand: '실행 전에 거절될 질문', initialCommandInArgs: true,
+      deliveryId: 'delivery:spawn:rejected',
+    };
+    assert.throws(
+      () => spawnManager.create(spawnRequest),
+      error => error.deliveryState === 'rejected' && /provider executable missing/.test(error.message),
+    );
+    const retriedSpawn = spawnManager.create(spawnRequest);
+    assert.equal(retriedSpawn.deliveryState, 'accepted');
+    assert.equal(Boolean(retriedSpawn.duplicate), false);
+    assert.equal(spawnAttempts, 2);
+    spawnManager.dispose();
   });
 
   test('호스트 재시작 시 같은 AI 대화의 중복 연결은 하나만 복구하고 과거 질문을 다시 보내지 않는다', () => {
@@ -1301,6 +1712,99 @@ function registerTerminalLifecycleTests(context) {
     afterCrash.dispose();
   });
 
+  test('세션 ID가 없는 재개 인자와 과거 질문이 붙은 Grok 인자는 안전하게 복구한다', () => {
+    const storeFile = path.join(temp, 'terminal-safe-resume-arguments.json');
+    const now = '2026-08-01T00:00:00.000Z';
+    fs.writeFileSync(storeFile, JSON.stringify({
+      version: 2,
+      sessions: [
+        {
+          id: 'terminal:bad-codex',
+          options: { type: 'agent', provider: 'codex', cwd: root, args: ['resume', '--'], sessionBackend: 'direct' },
+          status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+        {
+          id: 'terminal:bad-claude',
+          options: { type: 'agent', provider: 'claude', cwd: root, args: ['--resume', '--'], sessionBackend: 'direct' },
+          status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+        {
+          id: 'terminal:safe-grok',
+          options: {
+            type: 'agent', provider: 'grok', cwd: root,
+            args: ['--resume', 'grok-session-7', '--', '절대 다시 보내면 안 되는 과거 질문'],
+            sessionBackend: 'direct',
+          },
+          status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+        {
+          id: 'terminal:safe-gemini',
+          options: {
+            type: 'agent', provider: 'gemini', cwd: root,
+            args: ['절대 다시 보내면 안 되는 앞쪽 질문', '--resume', 'gemini-session-8', '--', '뒤쪽 질문'],
+            sessionBackend: 'direct',
+          },
+          status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+        {
+          id: 'terminal:safe-claude',
+          options: {
+            type: 'agent', provider: 'claude', cwd: root,
+            args: ['Claude의 앞쪽 옛 질문', '--resume', 'claude-session-9', '--', 'Claude의 뒤쪽 옛 질문'],
+            sessionBackend: 'direct',
+          },
+          status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+      ],
+    }), 'utf8');
+    const spawns = [];
+    class FakePty {
+      constructor() { this.pid = 15_700 + spawns.length; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args) => {
+          spawns.push({ file, args });
+          return new FakePty();
+        },
+      },
+    });
+
+    const recovered = manager.recoverPersistedSessions();
+
+    assert.equal(recovered.length, 3);
+    assert.equal(recovered[0].id, 'terminal:safe-grok');
+    assert.equal(manager.get('terminal:bad-codex').recoverySkippedReason, 'unsafe-agent-restart');
+    assert.equal(manager.get('terminal:bad-claude').recoverySkippedReason, 'unsafe-agent-restart');
+    assert.deepStrictEqual(spawns[0].args, ['--resume', 'grok-session-7']);
+    assert.deepStrictEqual(spawns[1].args, ['--resume', 'gemini-session-8']);
+    assert.deepStrictEqual(spawns[2].args, ['--resume', 'claude-session-9']);
+    assert.equal(JSON.stringify(spawns).includes('과거 질문'), false);
+    assert.equal(JSON.stringify(spawns).includes('앞쪽 질문'), false);
+
+    const created = manager.create({
+      type: 'agent',
+      provider: 'gemini',
+      cwd: root,
+      bridgeId: 'gemini:canonical-recovery',
+      sessionBackend: 'direct',
+      args: ['--resume', 'canonical-recovery', '--', '새 질문'],
+      recoveryArgs: ['저장된 옛 질문', '--resume', 'canonical-recovery', '--', '다른 옛 질문'],
+    });
+    const storedCreated = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions
+      .find(session => session.id === created.id);
+    assert.deepStrictEqual(storedCreated.options.args, ['--resume', 'canonical-recovery']);
+    manager.dispose();
+  });
+
   test('자연 종료 상태는 즉시 저장해 직후 호스트가 죽어도 끝난 셸을 되살리지 않는다', () => {
     const processes = [];
     class FakePty {
@@ -1551,7 +2055,7 @@ function registerTerminalFailureTests(context) {
 }
 
 function registerTmuxControlTests(context) {
-  const { test } = context;
+  const { test, temp } = context;
   test('tmux 명령은 셸 문자열 결합 없이 대상·입력을 분리하고 관리 동작을 지원한다', async () => {
     const calls = [];
     const controller = new TmuxController({ platform: 'win32', run: async (file, args, options = {}) => {
@@ -1569,7 +2073,7 @@ function registerTmuxControlTests(context) {
     assert.equal(calls[0].options.input, command);
     assert.equal(calls[0].options.timeoutMs, 15_000);
     assert.equal(calls.some(call => call.args.includes(command)), false);
-    assert.deepStrictEqual(calls[1].args.slice(-7), ['tmux', 'paste-buffer', '-b', bufferName, '-d', '-t', '%1']);
+    assert.deepStrictEqual(calls[1].args.slice(-9), ['tmux', 'paste-buffer', '-p', '-r', '-b', bufferName, '-d', '-t', '%1']);
     assert.deepStrictEqual(calls[2].args.slice(-5), ['tmux', 'send-keys', '-t', '%1', 'Enter']);
     const split = await controller.splitPane({ distro: 'Ubuntu', target: '%1', direction: 'horizontal', cwd: '/repo' });
     assert.equal(split.paneId, '%99');
@@ -1589,6 +2093,143 @@ function registerTmuxControlTests(context) {
     assert.equal(macCalls[0].file, 'tmux');
     assert.deepStrictEqual(macCalls[0].args, ['send-keys', '-t', '%1', 'Enter']);
     assert.equal(macCalls[0].options.timeoutMs, undefined);
+  });
+
+  test('tmux에 내용을 붙인 뒤 Enter 확인이 끊기면 재전송하지 않도록 확인 필요를 반환한다', async () => {
+    const calls = [];
+    const deliveryStoreFile = path.join(temp, 'tmux-delivery-ledger.json');
+    const controller = new TmuxController({
+      platform: 'darwin',
+      deliveryStoreFile,
+      run: async (_file, args, options = {}) => {
+        calls.push({ args, options });
+        if (args.includes('send-keys')) throw new Error('Enter 응답 유실');
+        return { ok: true, stdout: '', stderr: '' };
+      },
+    });
+
+    const result = await controller.sendText({
+      distro: 'macOS',
+      target: '%1',
+      text: '중복되면 안 되는 질문',
+      enter: true,
+      deliveryId: 'delivery:tmux:1',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.deliveryState, 'unknown');
+    assert.equal(result.partial, true);
+    assert.equal(fs.readFileSync(deliveryStoreFile, 'utf8').includes('중복되면 안 되는 질문'), false);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(deliveryStoreFile).mode & 0o777, 0o600);
+    assert.equal(calls.filter(call => call.args.includes('paste-buffer')).length, 1);
+    assert.equal(calls.filter(call => call.args.includes('send-keys')).length, 1);
+    const callCount = calls.length;
+    const duplicate = await controller.sendText({
+      distro: 'macOS',
+      target: '%1',
+      text: '중복되면 안 되는 질문',
+      enter: true,
+      deliveryId: 'delivery:tmux:1',
+    });
+    assert.equal(duplicate.deliveryState, 'unknown');
+    assert.equal(duplicate.duplicate, true);
+    assert.equal(calls.length, callCount);
+
+    const afterRestartCalls = [];
+    const afterRestart = new TmuxController({
+      platform: 'darwin',
+      deliveryStoreFile,
+      run: async (_file, args, options = {}) => {
+        afterRestartCalls.push({ args, options });
+        return { ok: true, stdout: '', stderr: '' };
+      },
+    });
+    const afterRestartDuplicate = await afterRestart.sendText({
+      distro: 'macOS',
+      target: '%1',
+      text: '중복되면 안 되는 질문',
+      enter: true,
+      deliveryId: 'delivery:tmux:1',
+    });
+    assert.equal(afterRestartDuplicate.deliveryState, 'unknown');
+    assert.equal(afterRestartDuplicate.duplicate, true);
+    assert.deepStrictEqual(afterRestartCalls, []);
+
+    await assert.rejects(() => afterRestart.sendText({
+      distro: 'macOS',
+      target: '%1',
+      text: '같은 ID로 바꿔치기한 질문',
+      enter: true,
+      deliveryId: 'delivery:tmux:1',
+    }), /다른 내용/);
+
+    const failingCalls = [];
+    const failingFileSystem = Object.create(fs);
+    failingFileSystem.writeFileSync = () => { throw new Error('simulated tmux ledger failure'); };
+    failingFileSystem.unlinkSync = () => {};
+    const persistenceBlocked = new TmuxController({
+      platform: 'darwin',
+      deliveryStoreFile: path.join(temp, 'tmux-delivery-blocked.json'),
+      fileSystem: failingFileSystem,
+      onPersistenceError: () => {},
+      run: async (_file, args, options = {}) => {
+        failingCalls.push({ args, options });
+        return { ok: true, stdout: '', stderr: '' };
+      },
+    });
+    await assert.rejects(() => persistenceBlocked.sendText({
+      distro: 'macOS', target: '%2', text: '장부 없이는 보내면 안 됨', enter: true,
+      deliveryId: 'delivery:tmux:blocked',
+    }), error => error.deliveryState === 'rejected' && error.code === 'TMUX_DELIVERY_LEDGER_UNAVAILABLE');
+    assert.equal(failingCalls.filter(call => call.args.includes('load-buffer')).length, 1);
+    assert.equal(failingCalls.filter(call => call.args.includes('delete-buffer')).length, 1);
+    assert.equal(failingCalls.some(call => call.args.includes('paste-buffer')), false);
+    assert.equal(failingCalls.some(call => call.args.includes('send-keys')), false);
+
+    const corruptFile = path.join(temp, 'tmux-delivery-corrupt.json');
+    fs.writeFileSync(corruptFile, '{not-json', 'utf8');
+    const corruptCalls = [];
+    const corruptLedger = new TmuxController({
+      platform: 'darwin',
+      deliveryStoreFile: corruptFile,
+      onPersistenceError: () => {},
+      run: async (_file, args) => {
+        corruptCalls.push(args);
+        return { ok: true, stdout: '', stderr: '' };
+      },
+    });
+    await assert.rejects(() => corruptLedger.sendText({
+      distro: 'macOS', target: '%3', text: '손상 장부에서는 보내면 안 됨', enter: true,
+      deliveryId: 'delivery:tmux:corrupt',
+    }), error => error.deliveryState === 'rejected' && error.code === 'TMUX_DELIVERY_LEDGER_INVALID');
+    assert.deepStrictEqual(corruptCalls, []);
+
+    const concurrentCalls = [];
+    let releaseFirstLoad;
+    const firstLoadGate = new Promise(resolve => { releaseFirstLoad = resolve; });
+    const concurrentController = new TmuxController({
+      platform: 'darwin',
+      run: async (_file, args, options = {}) => {
+        concurrentCalls.push({ args, options });
+        if (args.includes('load-buffer')) await firstLoadGate;
+        return { ok: true, stdout: '', stderr: '' };
+      },
+    });
+    const concurrentOptions = {
+      distro: 'macOS', target: '%4', text: '동시에 호출돼도 한 번만 보낼 질문', enter: true,
+      deliveryId: 'delivery:tmux:concurrent',
+    };
+    const concurrentFirst = concurrentController.sendText(concurrentOptions);
+    await waitUntil(() => concurrentCalls.some(call => call.args.includes('load-buffer')));
+    const concurrentSecond = concurrentController.sendText(concurrentOptions);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(concurrentCalls.filter(call => call.args.includes('load-buffer')).length, 1);
+    releaseFirstLoad();
+    const concurrentResults = await Promise.all([concurrentFirst, concurrentSecond]);
+    assert.equal(concurrentResults[0].deliveryState, 'accepted');
+    assert.equal(concurrentResults[1].duplicate, true);
+    assert.equal(concurrentCalls.filter(call => call.args.includes('paste-buffer')).length, 1);
+    assert.equal(concurrentCalls.filter(call => call.args.includes('send-keys')).length, 1);
   });
 
   test('제공사별 합계와 활성 세션 수를 계산한다', () => {

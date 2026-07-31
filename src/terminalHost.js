@@ -10,7 +10,7 @@ const { spawn } = require('child_process');
 const { endpointFor, safeWriteJson } = require('./bridgeServer');
 const { runBestEffort } = require('./diagnostics');
 
-const TERMINAL_HOST_PROTOCOL = 5;
+const TERMINAL_HOST_PROTOCOL = 6;
 const TERMINAL_HOST_RUNTIME = `node-pty-${require('node-pty/package.json').version}`;
 const MAX_FRAME_CHARS = 4 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 5_000;
@@ -221,6 +221,9 @@ class TerminalHostServer {
           requestId: String(message?.requestId || ''),
           ok: false,
           error: String(error?.message || error),
+          code: String(error?.code || ''),
+          deliveryId: String(error?.deliveryId || ''),
+          deliveryState: ['rejected', 'unknown'].includes(error?.deliveryState) ? error.deliveryState : '',
         }));
     }
   }
@@ -462,7 +465,13 @@ class TerminalHostClient extends EventEmitter {
         this.pending.delete(String(message.requestId || ''));
         clearTimeout(pending.timer);
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(new Error(String(message.error || '명령창 작업 실패')));
+        else {
+          const error = new Error(String(message.error || '명령창 작업 실패'));
+          if (message.code) error.code = String(message.code);
+          if (message.deliveryId) error.deliveryId = String(message.deliveryId);
+          if (['rejected', 'unknown'].includes(message.deliveryState)) error.deliveryState = message.deliveryState;
+          pending.reject(error);
+        }
       } else if (message.type === 'event' && message.event === 'data') {
         this.emit('data', message.payload);
       } else if (message.type === 'event' && message.event === 'state') {
@@ -523,7 +532,7 @@ class TerminalHostClient extends EventEmitter {
   get(id, includeReplay = true) { return this.request('get', id, includeReplay); }
   create(options) { return this.request('create', options); }
   write(id, data) { return this.request('write', id, data); }
-  command(id, command) { return this.request('command', id, command); }
+  command(id, command, options) { return this.request('command', id, command, options || {}); }
   resize(id, cols, rows) { return this.request('resize', id, cols, rows); }
   signal(id, signal) { return this.request('signal', id, signal); }
   restart(id) { return this.request('restart', id); }

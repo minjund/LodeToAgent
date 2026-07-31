@@ -114,6 +114,34 @@ function registerConversationDeliveryTests(context) {
     const observed = { ...original, deliveryObservationSessions: [original, oldRelated] };
     assert.equal(deliveryState(observed, entry, Date.parse(sentAt) + 5_000).phase, "confirming");
   });
+
+  test("터미널 확인이 유실됐어도 실제 AI 대화에서 메시지를 찾으면 수신으로 교정한다", () => {
+    const sentAt = "2026-08-01T00:00:00.000Z";
+    const entry = {
+      id: "local:uncertain",
+      text: "실제로 전달된 질문",
+      timestamp: sentAt,
+      dispatchedAt: sentAt,
+      status: "uncertain",
+      baselineMessageKeys: new Set(),
+    };
+    const received = {
+      id: "codex:user:received",
+      role: "user",
+      text: "실제로 전달된 질문",
+      timestamp: "2026-08-01T00:00:01.000Z",
+    };
+    const assistant = {
+      id: "codex:assistant:received",
+      role: "assistant",
+      text: "확인했습니다.",
+      timestamp: "2026-08-01T00:00:02.000Z",
+    };
+
+    assert.equal(deliveryState({ messages: [] }, entry, Date.parse(sentAt) + 500).phase, "uncertain");
+    assert.equal(deliveryState({ messages: [received] }, entry, Date.parse(sentAt) + 2_000).phase, "received");
+    assert.equal(deliveryState({ messages: [received, assistant] }, entry, Date.parse(sentAt) + 3_000).phase, "responded");
+  });
 }
 
 module.exports = { registerConversationDeliveryTests };

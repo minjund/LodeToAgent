@@ -72,7 +72,7 @@ html[data-theme="dark"] body .new-run-cta :is(small, kbd) {
 }
 
 html[data-theme="light"] body[data-current-view="terminal"] #terminalCommandModeHint {
-  color: #b9d1c9 !important;
+  color: #526b61 !important;
 }
 
 html[data-theme="light"] body[data-current-view="terminal"] .terminal-send-disabled-hint {

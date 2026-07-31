@@ -58,17 +58,17 @@
         <section id="sessionTokenOverview" class="session-token-overview" aria-labelledby="sessionTokenTitle">
           <div class="session-token-heading">
             <p data-i18n="studio.tokens.eyebrow">AI 사용 현황</p>
-            <h1 id="sessionTokenTitle" data-i18n="studio.tokens.title">AI별 사용량</h1>
+            <h2 id="sessionTokenTitle" data-i18n="studio.tokens.title">AI별 사용량</h2>
             <span id="sessionTokenScope" data-i18n="studio.tokens.loading">AI별 사용량을 불러오는 중</span>
           </div>
-          <div id="sessionTokenList" class="session-token-list" aria-live="polite"></div>
+          <div id="sessionTokenList" class="session-token-list" role="region" tabindex="0" aria-labelledby="sessionTokenTitle"></div>
         </section>
         <div class="top-actions">
           <button id="backToProjectsBtn" class="back-to-projects-button hidden" type="button"><span aria-hidden="true">←</span><b data-i18n="navigation.back_to_projects">프로젝트로 돌아가기</b></button>
         </div>
       </header>
 
-      <section id="projectContextNav" class="project-context-nav" aria-labelledby="projectContextName" aria-hidden="true" hidden>
+      <section id="projectContextNav" class="project-context-nav" aria-labelledby="projectContextName">
         <div class="project-context-identity">
           <span class="project-context-mark" aria-hidden="true">□</span>
           <div>
@@ -165,8 +165,8 @@
             <p data-i18n="settings.theme.description">밝은 화면과 어두운 화면 중 편한 쪽을 선택하세요. 다음에 프로그램을 열 때도 그대로 유지됩니다.</p>
           </div>
           <div class="theme-choice" role="radiogroup" aria-labelledby="themeSettingsTitle">
-            <button type="button" role="radio" data-theme-choice="light" aria-checked="false"><span aria-hidden="true">☀</span><b data-i18n="settings.theme.light">밝은 화면</b></button>
-            <button type="button" role="radio" data-theme-choice="dark" aria-checked="true"><span aria-hidden="true">☾</span><b data-i18n="settings.theme.dark">어두운 화면</b></button>
+            <button type="button" role="radio" data-theme-choice="light" aria-checked="false" tabindex="-1"><span aria-hidden="true">☀</span><b data-i18n="settings.theme.light">밝은 화면</b></button>
+            <button type="button" role="radio" data-theme-choice="dark" aria-checked="true" tabindex="0"><span aria-hidden="true">☾</span><b data-i18n="settings.theme.dark">어두운 화면</b></button>
           </div>
         </section>
 
@@ -228,7 +228,7 @@
 
       <section id="terminalSection" class="terminal-section hidden" aria-label="컴퓨터 작업과 AI 대화" data-i18n-aria-label="app.nav.session_terminal">
         <div class="terminal-section-head">
-          <div><span class="terminal-logo">›_</span><div><p class="eyebrow" data-i18n="ui.conversation_and_execution_together">이 화면에서 할 수 있는 일</p><h2 id="terminalModeTitle">지금 선택된 방식: Claude에게 질문만 보내기</h2><p id="terminalPlatformExplain" class="section-explain" data-i18n="ui.choose_a_session_on_the_left_to_continue_with_its">컴퓨터 작업은 파일이나 프로그램을 실제로 변경합니다. AI 질문은 컴퓨터를 변경하지 않습니다.</p><p id="terminalModeInstruction" class="terminal-mode-instruction">현재 ‘질문만 하기’가 선택되어 있습니다. 아래 입력칸에 질문을 적으세요.</p><div class="terminal-mode-guide" role="radiogroup" aria-label="입력할 내용 선택"><button id="terminalModeQuestionBtn" type="button" role="radio" aria-checked="true" aria-pressed="true"><em>✓ 현재 선택</em><b>질문만 보내기 (작업은 계속됨 · 파일 변경 없음)</b><small>답변을 기다리는 동안 현재 작업은 그대로 계속됩니다.</small></button><button id="terminalModeComputerBtn" type="button" role="radio" aria-checked="false" aria-pressed="false"><em>✓ 현재 선택</em><b>컴퓨터 작업 요청하기 (실행 전 승인 필요)</b><small>실행할 내용을 먼저 보여 드리고, 사용자가 승인한 뒤에만 파일을 변경합니다.</small></button></div></div></div>
+          <div><span class="terminal-logo">›_</span><div><p class="eyebrow" data-i18n="ui.conversation_and_execution_together">이 화면에서 할 수 있는 일</p><h2 id="terminalModeTitle">지금 선택된 방식: Claude에게 질문만 보내기</h2><p id="terminalPlatformExplain" class="section-explain" data-i18n="ui.choose_a_session_on_the_left_to_continue_with_its">컴퓨터 작업은 파일이나 프로그램을 실제로 변경합니다. AI 질문은 컴퓨터를 변경하지 않습니다.</p><p id="terminalModeInstruction" class="terminal-mode-instruction">현재 ‘질문만 하기’가 선택되어 있습니다. 아래 입력칸에 질문을 적으세요.</p><div class="terminal-mode-guide" role="radiogroup" aria-label="입력할 내용 선택"><button id="terminalModeQuestionBtn" type="button" role="radio" aria-checked="true" aria-pressed="true" tabindex="0"><em>✓ 현재 선택</em><b>질문만 보내기 (작업은 계속됨 · 파일 변경 없음)</b><small>답변을 기다리는 동안 현재 작업은 그대로 계속됩니다.</small></button><button id="terminalModeComputerBtn" type="button" role="radio" aria-checked="false" aria-pressed="false" tabindex="-1"><em>✓ 현재 선택</em><b>컴퓨터 작업 요청하기 (실행 전 승인 필요)</b><small>실행할 내용을 먼저 보여 드리고, 사용자가 승인한 뒤에만 파일을 변경합니다.</small></button></div></div></div>
           <div class="terminal-create-actions">
             <span>새 컴퓨터 작업 시작</span>
             <button id="newPowerShellBtn" class="accent" type="button">＋ 이 컴퓨터에서 시작</button>
@@ -448,7 +448,7 @@
           <div><p class="eyebrow" data-i18n="memory.archive_eyebrow"></p><h2 id="viewTitle" data-i18n="memory.archive_title">작업 목록</h2></div>
           <div class="session-tools">
             <label class="search-box"><span aria-hidden="true">⌕</span><input id="searchInput" type="search" maxlength="240" aria-label="작업 검색" data-i18n-aria-label="ui.search_tasks" aria-keyshortcuts="/" placeholder="작업 이름, AI 또는 폴더로 검색" data-i18n-placeholder="ui.find_task_ai_or_folder" autocomplete="off" /><button id="searchClearBtn" class="search-clear hidden" type="button" aria-label="검색어 지우기" data-i18n-aria-label="filter.clear_search" title="검색어 지우기" data-i18n-title="filter.clear_search">×</button></label>
-            <details class="mobile-memory-filters" open>
+            <details class="mobile-memory-filters">
               <summary><span data-i18n="filter.filters_and_sort">필터 및 정렬</span><i aria-hidden="true">⌄</i></summary>
               <div class="memory-filter-panel">
                 <label class="memory-filter-field memory-project-filter" for="memoryWorkspaceFilter">

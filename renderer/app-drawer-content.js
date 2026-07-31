@@ -65,6 +65,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       sending: "drawer.message_sending",
       confirming: "drawer.message_confirming",
       delayed: "drawer.message_unconfirmed",
+      uncertain: "drawer.message_uncertain",
       received: "drawer.message_received",
       responding: "drawer.message_responding",
       interrupted: "drawer.message_interrupted",

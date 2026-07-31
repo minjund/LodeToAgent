@@ -253,6 +253,8 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     if (!element) return null;
     const style = getComputedStyle(element);
     const rect = element.getBoundingClientRect();
+    const foreground = parse(style.color);
+    const background = effectiveBackground(element);
     return {
       selector,
       display: style.display,
@@ -265,6 +267,8 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
       height: Number(rect.height.toFixed(2)),
       color: style.color,
       backgroundColor: style.backgroundColor,
+      effectiveBackground: 'rgb(' + background.r + ', ' + background.g + ', ' + background.b + ')',
+      contrast: foreground ? Number(contrast(foreground, background).toFixed(2)) : 0,
       backgroundImage: style.backgroundImage,
       fontWeight: Number(style.fontWeight) || style.fontWeight,
       lineHeight: style.lineHeight,
@@ -335,8 +339,8 @@ app.whenReady().then(async () => {
 
   async function inspect(theme, label) {
     await wait(240);
-    const audit = await win.webContents.executeJavaScript(BUTTON_AUDIT_EXPRESSION);
     const file = await capture(win, outputDir, `${theme}-${label}.png`);
+    const audit = await win.webContents.executeJavaScript(BUTTON_AUDIT_EXPRESSION);
     report.screens.push({ theme, label, file, audit });
     const contractFailures = [];
     if (label === 'all') {
@@ -390,8 +394,12 @@ app.whenReady().then(async () => {
         contractFailures.push('새 AI 작업 시작 버튼에 제거한 단축키 안내가 다시 노출됩니다.');
       }
     }
-    if (label === 'terminal' && theme === 'light' && !/^rgb\(238, 245, 247\)$/.test(audit.contracts.terminalTargetTitle?.color || '')) {
-      contractFailures.push('라이트 테마의 터미널 대상 제목이 어두운 작업판에서 선명하게 보이지 않습니다.');
+    if (
+      label === 'terminal'
+      && theme === 'light'
+      && Number(audit.contracts.terminalTargetTitle?.contrast || 0) + .02 < 4.5
+    ) {
+      contractFailures.push('라이트 테마의 터미널 대상 제목과 작업판 대비가 4.5:1 미만입니다.');
     }
     if (
       audit.themeMismatches.length

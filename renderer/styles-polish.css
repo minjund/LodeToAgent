@@ -1,0 +1,741 @@
+/*
+ * Final UI polish
+ * ---------------
+ * This layer is deliberately last. Earlier product layers still own their
+ * layouts; these rules restore shared contrast, spacing, hit-area, and theme
+ * contracts after feature-specific overrides have run.
+ */
+
+:root {
+  --studio-sans: var(--font-sans);
+  --green-text: #69e1b6;
+  --surface-ring:
+    0 0 0 1px rgba(255, 255, 255, .025),
+    0 10px 28px rgba(0, 0, 0, .12);
+}
+
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html[data-theme="light"] {
+  --green-text: #0b7650;
+  --surface-ring:
+    0 0 0 1px rgba(31, 55, 70, .035),
+    0 1px 2px rgba(31, 55, 70, .035),
+    0 8px 24px rgba(31, 55, 70, .045);
+}
+
+:is(h1, h2, h3, h4) {
+  text-wrap: balance;
+}
+
+:is(.subtitle, .section-explain, .settings-section p, .drawer-section p, .run-modal p) {
+  text-wrap: pretty;
+}
+
+:is(
+  [id$="Count"],
+  [id$="Percent"],
+  .session-token-value,
+  .session-token-detail,
+  .project-sidebar-attention b,
+  .runtime-overview-counts,
+  .token-row,
+  .usage-value
+) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Restore the only primary navigation. Project identity already lives in the
+ * project toolbar, so this surface only carries navigation. */
+#projectContextNav {
+  width: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  top: 80px;
+  margin-bottom: 14px;
+  padding: 6px;
+  border-color: var(--studio-line);
+  border-radius: var(--studio-radius);
+  background: rgba(10, 15, 21, .96);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .14);
+}
+
+body[data-current-view="all"] #projectContextNav {
+  top: 0;
+}
+
+body[data-current-view="all"] .project-task-toolbar {
+  position: static;
+  top: auto;
+}
+
+#projectContextNav > .project-context-identity {
+  display: none;
+}
+
+.project-view-tabs {
+  grid-template-columns: repeat(3, minmax(112px, 1fr)) minmax(140px, .86fr);
+  gap: 8px;
+}
+
+.project-view-tabs > .nav-item,
+.project-view-tabs > .project-tools-menu > summary {
+  min-height: 48px;
+  height: auto;
+}
+
+.project-view-tabs > .nav-item.active {
+  border-color: rgba(64, 201, 239, .28);
+  background: rgba(64, 201, 239, .075);
+  box-shadow: inset 0 -2px var(--studio-cyan);
+}
+
+.project-view-tabs .project-tools-menu.active > summary,
+.project-view-tabs .project-tools-menu[open] > summary {
+  border-color: rgba(64, 201, 239, .28);
+  color: #e3f7fb;
+  background: rgba(64, 201, 239, .065);
+  box-shadow: inset 0 -2px var(--studio-cyan);
+}
+
+.project-view-tabs .advanced-tools-list .nav-item:hover,
+.project-view-tabs .advanced-tools-list .nav-item.active {
+  border-color: rgba(64, 201, 239, .24);
+  color: #e3f7fb;
+  background: rgba(64, 201, 239, .065);
+}
+
+html[data-theme="light"] #projectContextNav {
+  border-color: #cbd8df;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: var(--surface-ring);
+}
+
+/* Tool-page headers stay on one deliberate row. The previous wrapped row-gap
+ * left a large empty band between the title and its back action. */
+body:not([data-current-view="all"]) .topbar {
+  display: flex;
+  min-height: 72px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 20px;
+  padding-block: 12px;
+}
+
+body:not([data-current-view="all"]) .topbar-page-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+body:not([data-current-view="all"]) .top-actions {
+  width: auto !important;
+  flex: 0 0 auto;
+  margin: 0 0 0 auto;
+}
+
+/* Account for both the token header and the project context bar. The legacy
+ * 190px subtraction let the empty-project prompt fall below short windows. */
+.project-selection-prompt {
+  min-height: clamp(240px, calc(100dvh - 250px), 640px);
+}
+
+/* Settings cards use one rhythm instead of a mix of top/bottom margins. */
+body[data-current-view="settings"] .settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+body[data-current-view="settings"] .settings-section > :is(
+  .language-settings-card,
+  .theme-settings-card,
+  .settings-help-card,
+  .provider-visibility-card,
+  .update-panel,
+  .settings-meta-grid
+) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.run-modal-actions {
+  position: sticky;
+  z-index: 3;
+  bottom: 0;
+}
+
+html[data-theme="light"] .run-modal-actions {
+  border-top-color: #d7e0e5;
+  background: rgba(255, 255, 255, .97);
+  box-shadow: 0 -10px 24px rgba(31, 55, 70, .08);
+}
+
+:is(
+  .language-settings-card,
+  .theme-settings-card,
+  .settings-help-card,
+  .provider-visibility-card,
+  .update-panel,
+  .terminal-resource-panel,
+  .terminal-workbench,
+  .tmux-map,
+  .runtime-schedule-list
+) {
+  box-shadow: var(--surface-ring);
+}
+
+/* Enabled providers are not success messages. Keep the tile neutral and use
+ * the switch itself to communicate the enabled state. */
+body[data-current-view="settings"] .provider-visibility-option,
+body[data-current-view="settings"] .provider-visibility-option.enabled,
+body[data-current-view="settings"] .provider-visibility-option:hover {
+  border-color: #344651;
+  background: #101920;
+}
+
+body[data-current-view="settings"] .provider-visibility-option:hover {
+  border-color: #516674;
+  background: #131f27;
+}
+
+body[data-current-view="settings"] .provider-visibility-option.disabled {
+  border-color: #2a3740;
+  background: #0c1319;
+  opacity: .78;
+}
+
+body[data-current-view="settings"] .provider-toggle,
+body[data-current-view="settings"] .provider-visibility-option input:checked + .provider-toggle {
+  min-width: 108px;
+  min-height: 28px;
+  height: 28px;
+  padding: 3px 4px 3px 9px;
+  border-color: #51646d;
+  background: #24333a;
+}
+
+body[data-current-view="settings"] .provider-visibility-option input:checked + .provider-toggle {
+  border-color: #458b72;
+  background: #176247;
+}
+
+body[data-current-view="settings"] .provider-toggle b {
+  color: #f0fbf7;
+  font-size: 11px;
+  line-height: 1;
+}
+
+body[data-current-view="settings"] .provider-toggle i {
+  width: 16px;
+  height: 16px;
+  background: #8fa0a8;
+}
+
+body[data-current-view="settings"] .provider-visibility-option input:checked + .provider-toggle i {
+  background: #79e5bd;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option,
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option.enabled,
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option:hover {
+  border-color: #cbd6dc;
+  background: #ffffff;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option:hover {
+  border-color: #9fb5c0;
+  background: #f7fafb;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option.disabled {
+  border-color: #dce3e7;
+  background: #f2f5f6;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-toggle,
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option input:checked + .provider-toggle {
+  border-color: #2c735c;
+  background: #176247;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-toggle b {
+  color: #f7fffb;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option.disabled .provider-toggle {
+  border-color: #b8c5cb;
+  background: #d7dfe3;
+}
+
+html[data-theme="light"] body[data-current-view="settings"] .provider-visibility-option.disabled .provider-toggle b {
+  color: #455761;
+}
+
+html[data-theme="light"] .update-state-mark span {
+  color: #c9f6e4;
+}
+
+/* A running task gets one status rail, not a full green frame. */
+.control-room-main {
+  border-color: #2d3d48;
+  box-shadow: inset 3px 0 rgba(53, 221, 160, .62);
+}
+
+.control-room-main:hover {
+  border-color: #465966;
+  background: #111a22;
+}
+
+.control-main-now {
+  border-color: #30454b;
+  background: rgba(53, 221, 160, .045);
+}
+
+html[data-theme="light"] .control-room-main {
+  border-color: #cbd7dd;
+  background: #ffffff;
+  box-shadow: inset 3px 0 rgba(18, 132, 96, .68);
+}
+
+html[data-theme="light"] .control-room-main:hover {
+  border-color: #9fb5c0;
+  background: #f8fbfc;
+}
+
+html[data-theme="light"] .control-main-now {
+  border-color: #c9ddd5;
+  background: #f2faf6;
+}
+
+.project-sidebar-group.has-attention {
+  border-color: rgba(255, 194, 71, .28);
+  background: rgba(255, 194, 71, .055);
+  box-shadow: none;
+}
+
+html[data-theme="light"] .project-sidebar-group.has-attention {
+  border-color: rgba(174, 116, 0, .28);
+  background: #fffaf0;
+  box-shadow: none;
+}
+
+/* Sidebar clipping and destructive-action spacing. */
+.sidebar-projects {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+body:is(
+  [data-current-view="runtime"],
+  [data-current-view="terminal"],
+  [data-current-view="tmux"],
+  [data-current-view="settings"]
+) .sidebar-projects {
+  display: none;
+}
+
+.project-sidebar-list {
+  height: auto;
+  min-height: 0;
+}
+
+.project-sidebar-row {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+.project-sidebar-remove {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 9px;
+}
+
+.project-sidebar-remove::before {
+  width: 44px;
+  height: 44px;
+  border-radius: 9px;
+}
+
+@media (min-width: 641px) {
+  .run-composer .run-provider-picker {
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  }
+
+  .run-composer .run-provider-option:last-child:nth-child(4n + 1) {
+    grid-column: auto;
+    width: auto;
+    justify-self: stretch;
+  }
+}
+
+.project-sidebar-session {
+  min-height: 40px;
+  padding-block: 7px;
+}
+
+.sidebar-settings-button {
+  min-height: 44px;
+}
+
+.section-title.provider-section-title {
+  grid-template-columns: minmax(0, 1fr) 44px;
+}
+
+.provider-refresh-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+/* Dense toolbars still need reliable pointer/touch targets and separation. */
+:is(
+  .control-room-select-field select,
+  .control-room-search input,
+  .control-room-list-toolbar button,
+  .control-session-review .management-quick-actions > button,
+  .control-review-open,
+  .terminal-approval-choice,
+  .runtime-open-task,
+  .attention-card-header-actions > button,
+  .management-control-buttons > button,
+  .attention-draft-action,
+  .supervision-clear
+) {
+  min-height: 40px;
+}
+
+.tmux-pane-actions {
+  gap: 8px;
+}
+
+.tmux-pane-actions > button {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+/* Contrast repairs after later product layers. */
+html[data-theme="light"] ::placeholder {
+  color: #657184;
+  opacity: 1;
+}
+
+html[data-theme="light"] .quality-search input::placeholder {
+  color: #5f707c;
+}
+
+html[data-theme="light"] :is(.project-sidebar-copy small, .project-sidebar-session small) {
+  color: #526875;
+}
+
+.project-context-identity small {
+  color: #718493;
+}
+
+:is(.project-history-empty, .sessions-empty, .empty-state p, .empty-state small) {
+  color: #718391;
+}
+
+html[data-theme="light"] :is(.management-result-review span, .management-outcome header span) {
+  color: var(--green-text);
+}
+
+html[data-theme="light"] .global-stat.live strong {
+  color: #0b7650;
+}
+
+html[data-theme="light"] .global-stat.alert strong {
+  color: #b33c50;
+}
+
+/* Question mode is a conversation surface, not a terminal console. Preserve
+ * the dark console for computer work while honoring light mode here. */
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-controlbar {
+  border-color: #cbd7dd;
+  background: #ffffff;
+  color: #263c47;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  :is(#terminalTargetMeta b, #terminalCommandLabel) {
+  color: #17332a;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  :is(#terminalTargetMeta span, #terminalCommandModeHint) {
+  color: #526b61;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-target-icon {
+  border-color: #9fc9bc;
+  color: #0d6d50;
+  background: #e7f5f0;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-connection-state[data-status="running"] {
+  border-color: #90bfae;
+  color: #0d654a;
+  background: #e9f7f2;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-target-facts i {
+  border-color: #c8d6dd;
+  color: #3d5662;
+  background: #eef5f7;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  :is(.terminal-stage, .terminal-console-pane) {
+  background: #edf5f2;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  #terminalCommandForm {
+  border-color: #75ad99;
+  background: #eff9f5;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-command-mark {
+  border-color: #bfd8cf;
+  color: #0d6d50;
+  background: #e6f2ee;
+}
+
+html[data-theme="light"] body[data-current-view="terminal"]:has(#terminalModeQuestionBtn[aria-pressed="true"])
+  .terminal-command-input-row {
+  border-color: #d7e2dd;
+  background: #ffffff;
+}
+
+html[data-theme="light"] body[data-current-view="tmux"] .tmux-distro-node {
+  border-color: #bcdacf;
+  color: #243147;
+  background: linear-gradient(90deg, #effaf5, #ffffff);
+}
+
+html[data-theme="light"] body[data-current-view="tmux"] .tmux-distro-node > span {
+  color: #185f48;
+  background: #e2f5ed;
+}
+
+html[data-theme="light"] body[data-current-view="tmux"] .tmux-distro-node > b {
+  color: #2b775e;
+  background: #eaf7f2;
+}
+
+/* Light surfaces had their interaction states overwritten by a later base
+ * rule, leaving only a one-pixel movement as feedback. */
+html[data-theme="light"] :is(.session-card.memory-record, .session-card.session-record):hover {
+  border-color: #aabdc7;
+  background: #f8fbfc;
+  box-shadow: 0 8px 24px rgba(31, 55, 70, .07);
+}
+
+html[data-theme="light"] .project-history-list > button:hover,
+html[data-theme="light"] .project-history-list > button:focus-visible {
+  border-color: #9fb7c3;
+  background: #f1f7f9;
+}
+
+/* Interactive state should feel tactile without making the layout jump. */
+:is(
+  .primary-button,
+  .ghost-button,
+  .back-to-projects-button,
+  .new-run-cta,
+  .project-view-tabs > .nav-item,
+  .sidebar-settings-button
+):active:not(:disabled) {
+  transform: scale(.96);
+}
+
+@media (max-width: 720px) {
+  #projectContextNav {
+    position: sticky;
+    top: 64px;
+    z-index: 35;
+    margin-bottom: 10px;
+    padding: 6px;
+    border-radius: 10px;
+  }
+
+  body[data-current-view="all"] #projectContextNav {
+    top: 0;
+  }
+
+  .session-token-heading > h2 {
+    font-size: 15px;
+  }
+
+  .project-view-tabs {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .project-view-tabs > .nav-item {
+    min-height: 50px;
+  }
+
+  body:not([data-current-view="all"]) .topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    min-height: 64px;
+    padding-block: 8px;
+  }
+
+  body:not([data-current-view="all"]) .top-actions {
+    grid-column: 2;
+    align-self: start;
+  }
+
+  body:not([data-current-view="all"]) .back-to-projects-button {
+    min-height: 44px;
+  }
+
+  body[data-current-view="settings"] .settings-section {
+    gap: 14px;
+  }
+
+  body[data-current-view="settings"] .provider-visibility-option {
+    min-height: 60px;
+  }
+
+  html[data-theme="light"] .mobile-memory-filters > summary {
+    border-color: #c6d4db;
+    color: #314852;
+    background: #f5f8f9;
+  }
+
+  html[data-theme="light"] .mobile-memory-filters > .memory-filter-panel {
+    border-color: #c6d4db;
+    background: #ffffff;
+    box-shadow: 0 14px 36px rgba(31, 55, 70, .18);
+  }
+
+  html[data-theme="light"] .mobile-tools-menu {
+    border-color: #cbd7dd;
+    background: #ffffff;
+    scrollbar-color: #9aabb4 #eef3f5;
+    box-shadow:
+      0 0 0 100vmax rgba(35, 45, 62, .28),
+      0 24px 70px rgba(34, 47, 67, .2);
+  }
+
+  html[data-theme="light"] .mobile-tools-menu > .mobile-tools-head small {
+    color: #5f707c;
+  }
+
+  html[data-theme="light"] #mobileToolsCloseBtn {
+    border-color: #c6d4db;
+    background: #f4f7f8;
+    color: #314852;
+  }
+
+  html[data-theme="light"] #mobileToolsCloseBtn:hover {
+    border-color: #91aab6;
+    background: #eaf1f4;
+    color: #172e39;
+  }
+
+  html[data-theme="light"] .mobile-tools-menu > button,
+  html[data-theme="light"] .mobile-project-picker {
+    border-color: #cbd7dd;
+    background: #f8fbfc;
+    color: #263c47;
+  }
+
+  html[data-theme="light"] .mobile-tools-menu > button:hover,
+  html[data-theme="light"] .mobile-project-picker > summary:hover {
+    border-color: #9eb4be;
+    background: #eef5f7;
+  }
+
+  html[data-theme="light"] .mobile-project-picker > summary {
+    color: #263c47;
+  }
+
+  html[data-theme="light"] .mobile-project-picker > summary em {
+    color: #607681;
+  }
+
+  html[data-theme="light"] .mobile-project-picker-body {
+    border-top-color: #d4dfe4;
+    background: #f4f8f9;
+  }
+
+  html[data-theme="light"] .mobile-project-picker-body > #mobileAddWorkspaceBtn {
+    border-color: #9cb5c0;
+    background: #ffffff;
+    color: #17647c;
+  }
+
+  html[data-theme="light"] .mobile-tools-menu > button > i,
+  html[data-theme="light"] .mobile-project-picker > summary > i {
+    background: #e5f2f6;
+    color: #116985;
+  }
+
+  html[data-theme="light"] .mobile-tools-menu > button > span > small,
+  html[data-theme="light"] .mobile-project-picker > summary > span > small {
+    color: #526875;
+  }
+}
+
+@media (min-width: 721px) and (max-width: 920px) {
+  .project-view-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 721px) {
+  .project-view-tabs > .nav-item[data-view] {
+    height: auto;
+    min-height: 48px;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    padding: 7px 9px;
+  }
+
+  .project-view-tabs > .nav-item[data-view] > .nav-icon {
+    grid-column: 1;
+    grid-row: 1;
+    align-self: center;
+  }
+
+  .project-view-tabs > .nav-item[data-view] > .nav-icon + .nav-label {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .project-view-tabs > .nav-item[data-view] > b {
+    width: auto;
+    min-width: 28px;
+    display: inline-flex;
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+    text-align: center;
+    white-space: nowrap;
+    line-height: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(button, summary, input, select, textarea) {
+    transition-duration: .01ms !important;
+  }
+}

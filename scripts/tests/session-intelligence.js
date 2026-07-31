@@ -68,6 +68,18 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(failed.attention.category, 'risk');
     assert.equal(failed.attention.required, false);
     assert.equal(failed.attention.actionable, true);
+
+    const grok = enrichSession({
+      ...waiting,
+      id: 'grok-resumable',
+      provider: 'grok',
+      parentId: null,
+      status: 'completed',
+      externalId: 'grok-session-42',
+      runtimePresence: [],
+    }, [], now);
+    assert.equal(grok.controlCapabilities.sendInstruction, true);
+    assert.equal(grok.controlCapabilities.resume, true);
   });
 
   test('로그의 테스트 실행 상태를 통과·실패·실행 중·미확인으로 구분한다', () => {
