@@ -4,6 +4,7 @@ const assert = require('assert');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { EventEmitter } = require('events');
 const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
@@ -17,6 +18,7 @@ const {
   WINDOWS_UPDATE_BOOTSTRAP,
 } = require('../../src/updateInstaller');
 const { installMacUpdate } = require('../../src/macUpdateHelper');
+const { readUpdateRelaunchRequest, signalRendererReady } = require('../../src/updateRelaunch');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 const { ensureMacNodePtyRuntime, unpackedAsarPath } = require('../../src/nodePtyRuntime');
@@ -176,6 +178,44 @@ function registerCliAndUpdateTests(context) {
     assert.equal(unpackedAsarPath(packageFile), `${packageRoot}/package.json`);
   });
 
+  test('업데이트 재실행은 렌더러 준비 신호를 검증된 파일에 기록한다', async () => {
+    const signalRoot = path.join(temp, 'update-renderer-ready');
+    const token = 'a'.repeat(48);
+    const readyPath = path.join(signalRoot, `install-renderer-ready-${token}.json`);
+    const environment = {
+      LOADTOAGENT_UPDATE_READY_PATH: readyPath,
+      LOADTOAGENT_UPDATE_READY_TOKEN: token,
+    };
+    assert.deepStrictEqual(readUpdateRelaunchRequest(environment), { readyPath, token });
+    const result = await signalRendererReady({
+      environment,
+      pid: 4321,
+      version: '3.1.0',
+      now: () => new Date('2026-07-31T09:00:00.000Z'),
+    });
+    assert.deepStrictEqual(result, { signaled: true, readyPath });
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(readyPath, 'utf8')), {
+      token,
+      pid: 4321,
+      version: '3.1.0',
+      rendererReadyAt: '2026-07-31T09:00:00.000Z',
+    });
+    assert.equal('LOADTOAGENT_UPDATE_READY_PATH' in environment, false);
+    assert.equal('LOADTOAGENT_UPDATE_READY_TOKEN' in environment, false);
+    const directReadyPath = path.join(signalRoot, `install-renderer-ready-${'b'.repeat(48)}.json`);
+    assert.deepStrictEqual(await signalRendererReady({
+      request: { readyPath: directReadyPath, token: 'b'.repeat(48) },
+      environment: {},
+      pid: 4322,
+      version: '3.1.0',
+    }), { signaled: true, readyPath: directReadyPath });
+    assert.equal(readUpdateRelaunchRequest({
+      LOADTOAGENT_UPDATE_READY_PATH: path.join(signalRoot, 'unexpected.json'),
+      LOADTOAGENT_UPDATE_READY_TOKEN: token,
+    }), null);
+    assert.deepStrictEqual(await signalRendererReady({ environment: {} }), { signaled: false, readyPath: '' });
+  });
+
   test('Git 태그 버전을 SemVer 순서로 비교한다', () => {
     assert.equal(normalizeVersion('refs/tags/v3.2.1').raw, '3.2.1');
     assert.equal(compareVersions('3.10.0', '3.9.9'), 1);
@@ -290,20 +330,60 @@ function registerCliAndUpdateTests(context) {
     assert(spawnCall.args.includes(automatic.bootstrapPath));
     assert(spawnCall.args.includes('-ReadyPath'));
     assert(spawnCall.args.includes(automatic.readyPath));
+    assert(spawnCall.args.includes('-RendererReadyPath'));
+    assert(spawnCall.args.includes(automatic.rendererReadyPath));
+    assert(spawnCall.args.includes('-RendererReadyToken'));
+    assert(spawnCall.args.includes(automatic.rendererReadyToken));
+    assert.equal(path.basename(automatic.rendererReadyPath), `install-renderer-ready-${automatic.rendererReadyToken}.json`);
+    assert.match(automatic.rendererReadyToken, /^[0-9a-f]{48}$/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Start-Process -FilePath \(Join-Path \$PSHOME 'powershell\.exe'\)/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Test-Path -LiteralPath \$ReadyPath/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyPath'/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyToken'/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /bootstrapError=/);
     const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
     assert.match(helperSource, /Set-Content -LiteralPath \$ReadyPath/);
     assert.match(helperSource, /helperStarted=true;parentPid=/);
-    assert.match(helperSource, /stoppingOrphanProcess=/);
+    assert.match(helperSource, /Stop-AppProcesses \$AppPath 'stoppingOrphanProcess'/);
     assert.match(helperSource, /ArgumentList '\/S'/);
     assert.match(helperSource, /if \(\$exitCode -ne 0\)/);
     assert.match(helperSource, /updateFailed=true/);
     assert.match(helperSource, /Find-InstalledApp \$AppPath \$ExpectedVersion/);
     assert.match(helperSource, /Start-Process -FilePath \$launchPath/);
-    assert.match(helperSource, /relaunchStarted=true/);
+    assert.match(helperSource, /function Renderer-IsReady/);
+    assert.match(helperSource, /function Restore-AppWindow/);
+    assert.match(helperSource, /LOADTOAGENT_UPDATE_READY_PATH/);
+    assert.match(helperSource, /rendererReady=true/);
+    assert.match(helperSource, /rendererReadyTimeout=true/);
+    assert.match(helperSource, /relaunchReady=true/);
+    assert.match(helperSource, /\$verifiedUpdatedApp = \$exitCode -eq 0 -and \$installedVersion -eq \$ExpectedVersion/);
+    assert.match(helperSource, /recoveryRelaunchStarted=true/);
     assert.match(helperSource, /versionMismatch=true/);
+    if (process.platform === 'win32') {
+      const parserScript = [
+        '$helperErrors = $null',
+        '$bootstrapErrors = $null',
+        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:LOADTOAGENT_HELPER_PATH, [ref]$null, [ref]$helperErrors)',
+        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:LOADTOAGENT_BOOTSTRAP_PATH, [ref]$null, [ref]$bootstrapErrors)',
+        'if ($helperErrors.Count -or $bootstrapErrors.Count) {',
+        "  throw ('PowerShell parse errors: ' + (($helperErrors + $bootstrapErrors | ForEach-Object Message) -join '; '))",
+        '}',
+      ].join('; ');
+      execFileSync(path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
+        '-NoLogo',
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        parserScript,
+      ], {
+        windowsHide: true,
+        env: {
+          ...process.env,
+          LOADTOAGENT_HELPER_PATH: automatic.helperPath,
+          LOADTOAGENT_BOOTSTRAP_PATH: automatic.bootstrapPath,
+        },
+      });
+    }
     const readyFixture = path.join(downloadDir, 'helper-ready-test');
     const readyChild = new EventEmitter();
     setTimeout(() => fs.writeFileSync(readyFixture, 'ready', 'utf8'), 20);

@@ -16,6 +16,12 @@ const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
 const { UpdateManager } = require('./src/updateManager');
 const { launchDownloadedUpdate, verifyDownloadedInstaller } = require('./src/updateInstaller');
+const {
+  READY_PATH_ENV,
+  READY_TOKEN_ENV,
+  readUpdateRelaunchRequest,
+  signalRendererReady,
+} = require('./src/updateRelaunch');
 const { readWorkspaces, removeWorkspace, writeWorkspaces } = require('./src/workspaceStore');
 const { registerAppIpc } = require('./src/ipc/registerAppIpc');
 const { registerAgentIpc } = require('./src/ipc/registerAgentIpc');
@@ -27,6 +33,9 @@ const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
 const { macPathEntries } = require('./src/platformPath');
 const packageMetadata = require('./package.json');
+const pendingUpdateRelaunch = readUpdateRelaunchRequest(process.env);
+delete process.env[READY_PATH_ENV];
+delete process.env[READY_TOKEN_ENV];
 
 const PRODUCT_NAME = 'LoadToAgent';
 const ALLOW_UNSIGNED_WINDOWS_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
@@ -414,17 +423,24 @@ function openAttentionSession(session) {
   }
 }
 
-function markRendererReady() {
+async function markRendererReady() {
   rendererBootstrapped = true;
-  if (!pendingAttentionSessionId || !mainWindow || mainWindow.isDestroyed()) return { ok: true };
-  const sessionId = pendingAttentionSessionId;
-  try {
-    mainWindow.webContents.send('agents:attention-requested', { sessionId });
-    pendingAttentionSessionId = '';
-  } catch (error) {
-    reportRecoverableError('ipc-send:agents:attention-requested', error);
+  if (pendingUpdateRelaunch) showMainWindow();
+  if (pendingAttentionSessionId && mainWindow && !mainWindow.isDestroyed()) {
+    const sessionId = pendingAttentionSessionId;
+    try {
+      mainWindow.webContents.send('agents:attention-requested', { sessionId });
+      pendingAttentionSessionId = '';
+    } catch (error) {
+      reportRecoverableError('ipc-send:agents:attention-requested', error);
+    }
   }
-  return { ok: true };
+  const readiness = await signalRendererReady({
+    request: pendingUpdateRelaunch,
+    pid: process.pid,
+    version: app.getVersion(),
+  });
+  return { ok: true, updateRelaunchReady: readiness.signaled };
 }
 
 function createAttentionNotifier() {

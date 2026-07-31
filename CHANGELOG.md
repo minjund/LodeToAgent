@@ -5,6 +5,13 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.3 - 2026-07-31
+
+- Make Windows updates wait for an authenticated renderer-ready signal from the
+  newly installed app instead of treating a briefly living process as success.
+- Restore and focus the relaunched window, and retry startup up to three times
+  when the renderer or window does not become ready.
+
 ## 1.6.2 - 2026-07-31
 
 - Match execution details, helper-AI summaries, quick navigation, keyboard

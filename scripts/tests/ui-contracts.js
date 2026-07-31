@@ -828,6 +828,9 @@ const MAIN_PROCESS_CONTRACTS = [
   "agents:attention-requested",
   "pendingAttentionSessionId",
   "markRendererReady",
+  "readUpdateRelaunchRequest",
+  "signalRendererReady",
+  "updateRelaunchReady",
   "did-start-loading",
 ];
 

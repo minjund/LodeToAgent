@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFile: execFileCallback, spawn: spawnProcess } = require('child_process');
 const { promisify } = require('util');
 
@@ -15,7 +16,9 @@ const WINDOWS_UPDATE_HELPER = `param(
   [Parameter(Mandatory = $true)][string]$AppPath,
   [Parameter(Mandatory = $true)][string]$ExpectedVersion,
   [Parameter(Mandatory = $true)][string]$LogPath,
-  [Parameter(Mandatory = $true)][string]$ReadyPath
+  [Parameter(Mandatory = $true)][string]$ReadyPath,
+  [Parameter(Mandatory = $true)][string]$RendererReadyPath,
+  [Parameter(Mandatory = $true)][string]$RendererReadyToken
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,6 +55,53 @@ function App-Processes([string]$ExecutablePath) {
   } catch {
     Write-UpdateLog ('processLookupError=' + $_.Exception.Message)
     return @()
+  }
+}
+
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class LoadToAgentWindow {
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@
+
+function Renderer-IsReady([string]$SignalPath, [string]$Token, [int]$TargetPid, [string]$Version) {
+  try {
+    if (-not (Test-Path -LiteralPath $SignalPath -PathType Leaf)) { return $false }
+    $signal = Get-Content -LiteralPath $SignalPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    return ([string]$signal.token -eq $Token -and [int]$signal.pid -eq $TargetPid -and [string]$signal.version -eq $Version -and -not [string]::IsNullOrWhiteSpace([string]$signal.rendererReadyAt))
+  } catch {
+    return $false
+  }
+}
+
+function Restore-AppWindow([int]$TargetPid) {
+  for ($attempt = 0; $attempt -lt 30; $attempt++) {
+    $process = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+    if (-not $process) { return $false }
+    if ($process.MainWindowHandle -ne 0) {
+      [void][LoadToAgentWindow]::ShowWindowAsync($process.MainWindowHandle, 9)
+      [void][LoadToAgentWindow]::SetForegroundWindow($process.MainWindowHandle)
+      Start-Sleep -Milliseconds 250
+      Write-UpdateLog ('windowRestored=true;pid=' + $TargetPid + ';handle=' + $process.MainWindowHandle)
+      return $true
+    }
+    Start-Sleep -Milliseconds 100
+  }
+  Write-UpdateLog ('windowRestoreFailed=true;pid=' + $TargetPid)
+  return $false
+}
+
+function Stop-AppProcesses([string]$ExecutablePath, [string]$Reason) {
+  foreach ($process in (App-Processes $ExecutablePath)) {
+    Write-UpdateLog ($Reason + '=' + $process.ProcessId)
+    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
   }
 }
 
@@ -115,11 +165,7 @@ try {
     if ($remaining.Count -eq 0) { break }
     Start-Sleep -Milliseconds 250
   }
-  $remaining = App-Processes $AppPath
-  foreach ($process in $remaining) {
-    Write-UpdateLog ('stoppingOrphanProcess=' + $process.ProcessId)
-    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-  }
+  Stop-AppProcesses $AppPath 'stoppingOrphanProcess'
 
   $installer = Start-Process -FilePath $InstallerPath -ArgumentList '/S' -PassThru -Wait -WindowStyle Hidden
   $exitCode = $installer.ExitCode
@@ -148,26 +194,58 @@ try {
     }
     Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
     try {
-      Start-Sleep -Milliseconds 750
-      $relaunchStarted = $false
-      for ($attempt = 1; $attempt -le 3; $attempt++) {
-        $relaunched = Start-Process -FilePath $launchPath -WorkingDirectory (Split-Path -Parent $launchPath) -PassThru
-        Start-Sleep -Milliseconds 1500
-        if (-not $relaunched.HasExited) {
-          $relaunchStarted = $true
+      $verifiedUpdatedApp = $exitCode -eq 0 -and $installedVersion -eq $ExpectedVersion
+      if ($verifiedUpdatedApp) {
+        $relaunchReady = $false
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+          Remove-Item -LiteralPath $RendererReadyPath -Force -ErrorAction SilentlyContinue
+          $env:LOADTOAGENT_UPDATE_READY_PATH = $RendererReadyPath
+          $env:LOADTOAGENT_UPDATE_READY_TOKEN = $RendererReadyToken
+          $relaunched = Start-Process -FilePath $launchPath -WorkingDirectory (Split-Path -Parent $launchPath) -PassThru
           Write-UpdateLog ('relaunchStarted=true;attempt=' + $attempt + ';pid=' + $relaunched.Id)
-          break
+          for ($readyAttempt = 0; $readyAttempt -lt 150; $readyAttempt++) {
+            Start-Sleep -Milliseconds 200
+            $relaunched.Refresh()
+            if ($relaunched.HasExited) {
+              Write-UpdateLog ('relaunchExited=true;attempt=' + $attempt + ';exitCode=' + $relaunched.ExitCode)
+              break
+            }
+            if (Renderer-IsReady $RendererReadyPath $RendererReadyToken $relaunched.Id $ExpectedVersion) {
+              if (Restore-AppWindow $relaunched.Id) {
+                $relaunchReady = $true
+                Write-UpdateLog ('rendererReady=true;attempt=' + $attempt + ';pid=' + $relaunched.Id)
+                Write-UpdateLog ('relaunchReady=true;attempt=' + $attempt + ';pid=' + $relaunched.Id)
+              }
+              break
+            }
+          }
+          if ($relaunchReady) { break }
+          Write-UpdateLog ('rendererReadyTimeout=true;attempt=' + $attempt + ';pid=' + $relaunched.Id)
+          Stop-AppProcesses $launchPath 'stoppingUnreadyProcess'
+          if ($attempt -lt 3) {
+            Start-Sleep -Milliseconds 750
+          }
         }
-        Write-UpdateLog ('relaunchExited=true;attempt=' + $attempt + ';exitCode=' + $relaunched.ExitCode)
-        Start-Sleep -Milliseconds 750
+        if (-not $relaunchReady) { Write-UpdateLog 'relaunchError=renderer did not become ready after three attempts' }
+      } else {
+        $recovered = Start-Process -FilePath $launchPath -WorkingDirectory (Split-Path -Parent $launchPath) -PassThru
+        Start-Sleep -Milliseconds 1500
+        if ($recovered.HasExited) {
+          Write-UpdateLog ('recoveryRelaunchError=app exited;exitCode=' + $recovered.ExitCode)
+        } else {
+          [void](Restore-AppWindow $recovered.Id)
+          Write-UpdateLog ('recoveryRelaunchStarted=true;pid=' + $recovered.Id + ';version=' + $installedVersion)
+        }
       }
-      if (-not $relaunchStarted) { Write-UpdateLog 'relaunchError=app exited during every restart attempt' }
     } catch {
       Write-UpdateLog ('relaunchError=' + $_.Exception.Message)
     }
   } else {
     Write-UpdateLog 'relaunchError=installed executable not found'
   }
+  Remove-Item Env:LOADTOAGENT_UPDATE_READY_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:LOADTOAGENT_UPDATE_READY_TOKEN -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $RendererReadyPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $ReadyPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 }
@@ -180,7 +258,9 @@ const WINDOWS_UPDATE_BOOTSTRAP = `param(
   [Parameter(Mandatory = $true)][string]$AppPath,
   [Parameter(Mandatory = $true)][string]$ExpectedVersion,
   [Parameter(Mandatory = $true)][string]$LogPath,
-  [Parameter(Mandatory = $true)][string]$ReadyPath
+  [Parameter(Mandatory = $true)][string]$ReadyPath,
+  [Parameter(Mandatory = $true)][string]$RendererReadyPath,
+  [Parameter(Mandatory = $true)][string]$RendererReadyToken
 )
 
 $ErrorActionPreference = 'Stop'
@@ -206,7 +286,9 @@ try {
     '-AppPath', (Quote-ProcessArgument $AppPath),
     '-ExpectedVersion', $ExpectedVersion,
     '-LogPath', (Quote-ProcessArgument $LogPath),
-    '-ReadyPath', (Quote-ProcessArgument $ReadyPath)
+    '-ReadyPath', (Quote-ProcessArgument $ReadyPath),
+    '-RendererReadyPath', (Quote-ProcessArgument $RendererReadyPath),
+    '-RendererReadyToken', $RendererReadyToken
   )
   $helperProcess = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $helperArguments -WindowStyle Hidden -PassThru
   for ($attempt = 0; $attempt -lt 100; $attempt++) {
@@ -443,7 +525,10 @@ async function launchDownloadedUpdate(options = {}) {
   const bootstrapPath = path.join(downloadsDir, 'install-update-bootstrap.ps1');
   const logPath = path.join(downloadsDir, 'install-update.log');
   const readyPath = path.join(downloadsDir, 'install-update.ready');
+  const rendererReadyToken = crypto.randomBytes(24).toString('hex');
+  const rendererReadyPath = path.join(downloadsDir, `install-renderer-ready-${rendererReadyToken}.json`);
   await fs.promises.rm(readyPath, { force: true });
+  await fs.promises.rm(rendererReadyPath, { force: true });
   await fs.promises.writeFile(helperPath, WINDOWS_UPDATE_HELPER, { encoding: 'utf8', mode: 0o600 });
   await fs.promises.writeFile(bootstrapPath, WINDOWS_UPDATE_BOOTSTRAP, { encoding: 'utf8', mode: 0o600 });
   const child = spawn(windowsPowerShell(options.environment), [
@@ -460,6 +545,8 @@ async function launchDownloadedUpdate(options = {}) {
     '-ExpectedVersion', expectedVersion,
     '-LogPath', logPath,
     '-ReadyPath', readyPath,
+    '-RendererReadyPath', rendererReadyPath,
+    '-RendererReadyToken', rendererReadyToken,
   ], {
     detached: false,
     windowsHide: true,
@@ -471,7 +558,15 @@ async function launchDownloadedUpdate(options = {}) {
   await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000);
   await fs.promises.rm(readyPath, { force: true });
   child.unref();
-  return { mode: 'automatic', helperPath, bootstrapPath, logPath, readyPath };
+  return {
+    mode: 'automatic',
+    helperPath,
+    bootstrapPath,
+    logPath,
+    readyPath,
+    rendererReadyPath,
+    rendererReadyToken,
+  };
 }
 
 module.exports = {
