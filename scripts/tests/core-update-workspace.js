@@ -341,6 +341,8 @@ function registerCliAndUpdateTests(context) {
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyPath'/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyToken'/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /bootstrapError=/);
+    assert.deepStrictEqual([...fs.readFileSync(automatic.helperPath).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
+    assert.deepStrictEqual([...fs.readFileSync(automatic.bootstrapPath).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
     const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
     assert.match(helperSource, /Set-Content -LiteralPath \$ReadyPath/);
     assert.match(helperSource, /helperStarted=true;parentPid=/);

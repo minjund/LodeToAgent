@@ -529,8 +529,8 @@ async function launchDownloadedUpdate(options = {}) {
   const rendererReadyPath = path.join(downloadsDir, `install-renderer-ready-${rendererReadyToken}.json`);
   await fs.promises.rm(readyPath, { force: true });
   await fs.promises.rm(rendererReadyPath, { force: true });
-  await fs.promises.writeFile(helperPath, WINDOWS_UPDATE_HELPER, { encoding: 'utf8', mode: 0o600 });
-  await fs.promises.writeFile(bootstrapPath, WINDOWS_UPDATE_BOOTSTRAP, { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.writeFile(helperPath, `\uFEFF${WINDOWS_UPDATE_HELPER}`, { encoding: 'utf8', mode: 0o600 });
+  await fs.promises.writeFile(bootstrapPath, `\uFEFF${WINDOWS_UPDATE_BOOTSTRAP}`, { encoding: 'utf8', mode: 0o600 });
   const child = spawn(windowsPowerShell(options.environment), [
     '-NoLogo',
     '-NoProfile',
