@@ -5,6 +5,13 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.1 - 2026-07-31
+
+- Fix Windows updates that could close the app without reopening it by finding
+  the newly installed executable, verifying its version, and retrying launch.
+- Move keyboard shortcuts into a compact brand action, remove the redundant
+  help/status card, and simplify the new AI task button to one line.
+
 ## 1.6.0 - 2026-07-31
 
 - Rebuild the home screen around project selection: keep every project visible,

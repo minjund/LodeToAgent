@@ -499,6 +499,7 @@ async function installDownloadedUpdate() {
     installerPath: downloaded.downloadedPath,
     downloadsDir: path.join(app.getPath('userData'), 'updates'),
     appPath: process.execPath,
+    expectedVersion: downloaded.latestVersion,
     parentPid: process.pid,
     shell,
     allowUnsignedWindowsUpdates: ALLOW_UNSIGNED_WINDOWS_UPDATES,

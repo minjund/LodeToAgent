@@ -14,7 +14,8 @@
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-orbit" aria-hidden="true"><span></span></div>
-        <div><strong>LoadToAgent</strong><small data-i18n="app.brand.subtitle">AI에게 맡긴 일 한눈에 보기</small></div>
+        <div class="brand-copy"><strong>LoadToAgent</strong><small data-i18n="app.brand.subtitle">AI에게 맡긴 일 한눈에 보기</small></div>
+        <button id="shortcutHelpBtn" class="brand-shortcut-button" type="button" aria-label="키보드 단축키 보기" data-i18n-aria-label="quality.shortcuts.open" aria-keyshortcuts="?" aria-controls="shortcutHelpModal" title="키보드 단축키 보기" data-i18n-title="quality.shortcuts.open"><span aria-hidden="true">⌘</span></button>
       </div>
 
       <section id="sidebarProjects" class="sidebar-projects" aria-labelledby="sidebarProjectsTitle">
@@ -169,18 +170,10 @@
           </div>
         </section>
 
-        <section class="settings-help-card" aria-labelledby="settingsHelpTitle">
-          <div class="settings-help-copy">
-            <span data-i18n="settings.help.eyebrow">도움말 및 상태</span>
-            <h3 id="settingsHelpTitle" data-i18n="settings.help.title">사용 안내와 앱 상태</h3>
-            <p data-i18n="settings.help.description">처음 사용 안내와 키보드 단축키를 확인하고, 앱 연결 상태를 한곳에서 볼 수 있습니다.</p>
-          </div>
-          <div class="settings-help-actions">
-            <button id="guideBtn" class="guide-toggle" type="button" aria-controls="beginnerGuide" aria-expanded="false"><span aria-hidden="true">?</span><span><b data-i18n="ui.10_minute_quick_start">처음 사용 안내</b><small id="guideButtonProgress" data-i18n="guide.progress_none" data-i18n-params='{"total":4}'>4단계로 주요 기능과 작업 시작 방법을 안내합니다.</small></span></button>
-            <button id="shortcutHelpBtn" class="top-icon-action" type="button" aria-label="키보드 단축키 보기" data-i18n-aria-label="quality.shortcuts.open" aria-keyshortcuts="?" aria-controls="shortcutHelpModal"><span aria-hidden="true">⌘</span><b class="top-icon-label" data-i18n="quality.shortcuts.title">키보드 단축키 보기</b></button>
-            <div id="appConnectionState" class="sync-state" role="status" aria-live="polite"><span aria-hidden="true"></span><div><b data-i18n="ui.app_connection">앱 연결 시도 중</b><small id="lastSync" data-i18n="ui.connecting">연결 시도 중</small></div></div>
-          </div>
-        </section>
+        <div class="hidden" aria-hidden="true">
+          <button id="guideBtn" type="button" tabindex="-1" aria-controls="beginnerGuide" aria-expanded="false"><span></span><span><small id="guideButtonProgress"></small></span></button>
+          <div id="appConnectionState"><b></b><small id="lastSync"></small></div>
+        </div>
 
         <section class="provider-visibility-card" aria-labelledby="providerVisibilityTitle">
           <div class="provider-visibility-copy">
@@ -371,7 +364,7 @@
             <span class="project-task-context-light" aria-hidden="true"></span>
             <span><small data-i18n="run.current_project">현재 프로젝트</small><b id="projectTaskProjectName">프로젝트</b><em id="projectTaskProjectPath"></em></span>
           </div>
-          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="현재 프로젝트에서 새 AI 작업 시작" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업 시작</b><small>단축키: <kbd>Ctrl+N</kbd></small></span></button>
+          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="현재 프로젝트에서 새 AI 작업 시작" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업 시작</b></span></button>
         </div>
         <div class="live-section-head">
           <div class="live-section-title"><span class="live-beacon"></span><div><p class="eyebrow" data-i18n="ui.active_now">2. 작업별 진행 상황</p><h2>작업별 현재 상태</h2><span id="liveCountGuide" class="live-count-guide">아래 한 줄은 함께 묶어 시작한 일입니다. 현재 AI가 처리 중인 일의 전체 건수를 확인하고 있습니다.</span></div></div>

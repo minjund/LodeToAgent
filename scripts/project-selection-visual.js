@@ -179,6 +179,31 @@ app.whenReady().then(async () => {
         && !document.querySelector('#settingsSection')?.classList.contains('hidden')`,
       'AI 목록 위 설정 버튼에서 설정 화면을 열지 못했습니다.',
     );
+    const settingsHelpLayout = await win.webContents.executeJavaScript(`(() => {
+      const shortcut = document.querySelector('#shortcutHelpBtn');
+      const rect = shortcut?.getBoundingClientRect();
+      return {
+        helpCardRemoved: !document.querySelector('.settings-help-card'),
+        shortcutInBrand: Boolean(shortcut?.closest('.brand')),
+        shortcutWidth: rect?.width || 0,
+        shortcutHeight: rect?.height || 0,
+        legacyHelpCopyVisible: [...document.querySelectorAll('h1, h2, h3, p, span, b, small')]
+          .some(node => node.getClientRects().length && /도움말 및 상태|사용 안내와 앱 상태|기본 사용법 완료/.test(node.textContent || '')),
+      };
+    })()`);
+    if (!settingsHelpLayout.helpCardRemoved
+      || !settingsHelpLayout.shortcutInBrand
+      || settingsHelpLayout.shortcutWidth > 32
+      || settingsHelpLayout.shortcutHeight > 32
+      || settingsHelpLayout.legacyHelpCopyVisible) {
+      throw new Error(`설정 도움말 제거·브랜드 단축키 배치 검증 실패: ${JSON.stringify(settingsHelpLayout)}`);
+    }
+    const settingsOutput = path.join(outputDir, 'loadtoagent-settings-with-brand-shortcut.png');
+    await capture(win, settingsOutput);
+    await win.webContents.executeJavaScript(`document.querySelector('#shortcutHelpBtn')?.click()`);
+    await waitFor(win, `!document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '브랜드 단축키 버튼이 키보드 도움말을 열지 못했습니다.');
+    await win.webContents.executeJavaScript(`document.querySelector('#closeShortcutHelpBtn')?.click()`);
+    await waitFor(win, `document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '키보드 도움말을 닫지 못했습니다.');
     await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('all')`);
     await waitFor(win, `window.LoadToAgentApp.state.view === 'all'`, '설정 화면에서 프로젝트 선택 화면으로 돌아오지 못했습니다.');
 
@@ -216,6 +241,8 @@ app.whenReady().then(async () => {
         taskToolbarVisible: visible(document.querySelector('#projectTaskToolbar')),
         taskButtonInProject: Boolean(document.querySelector('#projectTaskToolbar > #newRunBtn')),
         taskProjectPath: document.querySelector('#projectTaskProjectPath')?.textContent || '',
+        taskButtonText: document.querySelector('#newRunBtn')?.textContent.replace(/\s+/g, ' ').trim() || '',
+        taskButtonShortcutRemoved: !document.querySelector('#newRunBtn small, #newRunBtn kbd'),
         mainProjects: [...document.querySelectorAll('.control-room-project-group')].map(project => project.dataset.controlProject),
         reviewCards: [...document.querySelectorAll('[data-control-review]')].filter(visible).map(card => ({
           sessionId: card.dataset.controlReview || '',
@@ -230,6 +257,7 @@ app.whenReady().then(async () => {
       || selected.selectedCount !== 1 || selected.selectedWorkspace !== selectedWorkspace
       || selected.expandedCount !== 0 || selected.nestedSessionAreas !== 0 || selected.nestedSessions !== 0
       || !selected.taskToolbarVisible || !selected.taskButtonInProject || selected.taskProjectPath !== selectedWorkspace
+      || selected.taskButtonText !== '＋새 AI 작업 시작' || !selected.taskButtonShortcutRemoved
       || selected.mainProjects.length !== 1 || selected.reviewCards.length < 1
       || !selected.reviewCards[0].title || /^대기합니다[.!]?$/.test(selected.reviewCards[0].title)
       || !selected.reviewCards[0].action || selected.genericAttentionInboxVisible) {
@@ -431,7 +459,7 @@ Would you like to make the following edits?
           .some(item => item.dataset.workspace === ${JSON.stringify(removedWorkspace)})`,
       '왼쪽 프로젝트 삭제 후 항목이 목록에서 사라지지 않았습니다.',
     );
-    process.stdout.write(`프로젝트 선택 화면 검증 통과\n${JSON.stringify({ initial, removeHoverBefore, removeHoverAfter, selected, directReview, runModal, approval, approvalDeliveries, addProject }, null, 2)}\n${initialOutput}\n${removeHoverOutput}\n${selectedOutput}\n${modalOutput}\n${approvalOutput}\n`);
+    process.stdout.write(`프로젝트 선택 화면 검증 통과\n${JSON.stringify({ initial, removeHoverBefore, removeHoverAfter, settingsHelpLayout, selected, directReview, runModal, approval, approvalDeliveries, addProject }, null, 2)}\n${initialOutput}\n${removeHoverOutput}\n${settingsOutput}\n${selectedOutput}\n${modalOutput}\n${approvalOutput}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

@@ -324,14 +324,8 @@ app.whenReady().then(async () => {
       }
     }
     if (label === 'wide-all') {
-      if (!audit.contracts.newRunShortcut || audit.contracts.newRunShortcut.display === 'none' || audit.contracts.newRunShortcut.width < 1) {
-        contractFailures.push('넓은 화면의 새 AI 작업 시작 버튼에 단축키 안내가 보이지 않습니다.');
-      }
-      if (theme === 'light' && audit.contracts.newRunShortcut?.backgroundColor !== 'rgba(0, 0, 0, 0)') {
-        contractFailures.push('라이트 테마의 새 작업 단축키 안내에 불필요한 배경색이 남아 있습니다.');
-      }
-      if (theme === 'light' && audit.contracts.newRunShortcut?.color !== audit.contracts.newRun?.color) {
-        contractFailures.push('라이트 테마의 새 작업 단축키 안내가 버튼 글자색과 일치하지 않습니다.');
+      if (audit.contracts.newRunShortcut?.display !== 'none' && audit.contracts.newRunShortcut?.width > 0) {
+        contractFailures.push('새 AI 작업 시작 버튼에 제거한 단축키 안내가 다시 노출됩니다.');
       }
     }
     if (label === 'terminal' && theme === 'light' && !/^rgb\(238, 245, 247\)$/.test(audit.contracts.terminalTargetTitle?.color || '')) {

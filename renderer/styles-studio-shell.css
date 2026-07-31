@@ -288,6 +288,43 @@ body {
   background: rgba(6, 10, 14, .55);
 }
 
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-shortcut-button {
+  position: relative;
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  display: inline-grid;
+  flex: 0 0 30px;
+  place-items: center;
+  margin-left: auto;
+  padding: 0;
+  border: 1px solid rgba(126, 218, 241, .2);
+  border-radius: 8px;
+  background: rgba(126, 218, 241, .055);
+  color: #8da9b8;
+  font: 650 14px/1 var(--studio-mono);
+  font-size: 14px !important;
+  cursor: pointer;
+}
+
+.brand-shortcut-button::after {
+  position: absolute;
+  inset: -7px;
+  content: "";
+}
+
+.brand-shortcut-button:hover,
+.brand-shortcut-button:focus-visible {
+  border-color: rgba(126, 218, 241, .52);
+  background: rgba(126, 218, 241, .12);
+  color: #d8f5fc;
+}
+
 .brand-orbit {
   width: 32px;
   height: 32px;
@@ -2201,6 +2238,19 @@ html[data-theme="light"] .topbar {
   border-color: var(--studio-line);
 }
 
+html[data-theme="light"] .brand-shortcut-button {
+  border-color: rgba(31, 131, 156, .2);
+  background: rgba(31, 131, 156, .055);
+  color: #557581;
+}
+
+html[data-theme="light"] .brand-shortcut-button:hover,
+html[data-theme="light"] .brand-shortcut-button:focus-visible {
+  border-color: rgba(31, 131, 156, .48);
+  background: rgba(31, 131, 156, .11);
+  color: #1d677b;
+}
+
 html[data-theme="light"] .brand strong,
 html[data-theme="light"] .topbar h1 {
   color: var(--studio-text);
@@ -3102,8 +3152,31 @@ html[data-theme="light"] :is(
     [data-current-view="terminal"],
     [data-current-view="tmux"],
     [data-current-view="settings"]
-  ) .sidebar > .brand > div:last-child {
+  ) .sidebar > .brand .brand-copy {
     display: none;
+  }
+
+  body:is(
+    [data-current-view="runtime"],
+    [data-current-view="terminal"],
+    [data-current-view="tmux"],
+    [data-current-view="settings"]
+  ) .sidebar > .brand {
+    gap: 6px;
+  }
+
+  body:is(
+    [data-current-view="runtime"],
+    [data-current-view="terminal"],
+    [data-current-view="tmux"],
+    [data-current-view="settings"]
+  ) .brand-shortcut-button {
+    width: 28px !important;
+    min-width: 28px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    flex-basis: 28px;
+    margin-left: 0;
   }
 }
 

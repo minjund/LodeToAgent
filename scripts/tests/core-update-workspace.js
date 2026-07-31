@@ -8,7 +8,14 @@ const { EventEmitter } = require('events');
 const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
-const { canInstallSilently, launchDownloadedUpdate, macAppBundlePath, verifyDownloadedInstaller } = require('../../src/updateInstaller');
+const {
+  canInstallSilently,
+  launchDownloadedUpdate,
+  macAppBundlePath,
+  verifyDownloadedInstaller,
+  waitForUpdateHelperReady,
+  WINDOWS_UPDATE_BOOTSTRAP,
+} = require('../../src/updateInstaller');
 const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
@@ -253,9 +260,13 @@ function registerCliAndUpdateTests(context) {
     const automatic = await launchDownloadedUpdate({
       platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+      expectedVersion: '3.1.0',
       environment: { SystemRoot: 'C:\\Windows' },
       allowUnsignedWindowsUpdates: true,
       verifyInstaller,
+      waitForReady: async readyPath => {
+        assert.equal(path.basename(readyPath), 'install-update.ready');
+      },
       spawn: (command, args, options) => {
         spawnCall = { command, args, options };
         const child = new EventEmitter();
@@ -270,16 +281,38 @@ function registerCliAndUpdateTests(context) {
     assert.equal(verifiedInstallers[0].installerPath, downloaded.downloadedPath);
     assert.equal(verifiedInstallers[0].allowUnsignedWindowsUpdates, true);
     assert.equal(spawnCall.command, path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
-    assert.equal(spawnCall.options.detached, true);
+    assert.equal(spawnCall.options.detached, false);
     assert.equal(spawnCall.options.windowsHide, true);
     assert(spawnCall.args.includes(downloaded.downloadedPath));
+    assert(spawnCall.args.includes('3.1.0'));
+    assert(spawnCall.args.includes('-HelperPath'));
+    assert(spawnCall.args.includes(automatic.helperPath));
+    assert(spawnCall.args.includes(automatic.bootstrapPath));
+    assert(spawnCall.args.includes('-ReadyPath'));
+    assert(spawnCall.args.includes(automatic.readyPath));
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Start-Process -FilePath \(Join-Path \$PSHOME 'powershell\.exe'\)/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Test-Path -LiteralPath \$ReadyPath/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /bootstrapError=/);
     const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
-    assert.match(helperSource, /Wait-Process -Id \$ParentPid/);
+    assert.match(helperSource, /Set-Content -LiteralPath \$ReadyPath/);
+    assert.match(helperSource, /helperStarted=true;parentPid=/);
+    assert.match(helperSource, /stoppingOrphanProcess=/);
     assert.match(helperSource, /ArgumentList '\/S'/);
     assert.match(helperSource, /if \(\$exitCode -ne 0\)/);
     assert.match(helperSource, /updateFailed=true/);
-    assert.match(helperSource, /if \(Test-Path -LiteralPath \$AppPath\)/);
-    assert.match(helperSource, /Start-Process -FilePath \$AppPath/);
+    assert.match(helperSource, /Find-InstalledApp \$AppPath \$ExpectedVersion/);
+    assert.match(helperSource, /Start-Process -FilePath \$launchPath/);
+    assert.match(helperSource, /relaunchStarted=true/);
+    assert.match(helperSource, /versionMismatch=true/);
+    const readyFixture = path.join(downloadDir, 'helper-ready-test');
+    const readyChild = new EventEmitter();
+    setTimeout(() => fs.writeFileSync(readyFixture, 'ready', 'utf8'), 20);
+    await waitForUpdateHelperReady(readyFixture, readyChild, 500);
+    fs.rmSync(readyFixture, { force: true });
+    const exitedChild = new EventEmitter();
+    const exitedWait = waitForUpdateHelperReady(path.join(downloadDir, 'never-ready'), exitedChild, 500);
+    setImmediate(() => exitedChild.emit('exit', 41));
+    await assert.rejects(exitedWait, /준비되기 전에 종료.*41/);
     assert.equal(canInstallSilently({
       platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
     }), false);
@@ -298,6 +331,7 @@ function registerCliAndUpdateTests(context) {
     const macAutomatic = await launchDownloadedUpdate({
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
+      expectedVersion: '3.1.0',
       environment: { FIXTURE: 'yes' },
       allowUnsignedMacUpdates: true,
       verifyInstaller,
@@ -345,6 +379,7 @@ function registerCliAndUpdateTests(context) {
       launchDownloadedUpdate({
         platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
         installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+        expectedVersion: '3.1.0',
         spawnTimeoutMs: 100,
         verifyInstaller,
         spawn: () => {

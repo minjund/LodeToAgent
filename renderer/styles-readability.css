@@ -947,14 +947,14 @@ body :is(
   line-height: 1.5 !important;
 }
 
-body button:not(.icon-button) {
+body button:not(.icon-button):not(.brand-shortcut-button) {
   min-width: 44px;
   min-height: var(--control-height) !important;
   font-size: 12px !important;
   line-height: 1.35;
 }
 
-body button:not(.icon-button) :is(b, strong, span, small) {
+body button:not(.icon-button):not(.brand-shortcut-button) :is(b, strong, span, small) {
   font-size: 12px !important;
   line-height: 1.45;
 }
