@@ -33,6 +33,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       : text;
   }
 
+  function projectInitial(value) {
+    const characters = Array.from(String(value || "").trim());
+    const initial = characters.find((character) => /[\p{L}\p{N}]/u.test(character))
+      || characters[0]
+      || "•";
+    return initial.toLocaleUpperCase(uiLocale());
+  }
+
   function syncUpdateNavigationStatus() {
     const update = state.update || {};
     const available = ["available", "downloading", "downloaded"].includes(update.status);
@@ -379,7 +387,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
             data-live-session-count="${live.length}"
             data-project-priority="${priority}"
             aria-pressed="${selected ? "true" : "false"}">
-            <span class="project-sidebar-icon" aria-hidden="true">□</span>
+            <span class="project-sidebar-icon" aria-hidden="true">${esc(projectInitial(item.name))}</span>
             <span class="project-sidebar-copy"><strong>${esc(item.name)}</strong><small>${esc(t("studio.sidebar.project_summary", {
               status: live.length ? t("project.in_progress") : t("studio.sidebar.waiting"),
               count: Number(item.count || 0),
@@ -409,7 +417,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       + (projectlessCount
         ? `<button type="button" class="workspace-item project-sidebar-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
           data-workspace="${PROJECTLESS_WORKSPACE}" aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
-          <span class="project-sidebar-icon" aria-hidden="true">◇</span>
+          <span class="project-sidebar-icon" aria-hidden="true">${esc(projectInitial(t("ui.no_project")))}</span>
           <span class="project-sidebar-copy"><strong>${esc(t("ui.no_project"))}</strong><small>${esc(t("control.folder_count", { count: projectlessCount }))}</small></span>
           <span class="project-sidebar-chevron" aria-hidden="true">›</span>
         </button>`

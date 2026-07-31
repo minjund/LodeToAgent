@@ -394,8 +394,6 @@ app.whenReady().then(async () => {
       history: (() => {
         const rail = document.querySelector('#projectHistoryRail');
         const current = document.querySelector('#liveSessionGrid');
-        const summary = document.querySelector('#projectHistorySummary');
-        const list = document.querySelector('#projectHistoryList');
         const railBox = rail?.getBoundingClientRect();
         const currentBox = current?.getBoundingClientRect();
         const sessionIds = [...(rail?.querySelectorAll('[data-open-session]') || [])].map(node => node.dataset.openSession);
@@ -403,8 +401,12 @@ app.whenReady().then(async () => {
           visible: Boolean(railBox && railBox.width > 0 && railBox.height > 0),
           position: rail ? getComputedStyle(rail).position : '',
           belowCurrentWork: Boolean(railBox && currentBox && railBox.top >= currentBox.bottom - 2),
-          summary: summary?.textContent.trim() || '',
-          summaryBeforeSessions: Boolean(summary && list && (summary.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          containsOnlyHistoryUi: Boolean(
+            rail
+            && rail.children.length === 2
+            && rail.firstElementChild?.tagName === 'HEADER'
+            && rail.lastElementChild?.id === 'projectHistoryList'
+          ),
           sessionIds,
           allRelated: sessionIds.every(id => {
             const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === id);
@@ -435,8 +437,7 @@ app.whenReady().then(async () => {
       || !projectContextMetrics.history.visible
       || projectContextMetrics.history.position !== 'static'
       || !projectContextMetrics.history.belowCurrentWork
-      || !projectContextMetrics.history.summary.startsWith('로그인 시 계정을 확인하는 내부 설정이 잘못 지정되어 있어')
-      || !projectContextMetrics.history.summaryBeforeSessions
+      || !projectContextMetrics.history.containsOnlyHistoryUi
       || !projectContextMetrics.history.sessionIds.includes('fixture-ended')
       || !projectContextMetrics.history.allRelated
       || !projectContextMetrics.duplicateProgressHeadingHidden) {
@@ -764,6 +765,49 @@ app.whenReady().then(async () => {
     }
     const desktop1224Output = await capture(win, outputDir, 'loadtoagent-control-room-1224.png');
 
+    const constrainedFlowMetrics = await win.webContents.executeJavaScript(`(() => {
+      const group = document.querySelector('.control-room-project-group');
+      if (group) group.open = true;
+      const session = document.querySelector('.control-room-session');
+      if (session) {
+        session.style.inlineSize = '520px';
+        session.style.maxInlineSize = '100%';
+      }
+      const mainTitle = session?.querySelector('.control-room-main > strong');
+      if (mainTitle) {
+        mainTitle.textContent = '/mnt/d/winCudeProject/crasbackend/.planning/loops/order-live-orchestration/research';
+      }
+      const flow = session?.querySelector('.control-room-flow');
+      const flowBox = flow?.getBoundingClientRect();
+      const columns = [...(flow?.querySelectorAll(':scope > .control-room-column') || [])];
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const refreshedFlowBox = flow?.getBoundingClientRect();
+        resolve({
+          sessionWidth: session?.getBoundingClientRect().width || 0,
+          flowColumns: flow ? getComputedStyle(flow).gridTemplateColumns : '',
+          noSessionOverflow: Boolean(session && session.scrollWidth <= session.clientWidth + 1),
+          noFlowOverflow: Boolean(flow && flow.scrollWidth <= flow.clientWidth + 1),
+          columnsInsideFlow: columns.every(column => {
+            const box = column.getBoundingClientRect();
+            return Boolean(refreshedFlowBox
+              && box.left >= refreshedFlowBox.left - 1
+              && box.right <= refreshedFlowBox.right + 1);
+          }),
+          titleWrapsInsideCard: Boolean(mainTitle
+            && mainTitle.scrollWidth <= mainTitle.clientWidth + 1
+            && mainTitle.getBoundingClientRect().right <= mainTitle.closest('.control-room-main').getBoundingClientRect().right + 1),
+          originalFlowWidth: flowBox?.width || 0,
+        });
+      })));
+    })()`);
+    if (constrainedFlowMetrics.sessionWidth < 500 || constrainedFlowMetrics.sessionWidth > 522
+      || constrainedFlowMetrics.flowColumns.trim().split(/\s+/).length !== 1
+      || !constrainedFlowMetrics.noSessionOverflow || !constrainedFlowMetrics.noFlowOverflow
+      || !constrainedFlowMetrics.columnsInsideFlow || !constrainedFlowMetrics.titleWrapsInsideCard) {
+      throw new Error(`좁은 작업 영역·긴 경로 흐름 검증 실패: ${JSON.stringify(constrainedFlowMetrics)}`);
+    }
+    const constrainedFlowOutput = await capture(win, outputDir, 'loadtoagent-control-room-constrained-flow.png');
+
     win.setContentSize(390, 844);
     await wait(260);
     await win.webContents.executeJavaScript(`(() => {
@@ -854,7 +898,7 @@ app.whenReady().then(async () => {
     }
     const mobileOutput = await capture(win, outputDir, 'loadtoagent-control-room-mobile.png');
 
-    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ initialSelectionMetrics, overviewMetrics, projectContextMetrics, projectToolsMetrics, usageDetailMetrics, focusedToolMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${projectContextOutput}\n${projectHistoryOutput}\n${focusedToolOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${mobileOutput}\n`);
+    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ initialSelectionMetrics, overviewMetrics, projectContextMetrics, projectToolsMetrics, usageDetailMetrics, focusedToolMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, constrainedFlowMetrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${projectContextOutput}\n${projectHistoryOutput}\n${focusedToolOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${constrainedFlowOutput}\n${mobileOutput}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

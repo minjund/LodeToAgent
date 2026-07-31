@@ -69,6 +69,39 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     '.terminal-create-actions',
     '.tmux-section-actions',
   ].join(',');
+  const overlaySurfaceSelector = [
+    '.detail-drawer',
+    '.drawer-head',
+    '.drawer-tabs',
+    '.drawer-content',
+    '.drawer-composer',
+    '.drawer-section',
+    '.drawer-summary-card',
+    '.execution-purpose-card',
+    '.execution-process-card',
+    '.execution-process-card > header',
+    '.execution-process-card dl',
+    '.execution-process-card dl > div',
+    '.execution-code-card',
+    '.execution-code-card > header',
+    '.execution-code-card pre',
+    '.execution-code-card > p',
+    '.execution-timeline',
+    '.subagent-assignment-card',
+    '.subagent-assignment-card aside',
+    '.agent-communication-panel',
+    '.agent-communication-panel > header',
+    '.agent-communication-event',
+    '.quality-modal',
+    '.quality-search',
+    '.quality-command-list button',
+    '.quality-command-list button > span',
+    '.shortcut-help-list > div',
+    '.session-reset-dialog',
+    '.session-reset-dialog-icon',
+    '.run-modal',
+    '.run-modal-actions',
+  ].join(',');
   const pixels = value => Number.parseFloat(value) || 0;
   const parse = value => {
     const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
@@ -99,7 +132,9 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
   const buttons = [...document.querySelectorAll('button')].filter(button => {
     const rect = button.getBoundingClientRect();
     const style = getComputedStyle(button);
-    return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    return rect.width > 0 && rect.height > 0
+      && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth
+      && style.visibility !== 'hidden' && style.display !== 'none';
   });
   const results = buttons.map((button, index) => {
     const style = getComputedStyle(button);
@@ -190,6 +225,29 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
         rowGap: pixels(style.rowGap),
       };
     });
+  const overlaySurfaces = [...document.querySelectorAll(overlaySurfaceSelector)].flatMap(element => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    if (rect.width < 2 || rect.height < 2 || style.display === 'none' || style.visibility === 'hidden'
+      || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return [];
+    const background = effectiveBackground(element);
+    const imageColors = [...String(style.backgroundImage || '').matchAll(/rgba?\\(([^)]+)\\)/g)]
+      .map(match => parse('rgb(' + match[1] + ')'))
+      .filter(Boolean);
+    const backgroundLuminance = luminance(background);
+    const darkGradient = imageColors.some(color => color.a >= .6 && luminance(color) < .55);
+    return [{
+      selector: [
+        element.id && '#' + element.id,
+        ...[...element.classList].slice(0, 3).map(name => '.' + name),
+      ].filter(Boolean).join('') || element.tagName.toLowerCase(),
+      background: style.backgroundColor,
+      backgroundImage: style.backgroundImage,
+      effectiveBackground: 'rgb(' + background.r + ', ' + background.g + ', ' + background.b + ')',
+      luminance: Number(backgroundLuminance.toFixed(3)),
+      themeMismatch: theme === 'light' && (backgroundLuminance < .55 || darkGradient),
+    }];
+  });
   const elementContract = selector => {
     const element = document.querySelector(selector);
     if (!element) return null;
@@ -240,6 +298,10 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
       total: textResults.length,
       lowContrast: textResults.filter(result => result.contrast + .02 < result.required).slice(0, 40),
       minimumContrast: textResults.length ? Math.min(...textResults.map(result => result.contrast)) : 0,
+    },
+    surfaces: {
+      total: overlaySurfaces.length,
+      themeMismatches: overlaySurfaces.filter(result => result.themeMismatch),
     },
     rhythm: {
       trackedActions: trackedActions.length,
@@ -335,6 +397,7 @@ app.whenReady().then(async () => {
       audit.themeMismatches.length
       || audit.lowContrast.length
       || audit.text.lowContrast.length
+      || audit.surfaces.themeMismatches.length
       || audit.rhythm.shortActions.length
       || audit.rhythm.unevenPadding.length
       || audit.rhythm.trackedLetterSpacing.length
@@ -389,6 +452,50 @@ app.whenReady().then(async () => {
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')`, '작업 상세 패널을 열지 못했습니다.');
       await inspect(theme, 'drawer');
       await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openSubagentConversation('fixture-child')`);
+      await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')`, '도움 AI 상세 패널을 열지 못했습니다.');
+      await inspect(theme, 'subagent-drawer');
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openExecutionActivity('fixture-root', 'fixture-shell-running')`);
+      await waitFor(
+        win,
+        `document.querySelector('#detailDrawer[data-mode="execution"]')?.classList.contains('open')
+          && Boolean(document.querySelector('.execution-drawer'))`,
+        '실행 과정 상세 패널을 열지 못했습니다.',
+      );
+      await inspect(theme, 'execution-drawer');
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openQuickPalette()`);
+      await waitFor(win, `!document.querySelector('#quickPaletteModal')?.classList.contains('hidden')`, '빠른 이동 창을 열지 못했습니다.');
+      await inspect(theme, 'quick-palette');
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeQuickPalette()`);
+
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openShortcutHelp()`);
+      await waitFor(win, `!document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '키보드 단축키 창을 열지 못했습니다.');
+      await inspect(theme, 'shortcut-help');
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeShortcutHelp()`);
+
+      await win.webContents.executeJavaScript(`(() => {
+        window.LoadToAgentApp.openDrawer('fixture-root');
+        document.querySelector('[data-session-reset="fixture-root"]')?.click();
+        return true;
+      })()`);
+      await waitFor(win, `!document.querySelector('#sessionResetModal')?.classList.contains('hidden')`, '새 대화 확인 창을 열지 못했습니다.');
+      await inspect(theme, 'session-reset');
+      await win.webContents.executeJavaScript(`document.querySelector('#cancelSessionResetBtn')?.click()`);
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+
+      await win.webContents.executeJavaScript(`(() => {
+        window.LoadToAgentApp.selectView('tmux');
+        window.LoadToAgentTerminal?.openTmuxModal();
+        return true;
+      })()`);
+      await waitFor(win, `!document.querySelector('#tmuxCreateModal')?.classList.contains('hidden')`, '관련 작업 만들기 창을 열지 못했습니다.');
+      await inspect(theme, 'tmux-modal');
+      await win.webContents.executeJavaScript(`document.querySelector('#closeTmuxCreateBtn')?.click()`);
 
       win.setBounds({ width: 1840, height: 900 }, false);
       await win.webContents.executeJavaScript(`(() => {

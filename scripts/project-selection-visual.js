@@ -63,10 +63,16 @@ app.whenReady().then(async () => {
       const projectOrder = [...document.querySelectorAll('#projectSidebarList [data-workspace][data-project-priority]')]
         .map(project => ({
           name: project.querySelector('.project-sidebar-copy strong')?.textContent.trim() || '',
+          initial: project.querySelector('.project-sidebar-icon')?.textContent.trim() || '',
           priority: project.dataset.projectPriority || '',
         }));
       const priorityRank = { attention: 0, live: 1, idle: 2 };
       const collator = new Intl.Collator('ko-KR', { numeric: true, sensitivity: 'base' });
+      const expectedInitial = name => {
+        const characters = Array.from(String(name || '').trim());
+        return (characters.find(character => /[\p{L}\p{N}]/u.test(character)) || characters[0] || '•')
+          .toLocaleUpperCase('ko-KR');
+      };
       const fixedProjectOrder = projectOrder.every((project, index) => {
         if (!index) return true;
         const previous = projectOrder[index - 1];
@@ -95,6 +101,7 @@ app.whenReady().then(async () => {
           document.querySelector('#projectSidebarList')
           && document.querySelector('#projectSidebarList').scrollWidth <= document.querySelector('#projectSidebarList').clientWidth + 1
         ),
+        projectInitialsMatch: projectOrder.every(project => project.initial === expectedInitial(project.name)),
         projectOrder,
         fixedProjectOrder,
         liveVisible: visible(document.querySelector('#liveSection')),
@@ -109,6 +116,7 @@ app.whenReady().then(async () => {
       || initial.removableProjects < 1 || initial.sidebarAddOpensRun
       || !initial.settingsAboveProviders || initial.visibleSettingsButtons !== 1
       || !initial.settingsRemovedFromTools || !initial.projectListNoHorizontalOverflow
+      || !initial.projectInitialsMatch
       || !initial.fixedProjectOrder
       || !['attention', 'live', 'idle'].every(priority => initial.projectOrder.some(project => project.priority === priority))
       || !activeProjectsFirst || initial.liveVisible || initial.operationsVisible) {

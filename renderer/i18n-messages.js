@@ -318,7 +318,6 @@
     "studio.history.title": {"ko":"지난 세션","en":"Past sessions","zh-CN":"历史会话"},
     "studio.history.title_suffix": {"ko":"의 지난 세션","en":" · Past sessions","zh-CN":"的历史会话"},
     "studio.history.open_all": {"ko":"지난 작업 전체 보기","en":"View all past work","zh-CN":"查看全部历史任务"},
-    "studio.history.summary_note": {"ko":"로그인 시 계정을 확인하는 내부 설정이 잘못 지정되어 있어, 정상적인 계정 정보를 입력해도 로그인이 되지 않는 상태였습니다. 계정 자체의 문제가 아니었기 때문에 신규 아이디로도 동일한 현상이 발생했습니다.","en":"Login was unavailable because the internal setting used to verify accounts was configured incorrectly, even when valid account information was entered. Since this was not an account-specific issue, the same problem occurred with newly created IDs.","zh-CN":"登录时用于验证账户的内部设置配置错误，因此即使输入正确的账户信息也无法登录。问题并非账户本身导致，所以新注册的账号也出现了相同现象。"},
     "studio.history.empty": {"ko":"지난 세션이 없습니다","en":"No past sessions","zh-CN":"没有历史会话"},
     "studio.history.empty_detail": {"ko":"완료된 작업이 여기에 제목으로 표시됩니다.","en":"Completed work appears here by title.","zh-CN":"已完成任务的标题会显示在这里。"},
     "bootstrap.module_missing": {"ko":"앱에 필요한 구성 요소를 찾지 못했습니다: {name}","en":"App module not found: {name}","zh-CN":"找不到应用模块：{name}"},

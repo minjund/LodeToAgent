@@ -5,6 +5,16 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.2 - 2026-07-31
+
+- Match execution details, helper-AI summaries, quick navigation, keyboard
+  shortcuts, and update indicators to the light theme instead of retaining
+  dark-only surfaces and low-contrast text.
+- Remove the fixed login-account explanation from project history so only
+  information related to the selected project's real sessions is shown.
+- Replace placeholder project glyphs with clear initials and keep control-flow
+  cards and long workspace paths readable in narrow project panes.
+
 ## 1.6.1 - 2026-07-31
 
 - Fix Windows updates that could close the app without reopening it by finding
