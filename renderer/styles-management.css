@@ -657,6 +657,61 @@
   display: grid;
   gap: 12px;
 }
+.management-result-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--green) 42%, var(--line-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--green) 9%, rgba(9, 15, 24, .82));
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--green) 72%, transparent);
+}
+.management-result-review > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+.management-result-review span {
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.management-result-review b {
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.35;
+}
+.management-result-review small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.management-result-review > button {
+  flex: 0 0 auto;
+  min-width: 112px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 1px solid color-mix(in srgb, var(--green) 58%, transparent);
+  border-radius: 11px;
+  color: #04130c;
+  background: var(--green);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.management-result-review > button:hover { filter: brightness(1.08); }
+.management-result-review > button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 34%, transparent);
+  outline-offset: 2px;
+}
+.management-result-review > button:disabled {
+  cursor: wait;
+  opacity: .68;
+}
 .management-detail .management-health li {
   display: grid;
   grid-template-columns: 7px minmax(148px, max-content) minmax(0, 1fr);
@@ -720,6 +775,11 @@
 .global-stat.warning strong { color: #e9b949; }
 
 @container management-detail (max-width: 600px) {
+  .management-result-review {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .management-result-review > button { width: 100%; }
   .management-detail .management-health li {
     grid-template-columns: 7px minmax(0, 1fr);
     column-gap: 10px;

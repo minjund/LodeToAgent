@@ -8,12 +8,13 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, state, motionState, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
-    closeDrawer, backToAgentFlow, renderDrawer, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
+    closeDrawer, backToAgentFlow, renderDrawer, render = () => {}, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     rememberDialogTrigger = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {},
     copyText = async () => false,
     dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
     resetAgentSession = async () => {},
+    markResultReviewComplete = () => 0,
   } = context;
 
   function bindRunComposerEvents() {
@@ -83,6 +84,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       input.focus();
     });
     $("#runWorkspaceSuggestions").addEventListener("click", (event) => {
+      if ($("#runCwd").readOnly) return;
       const workspace = event.target.closest("[data-run-workspace]");
       if (!workspace) return;
       $("#runCwd").value = workspace.dataset.runWorkspace;
@@ -90,6 +92,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       saveRunDraft();
     });
     $("#runWorkspaceSuggestions").addEventListener("keydown", (event) => {
+      if ($("#runCwd").readOnly) return;
       if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
       const options = $$("#runWorkspaceSuggestions [data-run-workspace]");
       const current = Math.max(0, options.indexOf(event.target.closest("[data-run-workspace]")));
@@ -104,6 +107,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#runCwd").addEventListener("input", syncRunComposer);
     $("#allowWrites").addEventListener("change", syncRunComposer);
     $("#pickRunCwdBtn").addEventListener("click", async () => {
+      if ($("#runCwd").readOnly) return;
       const folder = await performUiAction(() => window.loadtoagent.pickWorkspace(), t("workspace.pick_failed"), $("#pickRunCwdBtn"));
       if (folder) {
         $("#runCwd").value = folder;
@@ -421,6 +425,24 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         await copyText(copy.dataset.copyText);
         return;
       }
+      const resultReviewComplete = event.target.closest("[data-result-review-complete]");
+      if (resultReviewComplete) {
+        if (resultReviewComplete.dataset.busy === "true") return;
+        resultReviewComplete.dataset.busy = "true";
+        resultReviewComplete.disabled = true;
+        resultReviewComplete.setAttribute("aria-busy", "true");
+        const completedCount = markResultReviewComplete(resultReviewComplete.dataset.resultReviewComplete);
+        if (completedCount > 0) {
+          closeDrawer(false);
+          render("review");
+          toast(t("management.result_review_completed_toast"));
+        } else {
+          resultReviewComplete.disabled = false;
+          resultReviewComplete.removeAttribute("aria-busy");
+          delete resultReviewComplete.dataset.busy;
+        }
+        return;
+      }
       const reset = event.target.closest("[data-session-reset]");
       if (reset) {
         reset.focus({ preventScroll: true });
@@ -556,10 +578,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       trapDialogFocus(event);
       const editable = event.target instanceof HTMLElement && Boolean(event.target.closest("input, textarea, select, [contenteditable='true']"));
       const dialogOpen = Boolean(currentDialog?.());
-      const viewShortcuts = ["all", "active", "waiting", "runtime", "terminal", "tmux", "settings"];
-      if (!editable && !dialogOpen && (event.metaKey || event.ctrlKey) && /^[1-7]$/.test(event.key)) {
+      const viewShortcuts = ["all", "active", "waiting", "runtime", null, "tmux", "settings"];
+      const shortcutView = viewShortcuts[Number(event.key) - 1];
+      if (!editable && !dialogOpen && shortcutView && (event.metaKey || event.ctrlKey) && /^[1-7]$/.test(event.key)) {
         event.preventDefault();
-        selectView(viewShortcuts[Number(event.key) - 1], { focusMain: true });
+        selectView(shortcutView, { focusMain: true });
         return;
       }
       if (!editable && !dialogOpen && event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey) {

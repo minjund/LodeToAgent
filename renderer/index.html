@@ -20,15 +20,20 @@
       <section id="sidebarProjects" class="sidebar-projects" aria-labelledby="sidebarProjectsTitle">
         <header>
           <div>
-            <span data-i18n="studio.sidebar.eyebrow">WORKSPACES</span>
+            <span data-i18n="studio.sidebar.eyebrow">내 프로젝트</span>
             <h2 id="sidebarProjectsTitle" data-i18n="studio.sidebar.title">프로젝트</h2>
           </div>
-          <button id="sidebarNewProjectBtn" type="button" data-open-run aria-label="새 프로젝트 작업 시작" data-i18n-aria-label="studio.sidebar.new_project" title="새 프로젝트 작업 시작" data-i18n-title="studio.sidebar.new_project">＋</button>
+          <button id="sidebarNewProjectBtn" type="button" aria-label="프로젝트 추가" data-i18n-aria-label="studio.sidebar.new_project" title="프로젝트 추가" data-i18n-title="studio.sidebar.new_project">＋</button>
         </header>
         <div id="projectSidebarList" class="project-sidebar-list" role="toolbar" aria-orientation="vertical" aria-label="프로젝트별 작업 보기" data-i18n-aria-label="studio.sidebar.project_filter"></div>
       </section>
 
       <section class="sidebar-section">
+        <button id="sidebarSettingsBtn" class="nav-item sidebar-settings-button settings-nav-item" type="button" data-view="settings" aria-label="설정" data-i18n-aria-label="app.nav.settings" aria-keyshortcuts="Meta+7 Control+7" aria-controls="settingsSection" title="설정" data-i18n-title="app.nav.settings">
+          <span class="nav-icon" aria-hidden="true">⚙</span>
+          <span data-i18n="app.nav.settings">설정</span>
+          <b id="navUpdateBadge" class="hidden" data-i18n="ui.update_available">업데이트 가능</b>
+        </button>
         <div class="section-title provider-section-title"><span data-i18n="ui.available_ai">새 작업을 맡길 수 있는 AI</span><button id="probeBtn" class="icon-button provider-refresh-button" type="button" title="AI 연결 상태 다시 확인" data-i18n-title="ui.check_ai_connections_again" aria-label="AI 연결 상태 다시 확인" data-i18n-aria-label="ui.check_ai_connections_again" aria-controls="providerRail"><span aria-hidden="true">↻</span><b data-i18n="ui.check_ai_connections_again">AI 연결 상태 다시 확인</b></button></div>
         <div id="providerRail" class="provider-rail"></div>
       </section>
@@ -51,23 +56,23 @@
         </div>
         <section id="sessionTokenOverview" class="session-token-overview" aria-labelledby="sessionTokenTitle">
           <div class="session-token-heading">
-            <p data-i18n="studio.tokens.eyebrow">SESSION TOKENS</p>
-            <h1 id="sessionTokenTitle" data-i18n="studio.tokens.title">세션별 토큰 사용량</h1>
-            <span id="sessionTokenScope" data-i18n="studio.tokens.loading">프로젝트 세션 사용량을 불러오는 중</span>
+            <p data-i18n="studio.tokens.eyebrow">AI 사용 현황</p>
+            <h1 id="sessionTokenTitle" data-i18n="studio.tokens.title">AI별 사용량</h1>
+            <span id="sessionTokenScope" data-i18n="studio.tokens.loading">AI별 사용량을 불러오는 중</span>
           </div>
           <div id="sessionTokenList" class="session-token-list" aria-live="polite"></div>
         </section>
         <div class="top-actions">
-          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="새 AI 작업 시작" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업 시작</b><small>단축키: <kbd>Ctrl+N</kbd></small></span></button>
+          <button id="backToProjectsBtn" class="back-to-projects-button hidden" type="button"><span aria-hidden="true">←</span><b data-i18n="navigation.back_to_projects">프로젝트로 돌아가기</b></button>
         </div>
       </header>
 
-      <section id="projectContextNav" class="project-context-nav" aria-labelledby="projectContextName">
+      <section id="projectContextNav" class="project-context-nav" aria-labelledby="projectContextName" aria-hidden="true" hidden>
         <div class="project-context-identity">
           <span class="project-context-mark" aria-hidden="true">□</span>
           <div>
-            <small><span id="projectContextName" data-i18n="studio.sidebar.all_projects">모든 프로젝트</span><span id="projectContextEyebrow" data-i18n="studio.context.selected_label">선택한 프로젝트</span></small>
-            <strong id="projectContextHeading" data-i18n="studio.context.all_heading">전체 프로젝트 작업</strong>
+            <small><span id="projectContextName" data-i18n="studio.sidebar.title">프로젝트</span><span id="projectContextEyebrow" data-i18n="studio.context.selected_label">선택한 프로젝트</span></small>
+            <strong id="projectContextHeading" data-i18n="studio.context.all_heading">프로젝트 작업</strong>
             <span id="projectContextMeta" data-i18n="studio.context.loading">프로젝트 작업을 불러오는 중</span>
           </div>
         </div>
@@ -76,16 +81,21 @@
           <button class="nav-item" type="button" data-view="active" aria-label="지난 작업" data-i18n-aria-label="app.nav.active" aria-keyshortcuts="Meta+2 Control+2" aria-controls="sessionSection memoryHero" title="지난 작업" data-i18n-title="app.nav.active"><span class="nav-icon">○</span><span class="nav-label"><span class="desktop-nav-label" data-i18n="app.nav.active">지난 작업</span><span class="mobile-nav-label" data-i18n="app.nav.mobile_active">지난 작업</span></span><b><span id="navActiveCount">0</span><small data-i18n="quality.unit.records">건</small></b></button>
           <button class="nav-item" type="button" data-view="waiting" aria-label="확인 대기" data-i18n-aria-label="app.nav.needs_review" aria-keyshortcuts="Meta+3 Control+3" aria-controls="attentionInbox" title="확인 대기" data-i18n-title="app.nav.needs_review"><span class="nav-icon">!</span><span class="nav-label"><span class="desktop-nav-label" data-i18n="app.nav.needs_review">확인 대기</span><span class="mobile-nav-label" data-i18n="app.nav.mobile_needs_review">확인 대기</span></span><b><span id="navWaitingCount">0</span><small id="navWaitingUnit" data-i18n="quality.unit.tasks">건</small></b></button>
           <details id="advancedToolsNav" class="advanced-tools-nav project-tools-menu">
-            <summary><span class="nav-icon">›_</span><span data-i18n="management.advanced_tools">추가 기능</span><b><span id="advancedToolsCount">4</span><small data-i18n="quality.unit.types">개</small></b><em id="advancedToolsUpdateBadge" class="update-nav-badge hidden" aria-hidden="true">NEW</em><i aria-hidden="true">⌄</i></summary>
+            <summary><span class="nav-icon">›_</span><span data-i18n="management.advanced_tools">추가 기능</span><b><span id="advancedToolsCount">2</span><small data-i18n="quality.unit.types">개</small></b><i aria-hidden="true">⌄</i></summary>
             <div class="advanced-tools-list">
               <button class="nav-item runtime-nav-item" type="button" data-view="runtime" aria-label="반복 일정" data-i18n-aria-label="app.nav.runtime" aria-keyshortcuts="Meta+4 Control+4" aria-controls="automationOverview" title="반복 일정" data-i18n-title="app.nav.runtime"><span class="nav-icon runtime-nav-icon">↻</span><span class="nav-label"><span class="desktop-nav-label" data-i18n="app.nav.runtime">반복 일정</span><span class="mobile-nav-label" data-i18n="app.nav.mobile_runtime">반복 일정</span></span><b><span id="navRuntimeCount" data-total="0">일정 0개 · 오늘 실행 0건</span></b></button>
-              <button class="nav-item" type="button" data-view="terminal" aria-label="컴퓨터 작업과 AI 대화" data-i18n-aria-label="app.nav.session_terminal" aria-keyshortcuts="Meta+5 Control+5" aria-controls="terminalSection" title="컴퓨터 작업과 AI 대화" data-i18n-title="app.nav.session_terminal"><span class="nav-icon">›_</span><span data-i18n="app.nav.session_terminal">컴퓨터 작업과 AI 대화</span><b><span id="navTerminalCount">입력 가능 0개</span></b></button>
               <button class="nav-item tmux-nav-item" type="button" data-view="tmux" aria-label="다른 컴퓨터의 작업" data-i18n-aria-label="app.nav.tmux" aria-keyshortcuts="Meta+6 Control+6" aria-controls="tmuxSection" title="다른 컴퓨터의 작업" data-i18n-title="app.nav.tmux"><span class="nav-icon">▦</span><span data-i18n="app.nav.tmux">다른 컴퓨터의 작업</span><b><span id="navTmuxCount">관련 작업 0개</span></b></button>
-              <button class="nav-item settings-nav-item" type="button" data-view="settings" aria-label="설정" data-i18n-aria-label="app.nav.settings" aria-keyshortcuts="Meta+7 Control+7" aria-controls="settingsSection" title="설정" data-i18n-title="app.nav.settings"><span class="nav-icon">⚙</span><span data-i18n="app.nav.settings">설정</span><b id="navUpdateBadge" class="hidden" data-i18n="ui.update_available">업데이트 가능</b></button>
             </div>
           </details>
           <button id="mobileMoreBtn" class="nav-item mobile-more-nav" type="button" aria-label="추가 기능" data-i18n-aria-label="management.advanced_tools" title="추가 기능" data-i18n-title="management.advanced_tools" aria-expanded="false" aria-controls="mobileToolsMenu"><span class="nav-icon">•••</span><span class="mobile-more-label" data-i18n="management.advanced_tools">추가 기능</span><span id="mobileMoreUpdateIndicator" class="mobile-update-indicator hidden" aria-hidden="true">↑</span></button>
         </nav>
+      </section>
+
+      <section id="projectSelectionPrompt" class="project-selection-prompt hidden" aria-live="polite">
+        <div class="project-selection-content">
+          <span class="project-selection-light" aria-hidden="true"></span>
+          <h2 data-i18n="studio.project_selection_title">프로젝트를 선택해주세요</h2>
+        </div>
       </section>
 
       <section id="appErrorBanner" class="app-error-banner hidden" role="alert" aria-labelledby="appErrorTitle">
@@ -356,6 +366,13 @@
       <p id="sessionReorderHelp" class="sr-only" data-i18n="session.reorder_help">작업 카드를 끌어 놓아 위치를 바꿀 수 있습니다. 키보드에서는 카드를 고른 뒤 Alt와 위아래 화살표 키를 사용하세요.</p>
       <p id="projectReorderHelp" class="sr-only" data-i18n="project.reorder_help">작업 폴더 제목 부분을 끌어 놓아 위치를 바꿀 수 있습니다. 목록이 접혀 있어도 이동할 수 있습니다. 키보드에서는 탭 키로 제목 부분을 선택한 뒤 알트(Alt)와 위아래 화살표 키를 사용하세요.</p>
       <section id="liveSection" class="live-section hidden" aria-label="현재 진행 중인 AI 작업" data-i18n-aria-label="ui.ai_work_currently_in_progress">
+        <div id="projectTaskToolbar" class="project-task-toolbar hidden">
+          <div class="project-task-context">
+            <span class="project-task-context-light" aria-hidden="true"></span>
+            <span><small data-i18n="run.current_project">현재 프로젝트</small><b id="projectTaskProjectName">프로젝트</b><em id="projectTaskProjectPath"></em></span>
+          </div>
+          <button id="newRunBtn" class="primary-button new-run-cta" type="button" aria-label="현재 프로젝트에서 새 AI 작업 시작" data-i18n-aria-label="ui.assign_a_new_task_to_ai" aria-keyshortcuts="Meta+N Control+N"><span class="new-run-cta-icon" aria-hidden="true">＋</span><span class="new-run-cta-copy"><b data-i18n="ui.new_ai_task">새 AI 작업 시작</b><small>단축키: <kbd>Ctrl+N</kbd></small></span></button>
+        </div>
         <div class="live-section-head">
           <div class="live-section-title"><span class="live-beacon"></span><div><p class="eyebrow" data-i18n="ui.active_now">2. 작업별 진행 상황</p><h2>작업별 현재 상태</h2><span id="liveCountGuide" class="live-count-guide">아래 한 줄은 함께 묶어 시작한 일입니다. 현재 AI가 처리 중인 일의 전체 건수를 확인하고 있습니다.</span></div></div>
           <div class="live-section-tools">
@@ -369,7 +386,7 @@
         </div>
         <div id="controlRoomProjectToolbar" class="control-room-project-toolbar">
           <div id="workspaceList" class="workspace-list control-room-project-list" role="toolbar" aria-label="작업 위치별 진행 작업 보기" data-i18n-aria-label="control.project_filter"></div>
-          <button id="addWorkspaceBtn" class="control-room-add-project" type="button" title="새 작업 시작" data-i18n-title="control.start_project_work" aria-label="새 작업 시작" data-i18n-aria-label="control.start_project_work" aria-controls="workspaceList">＋ <span data-i18n="control.start_project_work">새 작업 시작</span></button>
+          <button id="addWorkspaceBtn" class="control-room-add-project" type="button" title="프로젝트 추가" data-i18n-title="control.add_project" aria-label="프로젝트 추가" data-i18n-aria-label="control.add_project" aria-controls="workspaceList">＋ <span data-i18n="control.add_project">프로젝트 추가</span></button>
           <p class="workspace-filter-help" data-i18n="control.filter_overlap_help">아래 조건은 서로 겹칠 수 있습니다. 하나를 선택하면 그 조건에 맞는 작업만 표시됩니다.</p>
         </div>
         <div id="controlRoomListToolbar" class="control-room-list-toolbar">
@@ -402,9 +419,10 @@
         <div id="liveSessionGrid" class="live-session-grid"></div>
         <aside id="projectHistoryRail" class="project-history-rail" aria-labelledby="projectHistoryTitle">
           <header>
-            <div><span data-i18n="studio.history.eyebrow">HISTORY</span><h3 id="projectHistoryTitle" data-i18n="studio.history.title">지난 세션</h3></div>
+            <div><span data-i18n="studio.history.eyebrow">지난 기록</span><h3 id="projectHistoryTitle" data-i18n="studio.history.title">지난 세션</h3></div>
             <button id="openProjectHistoryBtn" type="button" aria-label="지난 작업 전체 보기" data-i18n-aria-label="studio.history.open_all" title="지난 작업 전체 보기" data-i18n-title="studio.history.open_all">↗</button>
           </header>
+          <p id="projectHistorySummary" class="project-history-summary" data-i18n="studio.history.summary_note">로그인 시 계정을 확인하는 내부 설정이 잘못 지정되어 있어, 정상적인 계정 정보를 입력해도 로그인이 되지 않는 상태였습니다. 계정 자체의 문제가 아니었기 때문에 신규 아이디로도 동일한 현상이 발생했습니다.</p>
           <div id="projectHistoryList" class="project-history-list"></div>
         </aside>
         <div id="activeEmptyState" class="empty-state hidden">
@@ -484,11 +502,10 @@
     <div class="mobile-tools-head"><span><b id="mobileToolsTitle" data-i18n="app.nav.more">추가 기능</b><small data-i18n="ui.advanced_tools_to_open_only_when_needed">필요할 때만 여는 추가 기능이에요.</small></span><button id="mobileToolsCloseBtn" type="button" aria-label="닫기" data-i18n-aria-label="common.close">×</button></div>
     <details class="mobile-project-picker">
       <summary><i aria-hidden="true">□</i><span><b data-i18n="ui.workspaces">작업 폴더 골라 보기</b><small id="mobileWorkspaceSummary" data-i18n="project.all">전체 작업 폴더</small></span><em aria-hidden="true">⌄</em></summary>
-      <div class="mobile-project-picker-body"><div id="mobileWorkspaceList" class="workspace-list" role="group" aria-label="시작한 폴더별 AI 작업 골라 보기" data-i18n-aria-label="quality.workspace_filter"></div><button id="mobileAddWorkspaceBtn" type="button" data-i18n="control.start_project_work">새 작업 시작</button></div>
+      <div class="mobile-project-picker-body"><div id="mobileWorkspaceList" class="workspace-list" role="group" aria-label="시작한 폴더별 AI 작업 골라 보기" data-i18n-aria-label="quality.workspace_filter"></div><button id="mobileAddWorkspaceBtn" type="button" data-i18n="control.add_project">프로젝트 추가</button></div>
     </details>
     <button type="button" data-mobile-guide data-guide-action="mobile"><i aria-hidden="true">?</i><span><b data-i18n="ui.10_minute_quick_start">처음 사용 안내:</b><small data-i18n="ui.try_each_step_to_explore_the_app">하나씩 눌러 직접 둘러보세요.</small></span></button>
     <button type="button" data-mobile-view="runtime"><i aria-hidden="true">↻</i><span><b data-i18n="runtime.title">반복 일정</b><small data-i18n="runtime.description">정해 둔 시간에 실행된 작업과 다음 일정을 확인하세요.</small></span></button>
-    <button type="button" data-mobile-view="terminal"><i aria-hidden="true">›_</i><span><b data-i18n="app.nav.session_terminal">AI 질문과 컴퓨터 명령</b><small data-i18n="ui.continue_an_existing_ai_conversation_directly">이전 AI 대화를 이어서 입력</small></span></button>
     <button type="button" data-mobile-view="tmux"><i aria-hidden="true">▦</i><span><b data-i18n="app.nav.tmux">다른 컴퓨터의 작업</b><small data-i18n="ui.manage_multiple_terminals_together">다른 컴퓨터의 관련 작업 보기</small></span></button>
     <button type="button" data-mobile-view="settings"><i aria-hidden="true">⚙</i><span><b data-i18n="settings.title">언어·화면·AI 목록·업데이트</b><small data-i18n="ui.check_version_and_updates">버전과 업데이트 확인</small></span></button>
   </aside>
@@ -534,21 +551,24 @@
   <div id="runModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="runModalTitle" aria-describedby="runModalDescription" aria-hidden="true" inert>
     <form id="runForm" class="run-modal run-composer">
       <div class="modal-head">
-        <div><p class="eyebrow" data-i18n="ui.start_ai_task">AI에게 새 작업 요청</p><h2 id="runModalTitle" data-i18n="ui.what_should_the_ai_work_on">무슨 일을 맡길까요?</h2><p id="runModalDescription" class="run-modal-intro" data-i18n="ui.describe_the_task_then_choose_which_ai_will_work_in">할 일을 먼저 적고, 어떤 AI가 어디서 작업할지 선택하세요.</p></div>
+        <div><p class="eyebrow" data-i18n="ui.start_ai_task">AI에게 새 작업 요청</p><h2 id="runModalTitle" data-i18n="ui.what_should_the_ai_work_on">무슨 일을 맡길까요?</h2><p id="runModalDescription" class="run-modal-intro" data-i18n="ui.describe_the_task_then_choose_which_ai_will_work_in">할 일을 적고, 현재 프로젝트에서 작업할 AI를 선택하세요.</p><p id="runProjectName" class="run-modal-project-name" aria-live="polite">프로젝트</p></div>
         <button type="button" id="closeRunModalBtn" class="close-button" aria-label="새 작업 만들기 화면 닫기" data-i18n-aria-label="ui.close_new_task_dialog">×</button>
       </div>
+      <div class="hidden" aria-hidden="true">
+        <input id="runCwd" required readonly aria-readonly="true" tabindex="-1" />
+        <button type="button" id="pickRunCwdBtn" tabindex="-1" disabled data-i18n="ui.browse">폴더 찾기</button>
+      </div>
+      <div id="runWorkspaceSuggestions" class="run-workspace-suggestions hidden" aria-hidden="true"></div>
       <section class="run-step run-request-step" aria-labelledby="runRequestLabel">
         <div class="run-step-head"><i>1</i><span><b id="runRequestLabel" data-i18n="ui.describe_the_task">할 일 적기</b><small data-i18n="ui.include_the_expected_result_and_constraints_for_better_accuracy">원하는 결과와 꼭 지켜야 할 조건을 함께 적으면 더 정확해요.</small></span></div>
         <label class="run-prompt-field"><span class="sr-only" data-i18n="ui.task_for_ai">AI에게 맡길 일</span><textarea id="runPrompt" required rows="5" maxlength="8000" aria-describedby="runPromptCount" placeholder="예: 로그인 화면의 오류를 찾아 고치고, 관련 테스트까지 실행해줘" data-i18n-placeholder="ui.example_find_and_fix_the_login_screen_error_then_run"></textarea></label>
         <div class="run-prompt-tools"><div class="run-prompt-examples" aria-label="빠른 요청 예시" data-i18n-aria-label="ui.quick_prompt_examples"><button type="button" data-run-prompt-key="run.example.fix" data-i18n="ui.fix_a_bug">오류 수정</button><button type="button" data-run-prompt-key="run.example.review" data-i18n="ui.review_code">코드 검토</button><button type="button" data-run-prompt-key="run.example.tests" data-i18n="ui.add_tests">테스트 추가</button></div><span id="runPromptCount" class="run-prompt-count">0/8,000자</span></div>
       </section>
       <section class="run-step run-setup-step" aria-labelledby="runSetupLabel">
-        <div class="run-step-head"><i>2</i><span><b id="runSetupLabel" data-i18n="ui.choose_how_to_run">실행 방법 선택</b><small data-i18n="ui.choose_an_ai_and_workspace_to_finish_setup">AI와 작업 폴더만 고르면 준비가 끝납니다.</small></span></div>
+        <div class="run-step-head"><i>2</i><span><b id="runSetupLabel" data-i18n="ui.choose_how_to_run">실행 방법 선택</b><small data-i18n="ui.choose_an_ai_and_workspace_to_finish_setup">AI만 고르면 현재 프로젝트에서 바로 시작합니다.</small></span></div>
         <div id="runProviderLabel" class="field-label" data-i18n="ui.which_ai_should_handle_it">어떤 AI에게 맡길까요?</div>
         <div id="runProviderPicker" class="run-provider-picker" role="radiogroup" aria-labelledby="runProviderLabel"></div>
         <div id="runProviderHelp" class="run-provider-help hidden" role="status"></div>
-        <div class="run-folder-field"><label class="field-label" for="runCwd" data-i18n="ui.work_folder">작업 폴더</label><div class="path-field"><input id="runCwd" required placeholder="작업 폴더를 선택하세요" data-i18n-placeholder="ui.choose_a_project_folder" /><button type="button" id="pickRunCwdBtn" data-i18n="ui.browse">폴더 찾기</button></div></div>
-        <div id="runWorkspaceSuggestions" class="run-workspace-suggestions" aria-label="최근 작업 폴더" data-i18n-aria-label="ui.recent_workspaces"></div>
         <label class="permission-toggle"><input id="allowWrites" type="checkbox" /><span class="toggle-track"></span><div><strong data-i18n="ui.allow_ai_to_edit_files">AI가 파일을 고칠 수 있게 허용</strong><small data-i18n="ui.when_enabled_the_ai_can_directly_edit_files_in_the">켜면 선택한 폴더의 파일을 직접 수정합니다.</small></div></label>
         <div id="runPermissionHint" class="run-permission-hint hidden" role="status" data-i18n="ui.this_request_appears_to_need_file_changes_without_edit_permission">이 요청은 파일 수정이 필요해 보여요. 위의 수정 허용을 켜지 않으면 AI가 코드 변경 없이 검토만 합니다.</div>
       </section>
@@ -624,6 +644,7 @@
   <script src="terminal-agent.js"></script>
   <script src="terminal-composer.js"></script>
   <script src="terminal-events.js"></script>
+  <script src="terminal-prompt.js"></script>
   <script src="terminal.js"></script>
 </body>
 </html>

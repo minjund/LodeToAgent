@@ -1086,8 +1086,10 @@ body details.control-room-project-group > summary.control-project-header {
 
 .control-project-body .control-column-label {
   min-height: 24px;
-  height: 24px;
-  line-height: 24px;
+  height: auto;
+  padding-block: 3px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .control-project-body .control-room-main {

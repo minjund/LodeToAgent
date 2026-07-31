@@ -8,6 +8,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     $,
     esc,
     state,
+    PROJECTLESS_WORKSPACE,
     STATUS,
     VIEW_TITLES,
     captureMotionLayout,
@@ -25,6 +26,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     currentActivity,
     isLiveSession,
     isControlRoomSession = isLiveSession,
+    isResultReviewComplete = () => false,
     latestWorkCopy,
     statusIcon,
     renderProviderRail,
@@ -180,7 +182,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
         ${titlePreview.text.includes(provider.label) ? "" : `<em>${esc(t("memory.provider", { provider: provider.label }))}${decisionRetained ? ` · ${esc(t("memory.decisions"))}` : ""}</em>`}
       </span>
       ${reviewPending
-        ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르면 이 항목이 확인 완료 목록으로 이동합니다.</span><span class="memory-review-help-mobile">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르세요.</span></small></span>`
+        ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}" data-result-review="true"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르면 이 항목이 확인 완료 목록으로 이동합니다.</span><span class="memory-review-help-mobile">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르세요.</span></small></span>`
         : `<details class="memory-record-lineage">
           <summary><span class="memory-summary-closed">${esc(t("memory.expand_summary"))}</span><span class="memory-summary-open">${esc(t("memory.collapse_summary"))}</span><i aria-hidden="true">⌄</i></summary>
           <small>${esc(t("memory.lineage"))}</small>
@@ -208,6 +210,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   }
 
   function hasRetainedDecision(session) {
+    if (isResultReviewComplete(session)) return true;
     const outcome = session.outcome || {};
     if (outcome.decision || outcome.approval?.status === "approved" || outcome.approval?.status === "denied") return true;
     return (session.lifecycle || []).some((row) => {
@@ -225,13 +228,14 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   }
 
   function renderMemoryMetrics(sessions) {
-    const evidenceCount = sessions.filter((session) => {
+    const resultSessions = sessions.filter((session) => {
       const artifacts = session.outcome?.artifacts?.length || 0;
       const checks = session.outcome?.checks?.length || 0;
       const completion = session.outcome?.verified || session.evidence?.completion === "observed";
       return artifacts > 0 || checks > 0 || completion;
-    }).length;
-    const decisionCount = Math.max(0, sessions.length - evidenceCount);
+    });
+    const decisionCount = resultSessions.filter(hasRetainedDecision).length;
+    const evidenceCount = Math.max(0, resultSessions.length - decisionCount);
     $("#memoryRecordCount").textContent = t("memory.metric_count", { count: fullNumber(sessions.length) });
     $("#memoryEvidenceLabel").textContent = "확인 필요";
     $("#memoryEvidenceCount").textContent = t("memory.metric_count", { count: fullNumber(evidenceCount) });
@@ -264,8 +268,13 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const attentionView = state.view === "waiting";
     const memoryView = state.view === "active";
     const homeView = state.view === "all";
-    const operationsView = homeView;
+    const projectSelected = state.workspace !== "all";
+    const taskProjectSelected = projectSelected && state.workspace !== PROJECTLESS_WORKSPACE;
+    const projectSelectionView = homeView && !projectSelected;
+    const operationsView = homeView && projectSelected;
     const focusedToolView = tmuxView || terminalView || settingsView || runtimeView;
+    $("#projectSelectionPrompt")?.classList.toggle("hidden", !projectSelectionView);
+    $("#projectTaskToolbar")?.classList.toggle("hidden", !homeView || !taskProjectSelected);
     $("#terminalSection").classList.toggle("hidden", !terminalView);
     $("#tmuxSection").classList.toggle("hidden", !tmuxView);
     $("#settingsSection").classList.toggle("hidden", !settingsView);
@@ -276,7 +285,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     $("#attentionInbox").classList.toggle("hidden", !attentionView);
     if (runtimeView) renderRuntimeOverview();
     $("#automationOverview").classList.toggle("hidden", !runtimeView);
-    const guideVisible = state.view === "all" && state.guideExpanded && !state.graphFocusId;
+    const guideVisible = state.view === "all" && projectSelected && state.guideExpanded && !state.graphFocusId;
     $("#beginnerGuide").classList.toggle("hidden", !guideVisible);
     $("#guideBtn").setAttribute("aria-expanded", guideVisible ? "true" : "false");
     renderUpdateSettings();
@@ -314,7 +323,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const sessions = filteredSessions();
     if (operationsView) renderOperationsOverview();
     const attentionCount = attentionView ? renderAttentionInbox() : 0;
-    const showMap = homeView;
+    const showMap = homeView && projectSelected;
     const graphLiveCount = showMap ? renderAgentMap(graphFilteredSessions(), motionKind) : 0;
     const regular = memoryView ? [...sessions].sort((a, b) =>
       Number(sessionNeedsResultReview(b)) - Number(sessionNeedsResultReview(a))) : [];
@@ -335,9 +344,9 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       shown: visible.length,
       remaining: Math.max(0, resultCount - visible.length),
     });
-    const activeEmpty = homeView && graphLiveCount === 0;
+    const activeEmpty = homeView && projectSelected && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
-    $("#liveSection").classList.toggle("hidden", !homeView);
+    $("#liveSection").classList.toggle("hidden", !homeView || !projectSelected);
     $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
     const reviewCount = memoryView ? regular.filter(sessionNeedsResultReview).length : 0;
     const completedCount = Math.max(0, regular.length - reviewCount);

@@ -80,6 +80,7 @@
 
   async function init() {
     loadQualityState();
+    state.workspace = "all";
     loadGuideState();
     if (!window.loadtoagent) {
       $("#emptyState").classList.remove("hidden");
@@ -169,6 +170,11 @@
     }
     render("locale");
     setConnectedAt(state.snapshot.generatedAt);
+  });
+
+  window.addEventListener("loadtoagent:terminal-prompts-changed", () => {
+    if (!state.snapshot || state.view === "terminal" || state.view === "tmux") return;
+    render("terminal-prompt");
   });
 
   init().catch((error) => {

@@ -27,6 +27,12 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
       advancedTools?.removeAttribute("open");
       if (selectedFromAdvancedTools) advancedTools?.querySelector(":scope > summary")?.focus({ preventScroll: true });
     });
+    $("#sidebarSettingsBtn")?.addEventListener("click", () => {
+      selectView("settings");
+    });
+    $("#backToProjectsBtn")?.addEventListener("click", () => {
+      selectView("all", { focusMain: true });
+    });
     $(".view-nav").addEventListener("keydown", (event) => {
       if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
       const buttons = Array.from(document.querySelectorAll(".view-nav .nav-item[data-view]"))

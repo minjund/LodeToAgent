@@ -256,7 +256,9 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       const open = event.target.closest("[data-open-session]");
       if (open) {
         const session = (state.snapshot?.sessions || []).find(item => item.id === open.dataset.openSession);
-        return session?.parentId ? openSubagentConversation(session.id) : openDrawer(open.dataset.openSession);
+        return session?.parentId
+          ? openSubagentConversation(session.id)
+          : openDrawer(open.dataset.openSession, open.dataset.resultReview === "true" ? { tab: "summary" } : {});
       }
       const bridge = event.target.closest("[data-agent-bridge-copy]");
       if (bridge) return copyBridgeCommand(bridge.dataset.agentBridgeCopy);
@@ -415,7 +417,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       if (sessionDragJustEnded) return;
       if (event.target.closest(".memory-record-lineage")) return;
       const card = event.target.closest("[data-session-id]");
-      if (card) openDrawer(card.dataset.sessionId);
+      if (card) openDrawer(card.dataset.sessionId, event.target.closest("[data-result-review]") ? { tab: "summary" } : {});
     });
     $("#sessionGrid").addEventListener("keydown", (event) => {
       const card = event.target.closest("[data-session-id]");
@@ -510,10 +512,50 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
         openExecutionActivity(execution.dataset.openExecutionOwner, execution.dataset.openExecutionId);
         return;
       }
+      const terminalPromptChoice = event.target.closest("[data-terminal-prompt-choice]");
+      if (terminalPromptChoice) {
+        event.stopPropagation();
+        if (terminalPromptChoice.dataset.busy === "true") return;
+        terminalPromptChoice.dataset.busy = "true";
+        terminalPromptChoice.disabled = true;
+        terminalPromptChoice.setAttribute("aria-busy", "true");
+        try {
+          const sessionId = terminalPromptChoice.dataset.terminalPromptSession;
+          const result = await window.LoadToAgentTerminal?.respondToPrompt?.(
+            sessionId,
+            terminalPromptChoice.dataset.terminalPromptChoice,
+          );
+          announce(window.LoadToAgentI18n.t("studio.review.choice_sent"));
+          if (result?.requiresText) {
+            const session = (state.snapshot?.sessions || []).find(item => item.id === sessionId);
+            if (session && result.target?.id) {
+              selectView("terminal");
+              await window.LoadToAgentTerminal.openForAgent(session, result.target.id);
+            }
+          }
+        } catch (error) {
+          const message = window.LoadToAgentI18n.errorText(error, "studio.review.choice_failed");
+          announce(message);
+          terminalPromptChoice.dataset.error = `${error?.message || error || message}`;
+          terminalPromptChoice.title = message;
+          terminalPromptChoice.disabled = false;
+          terminalPromptChoice.removeAttribute("aria-busy");
+          delete terminalPromptChoice.dataset.busy;
+        }
+        return;
+      }
+      const quick = event.target.closest("[data-attention-quick]");
+      if (quick) {
+        event.stopPropagation();
+        return quickRespond(quick.dataset.attentionSessionId, quick.dataset.attentionQuick, $("#liveSessionGrid"));
+      }
       const open = event.target.closest("[data-open-session]");
       if (open) {
         event.stopPropagation();
-        openDrawer(open.dataset.openSession, { context: true });
+        openDrawer(open.dataset.openSession, {
+          context: true,
+          ...(open.hasAttribute("data-result-review") ? { tab: "summary" } : {}),
+        });
         return;
       }
       const subagentChat = event.target.closest("[data-open-subagent-chat]");

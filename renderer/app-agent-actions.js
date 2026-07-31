@@ -661,7 +661,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (!provider) return context.toast(t("management.reassign_unavailable"));
     state.runProvider = provider.id;
     context.closeDrawer?.(false);
-    context.openRunModal?.();
+    if (context.openRunModal?.() === false) return;
     const request = session.sharedGoal
       || session.delegation?.assignment
       || [...(session.messages || [])].find(message => message.role === "user" && message.text)?.text
@@ -671,7 +671,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const promptInput = $("#runPrompt");
     const cwdInput = $("#runCwd");
     if (promptInput) promptInput.value = prompt;
-    if (cwdInput && session.cwd) cwdInput.value = session.cwd;
+    if (cwdInput && session.cwd && !cwdInput.readOnly) cwdInput.value = session.cwd;
     $("#runProviderPicker") && ($("#runProviderPicker").innerHTML = context.providerPickerHtml?.() || "");
     context.syncRunComposer?.();
     promptInput?.focus({ preventScroll: true });

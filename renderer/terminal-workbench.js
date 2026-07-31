@@ -203,22 +203,19 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const conversations = general.filter(item => item.type === 'agent').length;
     const workWindows = general.filter(item => item.type !== 'agent' && ['running', 'starting'].includes(item.status)).length;
     const attention = general.filter(item => terminalPresentation(item).tone === 'attention').length;
-    $('#navTerminalCount').textContent = t('terminal.nav_usable', { count: running });
+    const navTerminalCount = $('#navTerminalCount');
+    if (navTerminalCount) navTerminalCount.textContent = t('terminal.nav_usable', { count: running });
     const terminalNav = document.querySelector('.nav-item[data-view="terminal"]');
     if (terminalNav) terminalNav.setAttribute('aria-label', t('quality.nav_count_detailed', { label: t('app.nav.session_terminal'), count: running, unit: t('quality.unit.sessions') }));
-    const advancedCount = 4;
+    const advancedCount = 2;
     const advancedCounter = document.getElementById('advancedToolsCount');
     if (advancedCounter) advancedCounter.textContent = String(advancedCount);
     const advancedBaseLabel = t('quality.nav_count_detailed', {
       label: t('management.advanced_tools'), count: advancedCount, unit: t('quality.unit.types'),
     });
-    const update = window.LoadToAgentApp?.state?.update || {};
-    const updateAvailable = ['available', 'downloading', 'downloaded'].includes(update.status);
-    const updateLabel = t('update.available_version', { version: update.latestVersion || '—' });
-    const advancedLabel = updateAvailable ? `${advancedBaseLabel} · ${updateLabel}` : advancedBaseLabel;
     const advancedSummary = document.querySelector('#advancedToolsNav > summary');
-    advancedSummary?.setAttribute('aria-label', advancedLabel);
-    advancedSummary?.setAttribute('title', advancedLabel);
+    advancedSummary?.setAttribute('aria-label', advancedBaseLabel);
+    advancedSummary?.setAttribute('title', advancedBaseLabel);
     $('#terminalSessionSummary').textContent = t('terminal.summary.overall', {
       total: general.length,
       open: running,
@@ -242,14 +239,14 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if ($('#terminalModeTitle')) {
       $('#terminalModeTitle').textContent = questionMode
         ? questionTargetReady
-          ? `지금 선택된 방식: ${selectedProvider}에게 질문만 보내기`
+          ? `${selectedProvider}에게 질문 보내기`
           : t('terminal.agent.select_target')
-        : "지금 선택된 방식: 컴퓨터 작업 요청하기";
+        : "컴퓨터 작업 요청하기";
     }
     if (document.body?.dataset?.currentView === 'terminal' && $('#pageTitle')) {
       $('#pageTitle').textContent = questionMode
-        ? `${selectedProvider}와 대화하거나 컴퓨터 작업 요청하기`
-        : "AI와 대화하거나 컴퓨터 작업 요청하기";
+        ? `${selectedProvider} 대화`
+        : "컴퓨터 작업";
     }
     if ($('#terminalModeInstruction')) {
       $('#terminalModeInstruction').textContent = questionMode

@@ -429,6 +429,7 @@ let calls = [];
 let failures = new Map();
 let delays = new Map();
 let terminalGetDelays = new Map();
+let terminalReplays = new Map();
 let detailResponses = new Map();
 let terminalSequence = 0;
 let tmuxCaptureSequence = 0;
@@ -566,7 +567,10 @@ const api = {
     record('terminalGet', [id]);
     const delay = Number(terminalGetDelays.get(id) || 0);
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
-    return { ok: true, replay: `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n` };
+    return {
+      ok: true,
+      replay: terminalReplays.get(id) || `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n`,
+    };
   },
   terminalCreate: async options => {
     const created = {
@@ -587,7 +591,7 @@ const api = {
     terminals.push(created);
     return clone(created);
   },
-  terminalWrite: (id, data) => record('terminalWrite', [id, data]),
+  terminalWrite: (id, data) => controlled('terminalWrite', [id, data]),
   terminalCommand: (id, command) => controlled('terminalCommand', [id, command]),
   terminalResize: (id, cols, rows) => controlled('terminalResize', [id, cols, rows]),
   terminalSignal: (id, signal) => controlled('terminalSignal', [id, signal]),
@@ -654,6 +658,7 @@ const testApi = {
     return true;
   },
   setTerminalGetDelays: values => { terminalGetDelays = new Map(Object.entries(values || {}).map(([id, value]) => [id, Number(value) || 0])); return true; },
+  setTerminalReplay: (id, replay) => { terminalReplays.set(String(id || ''), String(replay || '')); return true; },
   queueSessionDetail: (id, responses) => { detailResponses.set(id, clone(responses || [])); return true; },
   setSessionRuntimePresence: (id, presence) => {
     const session = snapshot.sessions.find(item => item.id === id);
@@ -680,7 +685,7 @@ const testApi = {
     terminals.push(clone(terminal));
     return true;
   },
-  clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); detailResponses = new Map(); },
+  clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); terminalReplays = new Map(); detailResponses = new Map(); },
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },

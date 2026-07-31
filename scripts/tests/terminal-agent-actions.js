@@ -11,7 +11,7 @@ function registerTerminalAgentActionTests(context) {
   test('대화창 Enter 전송은 숨겨진 일회성 프로세스 대신 지속형 관리 터미널을 만든다', async () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     let launchOptions = null;
-    let launchArgsCall = null;
+    const launchArgsCalls = [];
     let workbenchOpened = false;
     const sandbox = {
       window: {
@@ -57,8 +57,8 @@ function registerTerminalAgentActionTests(context) {
         args: ['--resume', 'session-123'],
       }),
       resumeLaunchArgs: (support, prompt, options) => {
-        launchArgsCall = { support, prompt, options };
-        return [...support.args, prompt];
+        launchArgsCalls.push({ support, prompt, options });
+        return prompt ? [...support.args, '--', prompt] : [...support.args];
       },
       preferredWorkspace: () => 'D:\\workspace',
       providerLabel: provider => provider,
@@ -73,10 +73,14 @@ function registerTerminalAgentActionTests(context) {
       runtimePresence: [],
     }, '? 안되는데?', true, { focus: false });
 
-    assert.deepStrictEqual(launchArgsCall.options, undefined);
-    assert.equal(launchArgsCall.prompt, '? 안되는데?');
+    assert.equal(launchArgsCalls[0].prompt, '? 안되는데?');
+    assert.equal(launchArgsCalls[1].prompt, undefined);
     assert.equal(launchOptions.transient, false);
-    assert.deepStrictEqual(Array.from(launchOptions.args), ['--resume', 'session-123', '? 안되는데?']);
+    assert.deepStrictEqual(Array.from(launchOptions.args), ['--resume', 'session-123', '--', '? 안되는데?']);
+    assert.deepStrictEqual(Array.from(launchOptions.recoveryArgs), ['--resume', 'session-123']);
+    assert.equal(launchOptions.reuseBridge, true);
+    assert.equal(launchOptions.initialCommand, '? 안되는데?');
+    assert.equal(launchOptions.initialCommandInArgs, true);
     assert.equal(result.background, true);
     assert.equal(result.promptSent, true);
     assert.equal(workbenchOpened, false, '백그라운드 전송은 터미널 화면을 강제로 열지 않아야 합니다.');

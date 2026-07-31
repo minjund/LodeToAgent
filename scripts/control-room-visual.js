@@ -49,9 +49,27 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     await waitFor(
       win,
-      `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot && document.querySelector('[data-control-room-overview]'))`,
-      '세션 관제 홈이 준비되지 않았습니다.',
+      `Boolean(window.LoadToAgentApp?.initialized
+        && window.LoadToAgentApp?.state?.snapshot
+        && window.LoadToAgentApp?.state?.providerUsage?.providers?.claude?.shortWindow
+        && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
+        && document.querySelectorAll('#projectSidebarList [data-workspace]').length >= 2)`,
+      '프로젝트 선택 홈이 준비되지 않았습니다.',
     );
+    const initialSelectionMetrics = await win.webContents.executeJavaScript(`(() => ({
+      workspace: window.LoadToAgentApp.state.workspace,
+      prompt: document.querySelector('#projectSelectionPrompt')?.textContent.trim() || '',
+      projectCount: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
+      liveHidden: document.querySelector('#liveSection')?.classList.contains('hidden'),
+      operationsHidden: document.querySelector('#operationsOverview')?.classList.contains('hidden'),
+    }))()`);
+    if (initialSelectionMetrics.workspace !== 'all'
+      || initialSelectionMetrics.prompt !== '프로젝트를 선택해주세요'
+      || initialSelectionMetrics.projectCount < 2
+      || !initialSelectionMetrics.liveHidden
+      || !initialSelectionMetrics.operationsHidden) {
+      throw new Error(`프로젝트 선택 홈 검증 실패: ${JSON.stringify(initialSelectionMetrics)}`);
+    }
     await win.webContents.executeJavaScript(`(() => {
       window.LoadToAgentI18n.setLocale('ko');
       const control = window.LoadToAgentApp;
@@ -69,6 +87,7 @@ app.whenReady().then(async () => {
       ];
       const projectAssignments = new Map([
         ['fixture-origin', ['D:\\\\cms-web', 'CMS_WEB']],
+        ['fixture-ended', ['D:\\\\cms-web', 'CMS_WEB']],
         ['fixture-live-0', ['D:\\\\cras-backend', 'cras_backend']],
         ['fixture-live-1', ['D:\\\\misc-projects', '기타']],
         ['fixture-live-2', ['D:\\\\fixture', ['Lode', 'star'].join('')]],
@@ -119,6 +138,11 @@ app.whenReady().then(async () => {
       );
       control.render();
       control.selectView('all');
+      control.renderOperationsOverview();
+      control.renderAgentMap(control.graphFilteredSessions(), 'refresh');
+      document.querySelector('#projectSelectionPrompt')?.classList.add('hidden');
+      document.querySelector('#operationsOverview')?.classList.remove('hidden');
+      document.querySelector('#liveSection')?.classList.remove('hidden');
       document.querySelector('#navAllCount').textContent = '48';
       document.querySelector('#navActiveCount').textContent = '9';
       document.querySelector('#navWaitingCount').textContent = '3';
@@ -161,9 +185,14 @@ app.whenReady().then(async () => {
         sessionTokenTitle: document.querySelector('#sessionTokenTitle')?.textContent.trim() || '',
         sessionTokenScope: document.querySelector('#sessionTokenScope')?.textContent.trim() || '',
         sessionTokenItems: document.querySelectorAll('#sessionTokenList .session-token-item').length,
+        sessionTokenProviders: [...document.querySelectorAll('#sessionTokenList .session-token-item')]
+          .map(node => ({ id: node.dataset.tokenProvider || '', label: node.querySelector('.session-token-label > b')?.textContent.trim() || '' })),
         sessionTokenGauges: document.querySelectorAll('#sessionTokenList .session-token-meter[role="progressbar"]').length,
         sessionTokenGaugeValues: [...document.querySelectorAll('#sessionTokenList .session-token-meter[role="progressbar"]')]
           .map(node => ({ now: Number(node.getAttribute('aria-valuenow')), max: Number(node.getAttribute('aria-valuemax')), fill: node.querySelector('i')?.getBoundingClientRect().width || 0 })),
+        sessionTokenUsageLabels: [...document.querySelectorAll('#sessionTokenList .session-token-item > strong')]
+          .map(node => node.textContent.replace(/\s+/g, ' ').trim()),
+        sessionTokenUnknownCount: document.querySelectorAll('#sessionTokenList .session-token-item.usage-unknown').length,
         sessionTokenButtons: document.querySelectorAll('#sessionTokenOverview button, #sessionTokenOverview summary').length,
         legacyTopbarCopyHidden: Boolean(legacyTopbarCopy && getComputedStyle(legacyTopbarCopy).display === 'none'),
         usageOverviewVisible: Boolean(document.querySelector('#operationsOverview .provider-usage-overview'))
@@ -176,6 +205,7 @@ app.whenReady().then(async () => {
         usageProviderCards: document.querySelectorAll('#operationsOverview [data-provider-usage]').length,
         usageGauges: document.querySelectorAll('#operationsOverview [role="progressbar"]').length,
         sidebarNavigationRemoved: !document.querySelector('.sidebar .view-nav'),
+        sidebarAllProjectsRemoved: !document.querySelector('#projectSidebarList [data-workspace="all"]'),
         projectContextVisible: Boolean(document.querySelector('#projectContextNav')?.getBoundingClientRect().height),
         projectContextName: document.querySelector('#projectContextName')?.textContent.trim() || '',
         projectContextTabs: [...document.querySelectorAll('#projectViewTabs > [data-view]')]
@@ -204,6 +234,8 @@ app.whenReady().then(async () => {
         executionSummaries: [...(root?.querySelectorAll('.execution-node') || [])].map(node => node.dataset.controlSummary || ''),
         executionTargets: [...(root?.querySelectorAll('.execution-node') || [])].map(node => ({ owner: node.dataset.openExecutionOwner || '', execution: node.dataset.openExecutionId || '', opensSession: node.hasAttribute('data-open-session') })),
         humanColumnLabels: [...(root?.querySelectorAll('.control-column-label') || [])].map(node => node.textContent.trim()),
+        clippedColumnLabels: [...(root?.querySelectorAll('.control-column-label') || [])]
+          .filter(node => node.scrollHeight > node.clientHeight + 1).length,
         rawBackgroundLabelsHidden: ![...(root?.querySelectorAll('.execution-node .control-node-copy > b') || [])].some(node => /^(?:Background|Windows 명령창|백그라운드 작업)$/.test(node.textContent.trim())),
         noSectionOverflow: section.scrollWidth <= section.clientWidth + 2,
         noStageOverflow: stage.scrollWidth <= stage.clientWidth + 2,
@@ -248,21 +280,25 @@ app.whenReady().then(async () => {
       };
     })()`);
     if (!overviewMetrics.sessionTokenOverviewVisible
-      || overviewMetrics.sessionTokenTitle !== '세션별 토큰 사용량'
-      || !overviewMetrics.sessionTokenScope.includes('모든 프로젝트')
-      || overviewMetrics.sessionTokenItems < 1
-      || overviewMetrics.sessionTokenGauges !== overviewMetrics.sessionTokenItems
-      || overviewMetrics.sessionTokenGaugeValues.some(item => item.now < 0 || item.max < 1 || item.now > item.max || item.fill <= 0)
+      || overviewMetrics.sessionTokenTitle !== 'AI별 사용량'
+      || !overviewMetrics.sessionTokenScope.includes('선택한 AI')
+      || !overviewMetrics.sessionTokenScope.includes('4개 고정')
+      || overviewMetrics.sessionTokenItems !== 4
+      || new Set(overviewMetrics.sessionTokenProviders.map(item => item.id)).size !== overviewMetrics.sessionTokenItems
+      || !['Claude', 'GPT', 'Gemini', 'Grok'].every(label => overviewMetrics.sessionTokenProviders.some(item => item.label === label))
+      || overviewMetrics.sessionTokenGauges !== 2
+      || ![35, 20].every(value => overviewMetrics.sessionTokenGaugeValues.some(item => item.now === value && item.max === 100 && item.fill > 0))
+      || !overviewMetrics.sessionTokenUsageLabels.some(label => label.startsWith('35%') && label.includes('사용'))
+      || !overviewMetrics.sessionTokenUsageLabels.some(label => label.startsWith('20%') && label.includes('사용'))
+      || overviewMetrics.sessionTokenUnknownCount !== 2
       || overviewMetrics.sessionTokenButtons !== 0
       || !overviewMetrics.legacyTopbarCopyHidden
-      || !overviewMetrics.usageOverviewVisible || !overviewMetrics.usageDisclosureVisible
-      || !overviewMetrics.usageDisclosureClosed || !overviewMetrics.usageSummaryVisible
-      || !overviewMetrics.usageSummaryText.includes('남은 사용 한도')
-      || overviewMetrics.usageProviderCards < 1 || overviewMetrics.usageGauges < 1
-      || !overviewMetrics.sidebarNavigationRemoved || !overviewMetrics.projectContextVisible
-      || overviewMetrics.projectContextName !== '모든 프로젝트'
-      || !['all', 'active', 'waiting'].every(view => overviewMetrics.projectContextTabs.includes(view))
-      || !overviewMetrics.projectToolsVisible
+      || overviewMetrics.usageOverviewVisible || overviewMetrics.usageDisclosureVisible
+      || overviewMetrics.usageSummaryVisible || overviewMetrics.usageSummaryText
+      || overviewMetrics.usageProviderCards !== 0 || overviewMetrics.usageGauges !== 0
+      || !overviewMetrics.sidebarNavigationRemoved || !overviewMetrics.sidebarAllProjectsRemoved
+      || overviewMetrics.projectContextVisible || overviewMetrics.projectContextTabs.length !== 0
+      || overviewMetrics.projectToolsVisible
       || overviewMetrics.controlRooms < 1
       || !overviewMetrics.rootVisible || !overviewMetrics.mainNode || overviewMetrics.helperNodes < 1
       || !overviewMetrics.compositeSessionLabel.includes('내 답변 대기')
@@ -276,6 +312,7 @@ app.whenReady().then(async () => {
       || overviewMetrics.executionSummaries.some(summary => !summary) || !overviewMetrics.rawBackgroundLabelsHidden
       || overviewMetrics.executionTargets.some(target => !target.owner || !target.execution || target.opensSession)
       || !overviewMetrics.humanColumnLabels.some(label => label.includes('같은 요청에서 함께 진행 중인 AI 작업'))
+      || overviewMetrics.clippedColumnLabels !== 0
       || overviewMetrics.semanticSamples.copy !== 'AI와 진행 중인 작업의 요약 문구 개선'
       || overviewMetrics.semanticSamples.loop !== 'v18-seo-blog 자동 작업 실행'
       || overviewMetrics.semanticSamples.phase !== '요구사항과 단계 완료 조건 확인'
@@ -338,134 +375,153 @@ app.whenReady().then(async () => {
       progress: document.querySelector('#projectContextMeta')?.textContent.trim() || '',
       tokenScope: document.querySelector('#sessionTokenScope')?.textContent.trim() || '',
       tokenItems: document.querySelectorAll('#sessionTokenList .session-token-item').length,
+      tokenProviders: [...document.querySelectorAll('#sessionTokenList .session-token-item')].map(node => node.dataset.tokenProvider || ''),
       tokenGauges: document.querySelectorAll('#sessionTokenList .session-token-meter[role="progressbar"]').length,
+      tokenRemainingLabels: [...document.querySelectorAll('#sessionTokenList .session-token-item > strong')]
+        .map(node => node.textContent.replace(/\\s+/g, ' ').trim()),
       tokenControls: document.querySelectorAll('#sessionTokenOverview button, #sessionTokenOverview summary').length,
+      providerUsageHidden: !document.querySelector('#operationsOverview .provider-usage-disclosure'),
+      sidebarProjects: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
+      sidebarNestedSessions: document.querySelectorAll('#projectSidebarList .project-sidebar-session[data-open-session]').length,
+      sidebarAllProjectsVisible: [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .every(node => node.getBoundingClientRect().height > 0),
+      sidebarSelectedProjects: document.querySelectorAll('#projectSidebarList [data-workspace][aria-pressed="true"]').length,
+      controlProjects: [...document.querySelectorAll('.control-room-project-group')].map(node => node.dataset.controlProject),
+      projectFolderHeaderHidden: document.querySelector('.control-room-project-group > .control-project-header')?.getBoundingClientRect().height === 0,
+      projectFlowLinkHidden: document.querySelector('.control-project-flow-link')?.getBoundingClientRect().height === 0,
+      projectFrameFlattened: getComputedStyle(document.querySelector('.control-room-project-frame')).borderTopWidth === '0px',
+      contextSummaryHidden: !document.querySelector('#projectContextNav')?.getBoundingClientRect().height,
+      history: (() => {
+        const rail = document.querySelector('#projectHistoryRail');
+        const current = document.querySelector('#liveSessionGrid');
+        const summary = document.querySelector('#projectHistorySummary');
+        const list = document.querySelector('#projectHistoryList');
+        const railBox = rail?.getBoundingClientRect();
+        const currentBox = current?.getBoundingClientRect();
+        const sessionIds = [...(rail?.querySelectorAll('[data-open-session]') || [])].map(node => node.dataset.openSession);
+        return {
+          visible: Boolean(railBox && railBox.width > 0 && railBox.height > 0),
+          position: rail ? getComputedStyle(rail).position : '',
+          belowCurrentWork: Boolean(railBox && currentBox && railBox.top >= currentBox.bottom - 2),
+          summary: summary?.textContent.trim() || '',
+          summaryBeforeSessions: Boolean(summary && list && (summary.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)),
+          sessionIds,
+          allRelated: sessionIds.every(id => {
+            const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === id);
+            return Boolean(session && window.LoadToAgentApp.matchesWorkspaceFilter(session));
+          }),
+        };
+      })(),
       duplicateProgressHeadingHidden: document.querySelector('.live-section-title')?.getBoundingClientRect().height === 0,
     }))()`);
     if (projectContextMetrics.project !== 'CMS_WEB'
-      || projectContextMetrics.eyebrow !== '작업별 진행 상황'
-      || projectContextMetrics.heading !== '작업별 현재 상태'
-      || projectContextMetrics.progress !== '전체 3건: 처리 중 3건 + 확인 대기 0건'
-      || !projectContextMetrics.tokenScope.includes('CMS_WEB')
-      || projectContextMetrics.tokenItems < 1
-      || projectContextMetrics.tokenGauges !== projectContextMetrics.tokenItems
+      || !projectContextMetrics.contextSummaryHidden
+      || !projectContextMetrics.tokenScope.includes('선택한 AI')
+      || projectContextMetrics.tokenScope.includes('CMS_WEB')
+      || projectContextMetrics.tokenItems !== 4
+      || !['claude', 'codex', 'gemini', 'grok'].every(provider => projectContextMetrics.tokenProviders.includes(provider))
+      || projectContextMetrics.tokenGauges !== 2
+      || !['35%', '20%'].every(value => projectContextMetrics.tokenRemainingLabels.some(label => label.startsWith(value) && label.includes('사용')))
       || projectContextMetrics.tokenControls !== 0
+      || !projectContextMetrics.providerUsageHidden
+      || projectContextMetrics.sidebarProjects < 4
+      || projectContextMetrics.sidebarNestedSessions !== 0
+      || !projectContextMetrics.sidebarAllProjectsVisible
+      || projectContextMetrics.sidebarSelectedProjects !== 1
+      || projectContextMetrics.controlProjects.some(project => project !== 'CMS_WEB')
+      || !projectContextMetrics.projectFolderHeaderHidden
+      || !projectContextMetrics.projectFlowLinkHidden
+      || !projectContextMetrics.projectFrameFlattened
+      || !projectContextMetrics.history.visible
+      || projectContextMetrics.history.position !== 'static'
+      || !projectContextMetrics.history.belowCurrentWork
+      || !projectContextMetrics.history.summary.startsWith('로그인 시 계정을 확인하는 내부 설정이 잘못 지정되어 있어')
+      || !projectContextMetrics.history.summaryBeforeSessions
+      || !projectContextMetrics.history.sessionIds.includes('fixture-ended')
+      || !projectContextMetrics.history.allRelated
       || !projectContextMetrics.duplicateProgressHeadingHidden) {
       throw new Error(`프로젝트 진행 상황·상단 세션 토큰 검증 실패: ${JSON.stringify(projectContextMetrics)}`);
     }
     const projectContextOutput = await capture(win, outputDir, 'loadtoagent-project-context.png');
-    await win.webContents.executeJavaScript(`document.querySelector('#projectSidebarList [data-workspace="all"]')?.click()`);
+    await win.webContents.executeJavaScript(`document.querySelector('#projectHistoryRail')?.scrollIntoView({ block: 'end' })`);
+    const projectHistoryOutput = await capture(win, outputDir, 'loadtoagent-project-history.png');
+    await win.webContents.executeJavaScript(`document.querySelector('.main-stage')?.scrollTo(0, 0)`);
+    await win.webContents.executeJavaScript(`(() => {
+      window.LoadToAgentApp.state.workspace = 'all';
+      window.LoadToAgentApp.render('filter');
+    })()`);
     await waitFor(
       win,
       `window.LoadToAgentApp.state.workspace === 'all'
-        && document.querySelector('#projectContextName')?.textContent.trim() === '모든 프로젝트'`,
-      '모든 프로젝트 컨텍스트로 돌아오지 못했습니다.',
+        && document.querySelector('#projectContextName')?.textContent.trim() === '프로젝트'`,
+      '프로젝트 전체 컨텍스트로 돌아오지 못했습니다.',
     );
-    await win.webContents.executeJavaScript(`document.querySelector('#advancedToolsNav > summary')?.click()`);
-    const projectToolsMetrics = await win.webContents.executeJavaScript(`(() => {
-      const menu = document.querySelector('#advancedToolsNav');
-      const list = menu?.querySelector('.advanced-tools-list');
-      const listRect = list?.getBoundingClientRect();
-      const firstTool = list?.querySelector('[data-view]');
-      const firstToolRect = firstTool?.getBoundingClientRect();
-      const clippedBy = [];
-      let ancestor = list?.parentElement;
-      while (ancestor) {
-        const ancestorStyle = getComputedStyle(ancestor);
-        if (ancestorStyle.overflowX !== 'visible' || ancestorStyle.overflowY !== 'visible') {
-          clippedBy.push({
-            tag: ancestor.tagName,
-            id: ancestor.id,
-            className: ancestor.className,
-            overflowX: ancestorStyle.overflowX,
-            overflowY: ancestorStyle.overflowY,
-          });
-        }
-        ancestor = ancestor.parentElement;
-      }
-      return {
-        open: Boolean(menu?.open),
-        views: [...(list?.querySelectorAll('[data-view]') || [])]
-          .filter(node => node.getBoundingClientRect().width > 0)
-          .map(node => node.dataset.view),
-        noOverflow: Boolean(list && list.scrollWidth <= list.clientWidth + 2),
-        menuOverflowVisible: Boolean(menu && getComputedStyle(menu).overflowX === 'visible' && getComputedStyle(menu).overflowY === 'visible'),
-        firstToolVisibleAtCenter: Boolean(firstToolRect && firstTool?.contains(document.elementFromPoint(
-          firstToolRect.left + firstToolRect.width / 2,
-          firstToolRect.top + firstToolRect.height / 2,
-        ))),
-        listRect: listRect ? { top: listRect.top, right: listRect.right, bottom: listRect.bottom, left: listRect.left, width: listRect.width, height: listRect.height } : null,
-        firstToolRect: firstToolRect ? { top: firstToolRect.top, right: firstToolRect.right, bottom: firstToolRect.bottom, left: firstToolRect.left, width: firstToolRect.width, height: firstToolRect.height } : null,
-        listStyle: list ? {
-          display: getComputedStyle(list).display,
-          visibility: getComputedStyle(list).visibility,
-          opacity: getComputedStyle(list).opacity,
-          position: getComputedStyle(list).position,
-          zIndex: getComputedStyle(list).zIndex,
-        } : null,
-        clippedBy,
-      };
-    })()`);
-    if (!projectToolsMetrics.open
-      || !['runtime', 'terminal', 'tmux', 'settings'].every(view => projectToolsMetrics.views.includes(view))
-      || !projectToolsMetrics.noOverflow
-      || !projectToolsMetrics.menuOverflowVisible
-      || !projectToolsMetrics.firstToolVisibleAtCenter) {
-      throw new Error(`프로젝트 추가 기능 메뉴 검증 실패: ${JSON.stringify(projectToolsMetrics)}`);
-    }
-    const projectToolsOutput = await capture(win, outputDir, 'loadtoagent-project-tools.png');
-    await win.webContents.executeJavaScript(`document.querySelector('#advancedToolsNav > summary')?.click()`);
+    const projectToolsMetrics = {
+      hidden: !await win.webContents.executeJavaScript(
+        `Boolean(document.querySelector('#advancedToolsNav > summary')?.getBoundingClientRect().width)`,
+      ),
+    };
+    if (!projectToolsMetrics.hidden) throw new Error(`프로젝트 추가 기능 요약이 숨겨지지 않았습니다: ${JSON.stringify(projectToolsMetrics)}`);
 
-    await win.webContents.executeJavaScript(`(() => {
-      window.interactionTest.clearCalls();
-      document.querySelector('.provider-usage-disclosure > summary')?.click();
-      document.querySelector('.provider-usage-disclosure')?.scrollIntoView({ block: 'start' });
-    })()`);
+    const usageDetailMetrics = {
+      removed: !await win.webContents.executeJavaScript(
+        `Boolean(document.querySelector('#operationsOverview .provider-usage-disclosure, #operationsOverview [data-provider-usage]'))`,
+      ),
+    };
+    if (!usageDetailMetrics.removed) {
+      throw new Error(`중복 남은 사용 한도 영역이 남아 있습니다: ${JSON.stringify(usageDetailMetrics)}`);
+    }
+
+    await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('terminal', { focusMain: true })`);
     await waitFor(
       win,
-      `Boolean(document.querySelector('.provider-usage-disclosure[open] [data-provider-usage-refresh]'))`,
-      '제공사 사용량 상세를 펼치지 못했습니다.',
+      `window.LoadToAgentApp.state.view === 'terminal'
+        && !document.querySelector('#backToProjectsBtn')?.classList.contains('hidden')`,
+      '고급 작업창에서 프로젝트로 돌아가기 버튼이 나타나지 않았습니다.',
     );
-    await win.webContents.executeJavaScript(`document.querySelector('[data-provider-usage-refresh]')?.click()`);
-    await waitFor(
-      win,
-      `window.interactionTest.getCalls().some(call => call.name === 'providerUsage' && call.args[0]?.force === true)
-        && Boolean(document.querySelector('.provider-usage-disclosure[open] [data-provider-usage-refresh]:not([disabled])'))`,
-      '제공사 사용량 새로고침 또는 펼침 상태 유지에 실패했습니다.',
-    );
-    const usageDetailMetrics = await win.webContents.executeJavaScript(`(() => {
-      const stage = document.querySelector('.main-stage');
-      const disclosure = document.querySelector('.provider-usage-disclosure');
-      const overview = disclosure?.querySelector('.provider-usage-overview');
-      const refresh = disclosure?.querySelector('[data-provider-usage-refresh]');
-      const box = disclosure?.getBoundingClientRect();
+    const focusedToolMetrics = await win.webContents.executeJavaScript(`(() => {
+      const visible = element => Boolean(element
+        && getComputedStyle(element).display !== 'none'
+        && element.getBoundingClientRect().width > 0
+        && element.getBoundingClientRect().height > 0);
       return {
-        open: Boolean(disclosure?.open),
-        visible: Boolean(box && box.width > 0 && box.height > 120),
-        cards: disclosure?.querySelectorAll('[data-provider-usage]').length || 0,
-        gauges: disclosure?.querySelectorAll('[role="progressbar"]').length || 0,
-        refreshEnabled: Boolean(refresh && !refresh.disabled),
-        providerLabels: [...(disclosure?.querySelectorAll('.provider-limit-card > header b') || [])].map(node => node.textContent.trim()),
-        remainingLabels: [...(disclosure?.querySelectorAll('.provider-limit-row > div:first-child span') || [])].map(node => node.textContent.trim()),
-        resetLabels: [...(disclosure?.querySelectorAll('.provider-limit-row > small') || [])].map(node => node.textContent.trim()),
-        noOverviewOverflow: Boolean(overview && overview.scrollWidth <= overview.clientWidth + 2),
-        noStageOverflow: Boolean(stage && stage.scrollWidth <= stage.clientWidth + 2),
+        title: document.querySelector('#pageTitle')?.textContent.trim() || '',
+        backVisible: visible(document.querySelector('#backToProjectsBtn')),
+        newRunHidden: !visible(document.querySelector('#newRunBtn')),
+        duplicateGuideHidden: !visible(document.querySelector('#terminalSection .terminal-section-head')),
+        answerDestinationHidden: !visible(document.querySelector('#terminalAnswerDestination')),
+        desktopGeneralEntryRemoved: !document.querySelector('.nav-item[data-view="terminal"]'),
+        mobileGeneralEntryRemoved: !document.querySelector('[data-mobile-view="terminal"]'),
+        quickGeneralEntryRemoved: !document.querySelector('[data-quick-command="terminal"]'),
       };
     })()`);
-    if (!usageDetailMetrics.open || !usageDetailMetrics.visible || usageDetailMetrics.cards < 1
-      || usageDetailMetrics.gauges < 1 || !usageDetailMetrics.refreshEnabled
-      || !usageDetailMetrics.providerLabels.includes('Claude')
-      || !usageDetailMetrics.providerLabels.includes('GPT 코딩 도우미')
-      || !usageDetailMetrics.remainingLabels.some(label => label.includes('남음'))
-      || !usageDetailMetrics.resetLabels.some(label => label.includes('다시 채워짐'))
-      || !usageDetailMetrics.noOverviewOverflow || !usageDetailMetrics.noStageOverflow) {
-      throw new Error(`제공사 사용량 상세 검증 실패: ${JSON.stringify(usageDetailMetrics)}`);
+    if (!focusedToolMetrics.backVisible || !focusedToolMetrics.newRunHidden
+      || !focusedToolMetrics.duplicateGuideHidden || !focusedToolMetrics.answerDestinationHidden
+      || !focusedToolMetrics.desktopGeneralEntryRemoved || !focusedToolMetrics.mobileGeneralEntryRemoved
+      || !focusedToolMetrics.quickGeneralEntryRemoved) {
+      throw new Error(`고급 작업창 단순화 검증 실패: ${JSON.stringify(focusedToolMetrics)}`);
     }
-    const usageOutput = await capture(win, outputDir, 'loadtoagent-provider-usage.png');
+    const focusedToolOutput = await capture(win, outputDir, 'loadtoagent-focused-tool.png');
+    await win.webContents.executeJavaScript(`document.querySelector('#backToProjectsBtn')?.click()`);
+    await waitFor(
+      win,
+      `window.LoadToAgentApp.state.view === 'all'
+        && document.querySelector('#backToProjectsBtn')?.classList.contains('hidden')
+        && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
+        && document.querySelector('#newRunBtn')?.getBoundingClientRect().width === 0`,
+      '프로젝트로 돌아가기 버튼이 프로젝트 화면으로 복귀시키지 못했습니다.',
+    );
     await win.webContents.executeJavaScript(`(() => {
-      document.querySelector('.provider-usage-disclosure > summary')?.click();
-      document.querySelector('.main-stage')?.scrollTo(0, 0);
+      const project = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(node => node.dataset.workspace === 'D:\\\\fixture');
+      project?.click();
     })()`);
+    await waitFor(
+      win,
+      `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
+        && document.querySelector('#newRunBtn')?.getBoundingClientRect().width > 0`,
+      '프로젝트를 선택한 뒤 새 AI 작업 버튼이 프로젝트 안에 나타나지 않았습니다.',
+    );
 
     const projectControlMetrics = await win.webContents.executeJavaScript(`(() => {
       const control = window.LoadToAgentApp;
@@ -498,12 +554,10 @@ app.whenReady().then(async () => {
         && !document.querySelector('#sessionSection')?.classList.contains('hidden')
         && document.querySelector('#projectContextName')?.textContent.trim() === 'CMS_WEB';
       document.querySelector('#projectViewTabs [data-view="all"]')?.click();
-      document.querySelector('#projectSidebarList [data-workspace="all"]')?.click();
-      const projectFlowButton = document.querySelector('.control-project-flow-link');
-      projectFlowButton?.click();
-      const fullStructureOpened = Boolean(control.state.graphFocusId)
-        && !document.querySelector('#agentMapToolbar')?.classList.contains('hidden');
-      document.querySelector('#graphResetBtn')?.click();
+      control.state.workspace = 'all';
+      control.render('filter');
+      const projectSelectionRestored = !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
+        && document.querySelector('#liveSection')?.classList.contains('hidden');
       return {
         initiallyFocused,
         allExpanded,
@@ -514,7 +568,7 @@ app.whenReady().then(async () => {
         individualCollapsed,
         projectFiltered,
         projectHistoryOpened,
-        fullStructureOpened,
+        projectSelectionRestored,
         restoredAll: control.state.workspace === 'all',
       };
     })()`);
@@ -522,10 +576,21 @@ app.whenReady().then(async () => {
       || !projectControlMetrics.allCollapsed || !projectControlMetrics.persistedCollapsed
       || !projectControlMetrics.individualExpanded || !projectControlMetrics.individualCollapsed || !projectControlMetrics.projectFiltered
       || !projectControlMetrics.projectHistoryOpened
-      || !projectControlMetrics.fullStructureOpened || !projectControlMetrics.restoredAll) {
+      || !projectControlMetrics.projectSelectionRestored || !projectControlMetrics.restoredAll) {
       throw new Error(`프로젝트 그룹·전체 열기·닫기 검증 실패: ${JSON.stringify(projectControlMetrics)}`);
     }
 
+    await win.webContents.executeJavaScript(`(() => {
+      window.LoadToAgentApp.state.workspace = 'D:\\\\fixture';
+      window.LoadToAgentApp.render('filter');
+    })()`);
+    await waitFor(
+      win,
+      `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
+        && !document.querySelector('#liveSection')?.classList.contains('hidden')
+        && Boolean(document.querySelector('[data-open-subagent-chat="fixture-child"]'))`,
+      '서브에이전트 검증용 프로젝트가 열리지 않았습니다.',
+    );
     win.setContentSize(1700, 979);
     await wait(180);
     await win.webContents.executeJavaScript(`document.querySelector('[data-open-subagent-chat="fixture-child"]')?.click()`);
@@ -783,38 +848,13 @@ app.whenReady().then(async () => {
       || !mobileMetrics.mobileProjectPickerAvailable || !mobileMetrics.firstProjectOpen
       || !mobileMetrics.firstAgentAboveFold || mobileMetrics.stageScrollTop > 1
       || !mobileMetrics.noOverviewOverflow || !mobileMetrics.noStageOverflow
-      || !mobileMetrics.usageDisclosureClosed || !mobileMetrics.usageDisclosureVisible
-      || !mobileMetrics.usageOverviewVisible || mobileMetrics.usageProviderCards < 1 || mobileMetrics.usageGauges < 1) {
+      || mobileMetrics.usageDisclosureVisible || mobileMetrics.usageOverviewVisible
+      || mobileMetrics.usageProviderCards !== 0 || mobileMetrics.usageGauges !== 0) {
       throw new Error(`모바일 세션 관제 검증 실패: ${JSON.stringify(mobileMetrics)}`);
     }
     const mobileOutput = await capture(win, outputDir, 'loadtoagent-control-room-mobile.png');
 
-    const mobileUsageMetrics = await win.webContents.executeJavaScript(`(() => {
-      const disclosure = document.querySelector('.provider-usage-disclosure');
-      disclosure?.querySelector(':scope > summary')?.click();
-      disclosure?.scrollIntoView({ block: 'start' });
-      const grid = disclosure?.querySelector('.provider-limit-grid');
-      const refresh = disclosure?.querySelector('[data-provider-usage-refresh]');
-      const stage = document.querySelector('.main-stage');
-      const box = disclosure?.getBoundingClientRect();
-      return {
-        open: Boolean(disclosure?.open),
-        visible: Boolean(box && box.width > 0 && box.height > 120),
-        gridColumns: grid ? getComputedStyle(grid).gridTemplateColumns : '',
-        cards: disclosure?.querySelectorAll('[data-provider-usage]').length || 0,
-        refreshVisible: Boolean(refresh && refresh.getBoundingClientRect().width > 0),
-        noDisclosureOverflow: Boolean(disclosure && disclosure.scrollWidth <= disclosure.clientWidth + 2),
-        noStageOverflow: Boolean(stage && stage.scrollWidth <= stage.clientWidth + 2),
-      };
-    })()`);
-    if (!mobileUsageMetrics.open || !mobileUsageMetrics.visible || mobileUsageMetrics.cards < 1
-      || !mobileUsageMetrics.refreshVisible || !mobileUsageMetrics.noDisclosureOverflow
-      || !mobileUsageMetrics.noStageOverflow || mobileUsageMetrics.gridColumns.split(' ').length !== 1) {
-      throw new Error(`모바일 제공사 사용량 상세 검증 실패: ${JSON.stringify(mobileUsageMetrics)}`);
-    }
-    const mobileUsageOutput = await capture(win, outputDir, 'loadtoagent-provider-usage-mobile.png');
-
-    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ overviewMetrics, projectContextMetrics, projectToolsMetrics, usageDetailMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, mobileMetrics, mobileUsageMetrics }, null, 2)}\n${overviewOutput}\n${projectContextOutput}\n${projectToolsOutput}\n${usageOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${mobileOutput}\n${mobileUsageOutput}\n`);
+    process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ initialSelectionMetrics, overviewMetrics, projectContextMetrics, projectToolsMetrics, usageDetailMetrics, focusedToolMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${projectContextOutput}\n${projectHistoryOutput}\n${focusedToolOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${mobileOutput}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

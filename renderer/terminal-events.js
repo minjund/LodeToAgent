@@ -10,6 +10,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     closeTmuxModal, errorMessage, notice, reorderSession, moveSessionByOffset,
     setTerminalFontSize, toggleTerminalFocusMode, focusComputerWorkInput,
     isAiTerminalSession,
+    schedulePendingPromptRefresh = () => {},
     composer,
   } = context;
 
@@ -531,8 +532,12 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     window.loadtoagent.onTerminalData(payload => {
       const entry = state.terminals.get(payload && payload.id);
       writeTerminalOutput(entry, payload && payload.data);
+      schedulePendingPromptRefresh();
     });
-    window.loadtoagent.onTerminalState(payload => refreshSessions(payload));
+    window.loadtoagent.onTerminalState(payload => {
+      refreshSessions(payload);
+      schedulePendingPromptRefresh(true);
+    });
     window.loadtoagent.onTerminalError(payload => notice(payload && payload.message || t('terminal.error.input_failed'), 'error'));
     window.loadtoagent.onTerminalConnection?.(payload => {
       const tone = payload?.state === 'failed' ? 'error' : payload?.state === 'connected' ? 'success' : 'info';

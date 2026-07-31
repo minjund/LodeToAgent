@@ -376,9 +376,111 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return sortGraphNodes(found);
   }
 
-  const sessionNeedsReview = session => typeof context.needsManagementReview === "function"
-    ? context.needsManagementReview(session)
+  const sessionNeedsReview = session => typeof context.needsManagementInbox === "function"
+    ? context.needsManagementInbox(session)
+    : typeof context.needsManagementReview === "function"
+      ? context.needsManagementReview(session)
     : Boolean(session?.attention?.actionable || session?.attention?.required);
+
+  function controlRoomReviewCopy(session) {
+    const attention = session.attention || {};
+    const responseIntent = session.responseIntent || {};
+    const latestAssistant = [...(session.messages || [])].reverse()
+      .find(message => message?.role === "assistant" && String(message.text || "").trim());
+    const resultTargets = typeof context.resultReviewTargets === "function"
+      ? context.resultReviewTargets(session)
+      : [];
+    const resultReview = resultTargets.length > 0;
+    const required = attention.category === "required"
+      || (!attention.category && attention.required)
+      || responseIntent.category === "required"
+      || responseIntent.required;
+    const kind = attention.kind || responseIntent.kind || "";
+    const normalizeCopy = value => String(value || "").replace(/\s+/g, " ").trim();
+    const genericCopy = value => {
+      const copy = normalizeCopy(value);
+      return !copy
+        || copy.length < 8
+        || /^(?:대기합니다|다음\s*요청\s*대기|정상\s*완료|작업\s*중|진행\s*중|내\s*(?:답변|응답)을?\s*기다리는\s*중)[.!]?$/i.test(copy);
+    };
+    const pickSpecific = values => values.map(normalizeCopy).find(value => !genericCopy(value))
+      || values.map(normalizeCopy).find(Boolean)
+      || "";
+    const requestSource = pickSpecific([
+      responseIntent.requestText,
+      attention.requestText,
+      attention.summary,
+      session.outcome?.summary,
+      session.result,
+      session.title,
+      session.statusDetail,
+      latestAssistant?.text,
+    ]);
+    const detailSource = pickSpecific([
+      attention.summary,
+      session.statusDetail,
+      session.outcome?.summary,
+      session.result,
+      latestAssistant?.text,
+    ]);
+    const request = readablePreview(String(requestSource || "").replace(/\s+/g, " ").trim(), 180);
+    const detail = readablePreview(String(detailSource || "").replace(/\s+/g, " ").trim(), 220);
+    const labelKey = resultReview
+      ? "studio.review.result"
+      : kind === "approval"
+        ? "studio.review.approval"
+        : required
+          ? "studio.review.response"
+          : "studio.review.problem";
+    const actionKey = resultReview
+      ? "studio.review.open_result"
+      : required
+        ? "studio.review.reply"
+        : "studio.review.open_problem";
+    return {
+      request,
+      detail: detail.text && detail.text !== request.text ? detail : null,
+      resultReview,
+      required,
+      label: t(labelKey),
+      action: t(actionKey),
+    };
+  }
+
+  function controlRoomReviewHtml(session, remainingCount = 0) {
+    const provider = providerInfo(session.provider);
+    const review = controlRoomReviewCopy(session);
+    const quickActions = typeof context.quickActionsHtml === "function"
+      ? context.quickActionsHtml(session)
+      : "";
+    return `<aside class="control-session-review" data-control-review="${esc(session.id)}" style="${providerStyle(session.provider)}">
+      <header>
+        <span class="control-review-provider"><i aria-hidden="true">${esc(provider.mark)}</i><span><small>${esc(t("studio.review.what"))}</small><b>${esc(provider.label)} · ${esc(review.label)}</b></span></span>
+        ${remainingCount > 0 ? `<em>${esc(t("studio.review.more", { count: remainingCount }))}</em>` : ""}
+      </header>
+      <strong title="${esc(review.request.full || review.request.text)}">${esc(review.request.text)}</strong>
+      ${review.detail ? `<p title="${esc(review.detail.full || review.detail.text)}">${esc(review.detail.text)}</p>` : ""}
+      <footer>
+        ${quickActions}
+        <button type="button" class="control-review-open" data-open-session="${esc(session.id)}" ${review.resultReview ? 'data-result-review="true"' : ""}>${esc(review.action)} <i aria-hidden="true">→</i></button>
+      </footer>
+    </aside>`;
+  }
+
+  function controlRoomTerminalPromptHtml(session, prompt, remainingCount = 0) {
+    const provider = providerInfo(prompt.provider || session.provider);
+    return `<aside class="control-session-review terminal-approval-review" data-control-review="${esc(session.id)}" data-terminal-prompt="${esc(prompt.fingerprint || session.id)}" style="${providerStyle(prompt.provider || session.provider)}">
+      <header>
+        <span class="control-review-provider"><i aria-hidden="true">${esc(provider.mark)}</i><span><small>${esc(t("studio.review.what"))}</small><b>${esc(provider.label)} · ${esc(prompt.title || t("studio.review.approval"))}</b></span></span>
+        ${remainingCount > 0 ? `<em>${esc(t("studio.review.more", { count: remainingCount }))}</em>` : ""}
+      </header>
+      <strong>${esc(prompt.question || t("studio.review.approval"))}</strong>
+      ${prompt.detail ? `<p title="${esc(prompt.detail)}">${esc(prompt.detail)}</p>` : ""}
+      <footer class="terminal-approval-actions">
+        ${(prompt.choices || []).map(choice => `<button type="button" class="terminal-approval-choice ${esc(choice.tone || "")}" data-terminal-prompt-session="${esc(session.id)}" data-terminal-prompt-choice="${esc(choice.id)}">${esc(choice.label)}</button>`).join("")}
+      </footer>
+    </aside>`;
+  }
 
   function controlRoomIntent(value) {
     const text = String(value || "");
@@ -524,7 +626,19 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const retained = isControlRoomSession(root) && !isLiveSession(root) && !delivery;
     const descendants = controlRoomDescendants(root, model);
     const actors = [root, ...descendants];
-    const attentionCount = actors.filter(sessionNeedsReview).length;
+    const terminalReviewSources = actors.map(session => ({
+      session,
+      prompt: window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null,
+    })).filter(item => item.prompt);
+    const reviewSources = actors.filter(sessionNeedsReview).sort((left, right) => (
+      Date.parse(left.attention?.requestedAt || left.updatedAt || 0)
+      - Date.parse(right.attention?.requestedAt || right.updatedAt || 0)
+    ));
+    const reviewSessionIds = new Set([
+      ...reviewSources.map(session => String(session.id || "")),
+      ...terminalReviewSources.map(item => String(item.session.id || "")),
+    ]);
+    const attentionCount = reviewSessionIds.size;
     const hasAttention = attentionCount > 0;
     const executionItems = actors.flatMap(owner => (owner.executions || []).map(activity => ({ activity, owner })));
     const activeChildren = descendants.filter(child => ["starting", "running", "paused", "waiting"].includes(child.status) && !child.completionObserved);
@@ -568,10 +682,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         : (waiting ? "control.waiting_session" : (retained ? "control.recently_completed" : "control.live_session"));
     const retention = retained ? `<small class="control-session-retention">${esc(t("control.auto_history_in_minutes", { minutes: sessionRetentionMinutes(root) }))}</small>` : "";
     const archive = retained ? `<button type="button" class="control-session-archive" data-session-archive="${esc(root.id)}">${esc(t("control.move_to_history"))}</button>` : "";
+    const review = terminalReviewSources.length
+      ? controlRoomTerminalPromptHtml(terminalReviewSources[0].session, terminalReviewSources[0].prompt, Math.max(0, attentionCount - 1))
+      : reviewSources.length
+        ? controlRoomReviewHtml(reviewSources[0], Math.max(0, attentionCount - 1))
+        : "";
     return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
       <header><div><span class="control-session-live"><i></i>${esc(hasAttention ? t("control.causal_judgement") : t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}">${esc(t("control.open_full_flow", { title: root.title }))}</button></header>
+      ${review}
       <div class="control-room-flow">
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
@@ -650,7 +770,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         </section>`
         : "";
       return `<div class="control-room-project-frame">
-        <details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
+        <details class="control-room-project-group ${presentation} ${attentionCount ? "has-attention" : ""}" ${state.workspace !== "all" ? "open" : ""} data-control-project="${esc(name)}" data-project-sortable="${esc(key)}" data-disclosure-key="${esc(disclosureKey)}" data-attention-count="${attentionCount}">
         <summary class="control-project-header" data-project-toggle="${esc(name)}" draggable="true" aria-grabbed="false"
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("project.drag_label", { name }))}" aria-describedby="projectReorderHelp">
           <span class="control-project-heading"><i aria-hidden="true">□</i><span>${esc(t(attentionCount ? "control.attention_now" : "control.current_status"))}</span><b>${esc(displayName)}</b><small>${esc(t("control.current_status_summary", { summary }))}</small></span>

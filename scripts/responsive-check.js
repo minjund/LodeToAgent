@@ -48,14 +48,13 @@ function setWindowSize(win, width, height) {
 
 async function openView(win, view) {
   await win.webContents.executeJavaScript(`(() => {
-    const button = document.querySelector(${JSON.stringify(`[data-view="${view}"]`)});
-    if (!button) return false;
-    button.click();
+    if (!window.LoadToAgentApp?.selectView) return false;
+    window.LoadToAgentApp.selectView(${JSON.stringify(view)});
     document.querySelector('.main-stage')?.scrollTo(0, 0);
     return true;
   })()`);
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const activeView = await win.webContents.executeJavaScript(`document.querySelector('.view-nav .nav-item.active')?.dataset.view || ''`);
+    const activeView = await win.webContents.executeJavaScript(`window.LoadToAgentApp?.state?.view || ''`);
     if (activeView === view) {
       await wait(320);
       return;
@@ -69,7 +68,7 @@ async function layoutMetrics(win) {
   return win.webContents.executeJavaScript(`(() => {
     const stage = document.querySelector('.main-stage');
     const sidebar = document.querySelector('.sidebar');
-    const projectNav = document.querySelector('#projectContextNav');
+    const projectNav = document.querySelector('#projectTaskToolbar');
     const projectNavRect = projectNav?.getBoundingClientRect();
     const projectToolsSummary = document.querySelector('#advancedToolsNav > summary');
     const projectToolsRect = projectToolsSummary?.getBoundingClientRect();
@@ -121,6 +120,12 @@ async function layoutMetrics(win) {
       || tmuxNavRect && tmuxNavRect.left >= -1 && tmuxNavRect.right <= window.innerWidth + 1
     );
     const liveSectionVisible = !document.querySelector('#liveSection')?.classList.contains('hidden');
+    const projectSelected = document.body.dataset.projectSelected === 'true';
+    const projectSelectionPrompt = document.querySelector('#projectSelectionPrompt');
+    const projectSelectionPromptVisible = Boolean(projectSelectionPrompt
+      && getComputedStyle(projectSelectionPrompt).display !== 'none'
+      && projectSelectionPrompt.getBoundingClientRect().width > 0
+      && projectSelectionPrompt.getBoundingClientRect().height > 0);
     const projectGroups = [...document.querySelectorAll('.control-room-project-group')];
     const openProjectBodies = [...document.querySelectorAll('.control-room-project-group[open] .control-project-body')];
     const clippedOpenProjectBodies = openProjectBodies.filter(body => body.scrollHeight > body.clientHeight + 2).length;
@@ -166,6 +171,7 @@ async function layoutMetrics(win) {
       width: window.innerWidth,
       height: window.innerHeight,
       compact,
+      currentView: window.LoadToAgentApp?.state?.view || '',
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       stageOverflow: Boolean(stage && stage.scrollWidth > stage.clientWidth + 2),
       stageOverflowItems,
@@ -176,6 +182,9 @@ async function layoutMetrics(win) {
       projectNavRect: projectNavRect ? { left: projectNavRect.left, right: projectNavRect.right, top: projectNavRect.top, bottom: projectNavRect.bottom, width: projectNavRect.width } : null,
       projectNavigationInMain: Boolean(projectNav && stage?.contains(projectNav) && !sidebar?.contains(projectNav)
         && projectNavRect && stageRect && projectNavRect.left >= stageRect.left - 1 && projectNavRect.right <= stageRect.right + 1),
+      projectSelected,
+      projectSelectionPromptVisible,
+      liveSectionVisible,
       projectToolsVisible: compact || Boolean(projectToolsRect && projectToolsRect.width > 0 && projectToolsRect.height > 0),
       projectToolsAccessible: compact || Boolean(projectToolsSummary?.getAttribute('aria-label')?.trim()),
       sectionOverflow,
@@ -226,11 +235,12 @@ async function layoutMetrics(win) {
 }
 
 function assertLayout(metrics, context) {
-  const compactNavValid = !metrics.compact
-    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting', 'mobileMoreBtn']);
-  const desktopNavValid = metrics.compact
-    || JSON.stringify(metrics.visibleNavItems) === JSON.stringify(['all', 'active', 'waiting']);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !metrics.projectNavigationInMain || !metrics.projectToolsVisible || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectFilterAvailable || !metrics.projectLayoutValid || !metrics.compactContentClearance || !compactNavValid || !desktopNavValid || (!metrics.compact && !metrics.tmuxShortcutVisible) || (!metrics.compact && !metrics.tmuxShortcutInsideViewport)) {
+  const hiddenLegacyNavigationValid = metrics.visibleNavItems.length === 0;
+  const projectStateValid = metrics.currentView !== 'all'
+    || (metrics.projectSelected
+      ? metrics.projectNavigationInMain && metrics.liveSectionVisible && !metrics.projectSelectionPromptVisible
+      : !metrics.projectNavigationInMain && !metrics.liveSectionVisible && metrics.projectSelectionPromptVisible);
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !metrics.sidebarNoInternalOverflow || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || !hiddenLegacyNavigationValid || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -395,6 +405,8 @@ async function stickyNavigationMetrics(win) {
     const topbarRect = topbar.getBoundingClientRect();
     const projectNavRect = projectNav.getBoundingClientRect();
     const style = getComputedStyle(projectNav);
+    const projectNavVisible = style.display !== 'none' && style.visibility !== 'hidden'
+      && projectNavRect.width > 0 && projectNavRect.height > 0;
     const topbarStyle = getComputedStyle(topbar);
     const visibleTopbarChildren = [...topbar.children].filter(child => {
       const rect = child.getBoundingClientRect();
@@ -415,6 +427,7 @@ async function stickyNavigationMetrics(win) {
       restoredScrollTop: stage.scrollTop,
       originalScrollTop,
       position: style.position,
+      projectNavVisible,
       topbarRect: { top: topbarRect.top, bottom: topbarRect.bottom, height: topbarRect.height },
       topbarStyle: {
         minHeight: topbarStyle.minHeight,
@@ -430,7 +443,16 @@ async function stickyNavigationMetrics(win) {
 }
 
 function assertStickyNavigation(metrics, context) {
-  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.position !== 'sticky' || !metrics.noStickyOverlap || !metrics.projectNavInsideViewport || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+  const hiddenProjectNavigationIsValid = metrics.available
+    && metrics.projectNavVisible === false
+    && metrics.topbarRect.height > 0
+    && metrics.visibleTopbarChildren.length > 0;
+  const visibleProjectNavigationIsValid = metrics.available
+    && metrics.projectNavVisible
+    && metrics.position === 'sticky'
+    && metrics.noStickyOverlap
+    && metrics.projectNavInsideViewport;
+  if (metrics.scrollRange < 100 || metrics.scrolledTop < 100 || (!hiddenProjectNavigationIsValid && !visibleProjectNavigationIsValid) || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
     throw new Error(`${context} 고정 프로젝트 탐색 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -461,9 +483,9 @@ async function setupDashboardStickyFixture(win) {
         depth: 0,
         provider: providers[index % providers.length],
         model: index % 2 ? 'responsive-model-long-name' : 'gpt-5.6',
-        cwd: '/responsive/sticky-dashboard/project-' + index,
-        originCwd: '/responsive/sticky-dashboard/project-' + index,
-        workspace: 'responsive-sticky-project-' + (index % 2),
+        cwd: '/responsive/sticky-dashboard/project',
+        originCwd: '/responsive/sticky-dashboard/project',
+        workspace: 'responsive-sticky-project',
         title: id + ' 토큰 카드가 채워진 대시보드 고정 영역 검증 세션',
         status: running ? 'running' : 'completed',
         statusDetail: running ? '반응형 고정 영역을 확인하는 중' : '반응형 고정 영역 확인 완료',
@@ -485,7 +507,7 @@ async function setupDashboardStickyFixture(win) {
     window.__responsiveDashboardStickyFixtures = fixtures;
     window.__ensureResponsiveDashboardStickyFixture = () => {
       app.state.snapshot.sessions = window.__responsiveDashboardStickyFixtures;
-      app.state.workspace = 'all';
+      app.state.workspace = '/responsive/sticky-dashboard/project';
       app.state.view = 'all';
       app.state.selectedId = null;
       app.state.graphFocusId = null;
@@ -520,7 +542,7 @@ async function dashboardStickyNavigationMetrics(win) {
     window.__ensureResponsiveDashboardStickyFixture?.();
     const stage = document.querySelector('.main-stage');
     const topbar = document.querySelector('.topbar');
-    const projectNav = document.querySelector('#projectContextNav');
+    const projectNav = document.querySelector('#projectTaskToolbar');
     const historyRail = document.querySelector('#projectHistoryRail');
     const tokenOverview = document.querySelector('#sessionTokenOverview');
     const tokenItems = [...document.querySelectorAll('#sessionTokenList > .session-token-item')];
@@ -543,7 +565,7 @@ async function dashboardStickyNavigationMetrics(win) {
       const meter = item.querySelector('[role="progressbar"]');
       const title = item.getAttribute('title') || '';
       return {
-        id: title.match(/^responsive-sticky-\\d+/)?.[0] || '',
+        id: item.dataset.tokenProvider || '',
         title,
         value: Number(meter?.getAttribute('aria-valuenow') || 0),
         label: meter?.getAttribute('aria-label') || '',
@@ -606,19 +628,30 @@ async function dashboardStickyNavigationMetrics(win) {
 
 function assertDashboardStickyNavigation(metrics, context) {
   const minimumVisibleTokens = metrics.viewportWidth <= 720 ? 1 : metrics.viewportWidth <= 1180 ? 2 : 4;
-  const expectedTokenIds = ['responsive-sticky-0', 'responsive-sticky-1', 'responsive-sticky-2', 'responsive-sticky-3'];
+  const expectedTokenIds = ['claude', 'codex', 'gemini', 'grok'];
   const tokenDataPresent = metrics.tokenData?.length === 4
-    && metrics.tokenData.every(item => item.title.startsWith(item.id) && item.label && item.value > 0)
+    && metrics.tokenData.every(item => item.id && item.title && item.visible
+      && (item.value > 0 ? Boolean(item.label) : /수치 미확인|unavailable|未知/.test(item.title)))
     && JSON.stringify(metrics.tokenData.map(item => item.id)) === JSON.stringify(expectedTokenIds);
-  const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectContextNav']);
-  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || !metrics.projectNavPinnedToStage || !metrics.projectNavInsideViewport || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+  const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectTaskToolbar']);
+  if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || metrics.projectNavRect.width <= 0 || metrics.projectNavRect.height <= 0 || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
     throw new Error(`${context} 토큰 대시보드 고정 영역 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
 
 async function overlayMetrics(win, capturePath = '') {
   await win.webContents.executeJavaScript(`(() => {
-    window.LoadToAgentApp.openRunModal();
+    const app = window.LoadToAgentApp;
+    if (!app.state.workspace || app.state.workspace === 'all' || app.state.workspace === '__projectless__') {
+      app.state.workspace = app.state.workspaces?.[0]?.path
+        || document.querySelector('#projectSidebarList [data-workspace]')?.dataset.workspace
+        || (app.state.snapshot?.sessions || []).find(session => !session.parentId && (session.originCwd || session.cwd))?.originCwd
+        || (app.state.snapshot?.sessions || []).find(session => !session.parentId && (session.originCwd || session.cwd))?.cwd
+        || '';
+      app.renderWorkspaces();
+      app.renderSessions('filter');
+    }
+    app.openRunModal();
   })()`);
   await wait(360);
   if (capturePath) {
@@ -667,14 +700,45 @@ async function overlayMetrics(win, capturePath = '') {
       const rect = element.getBoundingClientRect();
       return { className: element.className, left: rect.left, right: rect.right, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
     }).filter(item => item.clientWidth && modal && (item.left < modal.left - 1 || item.right > modal.right + 1 || item.scrollWidth > item.clientWidth + 2));
-    document.querySelector('#runModal')?.classList.add('hidden');
-    document.querySelector('#runModal')?.classList.remove('closing');
+    const runModal = document.querySelector('#runModal');
+    window.LoadToAgentA11y?.setDialogOpenState(runModal, false);
+    runModal?.classList.add('hidden');
+    runModal?.classList.remove('closing');
+    runModal?.setAttribute('aria-hidden', 'true');
+    if (runModal) runModal.inert = true;
     const drawer = document.querySelector('#detailDrawer');
     const backdrop = document.querySelector('#drawerBackdrop');
     const drawerRect = drawer?.getBoundingClientRect();
+    const visible = element => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility === 'visible'
+        && Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
+    };
+    const leakedControls = [...document.querySelectorAll('#appShell button, #appShell a[href], #appShell summary, #appShell input, #appShell select, #appShell textarea')]
+      .filter(visible)
+      .map(element => {
+        const rect = element.getBoundingClientRect();
+        const left = Math.max(rect.left, drawerRect?.left ?? window.innerWidth);
+        const right = Math.min(rect.right, drawerRect?.right ?? 0);
+        const top = Math.max(rect.top, drawerRect?.top ?? window.innerHeight);
+        const bottom = Math.min(rect.bottom, drawerRect?.bottom ?? 0);
+        if (right <= left || bottom <= top) return null;
+        const topElement = document.elementFromPoint((left + right) / 2, (top + bottom) / 2);
+        if (topElement && (topElement === element || element.contains(topElement))) {
+          return {
+            id: element.id || '',
+            className: String(element.className || ''),
+            text: element.textContent.trim().slice(0, 80),
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
     drawer?.classList.remove('open');
     if (drawer) drawer.style.transition = '';
     backdrop?.classList.add('hidden');
+    window.LoadToAgentA11y?.setDialogOpenState(drawer, false);
     return {
       modalInsideViewport: viewportContains(modal),
       modalNoHorizontalOverflow,
@@ -686,6 +750,7 @@ async function overlayMetrics(win, capturePath = '') {
       modalClientWidth,
       horizontalOverflow,
       drawerInsideViewport: viewportContains(drawerRect),
+      drawerLeakedControls: leakedControls,
       modalWidth: modal?.width || 0,
       drawerWidth: drawerRect?.width || 0,
       viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -728,6 +793,7 @@ async function setupWorkflowFixture(win) {
       const sessions = window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || [];
       window.LoadToAgentApp.state.snapshot.sessions = [...sessions.filter(session => !fixtureIds.has(session.id)), ...window.__responsiveWorkflowFixtures];
       window.LoadToAgentApp.state.view = 'all';
+      window.LoadToAgentApp.state.workspace = '/responsive/project';
       window.LoadToAgentApp.state.graphFocusId = rootId;
       window.LoadToAgentApp.state.expandedCompletedSubagents.delete(rootId);
       document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all'));
@@ -835,7 +901,7 @@ async function workflowMetrics(win) {
 }
 
 function assertWorkflow(metrics) {
-  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || (!metrics.stacked && !metrics.tmuxShortcutVisible) || (!metrics.stacked && !metrics.tmuxShortcutInsideViewport) || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
+  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || (metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport) || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
     throw new Error(`선택 AI 작업 흐름 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -1107,7 +1173,7 @@ app.whenReady().then(async () => {
       }
 
       const overlays = await overlayMetrics(win, width === 720 || width === 360 ? path.join(outputDir, `loadtoagent-responsive-new-run-${width}.png`) : '');
-      if (!overlays.modalInsideViewport || !overlays.drawerInsideViewport || !overlays.modalNoHorizontalOverflow || !overlays.providerCardsInsideModal || !overlays.actionsInsideViewport || !overlays.promptCounterVisible || !overlays.promptFirst) {
+      if (!overlays.modalInsideViewport || !overlays.drawerInsideViewport || !overlays.modalNoHorizontalOverflow || !overlays.providerCardsInsideModal || !overlays.actionsInsideViewport || !overlays.promptCounterVisible || !overlays.promptFirst || overlays.drawerLeakedControls.length) {
         throw new Error(`${width}×${height} 오버레이 배치가 올바르지 않습니다: ${JSON.stringify(overlays)}`);
       }
 

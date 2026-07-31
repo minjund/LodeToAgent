@@ -76,6 +76,11 @@
     terminalFontSize: terminalViewPreferences.fontSize,
     pendingInputFocusId: '',
     terminalFocusMode: false,
+    pendingPrompts: new Map(),
+    promptDismissals: new Map(),
+    promptRefreshInFlight: false,
+    promptRefreshQueued: false,
+    promptLastRefreshAt: 0,
     platform: { id: 'win32', label: '내 컴퓨터', computerName: '이 컴퓨터', localShell: 'powershell', localShellLabel: '내 컴퓨터에서 실행하는 작업', nativeTmux: false },
   };
   let composer = null;
@@ -197,7 +202,11 @@
   function resumeLaunchArgs(support, prompt = '') {
     const args = [...support.args];
     const text = String(prompt || '').trim();
-    if (text) args.push(text);
+    if (text) {
+      if (support.provider === 'codex' && args[0] === 'resume') args.splice(1, 0, '--');
+      else args.push('--');
+      args.push(text);
+    }
     return args;
   }
 
@@ -710,6 +719,119 @@
     syncComposer: (...args) => composer?.sync(...args),
   });
 
+  function pendingPromptForSession(sessionOrId) {
+    const id = typeof sessionOrId === 'object' ? sessionOrId?.id : sessionOrId;
+    return state.pendingPrompts.get(String(id || '')) || null;
+  }
+
+  function promptMapSignature(prompts) {
+    return JSON.stringify([...prompts.entries()].map(([sessionId, prompt]) => [
+      sessionId,
+      prompt.fingerprint,
+      prompt.target?.id,
+    ]).sort((left, right) => left[0].localeCompare(right[0])));
+  }
+
+  async function scanPendingPrompts() {
+    const detector = window.LoadToAgentTerminalPrompts?.detectPendingPrompt;
+    if (typeof detector !== 'function' || !state.snapshot?.sessions) return new Map();
+    const mappings = [];
+    for (const agent of state.snapshot.sessions) {
+      for (const target of agentTargets(agent)) {
+        if (!mappings.some(item => item.target.id === target.id)) mappings.push({ agent, target });
+      }
+    }
+    const detected = await Promise.all(mappings.map(async ({ agent, target }) => {
+      try {
+        const output = target.kind === 'tmux'
+          ? (await window.loadtoagent.tmuxCapture({
+            distro: target.distro,
+            target: target.paneNativeId,
+            lines: 160,
+          }))?.output
+          : (await window.loadtoagent.terminalGet(target.terminalId))?.replay;
+        const prompt = detector(output);
+        if (!prompt || state.promptDismissals.get(target.id) === prompt.fingerprint) return null;
+        return {
+          sessionId: agent.id,
+          prompt: {
+            ...prompt,
+            provider: agent.provider,
+            target: {
+              id: target.id,
+              kind: target.kind,
+              terminalId: target.terminalId || '',
+              distro: target.distro || '',
+              paneNativeId: target.paneNativeId || '',
+              label: target.label || '',
+            },
+          },
+        };
+      } catch (error) {
+        reportRecoverableError(`terminal-prompt-scan:${target.id}`, error);
+        return null;
+      }
+    }));
+    return new Map(detected.filter(Boolean).map(item => [item.sessionId, item.prompt]));
+  }
+
+  function schedulePendingPromptRefresh(force = false) {
+    if (!state.initialized || !state.snapshot?.sessions?.length) return;
+    const elapsed = Date.now() - state.promptLastRefreshAt;
+    if (!force && elapsed < 2_500) return;
+    if (state.promptRefreshInFlight) {
+      state.promptRefreshQueued = true;
+      return;
+    }
+    state.promptRefreshInFlight = true;
+    state.promptLastRefreshAt = Date.now();
+    const previousSignature = promptMapSignature(state.pendingPrompts);
+    scanPendingPrompts().then(prompts => {
+      for (const [sessionId, prompt] of prompts) {
+        if (state.promptDismissals.get(prompt.target?.id) === prompt.fingerprint) prompts.delete(sessionId);
+      }
+      state.pendingPrompts = prompts;
+      if (promptMapSignature(prompts) !== previousSignature) {
+        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      }
+    }).catch(error => {
+      reportRecoverableError('terminal-prompt-refresh', error);
+    }).finally(() => {
+      state.promptRefreshInFlight = false;
+      if (state.promptRefreshQueued) {
+        state.promptRefreshQueued = false;
+        state.promptLastRefreshAt = 0;
+        schedulePendingPromptRefresh();
+      }
+    });
+  }
+
+  async function respondToPrompt(sessionOrId, choiceId) {
+    const sessionId = typeof sessionOrId === 'object' ? sessionOrId?.id : sessionOrId;
+    const prompt = pendingPromptForSession(sessionId);
+    const choice = prompt?.choices?.find(item => item.id === choiceId);
+    if (!prompt || !choice || !prompt.target) throw new Error('선택할 승인 요청을 찾을 수 없습니다.');
+    const result = prompt.target.kind === 'tmux'
+      ? await window.loadtoagent.tmuxSendKey({
+        distro: prompt.target.distro,
+        target: prompt.target.paneNativeId,
+        key: choice.key,
+      })
+      : await window.loadtoagent.terminalWrite(
+        prompt.target.terminalId,
+        choice.key === 'Escape' ? '\x1b' : choice.key,
+      );
+    if (!result || result.ok === false) throw new Error(result?.error || '승인 선택을 전달하지 못했습니다.');
+    state.promptDismissals.set(prompt.target.id, prompt.fingerprint);
+    state.pendingPrompts.delete(String(sessionId || ''));
+    window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+    setTimeout(() => {
+      state.promptLastRefreshAt = 0;
+      schedulePendingPromptRefresh(true);
+    }, 700);
+    return { ok: true, choice, target: prompt.target, requiresText: Boolean(choice.requiresText) };
+  }
+
   function bindEvents() {
     window.LoadToAgentTerminalEvents({
       $,
@@ -741,6 +863,7 @@
       toggleTerminalFocusMode,
       focusComputerWorkInput,
       isAiTerminalSession,
+      schedulePendingPromptRefresh,
       composer,
     });
   }
@@ -808,6 +931,7 @@
       state.pendingInputFocusId = '';
       return;
     }
+    schedulePendingPromptRefresh();
     if (state.boundAgent && state.snapshot && Array.isArray(state.snapshot.sessions)) {
       const updated = state.snapshot.sessions.find(session => session.id === state.boundAgent.id);
       // Keep the conversation associated with its live terminal even when a
@@ -917,6 +1041,7 @@
       }
       syncTerminalViewControls();
       renderAll();
+      schedulePendingPromptRefresh(true);
     })().catch(error => {
       state.initialized = false;
       state.initPromise = null;
@@ -939,6 +1064,9 @@
     openForAgent,
     resumeForAgent,
     resetForAgent,
+    pendingPromptForSession,
+    respondToPrompt,
+    refreshPendingPrompts: () => schedulePendingPromptRefresh(true),
     scrollTmuxToLine,
     scrollTmuxByLines,
     scrollTerminalToLine,

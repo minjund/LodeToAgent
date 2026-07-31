@@ -248,7 +248,7 @@ app.whenReady().then(async () => {
       },
     });
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.state?.snapshot?.sessions?.length && document.querySelector('#operationsOverview')?.innerText)`);
+    await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot?.sessions?.length)`);
     win.setContentSize(1440, 980);
     await wait(260);
     const outputDir = path.join(__dirname, '..', 'artifacts');
@@ -267,18 +267,18 @@ app.whenReady().then(async () => {
       app.state.hiddenProviders.clear();
       window.LoadToAgentI18n.setLocale('ko');
       app.state.view = 'all';
-      app.state.workspace = 'all';
+      app.state.workspace = 'D:\\\\fixture';
       app.state.graphFocusId = null;
       app.syncViewChrome();
       app.render('view');
       document.querySelector('#beginnerGuide')?.classList.add('hidden');
       const stage = document.querySelector('.main-stage');
-      const target = document.querySelector('#operationsOverview');
+      const target = document.querySelector('#liveSection');
       if (stage && target) stage.scrollTop = Math.max(0, target.offsetTop - 18);
       return true;
     })()`);
-    await waitFor(win, `!document.querySelector('#operationsOverview')?.classList.contains('hidden')
-      && Boolean(document.querySelector('.provider-usage-overview'))
+    await waitFor(win, `!document.querySelector('#liveSection')?.classList.contains('hidden')
+      && Boolean(document.querySelector('#sessionTokenOverview'))
       && Boolean(document.querySelector('[data-control-room-overview]'))`);
     // Chromium can return a stale first frame for a newly shown BrowserWindow.
     // Prime the compositor once so the checked artifact always reflects the DOM.
@@ -341,18 +341,17 @@ app.whenReady().then(async () => {
       window.LoadToAgentApp.renderSessions('view');
       document.querySelector('#beginnerGuide')?.classList.add('hidden');
       const stage = document.querySelector('.main-stage');
-      const target = document.querySelector('#operationsOverview');
+      const target = document.querySelector('#liveSection');
       if (stage && target) stage.scrollTop = Math.max(0, target.offsetTop - 10);
       return true;
     })()`);
     await waitFor(win, `(() => {
-      const section = document.querySelector('#operationsOverview');
       const live = document.querySelector('#liveSection');
       const stage = document.querySelector('.main-stage');
-      return Boolean(section && !section.classList.contains('hidden')
-        && section.scrollWidth <= section.clientWidth + 2
+      return Boolean(live && !live.classList.contains('hidden')
+        && live.scrollWidth <= live.clientWidth + 2
         && stage.scrollWidth <= stage.clientWidth + 2
-        && section.querySelector('.provider-usage-overview')
+        && document.querySelector('#sessionTokenOverview')
         && live.querySelector('[data-control-room-overview]')
         && live.querySelector('.control-room-main')
         && live.querySelector('.helper-node')

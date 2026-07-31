@@ -17,6 +17,7 @@ const {
 
 const MAX_SESSIONS = 24;
 const MAX_INPUT_CHARS = 128 * 1024;
+const MAX_AGENT_ARGUMENT_CHARS = 8 * 1024;
 const MAX_REPLAY_CHARS = 2 * 1024 * 1024;
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
 const STORE_VERSION = 2;
@@ -33,6 +34,33 @@ const AGENT_PROVIDERS = Object.freeze({
 
 function cleanText(value, max = 200) {
   return String(value == null ? '' : value).replace(/[\u0000\r\n]/g, ' ').trim().slice(0, max);
+}
+
+function normalizedArguments(value, maxChars = 2_000) {
+  return Array.isArray(value)
+    ? value.slice(0, 80).map(item => cleanText(item, maxChars))
+    : [];
+}
+
+function resumableAgentArguments(options = {}) {
+  const args = normalizedArguments(options.args, MAX_AGENT_ARGUMENT_CHARS);
+  if (options.type !== 'agent') return args;
+  if (options.provider === 'codex' && args[0] === 'resume') {
+    const sessionIndex = args[1] === '--' ? 2 : 1;
+    return args[sessionIndex] ? args.slice(0, sessionIndex + 1) : args;
+  }
+  if (options.provider === 'claude' || options.provider === 'gemini') {
+    const resumeIndex = args.indexOf('--resume');
+    return resumeIndex >= 0 && args[resumeIndex + 1]
+      ? args.slice(0, resumeIndex + 2)
+      : args;
+  }
+  return args;
+}
+
+function agentBridgeKey(options = {}) {
+  if (options.type !== 'agent' || !options.bridgeId || !options.provider) return '';
+  return `${options.provider}:${options.bridgeId}`;
 }
 
 function safeTmuxName(value, fallback = '') {
@@ -156,9 +184,7 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   if (sessionBackend === 'managed-tmux' && type !== 'agent') {
     throw new Error('여러 명령창 기능은 AI 명령창에서만 사용할 수 있습니다.');
   }
-  const args = Array.isArray(options.args)
-    ? options.args.slice(0, 80).map(value => cleanText(value, 2_000))
-    : [];
+  const args = normalizedArguments(options.args, MAX_AGENT_ARGUMENT_CHARS);
   return {
     type,
     cwd: ['powershell', 'cmd', 'shell', 'agent'].includes(type) && !wslAgent ? path.resolve(localCwd) : suppliedCwd,
@@ -318,7 +344,7 @@ function restoredOptions(value = {}, platform = process.platform, storeVersion =
     tmuxSession: cleanText(value.tmuxSession, 100),
     tmuxPane: cleanText(value.tmuxPane, 100),
     provider,
-    args: Array.isArray(value.args) ? value.args.slice(0, 80).map(item => cleanText(item, 2_000)) : [],
+    args: resumableAgentArguments({ type, provider, args: value.args }),
     sessionBackend: SESSION_BACKENDS.has(value.sessionBackend)
       ? value.sessionBackend
       : (storeVersion < STORE_VERSION ? 'direct' : undefined),
@@ -349,7 +375,7 @@ function persistedSession(session) {
 
 function hasSafeAgentResume(options = {}) {
   if (options.type !== 'agent') return true;
-  const args = Array.isArray(options.args) ? options.args.map(value => String(value || '')) : [];
+  const args = resumableAgentArguments(options);
   if (options.provider === 'codex') return args[0] === 'resume' && Boolean(args[1]);
   const resumeIndex = args.indexOf('--resume');
   return resumeIndex >= 0 && Boolean(args[resumeIndex + 1]);
@@ -375,6 +401,7 @@ class TerminalManager extends EventEmitter {
     this.persistTimer = null;
     this.sessions = new Map();
     this.loadPersistedSessions();
+    this.deduplicateAgentBridgeSessions();
   }
 
   persistenceError(operation, error) {
@@ -473,6 +500,7 @@ class TerminalManager extends EventEmitter {
   }
 
   recoverPersistedSessions() {
+    this.deduplicateAgentBridgeSessions();
     const recovered = [];
     for (const session of this.sessions.values()) {
       if (!session.recoveryPending) continue;
@@ -528,14 +556,101 @@ class TerminalManager extends EventEmitter {
     return recovered;
   }
 
+  deduplicateAgentBridgeSessions() {
+    const survivors = new Map();
+    const removed = [];
+    const removedByKey = new Map();
+    for (const session of this.sessions.values()) {
+      const key = agentBridgeKey(session.options);
+      if (!key) continue;
+      const current = survivors.get(key);
+      if (!current) {
+        survivors.set(key, session);
+        continue;
+      }
+      const sessionUpdated = Date.parse(session.updatedAt || 0) || 0;
+      const currentUpdated = Date.parse(current.updatedAt || 0) || 0;
+      const sessionCreated = Date.parse(session.createdAt || 0) || 0;
+      const currentCreated = Date.parse(current.createdAt || 0) || 0;
+      const keepSession = sessionUpdated > currentUpdated
+        || (sessionUpdated === currentUpdated && sessionCreated >= currentCreated);
+      const survivor = keepSession ? session : current;
+      const duplicate = keepSession ? current : session;
+      survivors.set(key, survivor);
+      if (duplicate.process) this.releaseProcess(duplicate);
+      this.sessions.delete(duplicate.id);
+      removed.push(duplicate.id);
+      removedByKey.set(key, (removedByKey.get(key) || 0) + 1);
+    }
+    if (removed.length) {
+      for (const session of survivors.values()) {
+        const key = agentBridgeKey(session.options);
+        if (!key) continue;
+        const removedForKey = removedByKey.get(key) || 0;
+        if (!removedForKey) continue;
+        const message = `\r\n[LoadToAgent] 같은 AI 대화에 중복으로 열린 연결 ${removedForKey}개를 정리했습니다.\r\n`;
+        session.replay = `${session.replay}${message}`.slice(-MAX_REPLAY_CHARS);
+      }
+    }
+    return removed;
+  }
+
+  reclaimFinishedSessions(requiredSlots = 1) {
+    const required = Math.max(1, Number(requiredSlots) || 1);
+    if (this.sessions.size + required <= MAX_SESSIONS) return [];
+    const removable = [...this.sessions.values()]
+      .filter(session => !session.process && ['exited', 'stopped', 'failed'].includes(session.status))
+      .sort((left, right) => (
+        (Date.parse(left.updatedAt || 0) || 0) - (Date.parse(right.updatedAt || 0) || 0)
+      ));
+    const removed = [];
+    for (const session of removable) {
+      if (this.sessions.size + required <= MAX_SESSIONS) break;
+      this.sessions.delete(session.id);
+      removed.push(session.id);
+    }
+    return removed;
+  }
+
+  reusableAgentBridge(options = {}) {
+    const key = agentBridgeKey(options);
+    if (!key) return null;
+    return [...this.sessions.values()]
+      .filter(session => agentBridgeKey(session.options) === key
+        && session.process
+        && session.status === 'running')
+      .sort((left, right) => (
+        (Date.parse(right.updatedAt || 0) || 0) - (Date.parse(left.updatedAt || 0) || 0)
+      ))[0] || null;
+  }
+
   create(rawOptions = {}) {
+    const launchOptions = normalizeLaunchOptions(rawOptions, this.platform);
+    const initialCommand = String(rawOptions.initialCommand || '').trim();
+    if (initialCommand.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
+    if (rawOptions.reuseBridge) {
+      const reusable = this.reusableAgentBridge(launchOptions);
+      if (reusable) {
+        if (initialCommand) this.command(reusable.id, initialCommand);
+        return {
+          ...publicSession(reusable, true),
+          reused: true,
+          promptSent: Boolean(initialCommand),
+        };
+      }
+    }
+    this.deduplicateAgentBridgeSessions();
+    this.reclaimFinishedSessions(1);
     if (this.sessions.size >= MAX_SESSIONS) throw new Error(`동시에 열 수 있는 명령창은 최대 ${MAX_SESSIONS}개입니다.`);
-    const options = normalizeLaunchOptions(rawOptions, this.platform);
+    const recoveryArgs = Array.isArray(rawOptions.recoveryArgs)
+      ? normalizedArguments(rawOptions.recoveryArgs, MAX_AGENT_ARGUMENT_CHARS)
+      : null;
+    const options = recoveryArgs ? { ...launchOptions, args: recoveryArgs } : launchOptions;
     const id = `terminal:${Date.now().toString(36)}:${crypto.randomBytes(4).toString('hex')}`;
     if (options.sessionBackend === 'managed-tmux' && !options.managedTmuxSession) {
       options.managedTmuxSession = safeTmuxName(`lta-${options.provider}-${id.split(':').slice(1).join('-')}`);
     }
-    const spec = launchSpec(options, this.platform, this.agentProviders);
+    const spec = launchSpec(launchOptions, this.platform, this.agentProviders);
     const now = new Date().toISOString();
     const session = {
       id,
@@ -569,7 +684,11 @@ class TerminalManager extends EventEmitter {
       throw error;
     }
     this.persistNow();
-    return publicSession(session, true);
+    return {
+      ...publicSession(session, true),
+      reused: false,
+      promptSent: Boolean(initialCommand && rawOptions.initialCommandInArgs),
+    };
   }
 
   spawn(session) {

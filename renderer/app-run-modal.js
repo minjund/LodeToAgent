@@ -75,6 +75,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   }
 
   function runWorkspaceSuggestionsHtml() {
+    if (selectedProjectPath()) return "";
     const selected = String(($("#runCwd") && $("#runCwd").value) || "");
     return state.workspaces
       .slice(0, 4)
@@ -89,7 +90,36 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       .join("");
   }
 
+  function selectedProjectPath() {
+    const path = String(state.workspace || "").trim();
+    return path && path !== "all" && path !== PROJECTLESS_WORKSPACE ? path : "";
+  }
+
+  function selectedProjectName(path) {
+    const workspace = state.workspaces.find((item) => String(item.path || "") === path);
+    if (workspace?.name) return workspace.name;
+    return path.replace(/\\/g, "/").replace(/\/+$/, "").split("/").filter(Boolean).pop() || t("studio.sidebar.title");
+  }
+
+  function syncLockedProject() {
+    const path = selectedProjectPath();
+    const cwd = $("#runCwd");
+    if (cwd) {
+      cwd.value = path;
+      cwd.readOnly = true;
+      cwd.setAttribute("aria-readonly", "true");
+    }
+    const name = $("#runProjectName");
+    const pathLabel = $("#runProjectPath");
+    if (name) name.textContent = path ? selectedProjectName(path) : t("studio.sidebar.title");
+    if (pathLabel) pathLabel.textContent = path;
+    $("#pickRunCwdBtn")?.classList.add("hidden");
+    $("#runWorkspaceSuggestions")?.classList.add("hidden");
+    return path;
+  }
+
   function syncRunComposer() {
+    syncLockedProject();
     const prompt = $("#runPrompt");
     const count = $("#runPromptCount");
     if (prompt && count) {
@@ -141,16 +171,19 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   }
 
   function openRunModal() {
+    const projectPath = selectedProjectPath();
+    if (!projectPath) {
+      toast(t("run.select_project_first"));
+      $("#projectSidebarList")?.focus({ preventScroll: true });
+      return false;
+    }
     rememberDialogTrigger();
     restoreRunDraft();
     const installed = visibleProviders().find((provider) => state.availability[provider.id]);
     if ((!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) && installed) state.runProvider = installed.id;
     if (!isProviderVisible(state.runProvider)) state.runProvider = visibleProviders()[0]?.id || "";
     $("#runProviderPicker").innerHTML = providerPickerHtml();
-    if (!$("#runCwd").value) $("#runCwd").value = state.workspace !== "all" && state.workspace !== PROJECTLESS_WORKSPACE
-      ? state.workspace
-      : state.workspace === PROJECTLESS_WORKSPACE ? "" : (state.workspaces[0] && state.workspaces[0].path) || "";
-    $("#runCwd").placeholder = state.platform.id === "win32" ? "D:\\project" : "/Users/me/project";
+    $("#runCwd").value = projectPath;
     $("#runError").classList.add("hidden");
     syncRunComposer();
     clearTimeout(motionState.modalTimer);
@@ -165,6 +198,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     };
     setTimeout(focusPromptIfOutside, 0);
     motionState.modalFocusTimer = setTimeout(focusPromptIfOutside, motionPreference.matches ? 0 : 300);
+    return true;
   }
 
   function closeRunModal(force = false) {
@@ -254,6 +288,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     setRunSubmitting(true);
     $("#runError").classList.add("hidden");
     try {
+      syncLockedProject();
       const result = await window.loadtoagent.runAgent({
         provider: state.runProvider,
         cwd: $("#runCwd").value.trim(),

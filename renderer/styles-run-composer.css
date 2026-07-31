@@ -162,6 +162,18 @@
   line-height: 1.55;
 }
 
+.run-modal-project-name {
+  margin: 10px 0 0;
+  color: #72cfaa;
+  font-size: 13px;
+  font-weight: 560;
+  line-height: 1.4;
+}
+
+html[data-theme="light"] .run-modal-project-name {
+  color: #236d53;
+}
+
 .run-composer .close-button {
   width: 40px;
   height: 40px;

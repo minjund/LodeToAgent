@@ -278,15 +278,23 @@ app.whenReady().then(async () => {
     report.screens.push({ theme, label, file, audit });
     const contractFailures = [];
     if (label === 'all') {
+      const projectHeaderVisible = audit.contracts.projectHeader
+        && audit.contracts.projectHeader.display !== 'none'
+        && audit.contracts.projectHeader.width >= 1;
       if (!audit.contracts.newRun || audit.contracts.newRun.display === 'none' || audit.contracts.newRun.width < 1) {
         contractFailures.push('처리 중 화면의 새 AI 작업 시작 버튼이 보이지 않습니다.');
       }
-      if (audit.contracts.projectAction && (audit.contracts.projectAction.display === 'none' || audit.contracts.projectAction.width < 1)) {
+      if (
+        projectHeaderVisible
+        && audit.contracts.projectAction
+        && (audit.contracts.projectAction.display === 'none' || audit.contracts.projectAction.width < 1)
+      ) {
         contractFailures.push('작업 진행 화면 보기 버튼이 보이지 않습니다.');
       }
       if (
-        audit.contracts.projectHeader
+        projectHeaderVisible
         && audit.contracts.projectAction
+        && audit.contracts.projectAction.width >= 1
         && Math.abs(
           audit.contracts.projectHeader.top + audit.contracts.projectHeader.height / 2
           - audit.contracts.projectAction.top - audit.contracts.projectAction.height / 2,
@@ -353,6 +361,7 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`(() => {
       window.LoadToAgentI18n.setLocale('ko');
       window.LoadToAgentApp.state.guideExpanded = false;
+      window.LoadToAgentApp.state.workspace = window.LoadToAgentApp.state.workspaces[0]?.path || 'all';
       window.LoadToAgentApp.render();
       document.querySelector('#beginnerGuide')?.classList.add('hidden');
       return true;

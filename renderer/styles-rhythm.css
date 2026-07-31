@@ -18,7 +18,7 @@
 }
 
 html:lang(ko) {
-  --font-sans: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-sans: Geist, "Segoe UI Variable Text", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
   --font-display: var(--font-sans);
 }
 
@@ -863,7 +863,7 @@ html[data-theme="light"] body .chat-row.user :is(.chat-content, .user-prompt-tex
   color: #23364a;
 }
 
-@media (max-width: 1200px) and (min-width: 721px) {
+@media (max-width: 1400px) and (min-width: 721px) {
   body[data-current-view="active"] .session-tools {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

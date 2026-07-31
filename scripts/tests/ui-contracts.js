@@ -145,6 +145,8 @@ const REQUIRED_UI_IDS = [
   'drawerComposer',
   'drawerTabSummary',
   'sidebarAppVersion',
+  'backToProjectsBtn',
+  'projectSelectionPrompt',
   'settingsSection',
   'languageSettingsTitle',
   'languageSelect',
@@ -169,7 +171,6 @@ const BEGINNER_GUIDE_LABELS = [
   '>지난 작업<',
   '>확인 대기<',
   '>추가 기능<',
-  '>컴퓨터 작업과 AI 대화<',
   '>반복 일정<',
   '>다른 컴퓨터의 작업<',
   '내 컴퓨터',
@@ -957,8 +958,10 @@ function registerUiContractTests(context) {
       jargon => `${jargon} 전문 용어가 기본 화면에 남아 있습니다.`,
     );
     assert.ok(
-      html.includes('for="runCwd" data-i18n="ui.work_folder"'),
-      '새 작업 창의 작업 폴더 라벨은 폴더 필터와 분리된 번역 키를 사용해야 합니다.',
+      html.includes('id="runProjectName" class="run-modal-project-name"')
+        && !html.includes('id="runProjectLock"')
+        && html.includes('id="runCwd" required readonly aria-readonly="true"'),
+      '새 작업 창은 현재 프로젝트 이름만 표시하고 작업 경로는 내부에서 변경할 수 없게 고정해야 합니다.',
     );
     assertIncludesAll(
       monitorWorker,
@@ -984,7 +987,13 @@ function registerUiContractTests(context) {
     const sidebarBlock = html.slice(html.indexOf('<aside class="sidebar"'), html.indexOf('<main id="mainContent"'));
     const liveBlock = html.slice(html.indexOf('id="liveSection"'), html.indexOf('id="globalStats"'));
     assert.equal(sidebarBlock.includes('id="workspaceList"'), false, '데스크톱 사이드바에 프로젝트 목록이 다시 들어가면 안 됩니다.');
-    assert.equal(sidebarBlock.includes('id="addWorkspaceBtn"'), false, '프로젝트 추가 버튼은 사이드바가 아니라 실행 세션 영역에 있어야 합니다.');
+    assert.ok(sidebarBlock.includes('id="sidebarNewProjectBtn"'), '프로젝트 목록 머리글에 프로젝트 추가 버튼이 없습니다.');
+    assert.equal(
+      sidebarBlock.slice(sidebarBlock.indexOf('id="sidebarNewProjectBtn"'), sidebarBlock.indexOf('id="projectSidebarList"')).includes('data-open-run'),
+      false,
+      '왼쪽 프로젝트 추가 버튼이 새 AI 작업 시작 동작과 섞여 있습니다.',
+    );
+    assert.ok(liveBlock.includes('id="projectTaskToolbar"') && liveBlock.includes('id="newRunBtn"'), '새 AI 작업 버튼은 선택한 프로젝트 영역에 있어야 합니다.');
     assert.ok(liveBlock.includes('id="workspaceList"') && liveBlock.includes('id="addWorkspaceBtn"'), '프로젝트 목록과 추가 버튼이 실행 세션 영역에 없습니다.');
     assert.ok(liveBlock.indexOf('id="workspaceList"') < liveBlock.indexOf('id="addWorkspaceBtn"'), '프로젝트 추가 버튼은 프로젝트 목록 오른쪽 순서에 있어야 합니다.');
     assert.ok(liveBlock.indexOf('id="controlRoomExpandAll"') < liveBlock.indexOf('id="liveSessionGrid"'), '프로젝트 전체 열기·닫기 버튼은 목록 상단에 있어야 합니다.');
@@ -1267,6 +1276,63 @@ function registerUiContractTests(context) {
     assert.equal(core.archiveSession('root'), true);
     assert.equal(core.isControlRoomSession(child, now), false);
     assert.ok(values.get(core.SESSION_ARCHIVE_STORAGE_KEY));
+  });
+
+  test('결과 확인 완료는 현재 결과만 저장하고 새 결과가 오면 다시 확인 대상으로 돌린다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
+    const values = new Map();
+    const sandbox = {
+      localStorage: {
+        getItem: key => values.get(key) || null,
+        setItem: (key, value) => values.set(key, value),
+      },
+      document: { documentElement: { dataset: {} } },
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentRendererUtils: {
+          $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
+          providerLabel: value => value, reportRecoverableError: () => {},
+        },
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        LoadToAgentI18n: { t: key => key, observedText: value => value },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app.js' });
+    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const rootSession = {
+      id: 'review-root',
+      status: 'running',
+      childIds: ['review-result'],
+      updatedAt: '2026-07-31T01:00:00.000Z',
+    };
+    const resultSession = {
+      id: 'review-result',
+      parentId: rootSession.id,
+      childIds: [],
+      status: 'completed',
+      completedAt: '2026-07-31T01:00:01.000Z',
+      updatedAt: '2026-07-31T01:00:01.000Z',
+      attention: { category: 'none', required: false },
+      outcome: { status: 'completed', verified: true, completedAt: '2026-07-31T01:00:01.000Z', summary: '첫 결과' },
+    };
+    core.state.snapshot = { sessions: [rootSession, resultSession] };
+    assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), ['review-result']);
+    assert.equal(core.markResultReviewComplete(rootSession), 1);
+    assert.equal(core.isResultReviewComplete(resultSession), true);
+    assert.ok(values.get(core.RESULT_REVIEW_STORAGE_KEY));
+
+    const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
+    reloaded.state.snapshot = core.state.snapshot;
+    assert.equal(reloaded.isResultReviewComplete(resultSession), true);
+
+    resultSession.outcome = { ...resultSession.outcome, completedAt: '2026-07-31T02:00:00.000Z', summary: '새 결과' };
+    resultSession.updatedAt = '2026-07-31T02:00:00.000Z';
+    assert.equal(core.isResultReviewComplete(resultSession), false);
+    assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), ['review-result']);
+
+    resultSession.attention = { category: 'required', required: true };
+    assert.equal(core.isResultReviewCandidate(resultSession), false);
+    assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), []);
   });
 
   test('서브에이전트 대화에 메인 AI의 SendMessage 후속 지시를 시간순으로 합친다', () => {

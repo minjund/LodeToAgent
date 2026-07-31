@@ -222,9 +222,13 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       type: 'agent',
       provider: support.provider,
       args: launchArgs,
+      recoveryArgs: resumeLaunchArgs(support),
       cwd,
       distro,
       bridgeId: agentSession.id,
+      reuseBridge: true,
+      initialCommand: sendDraft ? prompt : '',
+      initialCommandInArgs: Boolean(sendDraft && prompt && !nativeCommand),
       title,
       // Conversation sends must keep the resumed PTY alive. A transient
       // one-shot process can exit after spawn (for example when the session is
@@ -235,7 +239,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     });
     if (!created || !created.id) throw new Error(t('terminal.agent.resume_terminal_failed'));
     await refreshSessions();
-    if (nativeCommand) {
+    if (nativeCommand && !created.promptSent) {
       const commandResult = await window.loadtoagent.terminalCommand(created.id, prompt);
       if (!commandResult || commandResult.ok === false) throw new Error(commandResult?.error || t('terminal.agent.send_failed'));
     }
@@ -246,7 +250,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       detail: `${terminalLabel(created)} · ${t('session.program_pid', { pid: created.pid || '--' })}`,
       terminalId: created.id,
     };
-    if (options.focus === false) return { ...target, promptSent: Boolean(sendDraft && prompt), background: true };
+    if (options.focus === false) return {
+      ...target,
+      promptSent: Boolean(sendDraft && prompt),
+      background: true,
+      reused: Boolean(created.reused),
+    };
     state.mode = 'general';
     moveWorkbench('general');
     await selectSession(created.id);
@@ -263,7 +272,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     notice(sendDraft && prompt
       ? t('terminal.agent.resumed_and_sent', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) })
       : t('terminal.agent.reconnected', { provider: providerLabel(agentSession.provider), sessionId: support.sessionId.slice(0, 12) }), 'success');
-    return { ...target, promptSent: Boolean(sendDraft && prompt) };
+    return { ...target, promptSent: Boolean(sendDraft && prompt), reused: Boolean(created.reused) };
   }
 
   async function resetForAgent(agentSession, options = {}) {

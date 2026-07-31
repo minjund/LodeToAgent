@@ -82,8 +82,8 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.selectedId = id;
     state.drawerMode = "session";
     state.drawerExecutionId = null;
-    state.drawerTab = "chat";
-    state.drawerForceLatest = true;
+    state.drawerTab = options.tab === "summary" ? "summary" : "chat";
+    state.drawerForceLatest = state.drawerTab === "chat";
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id, true);

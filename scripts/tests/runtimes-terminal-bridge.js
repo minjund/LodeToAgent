@@ -940,6 +940,181 @@ function registerTerminalLifecycleTests(context) {
     manager.dispose();
   });
 
+  test('같은 AI 대화 전송은 하나의 명령창을 재사용하고 원래 질문을 복구 인자에 남기지 않는다', () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit() {}
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const storeFile = path.join(temp, 'terminal-agent-send-reuse.json');
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(11_000 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const shared = {
+      type: 'agent',
+      provider: 'claude',
+      cwd: root,
+      bridgeId: 'claude:send-reuse',
+      sessionBackend: 'direct',
+      reuseBridge: true,
+    };
+    const first = manager.create({
+      ...shared,
+      args: ['--resume', 'send-reuse', '--', '첫 질문'],
+      recoveryArgs: ['--resume', 'send-reuse'],
+      initialCommand: '첫 질문',
+      initialCommandInArgs: true,
+    });
+    const second = manager.create({
+      ...shared,
+      args: ['--resume', 'send-reuse', '--', '두 번째 질문'],
+      recoveryArgs: ['--resume', 'send-reuse'],
+      initialCommand: '두 번째 질문',
+      initialCommandInArgs: true,
+    });
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.reused, true);
+    assert.equal(second.promptSent, true);
+    assert.equal(processes.length, 1);
+    assert.deepStrictEqual(processes[0].writes, ['두 번째 질문\r']);
+    manager.persistNow();
+    const stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions;
+    assert.deepStrictEqual(stored[0].options.args, ['--resume', 'send-reuse']);
+    assert.equal(JSON.stringify(stored).includes('첫 질문'), false);
+    assert.equal(JSON.stringify(stored).includes('두 번째 질문'), false);
+    manager.dispose();
+  });
+
+  test('호스트 재시작 시 같은 AI 대화의 중복 연결은 하나만 복구하고 과거 질문을 다시 보내지 않는다', () => {
+    const storeFile = path.join(temp, 'terminal-agent-duplicate-recovery.json');
+    const oldAt = '2026-07-30T01:00:00.000Z';
+    const newAt = '2026-07-30T02:00:00.000Z';
+    fs.writeFileSync(storeFile, JSON.stringify({
+      version: 2,
+      sessions: [
+        {
+          id: 'terminal:duplicate-old',
+          options: {
+            type: 'agent',
+            provider: 'codex',
+            cwd: root,
+            args: ['resume', 'duplicate-session', '이미 처리한 옛 질문'],
+            bridgeId: 'codex:duplicate-session',
+            sessionBackend: 'direct',
+          },
+          status: 'running',
+          createdAt: oldAt,
+          updatedAt: oldAt,
+          replay: '',
+        },
+        {
+          id: 'terminal:duplicate-new',
+          options: {
+            type: 'agent',
+            provider: 'codex',
+            cwd: root,
+            args: ['resume', '--', 'duplicate-session', '가장 최근 질문'],
+            bridgeId: 'codex:duplicate-session',
+            sessionBackend: 'direct',
+          },
+          status: 'running',
+          createdAt: newAt,
+          updatedAt: newAt,
+          replay: '',
+        },
+      ],
+    }), 'utf8');
+    const spawned = [];
+    class FakePty {
+      constructor() { this.pid = 12_001; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args) => {
+          spawned.push({ file, args });
+          return new FakePty();
+        },
+      },
+    });
+
+    assert.equal(manager.list().length, 1);
+    assert.equal(manager.list()[0].id, 'terminal:duplicate-new');
+    const recovered = manager.recoverPersistedSessions();
+    assert.equal(recovered.length, 1);
+    assert.equal(spawned.length, 1);
+    assert.deepStrictEqual(spawned[0].args.slice(-3), ['resume', '--', 'duplicate-session']);
+    const stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions;
+    assert.equal(stored.length, 1);
+    assert.deepStrictEqual(stored[0].options.args, ['resume', '--', 'duplicate-session']);
+    assert.equal(JSON.stringify(stored).includes('이미 처리한 옛 질문'), false);
+    assert.equal(JSON.stringify(stored).includes('가장 최근 질문'), false);
+    manager.dispose();
+  });
+
+  test('명령창 최대치에서는 끝난 기록을 자동 정리해 새 AI 전송 연결을 만든다', () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(13_000 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const sessions = Array.from({ length: 24 }, (_, index) => manager.create({
+      type: 'powershell',
+      cwd: root,
+      title: `용량 검증 ${index + 1}`,
+    }));
+    processes[0].exitCallback({ exitCode: 0, signal: 0 });
+    const replacement = manager.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      args: ['resume', 'capacity-session'],
+      bridgeId: 'codex:capacity-session',
+      sessionBackend: 'direct',
+    });
+
+    assert.equal(manager.list().length, 24);
+    assert.equal(manager.get(sessions[0].id), null);
+    assert.equal(manager.get(replacement.id).status, 'running');
+    manager.dispose();
+  });
+
   test('앱 클라이언트가 종료되어도 터미널 호스트의 PTY와 세션 ID를 유지하고 다시 연결한다', async () => {
     const processes = [];
     class FakePty {

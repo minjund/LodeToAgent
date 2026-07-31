@@ -12,7 +12,10 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     currentActivity = session => ({ title: session.statusDetail || "", detail: "" }),
     latestWorkCopy = session => session.statusDetail || "",
     isLiveSession = session => ["starting", "running"].includes(session && session.status),
+    isResultReviewComplete = () => false,
+    resultReviewTargets = () => [],
     agentRoleLabel = value => String(value || ""),
+    renderGlobalStats = () => {},
   } = context;
 
   const attentionLabel = kind => t(`management.attention.${kind || "response"}`);
@@ -69,10 +72,13 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     && actionableRiskLevel(session),
   );
   const needsManagementReview = (session, now = Date.now()) => Boolean(
-    isRecentSession(session, now) && (needsUserResponse(session) || hasCurrentRisk(session, now)),
+    !isResultReviewComplete(session)
+    && isRecentSession(session, now)
+    && (needsUserResponse(session) || hasCurrentRisk(session, now)),
   );
   const needsManagementInbox = (session, now = Date.now()) => Boolean(
-    isRecentSession(session, now)
+    !isResultReviewComplete(session)
+    && isRecentSession(session, now)
     && (needsUserResponse(session) || hasOptionalFollowup(session) || hasCurrentRisk(session, now)),
   );
   const prioritySummary = value => {
@@ -440,6 +446,8 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       const { session, sources } = entry;
       const provider = providerInfo(session.provider);
       const strongest = [...sources].sort((a, b) => score(b) - score(a))[0] || session;
+      const reviewTargets = resultReviewTargets(session);
+      const canCompleteReview = reviewTargets.length > 0;
       const tone = matchesManagementFilter(strongest, "critical") ? "critical" : matchesManagementFilter(strongest, "attention") ? "attention" : "warning";
       const directReview = sources.includes(session);
       const childReviewCount = sources.filter(source => source.id !== session.id).length;
@@ -453,12 +461,20 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
         ? prioritySummary(session.attention?.summary || session.statusDetail || latestAgentReply(session))
         : t("control.attention_subagent_summary", { provider: provider.label, count: childReviewCount });
       const itemTitle = index === 0
-        ? `${provider.label}가 작업을 마쳤습니다.`
+        ? canCompleteReview
+          ? `${provider.label}가 작업을 마쳤습니다.`
+          : needsUserResponse(strongest)
+            ? `${provider.label}가 답변을 기다리고 있습니다.`
+            : `${provider.label} 작업을 확인해 주세요.`
         : t("control.attention_work_name", { title: readablePreview(session.title, 54).text });
       const itemSummary = index === 0
-        ? "결과를 열어 내용을 확인한 뒤 ‘확인 완료’를 누르세요. 그러면 이 목록에서 사라집니다."
+        ? canCompleteReview
+          ? t("management.result_review_open_help")
+          : needsUserResponse(strongest)
+            ? t("management.result_response_open_help")
+            : t("management.result_problem_open_help")
         : t("control.attention_check_summary", { summary });
-      return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" style="--management-provider:${provider.accent}" aria-label="${esc(`${groupedLabel}: ${session.title}. ${summary}`)}">
+      return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" ${canCompleteReview ? 'data-result-review="true"' : ""} style="--management-provider:${provider.accent}" aria-label="${esc(`${groupedLabel}: ${session.title}. ${summary}`)}">
         <span class="home-attention-column-heading">${esc(t(index === 0 ? "control.attention_column_selected" : "control.attention_column_others"))}</span>
         <span class="home-attention-dot" aria-hidden="true"></span>
         <span><small>${index === 0 ? "가장 오래 기다린 결과" : groupedLabel.includes(provider.label) ? esc(groupedLabel) : `${esc(provider.label)} · ${esc(groupedLabel)}`}</small><b>${esc(itemTitle)}</b><em title="${esc(summary)}">${esc(itemSummary)}</em><u>${esc(t("control.attention_open_record"))}</u></span>
@@ -494,14 +510,17 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   }
 
   function usageWindowHtml(window, kind) {
-    if (!window || !Number.isFinite(Number(window.remainingPercent))) {
+    const hasUsed = Number.isFinite(Number(window?.usedPercent));
+    const hasRemaining = Number.isFinite(Number(window?.remainingPercent));
+    if (!window || (!hasUsed && !hasRemaining)) {
       return `<div class="provider-limit-row is-unknown"><div><b>${esc(kind)}</b><span>${esc(t("usage.not_available"))}</span></div><div class="provider-limit-track"><i></i></div><small>${esc(t("usage.no_reset"))}</small></div>`;
     }
-    const remaining = Math.max(0, Math.min(100, Number(window.remainingPercent)));
-    const tone = remaining <= 10 ? "critical" : remaining <= 30 ? "warning" : "healthy";
+    const used = Math.max(0, Math.min(100,
+      hasUsed ? Number(window.usedPercent) : 100 - Number(window.remainingPercent)));
+    const tone = used >= 90 ? "critical" : used >= 70 ? "warning" : "healthy";
     return `<div class="provider-limit-row ${tone}">
-      <div><b>${esc(window.label || kind)}</b><span>${esc(t("usage.remaining_percent", { percent: Math.round(remaining) }))}</span></div>
-      <div class="provider-limit-track" role="progressbar" aria-label="${esc(window.label || kind)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${remaining}"><i style="width:${remaining}%"></i></div>
+      <div><b>${esc(window.label || kind)}</b><span>${esc(t("usage.used_percent", { percent: Math.round(used) }))}</span></div>
+      <div class="provider-limit-track" role="progressbar" aria-label="${esc(t("usage.used_meter_label", { label: window.label || kind, percent: Math.round(used) }))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}"><i style="width:${used}%"></i></div>
       <small>${esc(usageResetLabel(window.resetsAt))}</small>
     </div>`;
   }
@@ -515,6 +534,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   }
 
   function renderProviderUsage(section) {
+    if (!section) return;
     const providers = (state.providers || []).filter(provider => !state.hiddenProviders.has(provider.id));
     section.classList.remove("hidden");
     section.removeAttribute("aria-hidden");
@@ -540,12 +560,15 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   async function refreshProviderUsage(force = false) {
     if (!window.loadtoagent?.providerUsage || state.providerUsageLoading) return state.providerUsage;
     state.providerUsageLoading = true;
-    if (state.view === "all") renderOperationsOverview();
+    if (state.view === "all" && state.workspace !== "all") renderOperationsOverview();
     try {
       state.providerUsage = await window.loadtoagent.providerUsage({ force: Boolean(force) });
     } finally {
       state.providerUsageLoading = false;
-      if (state.view === "all") renderOperationsOverview();
+      if (state.view === "all" && state.workspace !== "all") {
+        renderOperationsOverview();
+        renderGlobalStats();
+      }
     }
     return state.providerUsage;
   }
@@ -553,28 +576,13 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   function renderOperationsOverview() {
     const section = $("#operationsOverview");
     if (!section) return;
-    rememberDisclosureStates(section);
-    section.classList.remove("hidden");
-    section.removeAttribute("aria-hidden");
-    section.innerHTML = `<div class="home-intent-stack">
-      <div id="homeAttentionMount" class="home-attention-mount"></div>
-      <details class="provider-usage-disclosure" data-disclosure-key="home:provider-usage">
-        <summary>
-          <span class="provider-usage-summary-mark" aria-hidden="true">◔</span>
-          <span><small>${esc(t("usage.eyebrow"))}</small><b>${esc(t("usage.title"))}</b></span>
-          <em>${esc(t("usage.home_hint"))}</em>
-          <i aria-hidden="true">⌄</i>
-        </summary>
-        <div id="homeProviderUsageMount"></div>
-      </details>
-    </div>`;
-    const attentionCount = renderHomeAttention($("#homeAttentionMount"));
-    renderProviderUsage($("#homeProviderUsageMount"));
-    restoreDisclosureStates(section);
-    document.body.dataset.homeAttentionCount = String(attentionCount);
+    section.innerHTML = "";
+    section.classList.add("hidden");
+    section.setAttribute("aria-hidden", "true");
+    document.body.dataset.homeAttentionCount = "0";
     if (state.view === "all") {
       $("#pageEyebrow").textContent = t("control.home_eyebrow");
-      $("#pageTitle").textContent = t(attentionCount ? "control.home_title_attention" : "control.home_title_clear", { count: attentionCount });
+      $("#pageTitle").textContent = t("control.home_title_clear", { count: 0 });
       $("#pageSubtitle").textContent = t("control.home_subtitle");
     }
     return;
@@ -777,7 +785,12 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const outcome = session.outcome || { artifacts: [], checks: [] };
     const evidence = session.evidence || { sources: [] };
     const controls = session.controlCapabilities || {};
+    const pendingReviewTargets = resultReviewTargets(session);
     return `<div class="management-detail">
+      ${pendingReviewTargets.length ? `<section class="management-result-review" aria-labelledby="managementResultReviewTitle">
+        <div><span>${esc(t("management.result_review_eyebrow"))}</span><b id="managementResultReviewTitle">${esc(t("management.result_review_title"))}</b><small>${esc(t("management.result_review_help"))}</small></div>
+        <button type="button" data-result-review-complete="${esc(session.id)}">${esc(t("management.result_review_complete"))}</button>
+      </section>` : ""}
       <section class="management-outcome ${esc(outcome.status || "in-progress")}">
         <header><div><span>${esc(t("management.outcome"))}</span><h3>${esc(t(`management.outcome.${outcome.status || "in-progress"}`))}</h3></div><em class="${outcome.verified ? "verified" : "unverified"}">${esc(outcome.verified ? t("management.verified") : t("management.unverified"))}</em></header>
         <p>${esc(outcome.summary || t("management.outcome_pending"))}</p>
@@ -800,6 +813,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     needsManagementInbox,
     needsManagementReview,
     attentionCardHtml,
+    quickActionsHtml,
     controlButtonsHtml,
     healthHtml,
     outcomeHtml,

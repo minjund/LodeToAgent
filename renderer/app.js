@@ -7,6 +7,17 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   const PROJECTLESS_WORKSPACE = "__projectless__";
   const SESSION_RETENTION_MS = 30 * 60 * 1000;
   const SESSION_ARCHIVE_STORAGE_KEY = "loadtoagent:session-archives:v1";
+  const RESULT_REVIEW_STORAGE_KEY = "loadtoagent:result-reviews:v1";
+  const PROJECT_DISMISSALS_STORAGE_KEY = "loadtoagent:project-dismissals:v1";
+  const loadProjectDismissals = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROJECT_DISMISSALS_STORAGE_KEY) || "[]");
+      return Array.isArray(saved) ? saved.map(value => String(value || "")).filter(Boolean) : [];
+    } catch (error) {
+      reportRecoverableError("project-dismissals-load", error);
+      return [];
+    }
+  };
   const state = {
     providers: [],
     providerMap: new Map(),
@@ -14,6 +25,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     providerUsage: { generatedAt: '', providers: {} },
     providerUsageLoading: false,
     workspaces: [],
+    dismissedProjects: new Set(loadProjectDismissals()),
     snapshot: null,
     rawSnapshot: null,
     activeRuns: [],
@@ -28,6 +40,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     sessionOrder: [],
     projectOrder: [],
     sessionArchives: new Map(),
+    resultReviews: new Map(),
     controlRoomObservedIds: new Set(),
     selectedId: null,
     drawerTab: "chat",
@@ -65,6 +78,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     guideExpanded: false,
     platform: { id: "win32", label: "Windows", computerName: "이 컴퓨터", localShell: "powershell", localShellLabel: t("terminal.windows_shell"), nativeTmux: false },
   };
+  function saveProjectDismissals() {
+    try {
+      localStorage.setItem(PROJECT_DISMISSALS_STORAGE_KEY, JSON.stringify([...state.dismissedProjects].slice(-200)));
+    } catch (error) {
+      reportRecoverableError("project-dismissals-save", error);
+    }
+  }
   Object.defineProperty(state, "provider", {
     enumerable: true,
     get() {
@@ -247,6 +267,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function syncViewChrome() {
     const meta = VIEW_META[state.view] || VIEW_META.all;
     document.body.dataset.currentView = state.view;
+    $("#backToProjectsBtn")?.classList.toggle("hidden", state.view === "all");
     $("#pageEyebrow").textContent = state.view === "active" ? "" : meta.eyebrow;
     $("#pageEyebrow").classList.toggle("hidden", state.view === "active");
     $("#pageTitle").textContent = meta.title;
@@ -258,8 +279,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       if (active) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
     });
-    const advancedView = ["runtime", "terminal", "tmux", "settings"].includes(state.view);
-    const advancedToolsView = advancedView;
+    const advancedToolsView = ["runtime", "terminal", "tmux"].includes(state.view);
+    const advancedView = advancedToolsView || state.view === "settings";
     $("#advancedToolsNav")?.classList.toggle("active", advancedToolsView);
     $("#mobileMoreBtn")?.classList.toggle("active", advancedView);
     if (advancedView) $("#mobileMoreBtn")?.setAttribute("aria-current", "page");
@@ -732,6 +753,93 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       state.sessionArchives = new Map();
     }
   }
+  function resultReviewSnapshot(sessionOrId) {
+    const id = typeof sessionOrId === "object"
+      ? String(sessionOrId?.id || "")
+      : String(sessionOrId || "");
+    return (state.snapshot?.sessions || []).find(session => String(session.id || "") === id)
+      || (typeof sessionOrId === "object" ? sessionOrId : null);
+  }
+  function resultReviewStamp(sessionOrId) {
+    const session = resultReviewSnapshot(sessionOrId);
+    if (!session) return "";
+    const outcome = session.outcome || {};
+    const latestAssistant = [...(session.messages || [])].reverse()
+      .find(message => message?.role === "assistant" && String(message.text || "").trim());
+    return JSON.stringify([
+      String(session.status || ""),
+      String(outcome.completedAt || session.completedAt || session.endedAt || session.updatedAt || ""),
+      String(latestAssistant?.timestamp || ""),
+      String(outcome.summary || session.result || latestAssistant?.text || session.statusDetail || "").trim().slice(0, 800),
+    ]);
+  }
+  function isResultReviewCandidate(sessionOrId) {
+    const session = resultReviewSnapshot(sessionOrId);
+    if (!session) return false;
+    const required = session.attention?.category === "required"
+      || (!session.attention?.category && session.attention?.required);
+    const verified = session.outcome?.verified === true || session.evidence?.completion === "observed";
+    const terminal = ["completed", "failed", "cancelled"].includes(String(session.status || ""));
+    return !required && (verified || terminal);
+  }
+  function isResultReviewComplete(sessionOrId) {
+    const session = resultReviewSnapshot(sessionOrId);
+    if (!session || !isResultReviewCandidate(session)) return false;
+    return state.resultReviews.get(String(session.id || ""))?.stamp === resultReviewStamp(session);
+  }
+  function resultReviewTargets(sessionOrId, options = {}) {
+    const root = resultReviewSnapshot(sessionOrId);
+    if (!root) return [];
+    const sessions = state.snapshot?.sessions || [root];
+    const byId = new Map(sessions.map(session => [String(session.id || ""), session]));
+    const queue = [String(root.id || "")];
+    const seen = new Set();
+    const targets = [];
+    while (queue.length) {
+      const id = queue.shift();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const session = byId.get(id) || (id === String(root.id || "") ? root : null);
+      if (!session) continue;
+      if (isResultReviewCandidate(session) && (options.includeCompleted || !isResultReviewComplete(session))) targets.push(session);
+      queue.push(...(session.childIds || []).map(String));
+    }
+    return targets;
+  }
+  function loadResultReviews() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(RESULT_REVIEW_STORAGE_KEY) || "{}");
+      state.resultReviews = new Map(Object.entries(saved)
+        .filter(([id, value]) => id && typeof value?.stamp === "string" && value.stamp)
+        .map(([id, value]) => [id, { stamp: value.stamp, reviewedAt: Number(value.reviewedAt || 0) }]));
+    } catch (error) {
+      reportRecoverableError("result-reviews-load", error);
+      state.resultReviews = new Map();
+    }
+  }
+  function saveResultReviews() {
+    try {
+      const recent = [...state.resultReviews.entries()]
+        .sort((left, right) => Number(right[1]?.reviewedAt || 0) - Number(left[1]?.reviewedAt || 0))
+        .slice(0, 500);
+      state.resultReviews = new Map(recent);
+      localStorage.setItem(RESULT_REVIEW_STORAGE_KEY, JSON.stringify(Object.fromEntries(recent)));
+    } catch (error) {
+      reportRecoverableError("result-reviews-save", error);
+    }
+  }
+  function markResultReviewComplete(sessionOrId) {
+    const targets = resultReviewTargets(sessionOrId);
+    const reviewedAt = Date.now();
+    targets.forEach((session) => {
+      state.resultReviews.set(String(session.id || ""), {
+        stamp: resultReviewStamp(session),
+        reviewedAt,
+      });
+    });
+    if (targets.length) saveResultReviews();
+    return targets.length;
+  }
   function saveSessionArchives() {
     try {
       const recent = [...state.sessionArchives.entries()]
@@ -868,6 +976,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return "·";
   }
   loadSessionArchives();
+  loadResultReviews();
   return {
     $,
     $$,
@@ -877,9 +986,12 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     reportRecoverableError,
     observedText,
     PROJECTLESS_WORKSPACE,
+    PROJECT_DISMISSALS_STORAGE_KEY,
     SESSION_RETENTION_MS,
     SESSION_ARCHIVE_STORAGE_KEY,
+    RESULT_REVIEW_STORAGE_KEY,
     state,
+    saveProjectDismissals,
     motionPreference,
     motionState,
     rememberDisclosureStates,
@@ -932,6 +1044,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     observeConversationDelivery,
     loadSessionArchives,
     saveSessionArchives,
+    resultReviewStamp,
+    isResultReviewCandidate,
+    isResultReviewComplete,
+    resultReviewTargets,
+    loadResultReviews,
+    saveResultReviews,
+    markResultReviewComplete,
     isSessionManuallyArchived,
     isControlRoomSession,
     controlRoomStatus,

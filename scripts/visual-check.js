@@ -96,7 +96,7 @@ app.whenReady().then(() => {
         if (tmuxReady) break;
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
-      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { window.LoadToAgentI18n?.setLocale('ko'); window.LoadToAgentApp.state.view = 'all'; window.LoadToAgentApp.state.graphFocusId = null; window.LoadToAgentApp.state.guideExpanded = true; document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all')); window.LoadToAgentApp.renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
+      await win.webContents.executeJavaScript("document.fonts.ready.then(() => { window.LoadToAgentI18n?.setLocale('ko'); window.LoadToAgentApp.state.view = 'all'; window.LoadToAgentApp.state.workspace = 'all'; window.LoadToAgentApp.state.graphFocusId = null; window.LoadToAgentApp.state.guideExpanded = false; window.LoadToAgentApp.renderWorkspaces(); window.LoadToAgentApp.renderSessions(); document.querySelector('.main-stage')?.scrollTo(0, 0); })");
       await new Promise(resolve => setTimeout(resolve, 500));
       const bridgeInfo = await win.webContents.executeJavaScript(`(async () => {
         const bootstrap = await window.loadtoagent.bootstrap();
@@ -111,39 +111,44 @@ app.whenReady().then(() => {
       fs.writeFileSync(output, image.toPNG());
       const beginnerMetrics = await win.webContents.executeJavaScript(`(() => {
         const guide = document.querySelector('#beginnerGuide');
+        const prompt = document.querySelector('#projectSelectionPrompt');
         const stage = document.querySelector('.main-stage');
         const visibleText = document.body.innerText;
+        const promptStyle = prompt && getComputedStyle(prompt);
+        const promptRect = prompt?.getBoundingClientRect();
         return {
-          guideVisible: Boolean(guide && !guide.classList.contains('hidden')),
-          guideSteps: guide ? guide.querySelectorAll('li').length : 0,
-          homeActive: document.querySelector('[data-view="all"]')?.classList.contains('active') || false,
-          navLabels: [...document.querySelectorAll('.view-nav .nav-item span:nth-child(2)')].map(item => item.textContent.trim()),
-          waitingUnit: document.querySelector('[data-view="waiting"] small')?.textContent.trim() || '',
-          primaryAction: document.querySelector('#newRunBtn')?.textContent.replace(/\s+/g, ' ').trim() || '',
+          guideHidden: Boolean(guide?.classList.contains('hidden')),
+          promptText: prompt?.textContent.trim() || '',
+          promptVisible: Boolean(promptRect && promptRect.width > 0 && promptRect.height > 0 && promptStyle.display !== 'none'),
+          promptUnboxed: Boolean(promptStyle && promptStyle.borderTopWidth === '0px' && promptStyle.backgroundColor === 'rgba(0, 0, 0, 0)'),
+          projectToolbarHidden: document.querySelector('#projectTaskToolbar')?.classList.contains('hidden') || false,
+          visibleLegacyNav: [...document.querySelectorAll('#projectContextNav button, #projectContextNav summary')]
+            .filter(item => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().height > 0).length,
           oldJargonVisible: ['AI AGENT OBSERVATORY', 'SESSION STREAM', 'AGENT MIND MAP', 'NEW TMUX SESSION'].filter(label => visibleText.includes(label)),
           noHorizontalOverflow: stage ? stage.scrollWidth <= stage.clientWidth + 2 : false,
         };
       })()`);
-      if (!beginnerMetrics.guideVisible || beginnerMetrics.guideSteps !== 4 || !beginnerMetrics.homeActive || !beginnerMetrics.navLabels.includes('처리 중') || !beginnerMetrics.navLabels.includes('지난 작업') || !beginnerMetrics.navLabels.includes('확인 대기') || !beginnerMetrics.navLabels.some(label => label.includes('반복 일정')) || !beginnerMetrics.navLabels.includes('AI와 대화하거나 컴퓨터 작업 요청하기') || !beginnerMetrics.navLabels.includes('다른 컴퓨터의 작업') || !beginnerMetrics.primaryAction.startsWith('＋새 AI 작업 시작') || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
-        throw new Error(`초보자용 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
+      if (!beginnerMetrics.guideHidden || beginnerMetrics.promptText !== '프로젝트를 선택해주세요'
+        || !beginnerMetrics.promptVisible || !beginnerMetrics.promptUnboxed || !beginnerMetrics.projectToolbarHidden
+        || beginnerMetrics.visibleLegacyNav !== 0 || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+        throw new Error(`프로젝트 선택 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
       await new Promise(resolve => setTimeout(resolve, 350));
       await win.webContents.executeJavaScript("document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 100));
       const compactMetrics = await win.webContents.executeJavaScript(`(() => {
-        const guide = document.querySelector('#beginnerGuide');
-        const intro = guide?.querySelector('.beginner-guide-intro')?.getBoundingClientRect();
-        const steps = guide?.querySelector('ol')?.getBoundingClientRect();
+        const prompt = document.querySelector('#projectSelectionPrompt');
+        const rect = prompt?.getBoundingClientRect();
         return {
           width: window.innerWidth,
-          guideVisible: Boolean(guide && !guide.classList.contains('hidden')),
-          guideStacked: Boolean(intro && steps && intro.bottom <= steps.top + 2),
+          promptVisible: Boolean(rect && rect.width > 0 && rect.height > 0),
+          promptInsideViewport: Boolean(rect && rect.left >= 0 && rect.right <= window.innerWidth && rect.top >= 0 && rect.bottom <= window.innerHeight),
           noBodyOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
-          noGuideOverflow: guide ? guide.scrollWidth <= guide.clientWidth + 2 : false,
+          noPromptOverflow: prompt ? prompt.scrollWidth <= prompt.clientWidth + 2 : false,
         };
       })()`);
-      if (!compactMetrics.guideVisible || !compactMetrics.guideStacked || !compactMetrics.noBodyOverflow || !compactMetrics.noGuideOverflow) throw new Error(`최소 창 크기에서 초보자 안내가 올바르지 않습니다: ${JSON.stringify(compactMetrics)}`);
+      if (!compactMetrics.promptVisible || !compactMetrics.promptInsideViewport || !compactMetrics.noBodyOverflow || !compactMetrics.noPromptOverflow) throw new Error(`최소 창 크기에서 프로젝트 선택 안내가 올바르지 않습니다: ${JSON.stringify(compactMetrics)}`);
       const compactImage = await win.webContents.capturePage();
       const compactOutput = path.join(outputDir, 'loadtoagent-beginner-compact.png');
       fs.writeFileSync(compactOutput, compactImage.toPNG());
@@ -151,7 +156,7 @@ app.whenReady().then(() => {
       await new Promise(resolve => setTimeout(resolve, 350));
 
       await win.webContents.executeJavaScript(`(() => {
-        document.querySelector('[data-view="settings"]')?.click();
+        window.LoadToAgentApp.selectView('settings');
         const select = document.querySelector('#languageSelect');
         select.value = 'zh-CN';
         select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -179,7 +184,7 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript("window.LoadToAgentI18n.setLocale('ko')");
       await new Promise(resolve => setTimeout(resolve, 150));
 
-      await win.webContents.executeJavaScript("document.querySelector('[data-view=\"terminal\"]')?.click(); document.querySelector('.terminal-session-tools')?.setAttribute('open', ''); document.querySelector('.main-stage')?.scrollTo(0, 0)");
+      await win.webContents.executeJavaScript("window.LoadToAgentApp.selectView('terminal'); document.querySelector('.terminal-session-tools')?.setAttribute('open', ''); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 300));
       await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
       const firstTerminalId = await waitForRenderer(win, "document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''", 50, 200);
@@ -250,7 +255,7 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript("window.loadtoagent.terminalList().then(items => Promise.all(items.map(item => window.loadtoagent.terminalClose(item.id))))");
       await new Promise(resolve => setTimeout(resolve, 250));
 
-      await win.webContents.executeJavaScript("document.querySelector('[data-view=\"tmux\"]')?.click(); document.querySelector('.main-stage')?.scrollTo(0, 0)");
+      await win.webContents.executeJavaScript("window.LoadToAgentApp.selectView('tmux'); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 500));
       const tmuxImage = await win.webContents.capturePage();
       const tmuxOutput = path.join(outputDir, 'loadtoagent-tmux-map.png');
@@ -312,7 +317,7 @@ app.whenReady().then(() => {
         linkedCommandTargets: (window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || []).filter(session => window.LoadToAgentTerminal.agentTargets(session).some(target => target.kind === 'tmux')).length,
       }))()`);
       if (Number(tmuxMetrics.summary?.linked || 0) > 0 && tmuxMetrics.linkedCommandTargets < 1) throw new Error(`연결된 tmux AI를 직접 지시 대상으로 찾지 못했습니다: ${JSON.stringify(tmuxMetrics)}`);
-      await win.webContents.executeJavaScript("document.querySelector('[data-view=\"all\"]')?.click(); document.querySelector('.main-stage')?.scrollTo(0, 0)");
+      await win.webContents.executeJavaScript("window.LoadToAgentApp.selectView('all'); document.querySelector('.main-stage')?.scrollTo(0, 0)");
       await new Promise(resolve => setTimeout(resolve, 350));
       const structuredSessionId = await win.webContents.executeJavaScript(`(() => {
         const base = (window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || []).find(item => item.provider === 'claude') || {};
@@ -548,8 +553,10 @@ app.whenReady().then(() => {
           for (const fixture of fixtures) if (!ids.has(fixture.id)) current.unshift(fixture);
         };
         window.__ensureLoadToAgentDensityFixture();
+        window.LoadToAgentApp.state.workspace = roots[0].originCwd || roots[0].cwd || '';
         window.LoadToAgentApp.state.graphFocusId = null;
         window.LoadToAgentApp.state.graphExpandedProviders.clear();
+        window.LoadToAgentApp.renderWorkspaces();
         window.LoadToAgentApp.renderSessions();
         document.querySelector('.main-stage')?.scrollTo(0, 0);
         return { focusId: roots[0].id, terminalId: directTerminal.id, alternateTerminalId: alternateTerminal.id };
@@ -591,7 +598,7 @@ app.whenReady().then(() => {
         }
         app.state.view = 'waiting';
         app.state.search = '';
-        app.state.workspace = 'all';
+        app.state.workspace = base.originCwd || base.cwd || '';
         app.state.providerFilters.clear();
         app.renderSessions('view');
         const section = document.querySelector('#attentionInbox');
@@ -849,7 +856,7 @@ app.whenReady().then(() => {
       await new Promise(resolve => setTimeout(resolve, 350));
       await win.webContents.executeJavaScript(`(() => {
         window.LoadToAgentApp.state.agentCommandDrafts.delete(${JSON.stringify(densityFocusId)});
-        document.querySelector('[data-view="all"]')?.click();
+        window.LoadToAgentApp.selectView('all');
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.renderSessions();
@@ -1288,7 +1295,9 @@ app.whenReady().then(() => {
       await new Promise(resolve => setTimeout(resolve, 250));
       process.stdout.write(`${output}\n${compactOutput}\n${settingsOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${deliveryOutput}\n${treeOutput}\n${managementOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, settings: settingsMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, terminalCommand: commandUiMetrics, controlStates: controlStateMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, management: managementMetrics, motion: { ...motionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics, deliveryStatus: deliveryMetrics })}\n`);
     } catch (error) {
-      process.stderr.write(`${error.stack || error.message}\n`);
+      const detail = `${error.stack || error.message}\n`;
+      process.stderr.write(detail);
+      await new Promise(resolve => setTimeout(resolve, 120));
       exitCode = 1;
     } finally {
       app.exit(exitCode);

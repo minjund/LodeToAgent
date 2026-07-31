@@ -4,17 +4,13 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, saveProjectDismissals = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
 
   function bindFilterAndWorkspaceEvents() {
-    const startProjectTask = (path) => {
-      const workspacePath = String(path || "").trim();
-      if (!workspacePath) return;
-      $("#runCwd").value = workspacePath;
-      openRunModal();
-      syncRunComposer();
-      saveRunDraft();
-    };
+    const normalizedProjectPath = value => String(value || "")
+      .replace(/\\/g, "/")
+      .replace(/\/+$/, "")
+      .toLocaleLowerCase();
     const syncFilterResetButton = () => {
       const hasFilters = Boolean(
         $("#searchInput").value || state.search || state.providerFilters.size || state.workspace !== "all" || state.sort !== "recent" || state.controlRoomSort !== "recent",
@@ -46,15 +42,25 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList"), $("#projectSidebarList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
       const activeList = event.currentTarget;
+      const openSession = activeList.id === "projectSidebarList"
+        ? event.target.closest("[data-open-session]")
+        : null;
+      if (openSession) {
+        openDrawer(openSession.dataset.openSession);
+        return;
+      }
       const remove = event.target.closest("[data-remove-workspace]");
       if (remove) {
         event.stopPropagation();
         const path = remove.dataset.removeWorkspace;
         const workspaceItems = Array.from(activeList.querySelectorAll("[data-workspace]"));
-        const workspaceIndex = Math.max(0, workspaceItems.indexOf(remove.closest(".workspace-row")?.querySelector("[data-workspace]")));
+        const workspaceRow = remove.closest(".workspace-row, .project-sidebar-group");
+        const workspaceIndex = Math.max(0, workspaceItems.indexOf(workspaceRow?.querySelector("[data-workspace]")));
         const workspaces = await performUiAction(() => window.loadtoagent.removeWorkspace(remove.dataset.removeWorkspace), t("workspace.remove_failed"), remove);
         if (!workspaces) return;
         state.workspaces = workspaces;
+        state.dismissedProjects.add(normalizedProjectPath(path));
+        saveProjectDismissals();
         if (state.workspace === remove.dataset.removeWorkspace) state.workspace = "all";
         render();
         syncFilterResetButton();
@@ -69,7 +75,8 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       const item = event.target.closest("[data-workspace]");
       if (item) {
         const requestedWorkspace = item.dataset.workspace;
-        state.workspace = requestedWorkspace !== "all" && state.workspace === requestedWorkspace
+        state.workspace = requestedWorkspace !== "all"
+          && state.workspace === requestedWorkspace
           ? "all"
           : requestedWorkspace;
         const label = state.workspace === "all"
@@ -93,7 +100,11 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         announce(t("filter.workspace_results", { project: label, count: filteredSessions().length }));
         if (activeList.id === "projectSidebarList") {
           document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
-          requestAnimationFrame(() => $("#projectViewTabs")?.querySelector("[data-view].active")?.focus({ preventScroll: true }));
+          requestAnimationFrame(() => {
+            const result = $("#liveSessionGrid")?.querySelector("[data-graph-focus], [data-open-session], .control-project-header");
+            result?.focus({ preventScroll: true });
+            if (document.activeElement !== result) $("#mainContent")?.focus({ preventScroll: true });
+          });
         }
         if (activeList.id === "mobileWorkspaceList") {
           const menu = $("#mobileToolsMenu");
@@ -337,7 +348,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         provider: provider?.label || "선택한 AI",
       }));
     });
-    const addWorkspaceButtons = [$("#addWorkspaceBtn"), $("#mobileAddWorkspaceBtn")].filter(Boolean);
+    const addWorkspaceButtons = [$("#sidebarNewProjectBtn"), $("#addWorkspaceBtn"), $("#mobileAddWorkspaceBtn")].filter(Boolean);
     const addWorkspace = async (event) => {
       const trigger = event.currentTarget;
       const response = await performUiAction(() => window.loadtoagent.addWorkspaces(), t("workspace.add_failed"), trigger);
@@ -346,16 +357,34 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       if (!Array.isArray(workspaces)) return;
       const previousPaths = new Set(state.workspaces.map((workspace) => workspace.path));
       state.workspaces = workspaces;
-      renderWorkspaces();
-      syncFilterResetButton();
       const added = state.workspaces.find((workspace) => !previousPaths.has(workspace.path));
       const selected = Array.isArray(response) ? added : response.selected;
-      if (!selected?.path) return;
+      if (!selected?.path) {
+        renderWorkspaces();
+        syncFilterResetButton();
+        return;
+      }
+      const selectedKey = normalizedProjectPath(selected.path);
+      state.dismissedProjects = new Set([...state.dismissedProjects].filter((dismissedPath) => (
+        dismissedPath !== selectedKey
+        && !selectedKey.startsWith(`${dismissedPath}/`)
+        && !dismissedPath.startsWith(`${selectedKey}/`)
+      )));
+      saveProjectDismissals();
+      state.workspace = selected.path;
+      state.visibleLimit = 30;
+      if (state.view !== "all") selectView("all", { motionKind: "filter" });
+      else render();
+      syncFilterResetButton();
+      saveDashboardPreferences();
       toast(t(response.alreadyAdded ? "control.project_already_ready" : "control.project_added_ready"));
       announce(t(response.alreadyAdded ? "control.project_already_ready" : "control.project_added_ready"));
-      startProjectTask(selected.path);
       requestAnimationFrame(() => {
-        const targetList = trigger.id === "mobileAddWorkspaceBtn" ? $("#mobileWorkspaceList") : $("#workspaceList");
+        const targetList = trigger.id === "mobileAddWorkspaceBtn"
+          ? $("#mobileWorkspaceList")
+          : trigger.id === "sidebarNewProjectBtn"
+            ? $("#projectSidebarList")
+            : $("#workspaceList");
         targetList?.querySelector(`[data-workspace="${CSS.escape(selected.path)}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
       });
     };

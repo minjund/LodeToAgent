@@ -211,12 +211,11 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       ["active", "●", t("app.nav.active"), t("quality.command.view"), () => selectView("active", { focusMain: true })],
       ["waiting", "!", t("app.nav.needs_review"), t("quality.command.view"), () => selectView("waiting", { focusMain: true })],
       ["runtime", "↻", t("app.nav.runtime"), t("quality.command.view"), () => selectView("runtime", { focusMain: true })],
-      ["terminal", ">_", t("app.nav.session_terminal"), t("quality.command.view"), () => selectView("terminal", { focusMain: true })],
       ["tmux", "▦", t("app.nav.tmux"), t("quality.command.view"), () => selectView("tmux", { focusMain: true })],
       ["settings", "⚙", t("app.nav.settings"), t("quality.command.view"), () => selectView("settings", { focusMain: true })],
       ["new-task", "+", t("ui.new_ai_task"), t("quality.command.action"), () => openRunModal()],
       ["probe", "↻", t("ui.check_ai_connections_again"), t("quality.command.action"), () => $("#probeBtn")?.click()],
-      ["workspace", "⌘", t("control.start_project_work"), t("quality.command.action"), () => $("#addWorkspaceBtn")?.click()],
+      ["workspace", "⌘", t("control.add_project"), t("quality.command.action"), () => $("#sidebarNewProjectBtn")?.click()],
       ["shortcuts", "?", t("quality.shortcuts.title"), t("quality.command.help"), () => openShortcutHelp()],
     ].map(([id, icon, label, group, run]) => ({ id, icon, label, group, run }));
   }

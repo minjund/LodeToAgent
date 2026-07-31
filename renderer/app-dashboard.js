@@ -37,26 +37,22 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const update = state.update || {};
     const available = ["available", "downloading", "downloaded"].includes(update.status);
     const latest = update.latestVersion || "—";
-    const advancedCount = 4;
+    const advancedCount = 2;
     const advancedBaseLabel = t("quality.nav_count_detailed", {
       label: t("management.advanced_tools"),
       count: advancedCount,
       unit: t("quality.unit.types"),
     });
     const updateLabel = t("update.available_version", { version: latest });
-    const advancedLabel = available ? `${advancedBaseLabel} · ${updateLabel}` : advancedBaseLabel;
+    const advancedLabel = advancedBaseLabel;
     const mobileBaseLabel = t("management.advanced_tools");
     const mobileLabel = available ? `${mobileBaseLabel} · ${updateLabel}` : mobileBaseLabel;
     const details = $("#advancedToolsNav");
     const summary = details?.querySelector("summary");
-    const advancedBadge = $("#advancedToolsUpdateBadge");
     const mobileMore = $("#mobileMoreBtn");
     const mobileIndicator = $("#mobileMoreUpdateIndicator");
-    const settingsNav = document.querySelector('.nav-item[data-view="settings"]');
+    const settingsNav = $("#sidebarSettingsBtn");
 
-    details?.classList.toggle("has-update", available);
-    advancedBadge?.classList.toggle("hidden", !available);
-    if (advancedBadge) advancedBadge.textContent = available ? "UP" : "";
     mobileMore?.classList.toggle("has-update", available);
     mobileIndicator?.classList.toggle("hidden", !available);
     summary?.setAttribute("aria-label", advancedLabel);
@@ -133,6 +129,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         .sort((a, b) => b.key.length - a.key.length)[0];
       const path = owner ? owner.path : originPath;
       const key = normalizedProjectPath(path);
+      const dismissed = !owner && [...(state.dismissedProjects || [])]
+        .some((dismissedPath) => key === dismissedPath || key.startsWith(`${dismissedPath}/`));
+      if (dismissed) return;
       const project = projects.get(key) || {
         path,
         name: projectName(path),
@@ -184,10 +183,25 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     };
   }
 
+  function workspaceRootSession(session) {
+    const sessions = state.snapshot?.sessions || [];
+    let current = session;
+    const visited = new Set();
+    while (current?.parentId && !visited.has(String(current.id || ""))) {
+      visited.add(String(current.id || ""));
+      const parent = sessions.find((item) => String(item.id || "") === String(current.parentId));
+      if (!parent) break;
+      current = parent;
+    }
+    return current || session;
+  }
+
   function matchesWorkspaceFilter(session) {
     if (state.workspace === "all") return true;
-    if (state.workspace === PROJECTLESS_WORKSPACE) return isProjectlessSession(session);
-    return !isProjectlessSession(session) && projectContainsPath(state.workspace, sessionOriginPath(session));
+    const workspaceOwner = workspaceRootSession(session);
+    if (state.workspace === PROJECTLESS_WORKSPACE) return isProjectlessSession(workspaceOwner);
+    return !isProjectlessSession(workspaceOwner)
+      && projectContainsPath(state.workspace, sessionOriginPath(workspaceOwner));
   }
 
   function unlinkedLiveTmuxSessions() {
@@ -271,6 +285,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     };
     const sessionNeedsAttention = (session) => typeof context.needsManagementInbox === "function"
       ? context.needsManagementInbox(session)
+        || Boolean(window.LoadToAgentTerminal?.pendingPromptForSession?.(session))
       : Boolean(session?.attention?.required || session?.attention?.category === "required" || ["waiting", "failed", "paused"].includes(session?.status));
     const sessionsForProject = (item) => allVisibleSessions.filter((session) => (
       !isProjectlessSession(rootSessionFor(session))
@@ -284,7 +299,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       });
       return [...roots.values()];
     };
-    const projectAttentionSessions = (item) => uniqueRootSessions(sessionsForProject(item).filter(sessionNeedsAttention));
     const projectLiveSessions = (item) => uniqueRootSessions(sessionsForProject(item).filter(isControlRoomSession));
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
@@ -344,46 +358,54 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           title="${esc(window.LoadToAgentI18n.t("ui.remove_from_list"))}">×</button>
         </div>` : projectButton(item)).join("") +
       (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
+    const sidebarProjectStates = new Map(projects.map((project) => {
+      const live = projectLiveSessions(project);
+      const attention = live.filter(sessionNeedsAttention);
+      return [normalizedProjectPath(project.path), {
+        live,
+        attention,
+        priority: attention.length ? "attention" : live.length ? "live" : "idle",
+      }];
+    }));
     const sidebarProjectItem = (item) => {
-      const attention = projectAttentionSessions(item);
-      const live = projectLiveSessions(item);
+      const projectState = sidebarProjectStates.get(normalizedProjectPath(item.path))
+        || { live: [], attention: [], priority: "idle" };
+      const { live, attention, priority } = projectState;
       const selected = normalizedProjectPath(state.workspace) === normalizedProjectPath(item.path);
-      const nested = [...attention.map(session => ({ session, tone: "attention" })), ...live
-        .filter(session => !attention.some(item => item.id === session.id))
-        .map(session => ({ session, tone: "live" }))]
-        .slice(0, 3);
       return `<div class="project-sidebar-group ${selected ? "selected" : ""} ${attention.length ? "has-attention" : ""}">
-        <button type="button" class="workspace-item project-sidebar-item ${selected ? "selected" : ""}"
-          data-workspace="${esc(item.path)}" title="${esc(item.path)}"
-          aria-pressed="${selected ? "true" : "false"}">
-          <span class="project-sidebar-icon" aria-hidden="true">□</span>
-          <span class="project-sidebar-copy"><strong>${esc(item.name)}</strong><small>${esc(t("studio.sidebar.project_summary", {
-            status: live.length ? t("project.in_progress") : t("studio.sidebar.waiting"),
-            count: Number(item.count || 0),
-          }))}</small></span>
-          ${attention.length
-            ? `<span class="project-sidebar-attention"><i aria-hidden="true"></i><b>${attention.length}</b><small>${esc(t("studio.sidebar.needs_review"))}</small></span>`
-            : live.length
-              ? `<span class="project-sidebar-live" aria-label="${esc(t("studio.sidebar.live_label", { count: live.length }))}"><i aria-hidden="true"></i></span>`
-              : `<span class="project-sidebar-chevron" aria-hidden="true">›</span>`}
-        </button>
-        ${selected && nested.length ? `<div class="project-sidebar-sessions">${nested.map(({ session, tone }) => `<span class="project-sidebar-session ${tone}">
-          <i aria-hidden="true"></i><b>${esc(shortText(session.title, 36))}</b><small>${esc(t(tone === "attention" ? "studio.sidebar.needs_review" : "project.in_progress"))}</small>
-        </span>`).join("")}</div>` : ""}
+        <div class="project-sidebar-row">
+          <button type="button" class="workspace-item project-sidebar-item ${selected ? "selected" : ""}"
+            data-workspace="${esc(item.path)}" title="${esc(item.path)}"
+            data-live-session-count="${live.length}"
+            data-project-priority="${priority}"
+            aria-pressed="${selected ? "true" : "false"}">
+            <span class="project-sidebar-icon" aria-hidden="true">□</span>
+            <span class="project-sidebar-copy"><strong>${esc(item.name)}</strong><small>${esc(t("studio.sidebar.project_summary", {
+              status: live.length ? t("project.in_progress") : t("studio.sidebar.waiting"),
+              count: Number(item.count || 0),
+            }))}</small></span>
+            ${attention.length
+              ? `<span class="project-sidebar-attention"><i aria-hidden="true"></i><b>${attention.length}</b><small>${esc(t("studio.sidebar.needs_review"))}</small></span>`
+              : live.length
+                ? `<span class="project-sidebar-live" aria-label="${esc(t("studio.sidebar.live_label", { count: live.length }))}"><i aria-hidden="true"></i></span>`
+                : `<span class="project-sidebar-chevron" aria-hidden="true">›</span>`}
+          </button>
+          <button type="button" class="project-sidebar-remove" data-remove-workspace="${esc(item.path)}"
+            aria-label="${esc(t("workspace.remove_named", { name: item.name }))}"
+            title="${esc(t("workspace.remove_named", { name: item.name }))}">×</button>
+        </div>
       </div>`;
     };
-    const allAttentionRoots = uniqueRootSessions(allVisibleSessions.filter(sessionNeedsAttention));
-    const allLiveRoots = uniqueRootSessions(allVisibleSessions.filter(isControlRoomSession));
-    const sidebarHtml = `<button type="button" class="workspace-item project-sidebar-item all-projects ${state.workspace === "all" ? "selected" : ""}"
-        data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
-        <span class="project-sidebar-icon" aria-hidden="true">⌘</span>
-        <span class="project-sidebar-copy"><strong>${esc(t("studio.sidebar.all_projects"))}</strong><small>${esc(t("studio.sidebar.overall_summary", {
-          active: allLiveRoots.length,
-          total: rootSessions.length,
-        }))}</small></span>
-        ${allAttentionRoots.length ? `<span class="project-sidebar-attention"><i aria-hidden="true"></i><b>${allAttentionRoots.length}</b><small>${esc(t("studio.sidebar.needs_review"))}</small></span>` : ""}
-      </button>`
-      + projects.map(sidebarProjectItem).join("")
+    const sidebarPriorityRank = { attention: 0, live: 1, idle: 2 };
+    const sidebarNameCollator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+    const sidebarProjects = [...projects].sort((left, right) => {
+      const leftPriority = sidebarProjectStates.get(normalizedProjectPath(left.path))?.priority || "idle";
+      const rightPriority = sidebarProjectStates.get(normalizedProjectPath(right.path))?.priority || "idle";
+      return sidebarPriorityRank[leftPriority] - sidebarPriorityRank[rightPriority]
+        || sidebarNameCollator.compare(String(left.name || ""), String(right.name || ""))
+        || sidebarNameCollator.compare(normalizedProjectPath(left.path), normalizedProjectPath(right.path));
+    });
+    const sidebarHtml = sidebarProjects.map(sidebarProjectItem).join("")
       + (projectlessCount
         ? `<button type="button" class="workspace-item project-sidebar-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
           data-workspace="${PROJECTLESS_WORKSPACE}" aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
@@ -392,7 +414,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           <span class="project-sidebar-chevron" aria-hidden="true">›</span>
         </button>`
         : "")
-      + (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
+      + (!sidebarProjects.length && !projectlessCount
+        ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>`
+        : "");
     const desktopHtml =
       `<span class="control-room-filter-label">작업 내용별</span>` +
       `<button type="button" class="workspace-item control-room-project-chip ${state.workspace === "all" ? "selected" : ""}"
@@ -432,7 +456,10 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       requestAnimationFrame(updateProjectOverflow);
     }
     if (mobileList) mobileList.innerHTML = mobileHtml;
-    if (sidebarList) sidebarList.innerHTML = sidebarHtml;
+    if (sidebarList) {
+      sidebarList.dataset.selectedProject = state.workspace === "all" ? "false" : "true";
+      sidebarList.innerHTML = sidebarHtml;
+    }
     const historyList = $("#projectHistoryList");
     const historyTitle = $("#projectHistoryTitle");
     const selectedProject = projects.find((project) => normalizedProjectPath(project.path) === normalizedProjectPath(state.workspace));
@@ -440,10 +467,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const projectContextEyebrow = $("#projectContextEyebrow");
     const projectContextHeading = $("#projectContextHeading");
     const projectSelected = state.workspace !== "all";
+    const taskProjectName = $("#projectTaskProjectName");
+    const taskProjectPath = $("#projectTaskProjectPath");
+    if (taskProjectName) taskProjectName.textContent = selectedProject?.name || projectName(state.workspace);
+    if (taskProjectPath) taskProjectPath.textContent = projectSelected && state.workspace !== PROJECTLESS_WORKSPACE ? state.workspace : "";
     document.body.dataset.projectSelected = projectSelected ? "true" : "false";
     if (projectContextName) {
       projectContextName.textContent = state.workspace === "all"
-        ? t("studio.sidebar.all_projects")
+        ? t("studio.sidebar.title")
         : state.workspace === PROJECTLESS_WORKSPACE
           ? t("ui.no_project")
           : selectedProject?.name || projectName(state.workspace);
@@ -456,7 +487,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     }
     if (historyTitle) {
       const scopeLabel = state.workspace === "all"
-        ? t("studio.sidebar.all_projects")
+        ? t("studio.sidebar.title")
         : state.workspace === PROJECTLESS_WORKSPACE
           ? t("ui.no_project")
           : selectedProject?.name || projectName(state.workspace);
@@ -470,9 +501,17 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         .sort((left, right) => Date.parse(right.updatedAt || 0) - Date.parse(left.updatedAt || 0))
         .slice(0, 8);
       historyList.innerHTML = historySessions.length
-        ? historySessions.map((session) => `<button type="button" data-open-session="${esc(session.id)}" title="${esc(session.title || t("studio.session.untitled"))}">
-          <span>${esc(shortText(session.title, 54))}</span><i aria-hidden="true">›</i>
-        </button>`).join("")
+        ? historySessions.map((session) => {
+          const provider = state.providerMap.get(session.provider);
+          const providerLabel = provider?.label || String(session.provider || "AI").toUpperCase();
+          const updatedAt = new Date(session.updatedAt || 0);
+          const updatedLabel = Number.isNaN(updatedAt.getTime())
+            ? ""
+            : updatedAt.toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
+          return `<button type="button" data-open-session="${esc(session.id)}" title="${esc(session.title || t("studio.session.untitled"))}">
+            <span><b>${esc(shortText(session.title, 54))}</b><small>${esc([providerLabel, updatedLabel].filter(Boolean).join(" · "))}</small></span><i aria-hidden="true">›</i>
+          </button>`;
+        }).join("")
         : `<p><span aria-hidden="true">○</span><b>${esc(t("studio.history.empty"))}</b><small>${esc(t("studio.history.empty_detail"))}</small></p>`;
     }
     const projectSelect = $("#controlRoomProjectSelect");
@@ -546,40 +585,96 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       )).length,
     );
     const processingCount = Math.max(0, activeRootCount - reviewNeededCount);
-    const tokenSessions = sessions
-      .filter((session) => !session.parentId)
-      .sort((left, right) => {
-        const statusRank = (session) => isControlRoomSession(session) ? 1 : 0;
-        return statusRank(right) - statusRank(left)
-          || Date.parse(right.updatedAt || 0) - Date.parse(left.updatedAt || 0);
-      })
-      .slice(0, 4);
-    const tokenScope = state.workspace === "all"
-      ? t("studio.sidebar.all_projects")
-      : state.workspace === PROJECTLESS_WORKSPACE
-        ? t("ui.no_project")
-        : $("#projectContextName")?.textContent.trim() || projectName(state.workspace);
+    const canonicalProviderId = (value) => String(value || "").toLowerCase() === "gpt"
+      ? "codex"
+      : String(value || "").toLowerCase();
+    const tokenTotals = displaySessions().reduce((totalsByProvider, session) => {
+        const providerId = canonicalProviderId(session.provider);
+        totalsByProvider.set(
+          providerId,
+          Number(totalsByProvider.get(providerId) || 0) + Math.max(0, Number(session.usage?.total || 0)),
+        );
+        return totalsByProvider;
+      }, new Map());
+    const seenTokenProviders = new Set();
+    const tokenProviders = visibleProviders().reduce((items, provider) => {
+      const providerId = canonicalProviderId(provider.id);
+      if (!providerId || seenTokenProviders.has(providerId)) return items;
+      seenTokenProviders.add(providerId);
+      const usage = state.providerUsage?.providers?.[providerId]
+        || state.providerUsage?.providers?.[provider.id]
+        || null;
+      const primaryWindow = [usage?.shortWindow, usage?.weekly, usage?.modelWindow]
+        .find(window => Number.isFinite(Number(window?.usedPercent))
+          || Number.isFinite(Number(window?.remainingPercent))) || null;
+      const weeklyWindow = Number.isFinite(Number(usage?.weekly?.usedPercent))
+        || Number.isFinite(Number(usage?.weekly?.remainingPercent))
+        ? usage.weekly
+        : null;
+      items.push({
+        ...provider,
+        aggregateId: providerId,
+        tokens: Number(tokenTotals.get(providerId) || 0),
+        primaryWindow,
+        weeklyWindow,
+      });
+      return items;
+    }, []);
     const sessionTokenScope = $("#sessionTokenScope");
     const sessionTokenList = $("#sessionTokenList");
     if (sessionTokenScope) {
-      sessionTokenScope.innerHTML = `<span class="session-token-scope-project">${esc(tokenScope)}</span><span class="session-token-scope-summary">${esc(t("studio.tokens.scope_summary", {
-        count: sessions.filter((session) => !session.parentId).length,
+      sessionTokenScope.innerHTML = `<span class="session-token-scope-project">${esc(t("studio.tokens.all_scope"))}</span><span class="session-token-scope-summary">${esc(t("studio.tokens.scope_summary", {
+        count: tokenProviders.length,
       }))}</span>`;
     }
     if (sessionTokenList) {
-      const tokenMaximum = Math.max(1, ...tokenSessions.map((session) => Number(session.usage?.total || 0)));
-      sessionTokenList.innerHTML = tokenSessions.length
-        ? tokenSessions.map((session) => {
-          const tokens = Math.max(0, Number(session.usage?.total || 0));
-          const percentage = Math.max(0, Math.min(100, tokens / tokenMaximum * 100));
-          const title = session.title || t("studio.session.untitled");
-          return `<article class="session-token-item" style="${providerStyle(session.provider)}" title="${esc(title)}">
-            <span class="session-token-provider">${esc(String(session.provider || "AI").slice(0, 2).toUpperCase())}</span>
+      sessionTokenList.innerHTML = tokenProviders.length
+        ? tokenProviders.map((provider) => {
+          const tokens = provider.tokens;
+          const label = provider.label || provider.aggregateId.toUpperCase();
+          const mark = provider.mark || label.slice(0, 2).toUpperCase();
+          const hasUsage = Number.isFinite(Number(provider.primaryWindow?.usedPercent))
+            || Number.isFinite(Number(provider.primaryWindow?.remainingPercent));
+          const used = hasUsage
+            ? Math.max(0, Math.min(100,
+              Number.isFinite(Number(provider.primaryWindow?.usedPercent))
+                ? Number(provider.primaryWindow.usedPercent)
+                : 100 - Number(provider.primaryWindow.remainingPercent)))
+            : null;
+          const usageTone = !hasUsage
+            ? "usage-unknown"
+            : used >= 90
+              ? "usage-critical"
+              : used >= 70
+                ? "usage-warning"
+                : "usage-healthy";
+          const weeklyUsed = Number.isFinite(Number(provider.weeklyWindow?.usedPercent))
+            || Number.isFinite(Number(provider.weeklyWindow?.remainingPercent))
+            ? Math.max(0, Math.min(100,
+              Number.isFinite(Number(provider.weeklyWindow?.usedPercent))
+                ? Number(provider.weeklyWindow.usedPercent)
+                : 100 - Number(provider.weeklyWindow.remainingPercent)))
+            : null;
+          const windowLabel = provider.primaryWindow?.label || t("studio.tokens.limit_unavailable");
+          const title = hasUsage
+            ? t("studio.tokens.provider_used_title", {
+              provider: label,
+              label: windowLabel,
+              percent: Math.round(used),
+            })
+            : t("studio.tokens.provider_unavailable_title", { provider: label });
+          return `<article class="session-token-item ${usageTone}" data-token-provider="${esc(provider.aggregateId)}" style="${providerStyle(provider.id)}" title="${esc(title)}">
+            <span class="session-token-provider">${esc(mark)}</span>
             <span class="session-token-copy">
-              <b>${esc(shortText(title, 28))}</b>
-              <span class="session-token-meter" role="progressbar" aria-label="${esc(t("studio.tokens.meter_label", { tokens }))}" aria-valuemin="0" aria-valuemax="${tokenMaximum}" aria-valuenow="${tokens}"><i style="width:${percentage.toFixed(2)}%"></i></span>
+              <span class="session-token-label"><b>${esc(label)}</b><small>${esc(windowLabel)}</small></span>
+              ${hasUsage
+                ? `<span class="session-token-meter" role="progressbar" aria-label="${esc(t("studio.tokens.used_meter_label", { provider: label, percent: Math.round(used) }))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${used}"><i style="width:${used.toFixed(2)}%;min-width:${used > 0 ? 2 : 0}px"></i></span>`
+                : `<span class="session-token-meter is-unknown" aria-label="${esc(t("studio.tokens.provider_unavailable_title", { provider: label }))}"><i></i></span>`}
+              <span class="session-token-detail">${weeklyUsed == null
+                ? esc(t("studio.tokens.used_summary", { tokens: compact(tokens) }))
+                : esc(t("studio.tokens.weekly_used_summary", { percent: Math.round(weeklyUsed), tokens: compact(tokens) }))}</span>
             </span>
-            <strong>${esc(compact(tokens))}<small>${esc(t("studio.tokens.unit"))}</small></strong>
+            <strong>${hasUsage ? `${esc(Math.round(used))}%` : "—"}<small>${esc(t(hasUsage ? "studio.tokens.used_unit" : "studio.tokens.unavailable"))}</small></strong>
           </article>`;
         }).join("")
         : `<p class="session-token-empty">${esc(t("studio.tokens.empty"))}</p>`;
@@ -622,7 +717,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     runtimeNavCount.textContent = t("runtime.nav_count", { schedules: scheduledCount, running: loopCount });
     const tmuxSessionCount = Number(state.snapshot?.tmux?.summary?.sessions || 0);
     $("#navTmuxCount").textContent = t("tmux.nav_group_count", { count: Number(state.snapshot?.tmux?.summary?.windows || 0) });
-    $("#advancedToolsCount").textContent = 4;
+    $("#advancedToolsCount").textContent = 2;
     const navCounts = {
       all: activeRootCount,
       active: memoryRootCount,

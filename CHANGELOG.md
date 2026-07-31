@@ -5,6 +5,21 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.0 - 2026-07-31
+
+- Rebuild the home screen around project selection: keep every project visible,
+  sort projects by attention and live state, and show only the selected
+  project's current work and related history in the main area.
+- Present AI account gauges as percentages used, keep the configured AI list
+  fixed, and place the single desktop Settings entry directly above that list.
+- Separate project creation from new AI work, lock new work to the currently
+  selected project, and make project removal stable without horizontal sidebar
+  overflow.
+- Surface native Codex file-edit approval prompts in the project view and send
+  proceed, remember, or reject choices back to the exact terminal or tmux pane.
+- Simplify review and session cards, preserve actionable results and prior
+  project history, and expand project-first visual and interaction coverage.
+
 ## 1.5.3 - 2026-07-31
 
 - Rebuild the project-first studio shell so project context, work states,
