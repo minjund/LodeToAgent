@@ -149,6 +149,23 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     }
     return null;
   }
+  function hasRenderedLabel(element) {
+    if (!element.matches("input[type='checkbox'], input[type='radio']")) return false;
+    const labels = [...(element.labels || [])];
+    const wrappingLabel = element.closest("label");
+    if (wrappingLabel && !labels.includes(wrappingLabel)) labels.push(wrappingLabel);
+    return labels.some((label) => {
+      if (!(label instanceof HTMLElement)
+        || !label.isConnected
+        || label.closest("[hidden], [inert], [aria-hidden='true'], .hidden, .closing")) return false;
+      const labelStyle = getComputedStyle(label);
+      return label.getClientRects().length > 0
+        && labelStyle.display !== "none"
+        && labelStyle.visibility !== "hidden"
+        && labelStyle.visibility !== "collapse"
+        && Number(labelStyle.opacity) > 0;
+    });
+  }
   function isRestorableFocusTarget(element) {
     if (!(element instanceof HTMLElement)
       || element === document.body
@@ -162,7 +179,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       && style.display !== "none"
       && style.visibility !== "hidden"
       && style.visibility !== "collapse"
-      && Number(style.opacity) > 0;
+      && (Number(style.opacity) > 0 || hasRenderedLabel(element));
   }
   function focusTargetSnapshot(element) {
     if (!isRestorableFocusTarget(element)) return null;
@@ -565,6 +582,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (!scope || hadNewerScope) return false;
     return focusWithoutScroll(resolveFocusScopeTarget(scope)) || focusRestorationFallback();
   }
+  function isBlockingDialogSurface(surface) {
+    if (!surface || surface.classList.contains("hidden")) return false;
+    if (surface.id === "detailDrawer") {
+      return surface.classList.contains("open") && surface.dataset.presentation === "modal";
+    }
+    return surface.getAttribute("aria-modal") === "true";
+  }
   function setDialogOpenState(dialog, open) {
     if (!dialog) return;
     const shell = $("#appShell");
@@ -578,7 +602,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     dialog.setAttribute("inert", "");
     dialog.setAttribute("aria-hidden", "true");
     const anotherDialog = [$("#mobileToolsMenu"), $("#runModal"), $("#tmuxCreateModal"), $("#detailDrawer"), $("#quickPaletteModal"), $("#shortcutHelpModal"), $("#sessionResetModal")]
-      .some((item) => item && item !== dialog && !item.classList.contains("hidden") && (item.classList.contains("open") || item.matches(".modal-backdrop") || item.id === "mobileToolsMenu"));
+      .some((item) => item !== dialog && isBlockingDialogSurface(item));
     if (!anotherDialog) {
       shell?.removeAttribute("inert");
       document.body.classList.remove("dialog-open");

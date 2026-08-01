@@ -1681,6 +1681,7 @@ async function exerciseThemeSettings(win, round) {
 }
 
 async function exerciseProviderVisibility(win, round) {
+  await prepareProjectFirstStep(win);
   await click(win, '[data-view="settings"]', 'nav:settings');
   const initial = await win.webContents.executeJavaScript(`(() => ({
     options: document.querySelectorAll('[data-provider-visibility]').length,
@@ -1689,14 +1690,23 @@ async function exerciseProviderVisibility(win, round) {
   }))()`);
   assert(initial.options === initial.providers && initial.enabled === initial.providers, `AI 표시 기본값이 모두 ON이 아닙니다: ${JSON.stringify(initial)}`);
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ failures: { setProviderVisibility: 1 } })`);
+  await win.webContents.executeJavaScript(`document.querySelector('[data-provider-visibility="claude"]')?.focus({ preventScroll: true })`);
+  assert(await win.webContents.executeJavaScript(`document.activeElement?.matches('[data-provider-visibility="claude"]')`),
+    'AI 표시 설정의 시각적으로 숨긴 체크박스가 키보드 포커스를 받지 못했습니다.');
   await click(win, 'label:has([data-provider-visibility="claude"])', 'settings:provider-visibility');
-  await waitFor(win, `!window.LoadToAgentApp.state.hiddenProviders.has('claude') && document.querySelector('[data-provider-visibility="claude"]')?.checked`, 'AI 표시 설정 저장 실패 후 체크 상태와 필터가 복원되지 않았습니다.');
+  await waitFor(win, `!window.LoadToAgentApp.state.hiddenProviders.has('claude')
+    && document.querySelector('[data-provider-visibility="claude"]')?.checked
+    && document.activeElement?.matches('[data-provider-visibility="claude"]')`,
+  'AI 표시 설정 저장 실패 후 체크 상태·필터·키보드 포커스가 복원되지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls(); window.interactionTest.clearCalls()`);
   mark('settings:provider-visibility-rollback');
+  mark('settings:provider-visibility-focus-restore');
   await click(win, 'label:has([data-provider-visibility="claude"])', 'settings:provider-visibility');
   await waitFor(win, `window.LoadToAgentApp.state.hiddenProviders.has('claude')
     && !window.LoadToAgentApp.state.snapshot.sessions.some(session => session.provider === 'claude')
-    && JSON.parse(localStorage.getItem('loadtoagent:provider-visibility:v1')).hidden.includes('claude')`, 'Claude 숨김 설정과 저장이 적용되지 않았습니다.');
+    && JSON.parse(localStorage.getItem('loadtoagent:provider-visibility:v1')).hidden.includes('claude')
+    && document.activeElement?.matches('[data-provider-visibility="claude"]')`,
+  'Claude 숨김 설정과 저장을 적용한 뒤 의미상 같은 체크박스로 키보드 포커스가 이어지지 않았습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
   const hidden = await win.webContents.executeJavaScript(`(() => ({
     rail: Boolean(document.querySelector('#providerRail .provider-rail-item strong')?.textContent === 'Claude' || [...document.querySelectorAll('#providerRail .provider-rail-item strong')].some(node => node.textContent === 'Claude')),
@@ -1714,8 +1724,31 @@ async function exerciseProviderVisibility(win, round) {
   await click(win, 'label:has([data-provider-visibility="claude"])', 'settings:provider-visibility');
   await waitFor(win, `!window.LoadToAgentApp.state.hiddenProviders.has('claude')
     && window.LoadToAgentApp.state.snapshot.sessions.some(session => session.provider === 'claude')
-    && document.querySelector('[data-provider-visibility="claude"]')?.checked`, 'Claude 다시 표시가 즉시 복원되지 않았습니다.');
-  round.observed.providerVisibility = { defaultOn: initial.providers, hiddenLeakCount: 0, restored: true };
+    && document.querySelector('[data-provider-visibility="claude"]')?.checked
+    && document.activeElement?.matches('[data-provider-visibility="claude"]')`,
+  'Claude 다시 표시와 키보드 포커스가 즉시 복원되지 않았습니다.');
+  const hiddenControlFocusRejected = await win.webContents.executeJavaScript(`(() => {
+    const fixture = document.createElement('div');
+    fixture.id = 'hiddenFocusRestorationFixture';
+    fixture.innerHTML = '<button type="button" data-hidden-focus-fixture="control" style="opacity:0">hidden</button>';
+    document.body.append(fixture);
+    fixture.querySelector('button').focus({ preventScroll: true });
+    window.LoadToAgentApp.preserveFocusDuringRender(() => {
+      fixture.innerHTML = '<button type="button" data-hidden-focus-fixture="control" style="opacity:0">hidden</button>';
+    }, fixture);
+    const replacement = fixture.querySelector('button');
+    const rejected = document.activeElement !== replacement;
+    fixture.remove();
+    return rejected;
+  })()`);
+  assert(hiddenControlFocusRejected, '화면에 실제로 숨은 컨트롤로 키보드 포커스를 복원했습니다.');
+  round.observed.providerVisibility = {
+    defaultOn: initial.providers,
+    hiddenLeakCount: 0,
+    restored: true,
+    focusPreserved: true,
+    hiddenControlFocusRejected,
+  };
 }
 
 async function exerciseDashboardControls(win, round) {
@@ -3227,6 +3260,8 @@ async function exerciseDrawer(win, round) {
   '세션 초기화 확인창이 포커스 격리와 함께 열리지 않았습니다.');
   await click(win, '#cancelSessionResetBtn', 'session:reset-cancel');
   await waitFor(win, `document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.querySelector('#appShell').inert
+    && !document.querySelector('#detailDrawer').inert
     && document.activeElement?.matches('[data-session-reset="fixture-root"]')`,
   '세션 초기화 취소 뒤 원래 버튼으로 포커스가 복귀하지 않았습니다.');
   assert(await win.webContents.executeJavaScript(`!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
@@ -3438,6 +3473,22 @@ async function exerciseGraph(win, round) {
     && !document.querySelector('#appShell').inert
     && document.querySelector('#drawerBackdrop').classList.contains('hidden')
     && document.querySelector('[data-stop-run]')`, '에이전트 흐름 옆에 실행 중 session 대화 패널이 열리지 않았습니다.');
+  await click(win, '[data-session-reset="fixture-root"]', 'session:reset');
+  await waitFor(win, `!document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.querySelector('#appShell').inert
+    && document.querySelector('#detailDrawer').inert
+    && document.activeElement === document.querySelector('#cancelSessionResetBtn')`,
+  '넓은 화면 대화 패널의 세션 초기화 확인창이 배경과 포커스를 격리하지 못했습니다.');
+  await click(win, '#cancelSessionResetBtn', 'session:reset-cancel');
+  await waitFor(win, `document.querySelector('#sessionResetModal').classList.contains('hidden')
+    && document.querySelector('#sessionResetModal').inert
+    && !document.querySelector('#appShell').inert
+    && document.querySelector('#detailDrawer').classList.contains('open')
+    && document.querySelector('#detailDrawer').dataset.presentation === 'context'
+    && !document.querySelector('#detailDrawer').inert
+    && document.activeElement?.matches('[data-session-reset="fixture-root"]')`,
+  '넓은 화면 대화 패널의 세션 초기화 확인창을 닫은 뒤 앱·패널·포커스가 복원되지 않았습니다.');
+  mark('drawer:context-reset-background-restore');
   const drawerWidthBefore = await win.webContents.executeJavaScript(`Number(document.querySelector('#drawerResizeHandle').getAttribute('aria-valuenow'))`);
   await win.webContents.executeJavaScript(`document.querySelector('#drawerResizeHandle').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }))`);
   await waitFor(win, `Number(document.querySelector('#drawerResizeHandle').getAttribute('aria-valuenow')) === 560`, '대화 패널 separator의 Home 키 너비 조절이 동작하지 않았습니다.');
