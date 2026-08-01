@@ -23,6 +23,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     isProviderVisible = () => true,
     restoreRunDraft = () => {},
     clearRunDraft = () => {},
+    selectView = () => {},
   } = context;
   let runFocusToken = null;
 
@@ -175,6 +176,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const projectPath = selectedProjectPath();
     if (!projectPath) {
       toast(t("run.select_project_first"));
+      if (state.view !== "all") selectView("all");
       const projectTarget = [
         ...document.querySelectorAll("#projectSidebarList [data-workspace]"),
         $("#sidebarNewProjectBtn"),

@@ -134,7 +134,14 @@ body:not([data-current-view="all"]) #newRunBtn {
 }
 
 body[data-current-view="terminal"] .terminal-section-head {
-  display: none;
+  display: flex;
+}
+
+/* Mode selection and new-session actions are primary terminal controls. An
+ * older compact-screen rule hides the guide, so restore it in the final studio
+ * layer and let the existing responsive grid rules arrange its buttons. */
+body[data-current-view="terminal"] .terminal-mode-guide {
+  display: grid;
 }
 
 body[data-current-view="terminal"] #terminalAnswerDestination {
@@ -190,6 +197,19 @@ body[data-current-view="all"][data-project-selected="true"] .control-project-bod
 
 body[data-current-view="all"][data-project-selected="true"] .control-project-body .control-session-live {
   display: none;
+}
+
+/* The project-first home hides the grouped project header. Keep each task's
+ * progress entry point available so the detailed flow is still reachable. */
+body[data-current-view="all"][data-project-selected="true"] .control-project-body .control-room-session > header > .control-session-flow {
+  max-width: min(42vw, 220px);
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 html[data-theme="light"] body[data-current-view="all"][data-project-selected="true"] .control-project-body .control-room-session {
