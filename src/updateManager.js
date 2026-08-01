@@ -22,8 +22,11 @@ function withTimeout(promise, timeoutMs, onTimeout, message) {
   let timer = null;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
-      try { if (onTimeout) onTimeout(); } catch (_abortUnavailable) { /* timeout still wins */ }
+      // Settle the public timeout first. Aborting fetch/stream readers can
+      // synchronously reject their own promise with AbortError; rejecting here
+      // before aborting keeps the stable, user-facing timeout as the race winner.
       reject(new Error(message));
+      try { if (onTimeout) onTimeout(); } catch (_abortUnavailable) { /* timeout still wins */ }
     }, timeoutMs);
   });
   return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));

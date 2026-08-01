@@ -47,7 +47,15 @@ function registerUpdateDownloadLimitTests(context) {
           headers: { get: () => null },
           body: {
             getReader: () => ({
-              read: () => new Promise(() => {}),
+              read: () => new Promise((resolve, reject) => {
+                if (requestSignal.aborted) {
+                  reject(Object.assign(new Error('fixture aborted'), { name: 'AbortError' }));
+                  return;
+                }
+                requestSignal.addEventListener('abort', () => {
+                  reject(Object.assign(new Error('fixture aborted'), { name: 'AbortError' }));
+                }, { once: true });
+              }),
               cancel: async () => { readerCancelled = true; },
             }),
           },
@@ -151,7 +159,15 @@ function registerUpdateDownloadLimitTests(context) {
           headers: { get: name => String(name).toLowerCase() === 'content-length' ? String(timeoutPayload.length) : null },
           body: {
             getReader: () => ({
-              read: () => new Promise(() => {}),
+              read: () => new Promise((resolve, reject) => {
+                if (timeoutSignal.aborted) {
+                  reject(Object.assign(new Error('fixture aborted'), { name: 'AbortError' }));
+                  return;
+                }
+                timeoutSignal.addEventListener('abort', () => {
+                  reject(Object.assign(new Error('fixture aborted'), { name: 'AbortError' }));
+                }, { once: true });
+              }),
               cancel: async () => { timeoutCancelled = true; },
             }),
           },
