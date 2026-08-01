@@ -1020,6 +1020,25 @@ function registerUiContractTests(context) {
       MANAGEMENT_SEMANTIC_CONTRACTS,
       contract => `${contract} 상태·행동 의미 일치 계약이 없습니다.`,
     );
+    const managementSource = fs.readFileSync(path.join(root, 'renderer', 'app-management.js'), 'utf8');
+    const operationsStart = managementSource.indexOf('function renderOperationsOverview()');
+    const operationsEnd = managementSource.indexOf('\n  function outcomeHtml', operationsStart);
+    const operationsSource = managementSource.slice(operationsStart, operationsEnd);
+    const homeAttentionRender = operationsSource.indexOf('renderHomeAttention(section)');
+    assert.ok(homeAttentionRender >= 0, '선택한 프로젝트 홈이 확인 필요 요약을 렌더링하지 않습니다.');
+    assert.doesNotMatch(
+      operationsSource.slice(0, homeAttentionRender),
+      /section\.classList\.add\(["']hidden["']\)|(?:^|\n)\s*return\s*;/,
+      'renderOperationsOverview가 확인 필요 요약을 렌더링하기 전에 무조건 숨기거나 종료하면 안 됩니다.',
+    );
+    assert.ok(
+      operationsSource.includes('document.body.dataset.homeAttentionCount = String(attentionCount)')
+        && operationsSource.includes('attentionCount ? "control.home_title_attention" : "control.home_title_clear"'),
+      '홈 확인 필요 개수와 제목이 실제 렌더링 결과를 반영해야 합니다.',
+    );
+    assert.equal(operationsSource.includes('renderProviderUsage('), false, '홈 확인 요약에 제공사 사용량 중복 UI를 다시 넣으면 안 됩니다.');
+    assert.ok(html.includes('id="sessionTokenOverview"'), 'AI 사용량은 상단 단일 요약 영역에 있어야 합니다.');
+    assert.equal(html.includes('provider-usage-disclosure'), false, '폐기된 홈 제공사 사용량 disclosure가 다시 추가되면 안 됩니다.');
     assert.equal(app.includes('Number(health.score'), false, '검증되지 않은 건강 점수를 UI에 표시하면 안 됩니다.');
     assert.equal(app.includes('agent-focus-layout'), false);
     assert.equal(app.includes("state.view === 'subagents'"), false);

@@ -75,7 +75,8 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       const item = event.target.closest("[data-workspace]");
       if (item) {
         const requestedWorkspace = item.dataset.workspace;
-        state.workspace = requestedWorkspace !== "all"
+        const canToggleToAll = activeList.id !== "projectSidebarList";
+        state.workspace = canToggleToAll && requestedWorkspace !== "all"
           && state.workspace === requestedWorkspace
           ? "all"
           : requestedWorkspace;

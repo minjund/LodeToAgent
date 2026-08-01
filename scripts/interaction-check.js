@@ -181,8 +181,18 @@ const ACTION_MANIFEST = [
     required: false,
     optionalReason: 'The project-first studio hides bulk disclosure controls and keeps direct project-header toggles.',
   },
-  { selector: '.control-project-header[draggable="true"]', action: 'control-room:project-reorder-drag' },
-  { selector: '[data-project-toggle]', action: 'control-room:project-toggle' },
+  {
+    selector: '.control-project-header[draggable="true"]',
+    action: 'control-room:project-reorder-drag',
+    required: false,
+    optionalReason: 'The project-first home renders one selected project at a time, so cross-project drag ordering is no longer an accessible surface.',
+  },
+  {
+    selector: '[data-project-toggle]',
+    action: 'control-room:project-toggle',
+    required: false,
+    optionalReason: 'The selected-project home hides the redundant project wrapper header and shows its work directly.',
+  },
   { selector: '[data-session-archive]', action: 'control-room:move-to-history' },
   { selector: '#loadMoreBtn', action: 'filter:load-more' },
   { selector: '[data-open-run]', action: 'run:open-empty' },
@@ -192,14 +202,6 @@ const ACTION_MANIFEST = [
   { selector: '[data-prompt-toggle]', action: 'drawer:prompt-toggle' },
   { selector: '[data-user-prompt-copy]', action: 'drawer:prompt-copy' },
   ...['summary', 'chat', 'lifecycle', 'tokens'].map(tab => ({ selector: `[data-tab="${tab}"]`, action: `drawer:tab-${tab}` })),
-  {
-    selector: '.provider-usage-disclosure > summary',
-    action: 'usage:toggle',
-  },
-  {
-    selector: '[data-provider-usage-refresh]',
-    action: 'usage:refresh',
-  },
   { selector: '[data-session-reset]', action: 'session:reset' },
   { selector: '#cancelSessionResetBtn', action: 'session:reset-cancel' },
   { selector: '#confirmSessionResetBtn', action: 'session:reset-confirm' },
@@ -252,6 +254,7 @@ const ACTION_MANIFEST = [
     optionalReason: 'The supervision intervention disclosure is behind the current early return in renderOperationsOverview and is not rendered by the fixture.',
   },
   { selector: '[data-reassign-session]', action: 'management:reassign' },
+  { selector: '[data-result-review-complete]', action: 'management:result-review-complete' },
   { selector: '[data-scroll-latest]', action: 'drawer:latest' },
   { selector: '[data-retry-detail]', action: 'drawer:retry' },
   { selector: '[data-stop-run]', action: 'drawer:stop-double' },
@@ -588,6 +591,23 @@ async function callCount(win, name) {
 
 async function clearCalls(win) {
   await win.webContents.executeJavaScript('window.interactionTest.clearCalls()');
+}
+
+async function prepareProjectFirstStep(win, workspace = 'selected') {
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspace = ${JSON.stringify(workspace)} === 'selected'
+      ? app.state.workspaces[0]?.path || 'all'
+      : ${JSON.stringify(workspace)};
+    app.state.search = '';
+    app.state.providerFilters.clear();
+    app.state.managementFilter = 'all';
+    app.state.sort = 'recent';
+    app.state.controlRoomSort = 'recent';
+    app.state.graphFocusId = null;
+    app.state.visibleLimit = 30;
+    app.render('filter');
+  })()`);
 }
 
 async function step(round, name, fn) {
@@ -1123,50 +1143,39 @@ async function exerciseAttentionNotification(win, round) {
 }
 
 async function exerciseProviderUsage(win, round) {
+  await prepareProjectFirstStep(win, 'all');
   await click(win, '[data-view="all"]', 'nav:all');
   await waitFor(win, `(() => {
-    const disclosure = document.querySelector('.provider-usage-disclosure');
-    const bounds = disclosure?.getBoundingClientRect();
-    return Boolean(disclosure && !disclosure.open && bounds?.width > 0 && bounds?.height > 0);
-  })()`, '홈에서 접힌 제공사 사용량 요약을 찾지 못했습니다.');
-  await click(win, '.provider-usage-disclosure > summary', 'usage:toggle');
-  await waitFor(win, `Boolean(document.querySelector('.provider-usage-disclosure[open] [data-provider-usage-refresh]'))`,
-    '제공사 사용량 상세를 펼치지 못했습니다.');
-  await clearCalls(win);
-  await click(win, '[data-provider-usage-refresh]', 'usage:refresh');
-  await waitFor(win, `window.interactionTest.getCalls().some(call => call.name === 'providerUsage' && call.args[0]?.force === true)
-    && Boolean(document.querySelector('.provider-usage-disclosure[open] [data-provider-usage-refresh]:not([disabled])'))`,
-  '제공사 사용량 새로고침 뒤 펼침 상태가 유지되지 않았습니다.');
+    const overview = document.querySelector('#sessionTokenOverview');
+    const bounds = overview?.getBoundingClientRect();
+    return Boolean(overview && bounds?.width > 0 && bounds?.height > 0
+      && overview.querySelector('[data-token-provider]'));
+  })()`, '상단 AI별 사용량 요약을 찾지 못했습니다.');
   const detail = await win.webContents.executeJavaScript(`(() => {
-    const disclosure = document.querySelector('.provider-usage-disclosure');
+    const overview = document.querySelector('#sessionTokenOverview');
     return {
-      cards: disclosure?.querySelectorAll('[data-provider-usage]').length || 0,
-      gauges: disclosure?.querySelectorAll('[role="progressbar"]').length || 0,
-      used: [...(disclosure?.querySelectorAll('.provider-limit-row span') || [])].map(node => node.textContent.trim()),
-      noOverflow: Boolean(disclosure && disclosure.scrollWidth <= disclosure.clientWidth + 2),
+      cards: overview?.querySelectorAll('[data-token-provider]').length || 0,
+      gauges: overview?.querySelectorAll('[role="progressbar"]').length || 0,
+      used: [...(overview?.querySelectorAll('.session-token-detail') || [])].map(node => node.textContent.trim()),
+      noOverflow: Boolean(overview && overview.scrollWidth <= overview.clientWidth + 2),
+      duplicateDisclosure: Boolean(document.querySelector('.provider-usage-disclosure')),
+      duplicateRefresh: Boolean(document.querySelector('[data-provider-usage-refresh]')),
     };
   })()`);
   assert(detail.cards >= 1 && detail.gauges >= 1
-    && detail.used.some(label => label.includes('사용')) && detail.noOverflow,
-  `제공사 사용량 상세 정보가 올바르지 않습니다: ${JSON.stringify(detail)}`);
-  await click(win, '.provider-usage-disclosure > summary', 'usage:toggle');
-  await waitFor(win, `!document.querySelector('.provider-usage-disclosure')?.open`, '제공사 사용량 상세를 다시 접지 못했습니다.');
-  round.observed.providerUsage = { ...detail, refreshPreservedDisclosure: true };
+    && detail.used.some(label => label.includes('사용')) && detail.noOverflow
+    && !detail.duplicateDisclosure && !detail.duplicateRefresh,
+  `상단 AI별 사용량 단일 표시가 올바르지 않습니다: ${JSON.stringify(detail)}`);
+  round.observed.providerUsage = { ...detail, presentation: 'topbar-only' };
 }
 
 async function exerciseManagementControls(win, round) {
+  await prepareProjectFirstStep(win);
   await click(win, '[data-view="all"]', 'nav:all');
   await waitFor(win, `Boolean(document.querySelector('[data-home-attention]'))
-    && (() => {
-      const usage = document.querySelector('.provider-usage-disclosure');
-      return Boolean(usage)
-        && getComputedStyle(usage).display !== 'none'
-        && usage.getBoundingClientRect().height > 0
-        && !usage.open;
-    })()
     && Boolean(document.querySelector('[data-control-room-overview]'))
     && Boolean(document.querySelector('.control-room-project-group'))`,
-  '홈의 판단 요약, 접힌 제공사 사용량, 에이전트 실행 구조가 의도한 우선순위로 표시되지 않았습니다.');
+  '선택한 프로젝트 홈의 판단 요약과 에이전트 실행 구조가 표시되지 않았습니다.');
   const recencyContract = await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     const now = Date.parse('2026-07-22T12:00:00.000Z');
@@ -1225,13 +1234,11 @@ async function exerciseManagementControls(win, round) {
     inboxExpected: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.needsManagementInbox(session)).length,
     reviewExpected: window.LoadToAgentApp.graphFilteredSessions().filter(session => window.LoadToAgentApp.needsManagementReview(session)).length,
     rootReviewExpected: window.LoadToAgentApp.rootManagementReviews(window.LoadToAgentApp.graphFilteredSessions()).length,
-    providerUsageCards: document.querySelectorAll('[data-provider-usage]').length,
-    providerUsageVisible: getComputedStyle(document.querySelector('.provider-usage-disclosure')).display !== 'none'
-      && document.querySelector('.provider-usage-disclosure').getBoundingClientRect().height > 0,
-    providerUsageClosed: !document.querySelector('.provider-usage-disclosure').open,
     homeAttentionVisible: Boolean(document.querySelector('[data-home-attention]'))
       && document.querySelectorAll('.home-attention-item').length > 0,
-    providerUsageSecondary: Boolean(document.querySelector('.provider-usage-disclosure:not([open]) [data-provider-usage]')),
+    homeAttentionCount: Number(document.body.dataset.homeAttentionCount || 0),
+    topbarUsageVisible: Boolean(document.querySelector('#sessionTokenOverview [data-token-provider]')),
+    duplicateProviderUsage: Boolean(document.querySelector('.provider-usage-disclosure, [data-provider-usage-refresh]')),
     childCopyLeaked: document.querySelector('#operationsOverview')?.innerText.includes('서브에이전트 내부 확인 문구'),
     controlRooms: document.querySelectorAll('[data-control-session]').length,
     rootMain: Boolean(document.querySelector('[data-control-session="fixture-root"] .control-room-main')),
@@ -1243,10 +1250,11 @@ async function exerciseManagementControls(win, round) {
     flowVisibleWithoutFocus: window.LoadToAgentApp.state.graphFocusId === null && Boolean(document.querySelector('[data-control-room-overview]')),
   }))()`);
   assert(managementScope.critical + managementScope.warning + managementScope.attention + managementScope.optional <= managementScope.total, `확인 항목 분류가 서로 중복 집계됩니다: ${JSON.stringify(managementScope)}`);
-  assert(managementScope.providerUsageCards >= 1 && managementScope.providerUsageVisible && managementScope.providerUsageClosed
-    && managementScope.homeAttentionVisible && managementScope.providerUsageSecondary && !managementScope.childCopyLeaked,
-  `홈의 판단 우선 정보 위계 또는 보조 사용량 기능이 올바르지 않습니다: ${JSON.stringify(managementScope)}`);
-  assert(managementScope.homeAttentionVisible && managementScope.reviewExpected >= 1,
+  assert(managementScope.homeAttentionVisible
+    && managementScope.homeAttentionCount === managementScope.inboxExpected
+    && managementScope.topbarUsageVisible && !managementScope.duplicateProviderUsage && !managementScope.childCopyLeaked,
+  `홈의 판단 우선 정보 위계 또는 상단 단일 사용량 표시가 올바르지 않습니다: ${JSON.stringify(managementScope)}`);
+  assert(managementScope.homeAttentionVisible && managementScope.reviewExpected >= 1 && managementScope.rootReviewExpected >= 1,
     `확인이 필요한 작업을 첫 화면에서 찾을 수 없습니다: ${JSON.stringify(managementScope)}`);
   assert(managementScope.controlRooms >= 1 && managementScope.rootMain && managementScope.rootHelpers >= 1
     && managementScope.rootExecutions >= 1 && managementScope.rootCompleted >= 1 && managementScope.flowVisibleWithoutFocus,
@@ -1444,6 +1452,11 @@ async function exerciseManagementControls(win, round) {
   await click(win, '#clearRunDraftBtn', 'run:clear-draft');
   await click(win, '#cancelRunBtn', 'run:cancel');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '재배정 창을 닫은 뒤 앱 상호작용이 복원되지 않았습니다.');
+  await click(win, '[data-management-session="fixture-failed"] .attention-primary-action[data-open-session="fixture-failed"]', 'drawer:open-graph');
+  await click(win, '.drawer-tab[data-tab="summary"]', 'drawer:tab-summary');
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
+    && Boolean(document.querySelector('#detailDrawer [data-result-review-complete="fixture-failed"]'))`,
+  '재배정 취소 뒤 실패 작업 상세를 다시 열지 못했습니다.');
   await click(win, '#detailDrawer [data-result-review-complete="fixture-failed"]', 'management:result-review-complete');
   await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')
     && window.LoadToAgentApp.isResultReviewComplete(window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-failed'))
@@ -1632,6 +1645,7 @@ async function exerciseProviderVisibility(win, round) {
 }
 
 async function exerciseDashboardControls(win, round) {
+  await prepareProjectFirstStep(win);
   await click(win, '[data-view="all"]', 'nav:all');
   await win.webContents.executeJavaScript(`(() => {
     document.querySelector('#operationsOverview')?.scrollIntoView({ block: 'start', inline: 'nearest' });
@@ -1648,13 +1662,11 @@ async function exerciseDashboardControls(win, round) {
       !['failed', 'interrupted'].includes(entry.status)
       && !['responded', 'interrupted'].includes(entry.phase));
     const waitingDelivery = waitingSession ? app.pendingConversationDelivery(waitingSession) : null;
-    const expectedRoomIds = [
-      'fixture-root',
-      ...Array.from({ length: 7 }, (_, index) => 'fixture-live-' + index),
-      'fixture-origin',
-      'fixture-old-parent',
-      ...(pendingWaiting ? ['fixture-waiting'] : []),
-    ].sort();
+    const graphModel = app.connectedGraphSessions(app.graphFilteredSessions());
+    const expectedRoomIds = graphModel.nodes
+      .filter(session => !session.parentId || !graphModel.included.has(session.parentId))
+      .map(session => session.id)
+      .sort();
     return {
     rooms: document.querySelectorAll('[data-control-session]').length,
     roomIds: [...document.querySelectorAll('[data-control-session]')].map(node => node.dataset.controlSession).sort(),
@@ -1708,8 +1720,32 @@ async function exerciseDashboardControls(win, round) {
     && controlRoom.humanSummaries.every(summary => summary && !/^\//.test(summary) && !/^(?:Let me|Now I(?:'ll| will))/i.test(summary))
     && controlRoom.rawRuntimeTitlesHidden,
   `홈 세션 관제 구조가 올바르지 않습니다: ${JSON.stringify(controlRoom)}`);
-  const navCounts = await win.webContents.executeJavaScript(`(() => ({ now: Number.parseInt(document.querySelector('#navAllCount').textContent, 10), memory: Number.parseInt(document.querySelector('#navActiveCount').textContent, 10), runtime: Number(document.querySelector('#navRuntimeCount').dataset.total), tmux: Number(document.querySelector('#navTmuxCount').textContent.match(/\\d+/)?.[0] || 0) }))()`);
-  assert(navCounts.now === 6 && navCounts.memory === 39 && navCounts.runtime === 13 && navCounts.tmux === 1, `탭 배지의 단위가 올바르지 않습니다: ${JSON.stringify(navCounts)}`);
+  const navCounts = await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const sessions = app.graphFilteredSessions();
+    const activeRoots = sessions.filter(session => !session.parentId && app.isControlRoomSession(session)).length;
+    const reviewNeeded = Math.min(activeRoots, sessions.filter(session => app.needsManagementInbox(session)
+      && !app.matchesManagementFilter(session, 'optional')).length);
+    const expected = {
+      now: Math.max(0, activeRoots - reviewNeeded),
+      memory: sessions.filter(session => !session.parentId && ['completed', 'cancelled', 'failed', 'idle'].includes(session.status)).length,
+      runtime: (app.state.snapshot?.automations || []).filter(item => !app.state.hiddenProviders.has(item.provider || 'codex')).length
+        + sessions.filter(app.isRuntimeLoopSession).length,
+      tmux: Number(app.state.snapshot?.tmux?.summary?.windows || 0),
+    };
+    return {
+      now: Number.parseInt(document.querySelector('#navAllCount').textContent, 10),
+      memory: Number.parseInt(document.querySelector('#navActiveCount').textContent, 10),
+      runtime: Number(document.querySelector('#navRuntimeCount').dataset.total),
+      tmux: Number(document.querySelector('#navTmuxCount').textContent.match(/\\d+/)?.[0] || 0),
+      expected,
+    };
+  })()`);
+  assert(navCounts.now === navCounts.expected.now
+    && navCounts.memory === navCounts.expected.memory
+    && navCounts.runtime === navCounts.expected.runtime
+    && navCounts.tmux === navCounts.expected.tmux,
+  `탭 배지의 단위가 올바르지 않습니다: ${JSON.stringify(navCounts)}`);
   const projectStudio = await win.webContents.executeJavaScript(`(() => ({
     projects: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
     attentionProjects: document.querySelectorAll('#projectSidebarList .project-sidebar-group.has-attention').length,
@@ -1718,10 +1754,10 @@ async function exerciseDashboardControls(win, round) {
     historyTitles: [...document.querySelectorAll('#projectHistoryList [data-open-session] span')].map(node => node.textContent.trim()),
     title: document.querySelector('#projectHistoryTitle')?.textContent || '',
   }))()`);
-  assert(projectStudio.projects >= 2 && !projectStudio.allProjectsOption && !projectStudio.historyVisible && projectStudio.attentionProjects >= 1
+  assert(projectStudio.projects >= 2 && !projectStudio.allProjectsOption && projectStudio.historyVisible && projectStudio.attentionProjects >= 1
     && projectStudio.historyTitles.length >= 1
     && projectStudio.historyTitles.every(title => title && title !== 'NaN')
-    && projectStudio.title.includes('프로젝트'),
+    && projectStudio.title.includes('지난 세션'),
   `프로젝트 중심 스튜디오 셸이 올바르지 않습니다: ${JSON.stringify(projectStudio)}`);
   const projectOwnership = await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
@@ -1745,6 +1781,7 @@ async function exerciseDashboardControls(win, round) {
   })()`);
   assert(projectOwnership.unrelatedChildExcluded && projectOwnership.relatedChildIncluded,
     `하위 AI 작업이 최상위 작업의 프로젝트 범위를 따르지 않습니다: ${JSON.stringify(projectOwnership)}`);
+  await prepareProjectFirstStep(win, 'all');
   await click(win, '#projectSidebarList [data-workspace="D:\\\\fixture"]', 'workspace:select');
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
     && document.querySelector('.control-room-project-group')?.open
@@ -1846,56 +1883,10 @@ async function exerciseDashboardControls(win, round) {
     && (${tmuxShortcut.height >= 44 ? "document.activeElement?.id === 'mainContent'" : "true"})`,
   'AI 작업의 tmux 바로가기가 tmux 탭을 열지 못했습니다.');
   await click(win, '[data-view="all"]', 'nav:all');
-  await waitFor(win, `document.querySelectorAll('.control-room-project-group').length > 0`, '폴더별 작업 목록이 복원되지 않았습니다.');
-  if (!await win.webContents.executeJavaScript(`Boolean(document.querySelector('.control-room-project-group')?.open)`)) {
-    await click(win, '.control-project-header', 'control-room:project-toggle');
-    await waitFor(win, `document.querySelector('.control-room-project-group')?.open`, '작업 폴더 내용을 펼치지 못했습니다.');
-  }
-  await click(win, '.control-project-header', 'control-room:project-toggle');
-  await waitFor(win, `!document.querySelector('.control-room-project-group')?.open`, '기본으로 펼쳐진 프로젝트 그룹을 접지 못했습니다.');
-  await click(win, '.control-project-header', 'control-room:project-toggle');
-  await waitFor(win, `document.querySelector('.control-room-project-group')?.open`, '프로젝트 그룹을 다시 펼치지 못했습니다.');
-  await win.webContents.executeJavaScript(`document.querySelectorAll('.control-room-project-group').forEach(group => { group.open = false; })`);
-  const projectOrderBefore = await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('#liveSessionGrid [data-project-sortable]'), node => node.dataset.projectSortable)`);
-  assert(projectOrderBefore.length >= 2, '프로젝트 위치 변경을 검증할 그룹이 부족합니다.');
-  const collapsedProjectDrag = await win.webContents.executeJavaScript(`(() => {
-    const groups = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')];
-    const sourceGroup = groups[1];
-    const targetGroup = groups[0];
-    const source = sourceGroup?.querySelector(':scope > .control-project-header');
-    if (!source || !targetGroup || !source.draggable) return { ok: false, reason: 'draggable project headers missing' };
-    const transfer = new DataTransfer();
-    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    const bounds = targetGroup.getBoundingClientRect();
-    targetGroup.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY: bounds.top + 1, dataTransfer: transfer }));
-    targetGroup.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientY: bounds.top + 1, dataTransfer: transfer }));
-    const after = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].map(node => node.dataset.projectSortable);
-    const saved = JSON.parse(localStorage.getItem('loadtoagent:dashboard-preferences:v2') || '{}').projectOrder || [];
-    return {
-      ok: after[0] === sourceGroup.dataset.projectSortable && saved.indexOf(after[0]) < saved.indexOf(after[1]),
-      after,
-      allCollapsed: [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].every(group => !group.open),
-      handlesVisible: [...document.querySelectorAll('#liveSessionGrid [data-project-sortable] .control-project-handle')]
-        .every(handle => getComputedStyle(handle).display !== 'none'),
-    };
-  })()`);
-  assert(collapsedProjectDrag.ok && collapsedProjectDrag.allCollapsed && !collapsedProjectDrag.handlesVisible,
-    `닫힌 프로젝트 그룹의 드래그 위치 변경 실패: ${JSON.stringify(collapsedProjectDrag)}`);
-  mark('control-room:project-reorder-drag');
-  await win.webContents.executeJavaScript(`(() => {
-    const groups = [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')];
-    const sourceGroup = groups[0];
-    const targetGroup = groups[1];
-    const source = sourceGroup.querySelector(':scope > .control-project-header');
-    const transfer = new DataTransfer();
-    source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    const bounds = targetGroup.getBoundingClientRect();
-    targetGroup.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientY: bounds.bottom - 1, dataTransfer: transfer }));
-    targetGroup.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientY: bounds.bottom - 1, dataTransfer: transfer }));
-  })()`);
-  await waitFor(win, `Array.from(document.querySelectorAll('#liveSessionGrid [data-project-sortable]'), node => node.dataset.projectSortable).join(',') === ${JSON.stringify(projectOrderBefore.join(','))}
-    && [...document.querySelectorAll('#liveSessionGrid [data-project-sortable]')].every(group => !group.open)`,
-  '프로젝트 드래그로 원래 순서를 복원하지 못했거나 닫힌 상태가 바뀌었습니다.');
+  await click(win, '#projectSidebarList [data-workspace="D:\\\\fixture"]', 'workspace:select');
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
+    && document.querySelector('.control-room-project-group')?.getBoundingClientRect().height > 0`,
+  'AI 작업으로 돌아온 뒤 선택한 프로젝트의 작업 목록이 복원되지 않았습니다.');
   const legacyControlRoomFiltersVisible = await win.webContents.executeJavaScript(`(() => {
     const control = document.querySelector('#controlRoomSortSelect');
     const rect = control?.getBoundingClientRect();
@@ -2010,9 +2001,12 @@ async function exerciseDashboardControls(win, round) {
   await waitFor(win, `(() => {
     const item = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
       .find(node => node.dataset.workspace === '/mnt/c/Users/fixture/nested-active-project');
-    return Boolean(item)
-      && Boolean(document.querySelector('[data-control-project="설정 개선"] [data-control-session="fixture-old-parent"]'));
-  })()`, '오래된 부모 아래 실행 중인 tmux 서브에이전트가 홈 프로젝트에서 사라졌습니다.');
+    return Boolean(item);
+  })()`, '오래된 부모 아래 실행 중인 tmux 서브에이전트의 프로젝트가 왼쪽 목록에서 사라졌습니다.');
+  await click(win, '#projectSidebarList [data-workspace="/mnt/c/Users/fixture/nested-active-project"]', 'workspace:select');
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === '/mnt/c/Users/fixture/nested-active-project'
+    && Boolean(document.querySelector('[data-control-project="설정 개선"] [data-control-session="fixture-old-parent"]'))`,
+  '오래된 부모 아래 실행 중인 tmux 서브에이전트가 선택한 프로젝트 홈에서 사라졌습니다.');
   const standaloneTmuxIds = await win.webContents.executeJavaScript(
     `window.LoadToAgentApp.unlinkedLiveTmuxSessions().map(session => session.id)`,
   );
@@ -2062,7 +2056,7 @@ async function exerciseDashboardControls(win, round) {
     window.LoadToAgentApp.render('filter');
   })()`);
   await waitFor(win, `window.LoadToAgentApp.state.workspace === 'all'
-    && Boolean(document.querySelector('[data-control-session="fixture-live-0"]'))`,
+    && document.body.dataset.projectSelected === 'false'`,
   '프로젝트 전체 컨텍스트 복원에 실패했습니다.');
   await click(win, '[data-view="active"]', 'nav:active');
   await waitFor(win, `document.querySelector('[data-session-id="fixture-ended"] .memory-record-intent small')?.textContent.includes('작업 파일 위치: 화면 개선')`, '지난 작업 카드에 작업 파일 위치가 명시되지 않았습니다.');
@@ -2151,6 +2145,15 @@ async function exerciseDashboardControls(win, round) {
     await click(win, '#mobileToolsCloseBtn', 'mobile:close');
   }
   await waitFor(win, `document.querySelector('#mobileToolsMenu').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '모바일 저장 프로젝트 제거 뒤 메뉴 상태가 복원되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    if (!app.state.workspaces.some(item => item.path === 'D:\\\\fixture')) {
+      app.state.workspaces.unshift({ name: 'fixture', path: 'D:\\\\fixture' });
+    }
+    app.state.dismissedProjects.clear();
+    localStorage.removeItem(app.PROJECT_DISMISSALS_STORAGE_KEY);
+    app.render('workspace-remove-fixture-restore');
+  })()`);
   await win.webContents.executeJavaScript(`(() => {
     const select = document.querySelector('#mobileProviderFilterSelect');
     select.value = 'gpt';
@@ -2247,7 +2250,7 @@ async function exerciseDashboardControls(win, round) {
     && document.querySelector('#memoryWorkspaceFilter')?.value === 'D:\\\\fixture'
     && [...document.querySelectorAll('#sessionGrid [data-session-id]')].every(card => {
       const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === card.dataset.sessionId);
-      return String(session?.originCwd || session?.cwd || '').toLowerCase() === 'd:\\\\fixture';
+      return Boolean(session && window.LoadToAgentApp.matchesWorkspaceFilter(session));
     })`,
     '지난 작업 프로젝트 선택기가 fixture 프로젝트 결과만 표시하지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
@@ -2272,6 +2275,7 @@ async function exerciseDashboardControls(win, round) {
   const afterCards = await win.webContents.executeJavaScript(`document.querySelectorAll('#sessionGrid [data-session-id]').length`);
   assert(beforeCards === 30 && afterCards > beforeCards, `더보기 카드 수가 증가하지 않았습니다: ${beforeCards} -> ${afterCards}`);
 
+  await prepareProjectFirstStep(win);
   await win.webContents.executeJavaScript(`(() => {
     const input = document.querySelector('#searchInput');
     input.value = 'NO_RESULT_FOR_OPEN_RUN';

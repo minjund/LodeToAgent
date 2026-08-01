@@ -574,16 +574,14 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   function renderOperationsOverview() {
     const section = $("#operationsOverview");
     if (!section) return;
-    section.innerHTML = "";
-    section.classList.add("hidden");
-    section.setAttribute("aria-hidden", "true");
-    document.body.dataset.homeAttentionCount = "0";
+    const attentionCount = renderHomeAttention(section);
+    document.body.dataset.homeAttentionCount = String(attentionCount);
     if (state.view === "all") {
       $("#pageEyebrow").textContent = t("control.home_eyebrow");
-      $("#pageTitle").textContent = t("control.home_title_clear", { count: 0 });
+      $("#pageTitle").textContent = t(attentionCount ? "control.home_title_attention" : "control.home_title_clear", { count: attentionCount });
       $("#pageSubtitle").textContent = t("control.home_subtitle");
     }
-    return;
+    return attentionCount;
     const sessions = typeof context.graphFilteredSessions === "function"
       ? context.graphFilteredSessions()
       : (state.snapshot?.sessions || []);
