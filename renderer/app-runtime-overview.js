@@ -237,7 +237,7 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const workName = loop.shortTitle || loop.displayName || loop.title;
     return `<button type="button" class="runtime-loop-tab ${selected ? "selected" : ""}" data-loop-select="${esc(loop.id)}"
       id="runtime-loop-tab-${esc(loop.id)}" role="tab" aria-controls="runtime-loop-panel-${esc(loop.id)}"
-      style="${providerStyle(loop.provider)}" aria-selected="${selected ? "true" : "false"}" aria-pressed="${selected ? "true" : "false"}" tabindex="${selected ? "0" : "-1"}">
+      style="${providerStyle(loop.provider)}" aria-selected="${selected ? "true" : "false"}" tabindex="${selected ? "0" : "-1"}">
       <span class="runtime-loop-tab-mark">${esc(provider.mark)}</span>
       <span><b>${esc(t("runtime.loop_work_name", { name: workName }))}</b><small><span>${esc(t("runtime.phase_value", { phase: phaseLabel }))}</span><span>${esc(t("runtime.working_ai", { provider: provider.label }))}</span><span>${esc(t("runtime.loop_started_schedule", { name: scheduleName }))}</span></small></span>
       <i>${esc(t(selected ? "runtime.details_shown_below" : "runtime.view_details"))}</i>
@@ -260,7 +260,7 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     </div>`;
   }
 
-  function loopDetail(session) {
+  function loopDetail(session, labelledByTab = false) {
     const provider = providerInfo(session.provider);
     const activity = currentActivity(session);
     const children = (session.childIds || []).map((id) => visibleSessions().find((item) => item.id === id)).filter(Boolean);
@@ -283,7 +283,10 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
       : window.LoadToAgentI18n.observedText(activity.detail || session.statusDetail || "");
     const linkedAutomation = visibleAutomations().find((item) => automationSession(item)?.id === session.id);
     const linkedAutomationName = linkedAutomation?.name || t("runtime.linked_schedule_unknown");
-    return `<article id="runtime-loop-panel-${esc(session.id)}" class="runtime-loop-detail" role="tabpanel" aria-labelledby="runtime-loop-tab-${esc(session.id)}" style="${providerStyle(session.provider)}" data-motion-key="runtime-loop:${esc(session.id)}" data-motion-value="${esc(session.updatedAt || "")}">
+    const panelSemantics = labelledByTab
+      ? ` role="tabpanel" aria-labelledby="runtime-loop-tab-${esc(session.id)}"`
+      : "";
+    return `<article id="runtime-loop-panel-${esc(session.id)}" class="runtime-loop-detail"${panelSemantics} style="${providerStyle(session.provider)}" data-motion-key="runtime-loop:${esc(session.id)}" data-motion-value="${esc(session.updatedAt || "")}">
       <header>
         <div><span class="runtime-loop-kicker"><i></i>${esc(t("runtime.active_loop"))}</span><h3>${esc(session.displayName || session.title)}</h3><p>${esc(t("runtime.linked_schedule", { name: linkedAutomationName, started: activityAge(session.startedAt || session.updatedAt) }))}</p></div>
         <div class="runtime-loop-header-actions"><span class="runtime-active-phase"><small>${esc(t(phaseKind, { provider: provider.label }))}</small><b>${esc(activePhase.label)}</b><em>${esc(t("runtime.working_ai", { provider: provider.label }))}</em></span></div>
@@ -303,6 +306,10 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
         </dl>
       </footer>
     </article>`;
+  }
+
+  function hiddenLoopPanel(session) {
+    return `<div id="runtime-loop-panel-${esc(session.id)}" class="runtime-loop-panel-shell" role="tabpanel" aria-labelledby="runtime-loop-tab-${esc(session.id)}" hidden></div>`;
   }
 
   function noActiveLoop() {
@@ -364,6 +371,10 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const resultReviewCount = selectedActivePhase && /결과|확인/.test(String(selectedActivePhase.label || "")) ? 1 : 0;
     const runningLoopCount = Math.max(0, loops.length - resultReviewCount);
     const selectedId = selected?.id || "";
+    const hasLoopTabs = loops.length > 1;
+    const loopPanels = selected
+      ? loops.map(loop => loop.id === selectedId ? loopDetail(loop, hasLoopTabs) : hiddenLoopPanel(loop)).join("")
+      : noActiveLoop();
     const selectedAutomation = selected
       ? automations.find((item) => automationSession(item)?.id === selected.id)
       : null;
@@ -384,8 +395,8 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     </header>
     <div class="runtime-overview-grid">
       <section class="runtime-loop-lane" aria-label="${esc(t("runtime.loop_lane", { count: loops.length }))}">
-        ${selected ? loopDetail(selected) : noActiveLoop()}
-        ${loops.length > 1 ? `<details class="runtime-loop-lane-head runtime-other-work"${otherWorkOpen ? " open" : ""}><summary>지금 실행 중인 작업 ${loops.length - 1}건 보기 <i aria-hidden="true">⌄</i></summary><div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map(loop => loopSelector(loop, loop.id === selectedId)).join("")}</div></details>` : ""}
+        ${loopPanels}
+        ${hasLoopTabs ? `<details class="runtime-loop-lane-head runtime-other-work"${otherWorkOpen ? " open" : ""}><summary>지금 실행 중인 작업 ${loops.length - 1}건 보기 <i aria-hidden="true">⌄</i></summary><div class="runtime-loop-tabs" role="tablist" aria-orientation="horizontal" aria-label="${esc(t("runtime.choose_loop"))}">${loops.map(loop => loopSelector(loop, loop.id === selectedId)).join("")}</div></details>` : ""}
       </section>
       <details class="runtime-schedule-lane"${scheduleLaneOpen ? " open" : ""}>
         <summary>반복 일정과 담당 AI 보기·변경하기 <i aria-hidden="true">⌄</i></summary>

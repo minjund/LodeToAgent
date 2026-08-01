@@ -2343,20 +2343,99 @@ async function exerciseRuntimeOverview(win, round) {
   assert(filterContracts.schedulesWithHiddenFilters === 7 && filterContracts.loopsWithHiddenFilters === 6, `숨겨진 홈 필터가 독립 런타임 탭 결과를 제한합니다: ${JSON.stringify(filterContracts)}`);
   assert(filterContracts.refreshedElapsed, `실행 시간 경과 표시가 갱신되지 않았습니다: ${JSON.stringify(filterContracts)}`);
 
-  const runtimeSemantics = await win.webContents.executeJavaScript(`(() => ({
-    scheduleRole: document.querySelector('.runtime-schedule-list')?.getAttribute('role'),
-    scheduleListTabIndex: document.querySelector('.runtime-schedule-list')?.tabIndex,
-    scheduleItems: document.querySelectorAll('.runtime-schedule-list [role="listitem"]').length,
-    scheduleButtons: document.querySelectorAll('.runtime-schedule-list button[data-automation-id]').length,
-    scheduleOptions: document.querySelectorAll('.runtime-schedule-list [role="option"]').length,
-    scheduleTabStops: [...document.querySelectorAll('.runtime-schedule-list button[data-automation-id]')].filter(item => item.tabIndex === 0).length,
-    loopRole: document.querySelector('.runtime-loop-tabs')?.getAttribute('role'),
-    loopTabs: document.querySelectorAll('.runtime-loop-tabs [role="tab"]').length,
-    loopTabStops: document.querySelectorAll('.runtime-loop-tabs [tabindex="0"]').length,
-    selectedTabs: document.querySelectorAll('.runtime-loop-tabs [aria-selected="true"]').length,
-    panelLabelled: Boolean(document.querySelector('[role="tabpanel"]')?.getAttribute('aria-labelledby')),
-  }))()`);
-  assert(runtimeSemantics.scheduleRole === 'list' && runtimeSemantics.scheduleListTabIndex === -1 && runtimeSemantics.scheduleItems === 7 && runtimeSemantics.scheduleOptions === 0 && runtimeSemantics.scheduleButtons > 0 && runtimeSemantics.scheduleTabStops === runtimeSemantics.scheduleButtons && runtimeSemantics.loopRole === 'tablist' && runtimeSemantics.loopTabs === 6 && runtimeSemantics.loopTabStops === 1 && runtimeSemantics.selectedTabs === 1 && runtimeSemantics.panelLabelled, `런타임 목록·탭 ARIA 계약 실패: ${JSON.stringify(runtimeSemantics)}`);
+  const runtimeSemantics = await win.webContents.executeJavaScript(`(() => {
+    const section = document.querySelector('#automationOverview');
+    const tabs = [...section.querySelectorAll('.runtime-loop-tabs [role="tab"]')];
+    const panels = [...section.querySelectorAll('[role="tabpanel"]')];
+    const tabRelations = tabs.map(tab => {
+      const controlledId = tab.getAttribute('aria-controls') || '';
+      const controlledPanels = panels.filter(panel => panel.id === controlledId);
+      return {
+        tabId: tab.id,
+        selected: tab.getAttribute('aria-selected') === 'true',
+        controlledId,
+        panelCount: controlledPanels.length,
+        panelLabel: controlledPanels[0]?.getAttribute('aria-labelledby') || '',
+        panelHidden: controlledPanels[0]?.hidden ?? null,
+      };
+    });
+    const orphanedPanels = panels.filter(panel => {
+      const tab = document.getElementById(panel.getAttribute('aria-labelledby') || '');
+      return !tab || tab.getAttribute('role') !== 'tab' || tab.getAttribute('aria-controls') !== panel.id;
+    }).map(panel => panel.id);
+    return {
+      scheduleRole: section.querySelector('.runtime-schedule-list')?.getAttribute('role'),
+      scheduleListTabIndex: section.querySelector('.runtime-schedule-list')?.tabIndex,
+      scheduleItems: section.querySelectorAll('.runtime-schedule-list [role="listitem"]').length,
+      scheduleButtons: section.querySelectorAll('.runtime-schedule-list button[data-automation-id]').length,
+      scheduleOptions: section.querySelectorAll('.runtime-schedule-list [role="option"]').length,
+      scheduleTabStops: [...section.querySelectorAll('.runtime-schedule-list button[data-automation-id]')].filter(item => item.tabIndex === 0).length,
+      loopRole: section.querySelector('.runtime-loop-tabs')?.getAttribute('role'),
+      loopTabs: tabs.length,
+      loopPanels: panels.length,
+      loopTabStops: tabs.filter(tab => tab.tabIndex === 0).length,
+      selectedTabs: tabs.filter(tab => tab.getAttribute('aria-selected') === 'true').length,
+      pressedTabs: tabs.filter(tab => tab.hasAttribute('aria-pressed')).length,
+      visiblePanels: panels.filter(panel => !panel.hidden).length,
+      orphanedPanels,
+      tabRelations,
+    };
+  })()`);
+  assert(runtimeSemantics.scheduleRole === 'list'
+    && runtimeSemantics.scheduleListTabIndex === -1
+    && runtimeSemantics.scheduleItems === 7
+    && runtimeSemantics.scheduleOptions === 0
+    && runtimeSemantics.scheduleButtons > 0
+    && runtimeSemantics.scheduleTabStops === runtimeSemantics.scheduleButtons
+    && runtimeSemantics.loopRole === 'tablist'
+    && runtimeSemantics.loopTabs === 6
+    && runtimeSemantics.loopPanels === runtimeSemantics.loopTabs
+    && runtimeSemantics.loopTabStops === 1
+    && runtimeSemantics.selectedTabs === 1
+    && runtimeSemantics.pressedTabs === 0
+    && runtimeSemantics.visiblePanels === 1
+    && runtimeSemantics.orphanedPanels.length === 0
+    && runtimeSemantics.tabRelations.every(relation => relation.controlledId
+      && relation.panelCount === 1
+      && relation.panelLabel === relation.tabId
+      && relation.panelHidden === !relation.selected),
+  `런타임 목록·탭 ARIA 계약 실패: ${JSON.stringify(runtimeSemantics)}`);
+
+  const singleLoopSemantics = await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const originalSnapshot = app.state.snapshot;
+    const originalSelectedLoopId = app.state.selectedRuntimeLoopId;
+    const loops = app.activeRootLoops();
+    const selectedId = loops[0]?.id || '';
+    const loopIds = new Set(loops.map(loop => loop.id));
+    let semantics;
+    try {
+      app.state.snapshot = {
+        ...originalSnapshot,
+        sessions: originalSnapshot.sessions.filter(session => !loopIds.has(session.id) || session.id === selectedId),
+      };
+      app.state.selectedRuntimeLoopId = selectedId;
+      app.renderRuntimeOverview();
+      const section = document.querySelector('#automationOverview');
+      const detail = section.querySelector('.runtime-loop-detail');
+      semantics = {
+        tabs: section.querySelectorAll('[role="tab"]').length,
+        panels: section.querySelectorAll('[role="tabpanel"]').length,
+        detailRole: detail?.getAttribute('role') || '',
+        detailLabel: detail?.getAttribute('aria-labelledby') || '',
+      };
+    } finally {
+      app.state.snapshot = originalSnapshot;
+      app.state.selectedRuntimeLoopId = originalSelectedLoopId;
+      app.renderRuntimeOverview();
+    }
+    return semantics;
+  })()`);
+  assert(singleLoopSemantics.tabs === 0
+    && singleLoopSemantics.panels === 0
+    && singleLoopSemantics.detailRole === ''
+    && singleLoopSemantics.detailLabel === '',
+  `단일 런타임 상세가 존재하지 않는 탭을 참조합니다: ${JSON.stringify(singleLoopSemantics)}`);
   mark('quality:runtime-schedule-keyboard');
   await click(win, '.runtime-other-work > summary', 'runtime:other-work');
   await waitFor(win, `document.querySelector('.runtime-other-work')?.open
@@ -2402,7 +2481,16 @@ async function exerciseRuntimeOverview(win, round) {
   assert(scrollAfter.top === scrollContract.beforeTop && scrollAfter.left === scrollContract.beforeLeft, `snapshot 뒤 런타임 스크롤 위치가 바뀌었습니다: ${JSON.stringify({ scrollContract, scrollAfter })}`);
 
   await click(win, '[data-loop-select="fixture-live-0"]', 'runtime:select-loop');
-  await waitFor(win, `window.LoadToAgentApp.state.selectedRuntimeLoopId === 'fixture-live-0' && document.querySelector('[data-loop-select="fixture-live-0"]')?.getAttribute('aria-pressed') === 'true'`, '실행 루프 선택이 상태와 화면에 반영되지 않았습니다.');
+  await waitFor(win, `(() => {
+    const tab = document.querySelector('[data-loop-select="fixture-live-0"]');
+    const panels = [...document.querySelectorAll('#automationOverview [role="tabpanel"]')]
+      .filter(panel => panel.id === tab?.getAttribute('aria-controls'));
+    return window.LoadToAgentApp.state.selectedRuntimeLoopId === 'fixture-live-0'
+      && tab?.getAttribute('aria-selected') === 'true'
+      && !tab.hasAttribute('aria-pressed')
+      && panels.length === 1
+      && !panels[0].hidden;
+  })()`, '실행 루프 선택이 상태와 탭 패널 관계에 반영되지 않았습니다.');
   assert(await win.webContents.executeJavaScript(`document.querySelector('.runtime-loop-footer')?.textContent.includes('1번째 실행') && !document.querySelector('[data-loop-select="fixture-live-5"]')`), '명시적 루프 회차 또는 일반 실행 세션 제외가 올바르지 않습니다.');
 
   await click(win, '#automationOverview [data-loop-open]', 'runtime:open-loop');
