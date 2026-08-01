@@ -17,6 +17,7 @@ function createGenericParser(dependencies) {
     contextInfo,
     finalizeUsage,
     modelContextWindow,
+    MAX_JSON_BYTES,
     readJson,
     readJsonLines,
     settleLifecycle,
@@ -63,8 +64,11 @@ function createGenericParser(dependencies) {
   function readSessionFile(fileInfo, options = {}) {
     const isJsonl = /\.jsonl$/i.test(fileInfo.file);
     return isJsonl
-      ? readJsonLines(fileInfo.file, options.fullHistory ? Math.max(1, Number(fileInfo.size || 0) + 1) : undefined)
-      : { rows: [readJson(fileInfo.file, {})], truncated: false };
+      ? readJsonLines(fileInfo.file)
+      : {
+        rows: [readJson(fileInfo.file, {})],
+        truncated: Number(fileInfo.size || 0) > MAX_JSON_BYTES,
+      };
   }
 
   function initializeSession(fileInfo, provider, parsed, options = {}) {

@@ -5,13 +5,42 @@ const path = require('path');
 
 const MAX_FILES_PER_PROVIDER = 80;
 const MAX_JSONL_BYTES = 12 * 1024 * 1024;
+const MAX_JSON_BYTES = 12 * 1024 * 1024;
 
 function safeStat(file) {
   try { return fs.statSync(file); } catch (_missingOrUnreadableFile) { return null; }
 }
 
-function readJson(file, fallback = null) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (_missingOrPartialJson) { return fallback; }
+function boundedBytes(value, fallback, ceiling) {
+  const requested = Number(value);
+  const normalized = Number.isFinite(requested) && requested > 0 ? Math.floor(requested) : fallback;
+  return Math.max(1, Math.min(normalized, ceiling));
+}
+
+function readRange(fileDescriptor, start, length) {
+  const buffer = Buffer.alloc(length);
+  let offset = 0;
+  while (offset < length) {
+    const read = fs.readSync(fileDescriptor, buffer, offset, length - offset, start + offset);
+    if (!read) break;
+    offset += read;
+  }
+  return offset === length ? buffer : buffer.subarray(0, offset);
+}
+
+function readJson(file, fallback = null, maxBytes = MAX_JSON_BYTES) {
+  const stat = safeStat(file);
+  const limit = boundedBytes(maxBytes, MAX_JSON_BYTES, MAX_JSON_BYTES);
+  if (!stat || !stat.isFile() || stat.size > limit) return fallback;
+  let fileDescriptor = null;
+  try {
+    fileDescriptor = fs.openSync(file, 'r');
+    return JSON.parse(readRange(fileDescriptor, 0, stat.size).toString('utf8'));
+  } catch (_missingOrPartialJson) {
+    return fallback;
+  } finally {
+    if (fileDescriptor !== null) fs.closeSync(fileDescriptor);
+  }
 }
 
 function parseJsonText(text) {
@@ -21,17 +50,17 @@ function parseJsonText(text) {
 function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
   const stat = safeStat(file);
   if (!stat || !stat.isFile()) return { rows: [], truncated: false };
-  const start = Math.max(0, stat.size - maxBytes);
+  const limit = boundedBytes(maxBytes, MAX_JSONL_BYTES, MAX_JSONL_BYTES);
+  const start = Math.max(0, stat.size - limit);
   const length = stat.size - start;
   const fd = fs.openSync(file, 'r');
-  const buffer = Buffer.alloc(length);
+  let buffer = Buffer.alloc(0);
   let headerLine = '';
   try {
-    fs.readSync(fd, buffer, 0, length, start);
+    buffer = readRange(fd, start, length);
     if (start > 0) {
       const headLength = Math.min(stat.size, 2 * 1024 * 1024);
-      const head = Buffer.alloc(headLength);
-      fs.readSync(fd, head, 0, headLength, 0);
+      const head = readRange(fd, 0, headLength);
       const newline = head.indexOf(10);
       if (newline >= 0) {
         headerLine = head.subarray(0, newline).toString('utf8').replace(/\r$/, '');
@@ -79,6 +108,8 @@ function walkRecent(root, predicate, max = MAX_FILES_PER_PROVIDER, maxDepth = 6)
 
 module.exports = {
   MAX_FILES_PER_PROVIDER,
+  MAX_JSON_BYTES,
+  MAX_JSONL_BYTES,
   readJson,
   readJsonLines,
   safeStat,

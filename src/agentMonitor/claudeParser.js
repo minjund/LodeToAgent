@@ -597,7 +597,7 @@ function createClaudeParser(dependencies) {
   }
 
   return function parseClaude(fileInfo, options = {}) {
-    const parsed = readJsonLines(fileInfo.file, options.fullHistory ? Math.max(1, Number(fileInfo.size || 0) + 1) : undefined);
+    const parsed = readJsonLines(fileInfo.file);
     if (!parsed.rows.length) return null;
     const session = initializeSession(fileInfo, parsed, options);
     const state = processRows(session, parsed.rows);

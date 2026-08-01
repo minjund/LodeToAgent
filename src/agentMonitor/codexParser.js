@@ -504,7 +504,7 @@ function createCodexParser(dependencies) {
   }
 
   return function parseCodex(fileInfo, options = {}) {
-    const parsed = readJsonLines(fileInfo.file, options.fullHistory ? Math.max(1, Number(fileInfo.size || 0) + 1) : undefined);
+    const parsed = readJsonLines(fileInfo.file);
     if (!parsed.rows.length) return null;
     const { session, meta } = initializeSession(fileInfo, parsed, options);
     const state = createParseState(session, meta);

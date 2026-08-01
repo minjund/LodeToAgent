@@ -17,6 +17,7 @@ const { createHierarchyAttacher } = require('./agentMonitor/hierarchy');
 const { assistantResponseIntent, isUserInputTool } = require('./agentMonitor/responseIntent');
 const {
   MAX_FILES_PER_PROVIDER,
+  MAX_JSON_BYTES,
   readJson,
   readJsonLines,
   safeStat,
@@ -332,6 +333,7 @@ const parseGeneric = createGenericParser({
   contextInfo,
   finalizeUsage,
   modelContextWindow,
+  MAX_JSON_BYTES,
   readJson,
   readJsonLines,
   settleLifecycle,
@@ -357,7 +359,7 @@ function trimSession(session) {
   if (session.fullHistory) {
     session.omittedMessages = 0;
     session.omittedLifecycle = 0;
-    session.truncated = false;
+    session.truncated = Boolean(session.truncated);
     if (!session.messages.length) addMessage(session, { id: `${session.id}:empty`, role: 'system', text: '표시할 대화 메시지가 아직 없습니다.', timestamp: session.updatedAt });
     return;
   }
@@ -604,9 +606,9 @@ class AgentMonitor extends EventEmitter {
       delegation: stored.delegation || detailed.delegation,
       childIds: stored.childIds || detailed.childIds || [],
       fullHistory: true,
-      truncated: false,
-      omittedMessages: 0,
-      omittedLifecycle: 0,
+      truncated: Boolean(detailed.truncated),
+      omittedMessages: Number(detailed.omittedMessages || 0),
+      omittedLifecycle: Number(detailed.omittedLifecycle || 0),
     };
   }
 

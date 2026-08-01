@@ -4,8 +4,9 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const {
-  AgentMonitor, parseClaude, parseCodex, attachHierarchy, isProjectlessSession, mergeManagedWithHistory,
+  AgentMonitor, parseClaude, parseCodex, parseGeneric, attachHierarchy, isProjectlessSession, mergeManagedWithHistory,
 } = require('../../src/agentMonitor');
+const { MAX_JSON_BYTES } = require('../../src/agentMonitor/sessionFiles');
 const { assistantRequestsUserResponse, assistantResponseIntent } = require('../../src/agentMonitor/responseIntent');
 
 function registerClaudeParserTests(context) {
@@ -690,6 +691,25 @@ function registerCodexRecoveryTests(context) {
     assert.equal(session.agentName, 'Kepler');
     assert.equal(session.taskName, 'large_child');
     assert.equal(session.truncated, true);
+
+    const detail = parseCodex({ file, mtimeMs: stat.mtimeMs, size: stat.size }, { fullHistory: true });
+    assert.equal(detail.fullHistory, true);
+    assert.equal(detail.truncated, true);
+    assert.equal(detail.id, 'codex:large-child');
+
+    const oversizedJson = path.join(temp, 'gemini', 'oversized-session.json');
+    fs.mkdirSync(path.dirname(oversizedJson), { recursive: true });
+    fs.writeFileSync(oversizedJson, '{"id":"oversized"}', 'utf8');
+    fs.truncateSync(oversizedJson, MAX_JSON_BYTES + 1);
+    const oversizedStat = fs.statSync(oversizedJson);
+    const boundedGeneric = parseGeneric({
+      file: oversizedJson,
+      mtimeMs: oversizedStat.mtimeMs,
+      size: oversizedStat.size,
+    }, 'gemini', { fullHistory: true });
+    assert.equal(boundedGeneric.fullHistory, true);
+    assert.equal(boundedGeneric.truncated, true);
+    assert.equal(boundedGeneric.externalId, 'oversized-session');
   });
 
   test('부모 로그에 spawn 이벤트가 없어도 자식 세션으로 메인 대화 이력을 복원한다', () => {
