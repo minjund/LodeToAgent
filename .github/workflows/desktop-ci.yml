@@ -44,7 +44,7 @@ jobs:
       - run: npm run pack
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-      - run: npm pack --dry-run
+      - run: npm run check:package
 
   dependency-review:
     if: github.event_name == 'pull_request'

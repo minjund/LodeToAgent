@@ -24,7 +24,7 @@ jobs:
       - run: npm test
       - run: npm run test:accuracy
       - run: npm audit --audit-level=high
-      - run: npm pack --dry-run
+      - run: npm run check:package
       - name: Verify release version
         env:
           RELEASE_TAG: ${{ github.ref_name }}

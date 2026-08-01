@@ -37,7 +37,10 @@
     "preload.js",
     "renderer",
     "src",
-    "docs",
+    "docs/*.md",
+    "docs/assets/loadtoagent-dashboard.png",
+    "docs/assets/loadtoagent-demo.gif",
+    "docs/assets/loadtoagent-project-session-ux-concept.png",
     "LICENSE",
     "SECURITY.md",
     "CHANGELOG.md",
@@ -51,6 +54,7 @@
   "scripts": {
     "start": "electron .",
     "check:source": "node scripts/check-source.js",
+    "check:package": "node scripts/package-content-check.js",
     "test": "node scripts/regression-test.js && node scripts/execution-activity-test.js && node scripts/conversation-layout-test.js",
     "test:accuracy": "node scripts/accuracy-evaluation.js",
     "test:terminal": "electron scripts/terminal-integration-test.js",
@@ -80,7 +84,7 @@
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "pack": "electron-builder --dir",
-    "prepublishOnly": "npm run check:source && npm test"
+    "prepublishOnly": "npm run check:source && npm test && npm run check:package"
   },
   "publishConfig": {
     "access": "public",
