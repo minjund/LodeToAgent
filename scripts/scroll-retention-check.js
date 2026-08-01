@@ -95,7 +95,11 @@ async function checkMainViews(win) {
 }
 
 async function checkDisclosureStates(win) {
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('all')`);
+  await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    app.state.workspace = app.state.workspaces[0]?.path || 'all';
+    app.selectView('all');
+  })()`);
   await waitFor(win, `Boolean(document.querySelector('details.control-room-project-group[data-disclosure-key^="control-project:"]'))`, '홈 프로젝트 실행 그룹이 없습니다.');
   const runtime = [];
   for (const expected of [false, true]) {

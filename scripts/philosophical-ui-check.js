@@ -131,7 +131,9 @@ async function capture(win, name, view, requiredSelector) {
       const app = window.LoadToAgentApp;
       app.state.guideExpanded = false;
       app.state.search = '';
-      app.state.workspace = 'all';
+      app.state.workspace = ${JSON.stringify(view)} === 'all'
+        ? app.state.workspaces[0]?.path || 'all'
+        : 'all';
       app.state.providerFilters.clear();
       app.render();
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -191,7 +193,7 @@ app.whenReady().then(async () => {
       const app = window.LoadToAgentApp;
       app.state.guideExpanded = false;
       app.state.search = '';
-      app.state.workspace = 'all';
+      app.state.workspace = app.state.workspaces[0]?.path || 'all';
       app.state.providerFilters.clear();
       app.render();
       app.selectView('all');
@@ -227,6 +229,11 @@ app.whenReady().then(async () => {
     ) throw new Error(`지금 화면 쉬운 표현 계약 실패: ${JSON.stringify(nowMetrics)}`);
     const nowOutput = await capture(win, 'loadtoagent-philosophical-now.png', 'all', '#liveSection');
 
+    await win.webContents.executeJavaScript(`(() => {
+      const app = window.LoadToAgentApp;
+      app.state.workspace = 'all';
+      app.render();
+    })()`);
     await stabilizeView(win, 'active', '#sessionSection');
     await waitFor(win, `document.querySelectorAll('#sessionGrid .memory-record').length > 0`, '기억 카드가 렌더링되지 않았습니다.');
     const memoryMetrics = await win.webContents.executeJavaScript(`(() => {
