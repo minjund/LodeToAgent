@@ -5,6 +5,7 @@
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
   const TERMINAL_VIEW_KEY = 'loadtoagent:terminal-view:v1';
+  const tmuxTargetKey = (distroName, paneId) => JSON.stringify([String(distroName || ''), String(paneId || '')]);
 
   function loadSessionOrder() {
     try {
@@ -47,6 +48,7 @@
     captureInFlight: false,
     captureGeneration: 0,
     captureRevision: 0,
+    suppressedTmuxTargets: new Set(),
     resizeObserver: null,
     initialized: false,
     eventsBound: false,
@@ -701,6 +703,7 @@
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench,
+    tmuxTargetKey,
     syncComposer: (...args) => composer?.sync(...args),
     tmuxRows: (...args) => tmuxRows(...args),
     updateSnapshot: (...args) => updateSnapshot(...args),
@@ -717,6 +720,7 @@
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
+    tmuxTargetKey,
     syncComposer: (...args) => composer?.sync(...args),
   });
 
@@ -926,6 +930,24 @@
     const projected = snapshot && window.LoadToAgentApp?.projectVisibleSnapshot
       ? window.LoadToAgentApp.projectVisibleSnapshot(snapshot)
       : snapshot;
+    if (projected && state.suppressedTmuxTargets.size) {
+      const availableTargets = new Set();
+      for (const distro of projected.tmux?.distros || []) {
+        for (const session of distro.sessions || []) {
+          for (const windowItem of session.windows || []) {
+            for (const pane of windowItem.panes || []) {
+              availableTargets.add(tmuxTargetKey(distro.name, pane.nativeId));
+            }
+          }
+        }
+      }
+      // Keep a successfully closed target hidden while backend snapshots are
+      // still stale. Once one snapshot confirms it is gone, a legitimately
+      // recreated pane may use the same native id again.
+      for (const target of state.suppressedTmuxTargets) {
+        if (!availableTargets.has(target)) state.suppressedTmuxTargets.delete(target);
+      }
+    }
     state.snapshot = projected || state.snapshot;
     state.workspaces = Array.isArray(workspaces) ? workspaces : state.workspaces;
     if (!state.initialized) {

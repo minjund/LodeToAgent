@@ -4392,8 +4392,10 @@ async function exerciseTerminal(win, round) {
   await click(win, '#terminalRestartBtn', 'terminal:restart');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalReconnect')`, '분리된 관리형 세션이 기존 tmux 작업에 재접속하지 않았습니다.');
   assert(await callCount(win, 'terminalReconnect') === 1 && await callCount(win, 'terminalRestart') === 0, '관리형 재접속은 새 프로세스 재시작 대신 terminalReconnect를 호출해야 합니다.');
-  await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalStop: 180 } })`);
-  await click(win, '#terminalEndSessionBtn', 'terminal:end-session');
+  await win.webContents.executeJavaScript(`window.interactionTest.configure({ delays: { terminalStop: 800 } })`);
+  // Skip the expensive post-click manifest scan so this assertion observes the
+  // in-flight state instead of racing the deliberately delayed fixture.
+  await click(win, '#terminalEndSessionBtn', 'terminal:end-session', 1, 1, '', false);
   assert(await win.webContents.executeJavaScript(`document.querySelector('#terminalEndSessionBtn').disabled && document.querySelector('#terminalEndSessionBtn').getAttribute('aria-busy') === 'true'`), '관리형 AI 작업 중단 중 바쁜 상태가 표시되지 않았습니다.');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalStop')`, '관리형 AI 작업 중단이 terminalStop을 호출하지 않았습니다.');
   await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('작업 중지됨')`, '중단된 관리형 세션 기록이 목록에 보존되지 않았습니다.');
@@ -4456,6 +4458,18 @@ async function exerciseTerminal(win, round) {
 async function openTmuxControl(win) {
   await click(win, '[data-control-tmux="tmux-pane-id"]', 'tmux:control-pane');
   await waitFor(win, `!document.querySelector('#terminalTmuxTools').classList.contains('hidden') && document.querySelector('[data-tmux-manage="rename-session"]')`, 'tmux 조작 도구가 열리지 않았습니다.', 100);
+}
+
+async function recreateTmuxFixtureAfterConfirmedClose(win) {
+  await win.webContents.executeJavaScript(`(() => {
+    const restored = window.interactionTest.getSnapshot();
+    const withoutTmux = { ...restored, tmux: { ...restored.tmux, distros: [] } };
+    // Model a backend snapshot that confirms the destructive operation before
+    // recreating the shared fixture for the next independent management test.
+    window.LoadToAgentTerminal.updateSnapshot(withoutTmux);
+    window.LoadToAgentTerminal.updateSnapshot(restored);
+  })()`);
+  await waitFor(win, `Boolean(document.querySelector('[data-tmux-distro="FixtureLinux"][data-tmux-pane="%7"]'))`, 'tmux 종료 확인 뒤 다음 fixture를 복원하지 못했습니다.');
 }
 
 async function verifyOneCall(win, actionName, selector, apiName) {
@@ -4645,6 +4659,7 @@ async function exerciseTmux(win, round) {
   await openTmuxControl(win);
   await verifyOneCall(win, 'tmux:kill-pane', '[data-tmux-manage="kill-pane"]', 'tmuxKillPane');
   await sleep(80);
+  await recreateTmuxFixtureAfterConfirmedClose(win);
 
   await openTmuxControl(win);
   await verifyOneCall(win, 'tmux:kill-window', '[data-tmux-manage="kill-window"]', 'tmuxKillWindow');
@@ -4662,10 +4677,12 @@ async function exerciseTmux(win, round) {
     '닫은 tmux 창이 휠 입력 또는 반복 캡처 뒤 다시 열렸습니다.',
   );
   mark('tmux:kill-window-wheel-closed');
+  await recreateTmuxFixtureAfterConfirmedClose(win);
 
   await openTmuxControl(win);
   await verifyOneCall(win, 'tmux:kill-session', '[data-tmux-manage="kill-session"]', 'tmuxKillSession');
   await sleep(80);
+  await recreateTmuxFixtureAfterConfirmedClose(win);
   await openTmuxControl(win);
   await clearCalls(win);
   if (!await win.webContents.executeJavaScript(`document.querySelector('.terminal-session-tools')?.open`)) {

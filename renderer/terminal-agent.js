@@ -6,7 +6,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   const {
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
-    syncComposer,
+    syncComposer, tmuxTargetKey,
   } = context;
   const terminalLabel = typeof terminalTypeLabel === 'function'
     ? terminalTypeLabel
@@ -66,7 +66,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     for (const distro of snapshot && snapshot.tmux && snapshot.tmux.distros || []) {
       for (const session of distro.sessions || []) {
         for (const windowItem of session.windows || []) {
-          for (const pane of windowItem.panes || []) rows.push({ distro, session, window: windowItem, pane });
+          for (const pane of windowItem.panes || []) {
+            if (!state.suppressedTmuxTargets.has(tmuxTargetKey(distro.name, pane.nativeId))) {
+              rows.push({ distro, session, window: windowItem, pane });
+            }
+          }
         }
       }
     }

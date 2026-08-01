@@ -7,6 +7,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench, tmuxRows, updateSnapshot,
+    tmuxTargetKey,
     syncComposer,
   } = context;
   let tmuxModalFocusToken = null;
@@ -324,7 +325,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         <header><b>${esc(distro.displayName || distro.name)}</b><span>${t('terminal.tmux.workspace_count', { count: (distro.sessions || []).length })}</span></header>
         ${(distro.sessions || []).map(session => `
           <div class="terminal-tmux-session"><strong>${esc(session.displayName || session.name)}</strong><small>${session.attached ? t('terminal.tmux.attached') : t('terminal.tmux.running_background')}</small></div>
-          ${(session.windows || []).flatMap(windowItem => (windowItem.panes || []).map(pane => `
+          ${(session.windows || []).flatMap(windowItem => (windowItem.panes || [])
+            .filter(pane => !state.suppressedTmuxTargets.has(tmuxTargetKey(distro.name, pane.nativeId)))
+            .map(pane => `
             <button type="button" role="option" class="terminal-tmux-pane ${state.selectedTmux && state.selectedTmux.distro.name === distro.name && state.selectedTmux.pane.nativeId === pane.nativeId ? 'active' : ''}" data-tmux-distro="${esc(distro.name)}" data-tmux-pane="${esc(pane.nativeId)}" aria-selected="${state.selectedTmux && state.selectedTmux.distro.name === distro.name && state.selectedTmux.pane.nativeId === pane.nativeId ? 'true' : 'false'}" aria-pressed="${state.selectedTmux && state.selectedTmux.distro.name === distro.name && state.selectedTmux.pane.nativeId === pane.nativeId ? 'true' : 'false'}" tabindex="${state.selectedTmux && state.selectedTmux.distro.name === distro.name && state.selectedTmux.pane.nativeId === pane.nativeId || (!state.selectedTmux && paneIndex === 0) ? '0' : '-1'}" data-pane-index="${paneIndex++}">
               <span><b>${esc(pane.nativeId)} · ${esc(windowItem.index)}:${esc(windowItem.name)}</b><small>${esc(pane.command || 'shell')} · ${esc(pane.cwd || t('terminal.path_unreported'))}</small></span>
               <i class="${pane.agent ? 'agent' : (pane.active ? 'live' : '')}">${pane.agent ? 'AI' : (pane.active ? 'ON' : '')}</i>
@@ -845,6 +848,15 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const result = await guarded(operation, message, `tmux-manage:${action}`);
     if (result) {
       if (action.startsWith('kill-')) {
+        const closedRows = tmuxRows().filter(row => {
+          if (row.distro.name !== remote.distro.name) return false;
+          if (action === 'kill-pane') return row.pane.nativeId === remote.pane.nativeId;
+          if (action === 'kill-window') return row.window.nativeId === remote.window.nativeId;
+          return row.session.nativeId === remote.session.nativeId;
+        });
+        for (const row of closedRows) {
+          state.suppressedTmuxTargets.add(tmuxTargetKey(row.distro.name, row.pane.nativeId));
+        }
         stopCapture();
         state.captureGeneration += 1;
         state.selectedTmux = null;
