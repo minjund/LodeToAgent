@@ -23,7 +23,7 @@ jobs:
       - run: npm run check:source
       - run: npm test
       - run: npm run test:accuracy
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=high
       - run: npm pack --dry-run
       - name: Verify release version
         env:
