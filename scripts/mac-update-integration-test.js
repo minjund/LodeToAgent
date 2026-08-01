@@ -37,6 +37,9 @@ const sourceApp = path.join(sourceRoot, 'LoadToAgent.app');
 const targetApp = path.join(root, 'Applications', 'LoadToAgent.app');
 const dmgPath = path.join(root, 'LoadToAgent-9.9.9-arm64.dmg');
 const logPath = path.join(root, 'install-update.log');
+const rendererReadyToken = 'a'.repeat(48);
+const readyPath = path.join(root, `install-update-macos-ready-${rendererReadyToken}.json`);
+const rendererReadyPath = path.join(root, `install-renderer-ready-${rendererReadyToken}.json`);
 const launchMarker = path.join(root, 'relaunched.txt');
 const leakedEnvironmentMarker = path.join(root, 'electron-run-as-node.txt');
 const helperPath = path.join(__dirname, '..', 'src', 'macUpdateHelper.js');
@@ -64,7 +67,18 @@ try {
 `, 'utf8');
   fs.writeFileSync(
     path.join(sourceApp, 'Contents', 'MacOS', 'LoadToAgent'),
-    `#!/bin/sh\nif [ -n "$ELECTRON_RUN_AS_NODE" ]; then /bin/echo "$ELECTRON_RUN_AS_NODE" > ${JSON.stringify(leakedEnvironmentMarker)}; fi\n/usr/bin/touch ${JSON.stringify(launchMarker)}\n`,
+    [
+      '#!/bin/sh',
+      `if [ -n "$ELECTRON_RUN_AS_NODE" ]; then /bin/echo "$ELECTRON_RUN_AS_NODE" > ${JSON.stringify(leakedEnvironmentMarker)}; fi`,
+      'ready_tmp="$LOADTOAGENT_UPDATE_READY_PATH.$$.tmp"',
+      `if [ "$LOADTOAGENT_UPDATE_READY_TOKEN" = ${JSON.stringify(rendererReadyToken)} ]; then`,
+      `  /usr/bin/printf '{"token":"%s","pid":%s,"version":"9.9.9","rendererReadyAt":"2026-08-01T00:00:00.000Z"}' "$LOADTOAGENT_UPDATE_READY_TOKEN" "$$" > "$ready_tmp"`,
+      '  /bin/mv -f "$ready_tmp" "$LOADTOAGENT_UPDATE_READY_PATH"',
+      'fi',
+      `/usr/bin/touch ${JSON.stringify(launchMarker)}`,
+      '/bin/sleep 2',
+      '',
+    ].join('\n'),
     { encoding: 'utf8', mode: 0o755 },
   );
   fs.writeFileSync(path.join(sourceApp, nodePtyHelper), '#!/bin/sh\nexit 0\n', { encoding: 'utf8', mode: 0o755 });
@@ -78,7 +92,11 @@ try {
     '--dmg', dmgPath,
     '--target', targetApp,
     '--parent-pid', '99999999',
+    '--expected-version', '9.9.9',
     '--log', logPath,
+    '--ready', readyPath,
+    '--renderer-ready-path', rendererReadyPath,
+    '--renderer-ready-token', rendererReadyToken,
     '--allow-unsigned-mac-updates', 'true',
   ], {
     timeout: 60_000,
@@ -89,9 +107,11 @@ try {
   assert.equal(fs.readFileSync(path.join(targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
   assert.equal(fs.statSync(path.join(targetApp, nodePtyHelper)).mode & 0o111, 0o111);
   assert.equal(fs.existsSync(leakedEnvironmentMarker), false);
+  assert.equal(fs.existsSync(rendererReadyPath), false);
+  assert.equal(fs.readdirSync(path.dirname(targetApp)).some(name => name.includes('.backup-')), false);
   assert.match(fs.readFileSync(logPath, 'utf8'), /internal unsigned update quarantine removed/);
-  assert.match(fs.readFileSync(logPath, 'utf8'), /update installed and relaunched/);
-  console.log('✓ 실제 DMG 마운트, 실행 권한 보존, 앱 교체, 자동 재실행 통합 테스트 통과');
+  assert.match(fs.readFileSync(logPath, 'utf8'), /update installed and renderer ready;pid=\d+;version=9\.9\.9/);
+  console.log('✓ 실제 DMG 마운트, 실행 권한 보존, 인증된 준비 신호, 앱 교체 통합 테스트 통과');
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

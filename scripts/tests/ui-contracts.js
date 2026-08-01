@@ -837,6 +837,8 @@ const MAIN_PROCESS_CONTRACTS = [
   "readUpdateRelaunchRequest",
   "signalRendererReady",
   "updateRelaunchReady",
+  "let updateInstallPromise = null",
+  "function performDownloadedUpdateInstall",
   "did-start-loading",
 ];
 

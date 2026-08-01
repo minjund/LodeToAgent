@@ -59,6 +59,7 @@ let terminalManager = null;
 let bridgeLauncher = null;
 let backgroundTray = null;
 let updateManager = null;
+let updateInstallPromise = null;
 let attentionNotifier = null;
 let isQuitting = false;
 let appLocale = 'ko';
@@ -542,7 +543,7 @@ async function connectTerminalForStartup(timeoutMs = 4_000) {
   }
 }
 
-async function installDownloadedUpdate() {
+async function performDownloadedUpdateInstall() {
   if (!updateManager) throw new Error('업데이트 기능이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
   const downloaded = await updateManager.download();
   const outcome = await launchDownloadedUpdate({
@@ -562,6 +563,18 @@ async function installDownloadedUpdate() {
     setImmediate(() => app.quit());
   }
   return { ...updateManager.getState(), installMode: outcome.mode };
+}
+
+function installDownloadedUpdate() {
+  if (updateInstallPromise) return updateInstallPromise;
+  updateInstallPromise = performDownloadedUpdateInstall().then(result => {
+    if (result.installMode !== 'automatic') updateInstallPromise = null;
+    return result;
+  }, error => {
+    updateInstallPromise = null;
+    throw error;
+  });
+  return updateInstallPromise;
 }
 
 async function setupRuntime() {

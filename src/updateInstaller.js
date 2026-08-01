@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { execFile: execFileCallback, spawn: spawnProcess } = require('child_process');
 const { promisify } = require('util');
+const { reportRecoverableError } = require('./diagnostics');
 
 const execFileProcess = promisify(execFileCallback);
 
@@ -362,7 +363,7 @@ function waitForProcessSpawn(child, timeoutMs = 5000) {
   });
 }
 
-function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000) {
+function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000, expected = null) {
   if (!readyPath || !child || typeof child.once !== 'function') {
     return Promise.reject(new Error('업데이트 설치 도우미의 준비 상태를 확인하지 못했습니다.'));
   }
@@ -382,11 +383,27 @@ function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000) {
     };
     const onError = error => finish(error);
     const onExit = code => {
-      if (code === 0 && fs.existsSync(readyPath)) finish();
+      if (!expected && code === 0 && fs.existsSync(readyPath)) finish();
       else finish(new Error(`업데이트 설치 도우미가 준비되기 전에 종료되었습니다. (코드 ${code ?? '알 수 없음'})`));
     };
     const checkReady = () => {
-      fs.promises.access(readyPath, fs.constants.F_OK)
+      if (child.exitCode != null || child.signalCode != null) {
+        finish(new Error('업데이트 설치 도우미가 준비되기 전에 종료되었습니다.'));
+        return;
+      }
+      const check = expected
+        ? fs.promises.readFile(readyPath, 'utf8').then(raw => {
+          let value;
+          try { value = JSON.parse(raw); } catch (_invalidReadyJson) { throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.'); }
+          if (value.token !== expected.token || Number(value.helperPid) !== Number(expected.pid)) {
+            throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
+          }
+          if (child.exitCode != null || child.signalCode != null) {
+            throw new Error('업데이트 설치 도우미가 준비 신호 직후 종료되었습니다.');
+          }
+        })
+        : fs.promises.access(readyPath, fs.constants.F_OK);
+      check
         .then(() => finish())
         .catch(error => {
           if (error && error.code !== 'ENOENT') finish(error);
@@ -500,6 +517,11 @@ async function launchDownloadedUpdate(options = {}) {
     if (!targetApp || !fs.existsSync(targetApp)) throw new Error('현재 설치된 macOS 앱을 찾지 못했습니다.');
     const helperPath = path.join(downloadsDir, 'install-update-macos.js');
     const logPath = path.join(downloadsDir, 'install-update.log');
+    const rendererReadyToken = crypto.randomBytes(24).toString('hex');
+    const readyPath = path.join(downloadsDir, `install-update-macos-ready-${rendererReadyToken}.json`);
+    const rendererReadyPath = path.join(downloadsDir, `install-renderer-ready-${rendererReadyToken}.json`);
+    await fs.promises.rm(readyPath, { force: true });
+    await fs.promises.rm(rendererReadyPath, { force: true });
     const helperSource = await fs.promises.readFile(MAC_UPDATE_HELPER_SOURCE, 'utf8');
     await fs.promises.writeFile(helperPath, helperSource, { encoding: 'utf8', mode: 0o700 });
     const environment = { ...process.env, ...(options.environment || {}), ELECTRON_RUN_AS_NODE: '1' };
@@ -508,17 +530,48 @@ async function launchDownloadedUpdate(options = {}) {
       '--dmg', installerPath,
       '--target', targetApp,
       '--parent-pid', String(parentPid),
+      '--expected-version', expectedVersion,
       '--log', logPath,
+      '--ready', readyPath,
+      '--renderer-ready-path', rendererReadyPath,
+      '--renderer-ready-token', rendererReadyToken,
       '--allow-unsigned-mac-updates', String(options.allowUnsignedMacUpdates === true),
     ], {
       detached: true,
       stdio: 'ignore',
       env: environment,
     });
-    await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
-    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
+    const waitForReady = options.waitForReady || waitForUpdateHelperReady;
+    try {
+      await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
+      if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
+      await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000, {
+        pid: child.pid,
+        token: rendererReadyToken,
+      });
+    } catch (error) {
+      try { if (typeof child.kill === 'function') child.kill(); } catch (_killError) {}
+      await fs.promises.rm(readyPath, { force: true }).catch(cleanupError => {
+        reportRecoverableError('mac-update-helper-ready-remove', cleanupError);
+      });
+      await fs.promises.rm(rendererReadyPath, { force: true }).catch(cleanupError => {
+        reportRecoverableError('mac-update-renderer-ready-remove', cleanupError);
+      });
+      throw error;
+    }
     child.unref();
-    return { mode: 'automatic', helperPath, logPath, targetApp };
+    await fs.promises.rm(readyPath, { force: true }).catch(cleanupError => {
+      reportRecoverableError('mac-update-helper-ready-remove', cleanupError);
+    });
+    return {
+      mode: 'automatic',
+      helperPath,
+      logPath,
+      readyPath,
+      rendererReadyPath,
+      rendererReadyToken,
+      targetApp,
+    };
   }
 
   const helperPath = path.join(downloadsDir, 'install-update.ps1');

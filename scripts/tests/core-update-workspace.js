@@ -17,12 +17,21 @@ const {
   waitForUpdateHelperReady,
   WINDOWS_UPDATE_BOOTSTRAP,
 } = require('../../src/updateInstaller');
-const { installMacUpdate } = require('../../src/macUpdateHelper');
+const {
+  installMacUpdate,
+  parseArguments: parseMacUpdateArguments,
+  readBundleMetadata,
+  terminateApplication,
+} = require('../../src/macUpdateHelper');
 const { readUpdateRelaunchRequest, signalRendererReady } = require('../../src/updateRelaunch');
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace, writeWorkspaces } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 const { ensureMacNodePtyRuntime, unpackedAsarPath } = require('../../src/nodePtyRuntime');
 const { ensureMacNodePtySpawnHelpersExecutable } = require('../after-pack');
+
+function macHelperReadyPath(root, token) {
+  return path.join(root, `install-update-macos-ready-${token}.json`);
+}
 
 function registerProviderAndWorkspaceTests(context) {
   const { test, temp } = context;
@@ -401,6 +410,29 @@ function registerCliAndUpdateTests(context) {
     setTimeout(() => fs.writeFileSync(readyFixture, 'ready', 'utf8'), 20);
     await waitForUpdateHelperReady(readyFixture, readyChild, 500);
     fs.rmSync(readyFixture, { force: true });
+    const authenticatedToken = '8'.repeat(48);
+    const authenticatedReady = path.join(downloadDir, `helper-ready-${authenticatedToken}.json`);
+    const authenticatedChild = new EventEmitter();
+    authenticatedChild.pid = 7_654;
+    setTimeout(() => fs.writeFileSync(authenticatedReady, JSON.stringify({
+      helperPid: authenticatedChild.pid,
+      token: authenticatedToken,
+    }), 'utf8'), 20);
+    await waitForUpdateHelperReady(authenticatedReady, authenticatedChild, 500, {
+      pid: authenticatedChild.pid,
+      token: authenticatedToken,
+    });
+    fs.rmSync(authenticatedReady, { force: true });
+    const mismatchedReady = path.join(downloadDir, `helper-ready-mismatch-${authenticatedToken}.json`);
+    fs.writeFileSync(mismatchedReady, JSON.stringify({ helperPid: 1, token: authenticatedToken }), 'utf8');
+    await assert.rejects(
+      waitForUpdateHelperReady(mismatchedReady, authenticatedChild, 500, {
+        pid: authenticatedChild.pid,
+        token: authenticatedToken,
+      }),
+      /준비 신호가 올바르지 않습니다/,
+    );
+    fs.rmSync(mismatchedReady, { force: true });
     const exitedChild = new EventEmitter();
     const exitedWait = waitForUpdateHelperReady(path.join(downloadDir, 'never-ready'), exitedChild, 500);
     setImmediate(() => exitedChild.emit('exit', 41));
@@ -420,6 +452,7 @@ function registerCliAndUpdateTests(context) {
     fs.writeFileSync(macInstaller, 'fixture dmg', 'utf8');
     let macSpawnCall = null;
     let macUnrefCalled = false;
+    let macReadyWaited = false;
     const macAutomatic = await launchDownloadedUpdate({
       platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
       installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
@@ -427,6 +460,11 @@ function registerCliAndUpdateTests(context) {
       environment: { FIXTURE: 'yes' },
       allowUnsignedMacUpdates: true,
       verifyInstaller,
+      waitForReady: async (readyPath, child, _timeoutMs, expected) => {
+        macReadyWaited = true;
+        assert.equal(path.basename(readyPath), `install-update-macos-ready-${expected.token}.json`);
+        assert.equal(expected.pid, child.pid);
+      },
       spawn: (command, args, options) => {
         macSpawnCall = { command, args, options };
         const child = new EventEmitter();
@@ -439,16 +477,49 @@ function registerCliAndUpdateTests(context) {
     assert.equal(macAutomatic.mode, 'automatic');
     assert.equal(macAutomatic.targetApp, macAppBundlePath(macExecutable));
     assert.equal(macUnrefCalled, true);
+    assert.equal(macReadyWaited, true);
     assert.equal(macSpawnCall.command, macExecutable);
     assert.equal(macSpawnCall.options.detached, true);
     assert.equal(macSpawnCall.options.env.ELECTRON_RUN_AS_NODE, '1');
     assert.equal(macSpawnCall.options.env.FIXTURE, 'yes');
     assert(macSpawnCall.args.includes(macInstaller));
     assert(macSpawnCall.args.includes(macAutomatic.targetApp));
+    assert(macSpawnCall.args.includes('--expected-version'));
+    assert(macSpawnCall.args.includes('3.1.0'));
+    assert(macSpawnCall.args.includes('--ready'));
+    assert(macSpawnCall.args.includes(macAutomatic.readyPath));
+    assert(macSpawnCall.args.includes('--renderer-ready-path'));
+    assert(macSpawnCall.args.includes(macAutomatic.rendererReadyPath));
+    assert(macSpawnCall.args.includes('--renderer-ready-token'));
+    assert(macSpawnCall.args.includes(macAutomatic.rendererReadyToken));
+    assert.equal(path.basename(macAutomatic.rendererReadyPath), `install-renderer-ready-${macAutomatic.rendererReadyToken}.json`);
+    assert.match(macAutomatic.rendererReadyToken, /^[0-9a-f]{48}$/);
     assert(macSpawnCall.args.includes('--allow-unsigned-mac-updates'));
     assert(macSpawnCall.args.includes('true'));
     assert.equal(verifiedInstallers.at(-1).allowUnsignedMacUpdates, true);
     assert.match(fs.readFileSync(macAutomatic.helperPath, 'utf8'), /async function installMacUpdate/);
+
+    let failedMacHelperKilled = false;
+    await assert.rejects(
+      launchDownloadedUpdate({
+        platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
+        installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
+        expectedVersion: '3.1.0',
+        verifyInstaller,
+        waitForReady: async () => { throw new Error('fixture helper readiness timeout'); },
+        spawn: () => {
+          const child = new EventEmitter();
+          child.pid = 9888;
+          child.unref = () => {};
+          child.kill = () => { failedMacHelperKilled = true; return true; };
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+      }),
+      /fixture helper readiness timeout/,
+    );
+    assert.equal(failedMacHelperKilled, true);
+
     assert.equal(canInstallSilently({
       platform: 'darwin', installType: 'desktop', installerPath: macInstaller,
       downloadsDir: downloadDir, appPath: macExecutable,
@@ -553,6 +624,57 @@ function registerCliAndUpdateTests(context) {
   });
 
   test('macOS 업데이트 헬퍼가 앱을 교체하고 실패하면 원본을 복구해 재실행한다', async () => {
+    const noProcessGroup = () => { throw Object.assign(new Error('missing fixture process group'), { code: 'ESRCH' }); };
+    const parsedToken = '9'.repeat(48);
+    const parsedReadyPath = macHelperReadyPath(temp, parsedToken);
+    const parsedRendererReadyPath = path.join(temp, `install-renderer-ready-${parsedToken}.json`);
+    assert.deepStrictEqual(parseMacUpdateArguments([
+      '--dmg', '/tmp/LoadToAgent-3.1.0-arm64.dmg',
+      '--target', '/Applications/LoadToAgent.app',
+      '--parent-pid', '1234',
+      '--expected-version', '3.1.0',
+      '--log', '/tmp/install-update.log',
+      '--ready', parsedReadyPath,
+      '--renderer-ready-path', parsedRendererReadyPath,
+      '--renderer-ready-token', parsedToken,
+      '--allow-unsigned-mac-updates', 'false',
+    ]), {
+      dmgPath: '/tmp/LoadToAgent-3.1.0-arm64.dmg',
+      targetApp: '/Applications/LoadToAgent.app',
+      parentPid: 1234,
+      expectedVersion: '3.1.0',
+      logPath: '/tmp/install-update.log',
+      readyPath: parsedReadyPath,
+      rendererReadyPath: parsedRendererReadyPath,
+      rendererReadyToken: parsedToken,
+      allowUnsignedMacUpdates: false,
+    });
+
+    let metadataCall = null;
+    assert.deepStrictEqual(await readBundleMetadata('/Applications/LoadToAgent.app', {
+      plutil: 'plutil',
+      execFile: async (command, args) => {
+        metadataCall = { command, args };
+        return { stdout: JSON.stringify({
+          CFBundleShortVersionString: '3.1.0',
+          CFBundleExecutable: 'LoadToAgent',
+        }) };
+      },
+    }), { version: '3.1.0', executable: 'LoadToAgent' });
+    assert.equal(metadataCall.command, 'plutil');
+    assert.deepStrictEqual(metadataCall.args, [
+      '-convert', 'json', '-o', '-', '/Applications/LoadToAgent.app/Contents/Info.plist',
+    ]);
+    await assert.rejects(
+      readBundleMetadata('/Applications/LoadToAgent.app', {
+        execFile: async () => ({ stdout: JSON.stringify({
+          CFBundleShortVersionString: '3.1.0',
+          CFBundleExecutable: '../OtherApp',
+        }) }),
+      }),
+      /버전 또는 실행 파일 정보가 올바르지 않습니다/,
+    );
+
     async function prepareFixture(name) {
       const root = path.join(temp, name);
       const targetApp = path.join(root, 'Applications', 'LoadToAgent.app');
@@ -578,6 +700,12 @@ function registerCliAndUpdateTests(context) {
             const source = path.join(fixture.mountPath, 'LoadToAgent.app', 'Contents');
             await fs.promises.mkdir(source, { recursive: true });
             await fs.promises.writeFile(path.join(source, 'version.txt'), 'new', 'utf8');
+            await fs.promises.mkdir(path.join(source, 'MacOS'), { recursive: true });
+            await fs.promises.writeFile(
+              path.join(source, 'MacOS', 'LoadToAgent'),
+              '#!/bin/sh\nexit 0\n',
+              { encoding: 'utf8', mode: 0o755 },
+            );
             return;
           }
           if (command === 'hdiutil' && args[0] === 'detach') return;
@@ -602,38 +730,473 @@ function registerCliAndUpdateTests(context) {
 
     const successful = await prepareFixture('mac-update-success');
     const successfulRunner = fixtureRunner(successful);
+    const successfulRendererToken = 'c'.repeat(48);
+    const successfulReadyPath = macHelperReadyPath(successful.root, successfulRendererToken);
+    const successfulRendererReadyPath = path.join(
+      successful.root,
+      `install-renderer-ready-${successfulRendererToken}.json`,
+    );
+    const successfulBackup = path.join(successful.root, 'Applications', '.LoadToAgent.app.backup-success');
+    let backupPresentAtRendererSignal = false;
+    let appUnrefCalled = false;
     await installMacUpdate({
       ...successful,
       parentPid: 1234,
       operationId: 'success',
+      expectedVersion: '3.1.0',
+      readyPath: successfulReadyPath,
+      rendererReadyPath: successfulRendererReadyPath,
+      rendererReadyToken: successfulRendererToken,
       allowUnsignedMacUpdates: true,
-      waitForParentExit: async pid => assert.equal(pid, 1234),
+      waitForParentExit: async pid => {
+        assert.equal(pid, 1234);
+        assert.equal(fs.existsSync(successfulReadyPath), true);
+      },
+      readBundleMetadata: async () => ({
+        version: '3.1.0',
+        executable: 'LoadToAgent',
+      }),
+      spawnApplication: (command, args, options) => {
+        backupPresentAtRendererSignal = fs.existsSync(successfulBackup);
+        assert.equal(command, path.join(successful.targetApp, 'Contents', 'MacOS', 'LoadToAgent'));
+        assert.deepStrictEqual(args, []);
+        assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
+        assert.equal(options.env.LOADTOAGENT_UPDATE_READY_PATH, successfulRendererReadyPath);
+        assert.equal(options.env.LOADTOAGENT_UPDATE_READY_TOKEN, successfulRendererToken);
+        const child = new EventEmitter();
+        child.pid = 2468;
+        child.exitCode = null;
+        child.signalCode = null;
+        child.unref = () => { appUnrefCalled = true; };
+        fs.writeFileSync(successfulRendererReadyPath, JSON.stringify({
+          token: successfulRendererToken,
+          pid: child.pid,
+          version: '3.1.0',
+          rendererReadyAt: '2026-08-01T00:00:00.000Z',
+        }), 'utf8');
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+      readinessTimeoutMs: 500,
+      readinessPollMs: 5,
       commands: { hdiutil: 'hdiutil', ditto: 'ditto', xattr: 'xattr', open: 'open' },
       run: successfulRunner.run,
     });
     assert.equal(fs.readFileSync(path.join(successful.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
-    assert.deepStrictEqual(successfulRunner.openedVersions, ['new']);
+    assert.equal(backupPresentAtRendererSignal, true);
+    assert.equal(appUnrefCalled, true);
+    assert.equal(fs.existsSync(successfulBackup), false);
+    assert.equal(fs.existsSync(successfulRendererReadyPath), false);
+    assert.deepStrictEqual(successfulRunner.openedVersions, []);
     assert.deepStrictEqual(successfulRunner.xattrCalls, [['-cr', path.join(successful.root, 'Applications', '.LoadToAgent.app.update-success')]]);
     assert.match(fs.readFileSync(successful.logPath, 'utf8'), /internal unsigned update quarantine removed/);
-    assert.match(fs.readFileSync(successful.logPath, 'utf8'), /update installed and relaunched/);
+    assert.match(fs.readFileSync(successful.logPath, 'utf8'), /update installed and renderer ready/);
 
     const failed = await prepareFixture('mac-update-rollback');
-    const failedRunner = fixtureRunner(failed, { failFirstOpen: true });
+    const failedRunner = fixtureRunner(failed);
+    const failedRendererToken = 'd'.repeat(48);
+    const failedReadyPath = macHelperReadyPath(failed.root, failedRendererToken);
+    const failedRendererReadyPath = path.join(
+      failed.root,
+      `install-renderer-ready-${failedRendererToken}.json`,
+    );
+    const terminationSignals = [];
     await assert.rejects(
       installMacUpdate({
         ...failed,
         parentPid: 5678,
         operationId: 'rollback',
+        expectedVersion: '3.1.0',
+        readyPath: failedReadyPath,
+        rendererReadyPath: failedRendererReadyPath,
+        rendererReadyToken: failedRendererToken,
+        signalProcess: noProcessGroup,
         waitForParentExit: async pid => assert.equal(pid, 5678),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => {
+          const child = new EventEmitter();
+          child.pid = 3579;
+          child.exitCode = null;
+          child.signalCode = null;
+          child.unref = () => {};
+          child.kill = signal => {
+            terminationSignals.push(signal);
+            child.signalCode = signal;
+            setImmediate(() => child.emit('exit', null, signal));
+            return true;
+          };
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+        readinessTimeoutMs: 20,
+        readinessPollMs: 2,
+        terminationTimeoutMs: 100,
+        terminationPollMs: 2,
         commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
         run: failedRunner.run,
       }),
-      /fixture relaunch failure/,
+      /제한 시간 안에 준비되지 않았습니다/,
     );
     assert.equal(fs.readFileSync(path.join(failed.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
-    assert.deepStrictEqual(failedRunner.openedVersions, ['new', 'old']);
+    assert.deepStrictEqual(terminationSignals, ['SIGTERM']);
+    assert.deepStrictEqual(failedRunner.openedVersions, ['old']);
+    assert.equal(fs.existsSync(failedRendererReadyPath), false);
     assert.match(fs.readFileSync(failed.logPath, 'utf8'), /original app restored/);
     assert.match(fs.readFileSync(failed.logPath, 'utf8'), /original app relaunched/);
+
+    const mismatched = await prepareFixture('mac-update-version-mismatch');
+    const mismatchedRunner = fixtureRunner(mismatched);
+    const mismatchedToken = 'e'.repeat(48);
+    let mismatchedSpawned = false;
+    await assert.rejects(
+      installMacUpdate({
+        ...mismatched,
+        parentPid: 6789,
+        operationId: 'version-mismatch',
+        expectedVersion: '3.1.0',
+        readyPath: macHelperReadyPath(mismatched.root, mismatchedToken),
+        rendererReadyPath: path.join(mismatched.root, `install-renderer-ready-${mismatchedToken}.json`),
+        rendererReadyToken: mismatchedToken,
+        waitForParentExit: async () => {},
+        readBundleMetadata: async () => ({ version: '3.2.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => { mismatchedSpawned = true; throw new Error('must not launch'); },
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: mismatchedRunner.run,
+      }),
+      /새 앱 버전이 예상과 다릅니다/,
+    );
+    assert.equal(mismatchedSpawned, false);
+    assert.equal(fs.readFileSync(path.join(mismatched.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.deepStrictEqual(mismatchedRunner.openedVersions, ['old']);
+
+    const invalidReadySignals = [
+      { name: 'token', patch: { token: 'f'.repeat(48) } },
+      { name: 'pid', patch: { pid: 4001 } },
+      { name: 'version', patch: { version: '3.0.0' } },
+      { name: 'timestamp', patch: { rendererReadyAt: 'not-an-iso-timestamp' } },
+      { name: 'json', raw: '{broken-json' },
+    ];
+    for (let index = 0; index < invalidReadySignals.length; index += 1) {
+      const invalid = invalidReadySignals[index];
+      const fixture = await prepareFixture(`mac-update-invalid-ready-${invalid.name}`);
+      const runner = fixtureRunner(fixture);
+      const token = String(index).repeat(48);
+      const rendererReadyPath = path.join(fixture.root, `install-renderer-ready-${token}.json`);
+      const childPid = 4000;
+      await assert.rejects(
+        installMacUpdate({
+          ...fixture,
+          parentPid: 7000 + index,
+          operationId: `invalid-${invalid.name}`,
+          expectedVersion: '3.1.0',
+          readyPath: macHelperReadyPath(fixture.root, token),
+          rendererReadyPath,
+          rendererReadyToken: token,
+          signalProcess: noProcessGroup,
+          waitForParentExit: async () => {},
+          readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+          spawnApplication: () => {
+            const child = new EventEmitter();
+            child.pid = childPid;
+            child.exitCode = null;
+            child.signalCode = null;
+            child.unref = () => {};
+            child.kill = signal => { child.signalCode = signal; return true; };
+            const signal = JSON.stringify({
+              token,
+              pid: childPid,
+              version: '3.1.0',
+              rendererReadyAt: '2026-08-01T00:00:00.000Z',
+              ...invalid.patch,
+            });
+            fs.writeFileSync(rendererReadyPath, invalid.raw || signal, 'utf8');
+            setImmediate(() => child.emit('spawn'));
+            return child;
+          },
+          terminationTimeoutMs: 20,
+          terminationPollMs: 1,
+          commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+          run: runner.run,
+        }),
+        /준비 신호가 올바르지 않습니다/,
+      );
+      assert.equal(fs.readFileSync(path.join(fixture.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
+      assert.deepStrictEqual(runner.openedVersions, ['old']);
+    }
+
+    const exited = await prepareFixture('mac-update-early-exit');
+    const exitedRunner = fixtureRunner(exited);
+    const exitedToken = 'a'.repeat(48);
+    await assert.rejects(
+      installMacUpdate({
+        ...exited,
+        parentPid: 8000,
+        operationId: 'early-exit',
+        expectedVersion: '3.1.0',
+        readyPath: macHelperReadyPath(exited.root, exitedToken),
+        rendererReadyPath: path.join(exited.root, `install-renderer-ready-${exitedToken}.json`),
+        rendererReadyToken: exitedToken,
+        signalProcess: noProcessGroup,
+        waitForParentExit: async () => {},
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => {
+          const child = new EventEmitter();
+          child.pid = 4100;
+          child.exitCode = null;
+          child.signalCode = null;
+          child.unref = () => {};
+          setImmediate(() => {
+            child.emit('spawn');
+            child.exitCode = 17;
+            child.emit('exit', 17, null);
+          });
+          return child;
+        },
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: exitedRunner.run,
+      }),
+      /준비되기 전에 종료.*17/,
+    );
+    assert.equal(fs.readFileSync(path.join(exited.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.deepStrictEqual(exitedRunner.openedVersions, ['old']);
+
+    const cleanupWarning = await prepareFixture('mac-update-backup-cleanup-warning');
+    const cleanupRunner = fixtureRunner(cleanupWarning);
+    const cleanupToken = 'b'.repeat(48);
+    const cleanupRendererReadyPath = path.join(
+      cleanupWarning.root,
+      `install-renderer-ready-${cleanupToken}.json`,
+    );
+    const cleanupBackup = path.join(
+      cleanupWarning.root,
+      'Applications',
+      '.LoadToAgent.app.backup-cleanup-warning',
+    );
+    let backupRemoveCalls = 0;
+    const cleanupFileSystem = new Proxy(fs.promises, {
+      get(target, property) {
+        if (property === 'rm') {
+          return async (targetPath, options) => {
+            if (targetPath === cleanupBackup) {
+              backupRemoveCalls += 1;
+              if (backupRemoveCalls === 2) throw new Error('fixture backup cleanup denied');
+            }
+            return fs.promises.rm(targetPath, options);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    await installMacUpdate({
+      ...cleanupWarning,
+      parentPid: 8100,
+      operationId: 'cleanup-warning',
+      expectedVersion: '3.1.0',
+      readyPath: macHelperReadyPath(cleanupWarning.root, cleanupToken),
+      rendererReadyPath: cleanupRendererReadyPath,
+      rendererReadyToken: cleanupToken,
+      fileSystem: cleanupFileSystem,
+      waitForParentExit: async () => {},
+      readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+      spawnApplication: () => {
+        const child = new EventEmitter();
+        child.pid = 4200;
+        child.exitCode = null;
+        child.signalCode = null;
+        child.unref = () => {};
+        fs.writeFileSync(cleanupRendererReadyPath, JSON.stringify({
+          token: cleanupToken,
+          pid: child.pid,
+          version: '3.1.0',
+          rendererReadyAt: '2026-08-01T00:00:00.000Z',
+        }), 'utf8');
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+      commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+      run: cleanupRunner.run,
+    });
+    assert.equal(fs.readFileSync(path.join(cleanupWarning.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
+    assert.equal(fs.existsSync(cleanupBackup), true);
+    assert.match(fs.readFileSync(cleanupWarning.logPath, 'utf8'), /backup cleanup warning: fixture backup cleanup denied/);
+
+    const recoveryOpenFailure = await prepareFixture('mac-update-recovery-open-failure');
+    const recoveryFailureRunner = fixtureRunner(recoveryOpenFailure, { failFirstOpen: true });
+    const recoveryFailureToken = 'c'.repeat(48);
+    await assert.rejects(
+      installMacUpdate({
+        ...recoveryOpenFailure,
+        parentPid: 8200,
+        operationId: 'recovery-open-failure',
+        expectedVersion: '3.1.0',
+        readyPath: macHelperReadyPath(recoveryOpenFailure.root, recoveryFailureToken),
+        rendererReadyPath: path.join(
+          recoveryOpenFailure.root,
+          `install-renderer-ready-${recoveryFailureToken}.json`,
+        ),
+        rendererReadyToken: recoveryFailureToken,
+        signalProcess: noProcessGroup,
+        waitForParentExit: async () => {},
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => {
+          const child = new EventEmitter();
+          child.pid = 4300;
+          child.exitCode = null;
+          child.signalCode = null;
+          child.unref = () => {};
+          child.kill = signal => { child.signalCode = signal; return true; };
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+        readinessTimeoutMs: 10,
+        readinessPollMs: 1,
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: recoveryFailureRunner.run,
+      }),
+      /제한 시간 안에 준비되지 않았습니다/,
+    );
+    assert.equal(fs.readFileSync(path.join(recoveryOpenFailure.targetApp, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.deepStrictEqual(recoveryFailureRunner.openedVersions, ['old']);
+    assert.match(fs.readFileSync(recoveryOpenFailure.logPath, 'utf8'), /relaunch failed: Error: fixture relaunch failure/);
+
+    const stopFailure = await prepareFixture('mac-update-stop-failure');
+    const stopFailureRunner = fixtureRunner(stopFailure);
+    const stopFailureToken = 'd'.repeat(48);
+    const stopFailureBackup = path.join(
+      stopFailure.root,
+      'Applications',
+      '.LoadToAgent.app.backup-stop-failure',
+    );
+    await assert.rejects(
+      installMacUpdate({
+        ...stopFailure,
+        parentPid: 8300,
+        operationId: 'stop-failure',
+        expectedVersion: '3.1.0',
+        readyPath: macHelperReadyPath(stopFailure.root, stopFailureToken),
+        rendererReadyPath: path.join(
+          stopFailure.root,
+          `install-renderer-ready-${stopFailureToken}.json`,
+        ),
+        rendererReadyToken: stopFailureToken,
+        waitForParentExit: async () => {},
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => {
+          const child = new EventEmitter();
+          child.pid = 4400;
+          child.exitCode = null;
+          child.signalCode = null;
+          child.unref = () => {};
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+        terminateApplication: async () => { throw new Error('fixture process would not stop'); },
+        readinessTimeoutMs: 10,
+        readinessPollMs: 1,
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: stopFailureRunner.run,
+      }),
+      /제한 시간 안에 준비되지 않았습니다/,
+    );
+    assert.equal(fs.readFileSync(path.join(stopFailure.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
+    assert.equal(fs.readFileSync(path.join(stopFailureBackup, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.deepStrictEqual(stopFailureRunner.openedVersions, []);
+    assert.match(fs.readFileSync(stopFailure.logPath, 'utf8'), /updated app stop failed: Error: fixture process would not stop/);
+
+    const restoreFailure = await prepareFixture('mac-update-restore-rename-failure');
+    const restoreFailureRunner = fixtureRunner(restoreFailure);
+    const restoreFailureToken = 'e'.repeat(48);
+    const restoreFailureBackup = path.join(
+      restoreFailure.root,
+      'Applications',
+      '.LoadToAgent.app.backup-restore-rename-failure',
+    );
+    const restoreFailureFileSystem = new Proxy(fs.promises, {
+      get(target, property) {
+        if (property === 'rename') {
+          return async (source, destination) => {
+            if (source === restoreFailureBackup && destination === restoreFailure.targetApp) {
+              throw new Error('fixture backup restore rename denied');
+            }
+            return fs.promises.rename(source, destination);
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    await assert.rejects(
+      installMacUpdate({
+        ...restoreFailure,
+        parentPid: 8_400,
+        operationId: 'restore-rename-failure',
+        expectedVersion: '3.1.0',
+        readyPath: macHelperReadyPath(restoreFailure.root, restoreFailureToken),
+        rendererReadyPath: path.join(
+          restoreFailure.root,
+          `install-renderer-ready-${restoreFailureToken}.json`,
+        ),
+        rendererReadyToken: restoreFailureToken,
+        fileSystem: restoreFailureFileSystem,
+        signalProcess: noProcessGroup,
+        waitForParentExit: async () => {},
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        spawnApplication: () => {
+          const child = new EventEmitter();
+          child.pid = 4_600;
+          child.exitCode = null;
+          child.signalCode = null;
+          child.unref = () => {};
+          child.kill = signal => { child.signalCode = signal; return true; };
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+        readinessTimeoutMs: 10,
+        readinessPollMs: 1,
+        commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
+        run: restoreFailureRunner.run,
+      }),
+      /제한 시간 안에 준비되지 않았습니다/,
+    );
+    assert.equal(fs.readFileSync(path.join(restoreFailure.targetApp, 'Contents', 'version.txt'), 'utf8'), 'new');
+    assert.equal(fs.readFileSync(path.join(restoreFailureBackup, 'Contents', 'version.txt'), 'utf8'), 'old');
+    assert.equal(fs.existsSync(path.join(
+      restoreFailure.root,
+      'Applications',
+      '.LoadToAgent.app.failed-restore-rename-failure',
+    )), false);
+    assert.match(fs.readFileSync(restoreFailure.logPath, 'utf8'), /rollback failed.*fixture backup restore rename denied/);
+
+    const processTreeSignals = [];
+    let descendantAlive = true;
+    const exitedLeader = new EventEmitter();
+    exitedLeader.pid = 4_500;
+    exitedLeader.exitCode = null;
+    exitedLeader.signalCode = null;
+    exitedLeader.kill = () => { throw new Error('프로세스 그룹 대신 리더만 종료하면 안 됩니다.'); };
+    const missingGroup = () => Object.assign(new Error('missing process group'), { code: 'ESRCH' });
+    await terminateApplication(exitedLeader, {
+      timeoutMs: 2,
+      pollMs: 1,
+      delay: ms => new Promise(resolve => setTimeout(resolve, ms)),
+      signalProcess: (pid, signal) => {
+        processTreeSignals.push([pid, signal]);
+        if (pid !== -exitedLeader.pid) throw missingGroup();
+        if (signal === 0) {
+          if (!descendantAlive) throw missingGroup();
+          return;
+        }
+        if (signal === 'SIGTERM') {
+          exitedLeader.exitCode = 0;
+          return;
+        }
+        if (signal === 'SIGKILL') descendantAlive = false;
+      },
+    });
+    assert.equal(descendantAlive, false);
+    assert.equal(processTreeSignals.some(([pid, signal]) => pid === -4_500 && signal === 'SIGTERM'), true);
+    assert.equal(processTreeSignals.some(([pid, signal]) => pid === -4_500 && signal === 'SIGKILL'), true);
   });
 
 }
