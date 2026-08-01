@@ -248,6 +248,31 @@ function hydratePlatformPath() {
   process.env.PATH = macPathEntries(os.homedir(), process.env.PATH).join(path.delimiter);
 }
 
+function reportAgentRunnerCleanupErrors(operation, result) {
+  for (const item of result && Array.isArray(result.errors) ? result.errors : []) {
+    reportRecoverableError(`${operation}:${item.runId || 'unknown-run'}`, new Error(item.error || '알 수 없는 종료 오류'));
+  }
+  return result;
+}
+
+function persistDirectRunsForWindowsSessionEnd() {
+  isQuitting = true;
+  if (!runner) return;
+  try {
+    reportAgentRunnerCleanupErrors('windows-session-end-checkpoint', runner.prepareForSystemShutdown());
+  } catch (error) {
+    reportRecoverableError('windows-session-end-checkpoint', error);
+  }
+  try {
+    Promise.resolve(runner.dispose()).then(
+      result => reportAgentRunnerCleanupErrors('windows-session-end-cleanup', result),
+      error => reportRecoverableError('windows-session-end-cleanup', error),
+    );
+  } catch (error) {
+    reportRecoverableError('windows-session-end-cleanup', error);
+  }
+}
+
 function createWindow() {
   rendererBootstrapped = false;
   mainWindow = new BrowserWindow({
@@ -287,6 +312,10 @@ function createWindow() {
     mainWindow.hide();
     ensureBackgroundTray();
   });
+  if (process.platform === 'win32') {
+    mainWindow.on('query-session-end', persistDirectRunsForWindowsSessionEnd);
+    mainWindow.on('session-end', persistDirectRunsForWindowsSessionEnd);
+  }
   mainWindow.on('closed', () => {
     clearTimeout(showFallback);
     mainWindow = null;
@@ -870,7 +899,8 @@ function quitCleanupTask(operation, action) {
 
 async function cleanupBeforeQuit() {
   await Promise.all([
-    quitCleanupTask('agent-runner', () => runner && runner.dispose()),
+    quitCleanupTask('agent-runner', () => runner && runner.dispose())
+      .then(result => reportAgentRunnerCleanupErrors('before-quit:agent-runner', result)),
     quitCleanupTask('attention-notifier', () => attentionNotifier && attentionNotifier.dispose()),
     quitCleanupTask('terminal-manager', () => {
       if (terminalManager instanceof TerminalHostClient) terminalManager.dispose({ shutdownIfIdle: true });

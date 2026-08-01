@@ -10,6 +10,13 @@ const { runBestEffort } = require('./diagnostics');
 const { pruneManagedRuns, restrictPathPermissions } = require('./dataRetention');
 
 const DEFAULT_TERMINATION_GRACE_MS = 1_000;
+const DISPOSING_ERROR = '프로그램이 종료 중이므로 새 작업을 시작할 수 없습니다.';
+
+function terminationTimeoutError(message, code) {
+  const error = new Error(message);
+  error.code = code;
+  return error;
+}
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -375,6 +382,7 @@ class AgentRunner extends EventEmitter {
     this.terminationGraceMs = Number.isFinite(terminationGraceMs) && terminationGraceMs >= 0
       ? Math.min(terminationGraceMs, 30_000)
       : DEFAULT_TERMINATION_GRACE_MS;
+    this.disposing = false;
     this.disposePromise = null;
     ensureDir(this.runsDir);
     pruneManagedRuns(this.runsDir, {
@@ -388,6 +396,7 @@ class AgentRunner extends EventEmitter {
   }
 
   start(raw = {}) {
+    if (this.disposing) return { ok: false, error: DISPOSING_ERROR };
     const provider = normalizeProvider(raw.provider);
     const prompt = String(raw.prompt || '').trim();
     const cwd = path.resolve(String(raw.cwd || process.cwd()));
@@ -435,17 +444,12 @@ class AgentRunner extends EventEmitter {
 
     child.stdout.on('data', chunk => this.consume(run, 'stdout', chunk));
     child.stderr.on('data', chunk => this.consume(run, 'stderr', chunk));
-    child.on('error', error => {
-      state.status = 'failed';
-      state.statusDetail = error.message;
-      addLifecycle(state, 'error', '실행 중인 프로그램 오류', { id: 'process-error', detail: error.message, status: 'failed' });
-      this.persist(run);
-    });
+    child.on('error', error => this.handleChildError(run, error));
     child.on('close', (code, signal) => {
       run.closed = true;
       run.closeCode = code;
       run.closeSignal = signal;
-      if (run.disposing) return;
+      if (run.disposing || run.finalized) return;
       this.flush(run, 'stdout');
       this.flush(run, 'stderr');
       if (run.stopping) {
@@ -467,6 +471,7 @@ class AgentRunner extends EventEmitter {
   }
 
   consume(run, stream, chunk) {
+    if (!run || run.finalized) return;
     const key = `${stream}Buffer`;
     run[key] += chunk.toString('utf8');
     let index;
@@ -485,6 +490,7 @@ class AgentRunner extends EventEmitter {
   }
 
   handleLine(run, stream, line) {
+    if (!run || run.finalized) return;
     let event = null;
     try { event = JSON.parse(line); } catch (_plainOutputLine) { event = null; } // Plain stderr/stdout lines are valid runner output.
     fs.appendFileSync(path.join(run.dir, 'events.jsonl'), `${JSON.stringify({ timestamp: new Date().toISOString(), stream, event, text: event ? undefined : clip(line, 4000) })}\n`, 'utf8');
@@ -501,6 +507,16 @@ class AgentRunner extends EventEmitter {
     updateContext(run.state);
     this.persist(run);
     this.emit('changed', { runId: run.id, state: run.state });
+  }
+
+  handleChildError(run, error) {
+    if (!run || run.finalized) return;
+    run.state.status = 'failed';
+    run.state.statusDetail = error.message;
+    addLifecycle(run.state, 'error', '실행 중인 프로그램 오류', {
+      id: 'process-error', detail: error.message, status: 'failed',
+    });
+    this.persist(run);
   }
 
   persist(run) {
@@ -536,6 +552,7 @@ class AgentRunner extends EventEmitter {
   }
 
   retry(id) {
+    if (this.disposing) return { ok: false, error: DISPOSING_ERROR };
     const runIdValue = String(id || '');
     if (!/^[a-z0-9-]{4,120}$/i.test(runIdValue)) return { ok: false, error: '다시 시작할 작업 정보가 올바르지 않습니다.' };
     if (this.active.has(runIdValue)) return { ok: false, error: '아직 실행 중인 작업은 다시 실행할 수 없습니다.' };
@@ -562,6 +579,7 @@ class AgentRunner extends EventEmitter {
     if (paused && run.state.status === 'paused') return Promise.resolve({ ok: true, status: 'paused' });
     if (!paused && run.state.status !== 'paused') return Promise.resolve({ ok: true, status: run.state.status });
     const applyState = () => {
+      if (run.finalized) return { ok: false, error: '이미 종료된 작업은 상태를 바꿀 수 없습니다.' };
       run.state.status = paused ? 'paused' : 'running';
       run.state.statusDetail = paused ? '사용자가 실행을 일시정지함' : '사용자가 실행을 다시 시작함';
       addLifecycle(run.state, paused ? 'process-pause' : 'process-resume', paused ? '실행 일시정지' : '실행 다시 시작', {
@@ -625,16 +643,43 @@ class AgentRunner extends EventEmitter {
     return { promise, cancel: () => finish(false) };
   }
 
-  terminateWindowsRun(run) {
+  runWindowsTaskkill(run) {
     return new Promise(resolve => {
+      let settled = false;
+      const finish = error => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(error || null);
+      };
+      const timer = setTimeout(() => finish(terminationTimeoutError(
+        'Windows taskkill 응답 대기 시간이 초과되었습니다.',
+        'TASKKILL_TIMEOUT',
+      )), this.terminationGraceMs);
       try {
-        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, error => {
-          resolve(error || null);
-        });
+        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], {
+          windowsHide: true,
+          timeout: this.terminationGraceMs,
+        }, finish);
       } catch (error) {
-        resolve(error);
+        finish(error);
       }
     });
+  }
+
+  async terminateWindowsRun(run) {
+    const errors = [];
+    const taskkillError = await this.runWindowsTaskkill(run);
+    if (taskkillError) errors.push(taskkillError);
+    const forcedClose = this.closeWaiter(run);
+    const closed = await forcedClose.promise;
+    if (!closed) {
+      errors.push(terminationTimeoutError(
+        'Windows taskkill 이후 프로그램 종료를 확인하지 못했습니다.',
+        'TASKKILL_CLOSE_TIMEOUT',
+      ));
+    }
+    return errors;
   }
 
   async terminatePosixRun(run) {
@@ -655,27 +700,60 @@ class AgentRunner extends EventEmitter {
     }
     const closed = errors.length ? false : await gracefulClose.promise;
     if (!closed) {
+      const forcedClose = this.closeWaiter(run);
+      let killSent = false;
       try {
         this.signalRun(run, 'SIGKILL');
+        killSent = true;
       } catch (error) {
         errors.push(error);
+        forcedClose.cancel();
+      }
+      if (killSent) {
+        const killed = await forcedClose.promise;
+        if (!killed) {
+          errors.push(terminationTimeoutError(
+            'SIGKILL 이후 프로그램 종료를 확인하지 못했습니다.',
+            'SIGKILL_CLOSE_TIMEOUT',
+          ));
+        }
       }
     }
     return errors;
   }
 
+  finalizeCancelledState(run, errors, systemShutdown = false) {
+    if (!run.finalized) {
+      runBestEffort('runner-dispose-flush-stdout', () => this.flush(run, 'stdout'));
+      runBestEffort('runner-dispose-flush-stderr', () => this.flush(run, 'stderr'));
+      run.finalized = true;
+      run.state.status = 'cancelled';
+      run.state.statusDetail = systemShutdown
+        ? 'Windows 시스템 종료로 실행을 중지함'
+        : (errors.length ? '프로그램 종료 중 실행 상태를 확인하지 못함' : '프로그램 종료로 실행을 중지함');
+      run.state.endedAt = new Date().toISOString();
+      run.state.updatedAt = run.state.endedAt;
+      addLifecycle(run.state, 'process-end', systemShutdown ? '시스템 종료로 실행 중지' : '프로그램 종료로 실행 중지', {
+        id: 'process-end', detail: run.state.statusDetail, status: 'failed',
+      });
+    }
+    if (errors.length) {
+      run.state.statusDetail = '프로그램 종료 중 실행 상태를 확인하지 못함';
+      addLifecycle(run.state, 'error', '프로그램 종료 확인 실패', {
+        id: 'dispose-error',
+        detail: errors.map(error => error.message).join('\n'),
+        status: 'failed',
+      });
+    }
+    try {
+      this.persist(run);
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+
   finalizeDisposedRun(run, errors) {
-    runBestEffort('runner-dispose-flush-stdout', () => this.flush(run, 'stdout'));
-    runBestEffort('runner-dispose-flush-stderr', () => this.flush(run, 'stderr'));
-    run.state.status = 'cancelled';
-    run.state.statusDetail = errors.length
-      ? '프로그램 종료 중 실행 상태를 확인하지 못함'
-      : '프로그램 종료로 실행을 중지함';
-    run.state.endedAt = new Date().toISOString();
-    addLifecycle(run.state, 'process-end', '프로그램 종료로 실행 중지', {
-      id: 'process-end', detail: run.state.statusDetail, status: 'failed',
-    });
-    runBestEffort('runner-dispose-persist', () => this.persist(run));
+    this.finalizeCancelledState(run, errors);
     this.active.delete(run.id);
     this.emit('changed', { runId: run.id, state: run.state });
   }
@@ -685,8 +763,7 @@ class AgentRunner extends EventEmitter {
     run.disposing = true;
     let errors = [];
     if (this.platform === 'win32') {
-      const error = await this.terminateWindowsRun(run);
-      if (error) errors.push(error);
+      errors = await this.terminateWindowsRun(run);
     } else {
       errors = await this.terminatePosixRun(run);
     }
@@ -694,8 +771,27 @@ class AgentRunner extends EventEmitter {
     return errors.map(error => ({ runId: run.id, error: error.message }));
   }
 
+  prepareForSystemShutdown() {
+    this.disposing = true;
+    const runs = [...this.active.values()];
+    const errors = [];
+    for (const run of runs) {
+      const runErrors = [];
+      try {
+        run.stopping = true;
+        run.disposing = true;
+        this.finalizeCancelledState(run, runErrors, true);
+      } catch (error) {
+        runErrors.push(error);
+      }
+      errors.push(...runErrors.map(error => ({ runId: run.id, error: error.message })));
+    }
+    return { stopped: runs.length, errors };
+  }
+
   dispose() {
     if (this.disposePromise) return this.disposePromise;
+    this.disposing = true;
     const runs = [...this.active.values()];
     this.disposePromise = Promise.all(runs.map(run => this.disposeRun(run))).then(results => ({
       stopped: runs.length,
