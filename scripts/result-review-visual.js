@@ -50,22 +50,24 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `document.querySelector('#operationsOverview')?.classList.contains('hidden')
-        && !document.querySelector('.home-attention-item')
+      `!document.querySelector('#operationsOverview')?.classList.contains('hidden')
+        && Boolean(document.querySelector('.home-attention-item[data-open-session="fixture-failed"][data-result-review]'))
         && getComputedStyle(document.querySelector('.control-project-body .control-session-live')).display === 'none'
         && Boolean(window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-failed'))`,
-      '프로젝트 화면의 중복 결과 안내가 제거되지 않았습니다.',
+      '프로젝트 홈에서 확인이 필요한 결과를 찾지 못했습니다.',
     );
     const before = await win.webContents.executeJavaScript(`(() => {
       const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-failed');
+      const reviewItem = document.querySelector('.home-attention-item[data-open-session="fixture-failed"][data-result-review]');
+      const reviewBounds = reviewItem?.getBoundingClientRect();
       return {
         id: session?.id || '',
         reviewNeeded: window.LoadToAgentApp.needsManagementReview(session),
-        duplicateNoticeRemoved: !document.querySelector('.home-attention-item'),
+        resultReviewVisible: Boolean(reviewBounds && reviewBounds.width > 0 && reviewBounds.height > 0),
         duplicateProgressRemoved: getComputedStyle(document.querySelector('.control-project-body .control-session-live')).display === 'none',
       };
     })()`);
-    if (!before.id || !before.reviewNeeded || !before.duplicateNoticeRemoved || !before.duplicateProgressRemoved) {
+    if (!before.id || !before.reviewNeeded || !before.resultReviewVisible || !before.duplicateProgressRemoved) {
       throw new Error(`프로젝트 결과 상태가 올바르지 않습니다: ${JSON.stringify(before)}`);
     }
 
@@ -107,6 +109,7 @@ app.whenReady().then(async () => {
         && !window.LoadToAgentApp.needsManagementReview(
           window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === '${before.id}')
         )
+        && !document.querySelector('.home-attention-item[data-open-session="${before.id}"][data-result-review]')
         && Boolean(localStorage.getItem(window.LoadToAgentApp.RESULT_REVIEW_STORAGE_KEY))`,
       '확인 완료한 결과가 저장되거나 목록에서 제거되지 않았습니다.',
     );
@@ -122,7 +125,7 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `!document.querySelector('.home-attention-item')
+      `Boolean(document.querySelector('.home-attention-item[data-open-session="${before.id}"][data-result-review]'))
         && !window.LoadToAgentApp.isResultReviewComplete(
           window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === '${before.id}')
         )
