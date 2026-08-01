@@ -1684,6 +1684,11 @@ async function exerciseProviderVisibility(win, round) {
 async function exerciseDashboardControls(win, round) {
   await prepareProjectFirstStep(win);
   await click(win, '[data-view="all"]', 'nav:all');
+  await clearCalls(win);
+  await click(win, '#sidebarNewProjectBtn', 'workspace:add-sidebar');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'addWorkspaces')
+    && window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'`,
+  '왼쪽 프로젝트 추가 버튼이 폴더 선택 결과를 프로젝트 홈에 반영하지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
     document.querySelector('#operationsOverview')?.scrollIntoView({ block: 'start', inline: 'nearest' });
     return document.fonts.ready;
@@ -2552,12 +2557,14 @@ async function exerciseRunModal(win, round) {
     const app = window.LoadToAgentApp;
     app.state.workspaces = [{ name: 'fixture', path: 'D:\\\\fixture' }];
     app.state.availability = Object.fromEntries(app.state.providers.map(provider => [provider.id, false]));
+    app.selectView('runtime');
     const inspect = workspace => {
       app.state.workspace = workspace;
       app.render('filter');
       const opened = app.openRunModal();
       return {
         opened,
+        view: app.state.view,
         modalHidden: document.querySelector('#runModal').classList.contains('hidden'),
         backgroundInteractive: !document.querySelector('#appShell').inert,
         projectFocused: document.activeElement?.matches('#projectSidebarList [data-workspace], #sidebarNewProjectBtn, #mobileAddWorkspaceBtn, #mobileMoreBtn') || false,
@@ -2572,7 +2579,7 @@ async function exerciseRunModal(win, round) {
     };
   })()`);
   for (const [workspace, result] of Object.entries(projectRequired)) {
-    assert(result.opened === false && result.modalHidden && result.backgroundInteractive
+    assert(result.opened === false && result.view === 'all' && result.modalHidden && result.backgroundInteractive
       && result.projectFocused && result.guidance === result.expectedGuidance,
     `프로젝트가 선택되지 않은 ${workspace} 상태에서 새 작업을 거부하고 프로젝트 선택을 안내하지 못했습니다: ${JSON.stringify(result)}`);
   }
@@ -3227,6 +3234,8 @@ async function exerciseDrawer(win, round) {
 
 async function focusRoot(win) {
   await click(win, '[data-view="all"]', 'nav:all');
+  await prepareProjectFirstStep(win);
+  const rootFlowSelector = '#liveSessionGrid [data-control-session="fixture-root"] > header > .control-session-flow[data-graph-focus="fixture-root"]';
   const alreadyFocused = await win.webContents.executeJavaScript(`Boolean(window.LoadToAgentApp.state.graphFocusId)`);
   if (alreadyFocused) {
     const reset = await win.webContents.executeJavaScript(`document.querySelector('[data-graph-reset]') ? '[data-graph-reset]' : (document.querySelector('#graphResetBtn:not(.hidden)') ? '#graphResetBtn' : '')`);
@@ -3234,8 +3243,11 @@ async function focusRoot(win) {
     await click(win, reset, 'graph:reset');
     await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === null`, '기존 graph focus 초기화 실패');
   }
-  await waitFor(win, `document.querySelector('[data-graph-focus="fixture-root"]')`, '메인 graph node가 없습니다.');
-  await click(win, '[data-graph-focus="fixture-root"]', 'graph:focus', 1, 20);
+  await waitFor(win, `(() => {
+    const button = document.querySelector(${JSON.stringify('#liveSessionGrid [data-control-session="fixture-root"] > header > .control-session-flow[data-graph-focus="fixture-root"]')});
+    return Boolean(button && button.getClientRects().length && getComputedStyle(button).display !== 'none');
+  })()`, '메인 작업의 진행 화면 버튼이 표시되지 않았습니다.');
+  await click(win, rootFlowSelector, 'graph:focus', 1, 20);
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-root' && document.querySelector('.agent-workflow-canvas')`, 'graph focus 화면 전환 실패');
 }
 
@@ -3417,7 +3429,7 @@ async function resetGraphToOverview(win) {
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === null`, 'graph overview 복귀 실패');
 }
 
-async function filterToGraphFocus(win, sessionId, query) {
+async function filterToGraphFocus(win, sessionId) {
   const alreadyVisible = await win.webContents.executeJavaScript(`(() => {
     const sessionId = ${JSON.stringify(sessionId)};
     return [...document.querySelectorAll('[data-graph-focus]')].some(element => {
@@ -3429,17 +3441,24 @@ async function filterToGraphFocus(win, sessionId, query) {
     });
   })()`);
   if (alreadyVisible) return;
-  if (!await win.webContents.executeJavaScript(`document.querySelector('#controlRoomSearch')?.classList.contains('is-open')`)) {
-    await click(win, '#controlRoomSearchBtn', 'control-room:search-toggle');
-  }
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#controlRoomSearchInput');
-    input.value = ${JSON.stringify(query)};
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+  const project = await win.webContents.executeJavaScript(`(() => {
+    const app = window.LoadToAgentApp;
+    const session = app.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(sessionId)});
+    const path = session ? app.controlRoomProject(session).path : '';
+    const target = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+      .find(element => element.dataset.workspace === path);
+    if (!path || !target || target.disabled || !target.getClientRects().length) {
+      return { ok: false, path, targetFound: Boolean(target) };
+    }
+    target.click();
+    return { ok: true, path };
   })()`);
+  assert(project?.ok, `${sessionId} 작업의 프로젝트를 왼쪽 목록에서 선택하지 못했습니다: ${JSON.stringify(project)}`);
+  mark('workspace:select');
+  await recordExercise(win, '#projectSidebarList [data-workspace].selected');
   await waitFor(win, `(() => {
     const sessionId = ${JSON.stringify(sessionId)};
-    return window.LoadToAgentApp.state.search === ${JSON.stringify(query)}
+    return window.LoadToAgentApp.state.workspace === ${JSON.stringify(project?.path || '')}
       && [...document.querySelectorAll('[data-graph-focus]')].some(element => {
       if (element.dataset.graphFocus !== sessionId || element.closest('[inert], [hidden], [aria-hidden="true"]')) return false;
       const style = getComputedStyle(element);
@@ -3447,7 +3466,7 @@ async function filterToGraphFocus(win, sessionId, query) {
       return element.getClientRects().length > 0 && rect.width > 0 && rect.height > 0
         && style.display !== 'none' && style.visibility === 'visible' && Number(style.opacity) > 0;
     });
-  })()`, `${sessionId} 검색 결과의 graph node가 표시되지 않았습니다.`);
+  })()`, `${sessionId} 프로젝트의 graph node가 표시되지 않았습니다.`);
 }
 
 async function clearControlRoomSearch(win) {
@@ -3647,7 +3666,7 @@ async function exerciseAgentControls(win, round) {
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '서브에이전트 상세 drawer가 닫히지 않았습니다.');
 
   await resetGraphToOverview(win);
-  await filterToGraphFocus(win, 'fixture-live-0', '설정 화면 설명 확인');
+  await filterToGraphFocus(win, 'fixture-live-0');
   await click(win, '[data-graph-focus="fixture-live-0"]', 'graph:focus');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-live-0' && document.querySelector('.agent-command-panel.control-handoff textarea:not([disabled])')`, '외부 CLI 세션 이어받기 UI가 표시되지 않았습니다.');
   await click(win, '[data-open-session="fixture-live-0"]', 'drawer:open-session');
@@ -3692,7 +3711,8 @@ async function exerciseAgentControls(win, round) {
     && item.args[0].distro === 'FixtureLinux'
     && item.args[0].cwd === '/mnt/c/Users/fixture/board-migration-loop'
     && item.args[0].transient === false
-    && item.args[0].args.join(' ') === '--resume fixture-live-0-external HANDOFF_EXISTING_SESSION')
+    && item.args[0].args.join(' ') === '--resume fixture-live-0-external -- HANDOFF_EXISTING_SESSION'
+    && item.args[0].initialCommandInArgs === true)
     && window.LoadToAgentApp.state.view === 'all'
     && document.querySelector('#detailDrawer').classList.contains('open')
     && document.querySelector('#drawerContent .chat-row.user.is-optimistic.is-confirming')
@@ -3744,7 +3764,7 @@ async function exerciseAgentControls(win, round) {
 
   await click(win, '[data-view="all"]', 'nav:all');
   await resetGraphToOverview(win);
-  await filterToGraphFocus(win, 'fixture-origin', '화면 개선 폴더의 GPT 대화창');
+  await filterToGraphFocus(win, 'fixture-origin');
   await click(win, '[data-graph-focus="fixture-origin"]', 'graph:focus');
   await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === 'fixture-origin'
     && document.querySelector('.agent-command-panel.control-origin-resume textarea:not([disabled])')
@@ -3759,7 +3779,11 @@ async function exerciseAgentControls(win, round) {
     input.closest('form').requestSubmit();
   })()`);
   mark('agent:command-submit');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate' && item.args[0].provider === 'codex' && item.args[0].bridgeId === 'fixture-origin' && item.args[0].args.join(' ') === 'resume fixture-origin-external RESUME_DESKTOP_IN_BACKGROUND')`, '실행 중인 Codex 데스크톱 작업을 백그라운드 터미널로 이어받지 못했습니다.');
+  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
+    && item.args[0].provider === 'codex'
+    && item.args[0].bridgeId === 'fixture-origin'
+    && item.args[0].args.join(' ') === 'resume -- fixture-origin-external RESUME_DESKTOP_IN_BACKGROUND'
+    && item.args[0].initialCommandInArgs === true)`, '실행 중인 Codex 데스크톱 작업을 백그라운드 터미널로 이어받지 못했습니다.');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'terminal'
     && !document.querySelector('#terminalHistoryPanel')?.classList.contains('hidden')
     && document.querySelector('#terminalHistoryTitle')?.textContent.includes('화면 개선 폴더의 GPT 대화창')
