@@ -8,6 +8,25 @@ const { reportRecoverableError } = require('./diagnostics');
 
 const RELEASE_API = 'https://api.github.com/repos/minjund/LodeToAgent/releases/latest';
 const RELEASE_PAGE = 'https://github.com/minjund/LodeToAgent/releases/latest';
+const MAX_UPDATE_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_CHECK_TIMEOUT_MS = 30_000;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+
+function boundedPositiveInteger(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? Math.min(number, maximum) : fallback;
+}
+
+function withTimeout(promise, timeoutMs, onTimeout, message) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { if (onTimeout) onTimeout(); } catch (_abortUnavailable) { /* timeout still wins */ }
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
 
 function normalizeVersion(value) {
   const normalized = String(value || '')
@@ -136,6 +155,10 @@ class UpdateManager extends EventEmitter {
     this.verifyInstaller = options.verifyInstaller;
     this.downloadsDir = String(options.downloadsDir || '');
     this.apiUrl = String(options.apiUrl || RELEASE_API);
+    this.maxDownloadBytes = boundedPositiveInteger(options.maxDownloadBytes, MAX_UPDATE_BYTES, MAX_UPDATE_BYTES);
+    this.checkTimeoutMs = boundedPositiveInteger(options.checkTimeoutMs, DEFAULT_CHECK_TIMEOUT_MS);
+    this.downloadTimeoutMs = boundedPositiveInteger(options.downloadTimeoutMs, DEFAULT_DOWNLOAD_TIMEOUT_MS);
+    this.AbortController = options.AbortController || globalThis.AbortController;
     this.checkPromise = null;
     this.downloadPromise = null;
     this.state = {
@@ -179,15 +202,17 @@ class UpdateManager extends EventEmitter {
 
   async performCheck() {
     this.setState({ status: 'checking', error: '', checkedAt: new Date().toISOString() });
+    const controller = this.AbortController ? new this.AbortController() : null;
     try {
       if (typeof this.fetch !== 'function') throw new Error('업데이트 서버에 연결할 수 없습니다.');
-      const response = await this.fetch(this.apiUrl, {
+      const response = await withTimeout(this.fetch(this.apiUrl, {
         headers: {
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': `LoadToAgent/${this.currentVersion}`,
         },
-      });
+        ...(controller ? { signal: controller.signal } : {}),
+      }), this.checkTimeoutMs, () => controller && controller.abort(), '업데이트 확인 시간이 초과되었습니다. 다시 시도해 주세요.');
       if (!response || !response.ok) throw new Error('최신 버전을 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.');
       const release = await response.json();
       const latest = normalizeVersion(release && release.tag_name);
@@ -195,7 +220,9 @@ class UpdateManager extends EventEmitter {
       const releaseUrl = trustedReleasePage(release.html_url) ? release.html_url : RELEASE_PAGE;
       const asset = selectReleaseAsset(release.assets, { platform: this.platform, arch: this.arch, version: latest.raw });
       const available = compareVersions(latest.raw, this.currentVersion) > 0;
-      const exposedAsset = available && hasTrustedDigest(asset) ? publicAsset(asset) : null;
+      const candidateAsset = available && hasTrustedDigest(asset) ? publicAsset(asset) : null;
+      const assetTooLarge = Boolean(candidateAsset && candidateAsset.size > this.maxDownloadBytes);
+      const exposedAsset = assetTooLarge ? null : candidateAsset;
       return this.setState({
         status: available ? 'available' : 'current',
         latestVersion: latest.raw,
@@ -209,9 +236,11 @@ class UpdateManager extends EventEmitter {
         totalBytes: exposedAsset ? exposedAsset.size : 0,
         downloadedPath: '',
         checkedAt: new Date().toISOString(),
-        error: available && !asset
+        error: assetTooLarge
+          ? '업데이트 파일이 허용된 최대 크기를 초과해 자동으로 받을 수 없습니다.'
+          : (available && !asset
           ? '이 운영체제에 맞는 설치 파일이 공식 파일 받기 페이지에 아직 올라오지 않았습니다.'
-          : (available && !hasTrustedDigest(asset) ? '설치 파일이 원본인지 확인할 안전 정보가 없어 업데이트할 수 없습니다.' : ''),
+          : (available && !hasTrustedDigest(asset) ? '설치 파일이 원본인지 확인할 안전 정보가 없어 업데이트할 수 없습니다.' : '')),
       });
     } catch (error) {
       return this.setState({ status: 'error', error: error && error.message || '업데이트 확인 중 문제가 발생했습니다.', checkedAt: new Date().toISOString() });
@@ -234,20 +263,39 @@ class UpdateManager extends EventEmitter {
     const finalPath = path.join(this.downloadsDir, fileName);
     const temporaryPath = `${finalPath}.download`;
     let handle = null;
+    let reader = null;
+    const controller = this.AbortController ? new this.AbortController() : null;
+    const deadline = Date.now() + this.downloadTimeoutMs;
+    const awaitDownload = promise => withTimeout(
+      promise,
+      Math.max(1, deadline - Date.now()),
+      () => controller && controller.abort(),
+      '업데이트 파일 받기 시간이 초과되었습니다. 다시 시도해 주세요.',
+    );
     try {
+      const officialSize = Number(asset.size) > 0 ? Number(asset.size) : 0;
+      if (officialSize > this.maxDownloadBytes) throw new Error('업데이트 파일이 허용된 최대 크기를 초과합니다.');
       await fs.promises.mkdir(this.downloadsDir, { recursive: true });
       await fs.promises.rm(temporaryPath, { force: true });
-      const response = await this.fetch(asset.url, { headers: { 'User-Agent': `LoadToAgent/${this.currentVersion}` } });
+      const response = await awaitDownload(this.fetch(asset.url, {
+        headers: { 'User-Agent': `LoadToAgent/${this.currentVersion}` },
+        ...(controller ? { signal: controller.signal } : {}),
+      }));
       if (!response || !response.ok) throw new Error(`업데이트 파일을 내려받지 못했습니다${response && response.status ? ` (${response.status})` : ''}.`);
       const rawHeaderSize = Number(response.headers && response.headers.get && response.headers.get('content-length') || 0);
       const headerSize = Number.isSafeInteger(rawHeaderSize) && rawHeaderSize > 0 ? rawHeaderSize : 0;
-      const totalBytes = Number(asset.size) > 0 ? Number(asset.size) : headerSize;
+      if (headerSize > this.maxDownloadBytes) throw new Error('업데이트 서버가 허용된 최대 크기보다 큰 파일을 응답했습니다.');
+      if (officialSize && headerSize && headerSize !== officialSize) throw new Error('업데이트 서버의 파일 크기가 공식 파일 정보와 다릅니다.');
+      const totalBytes = officialSize || headerSize;
       const hash = crypto.createHash('sha256');
       let downloadedBytes = 0;
       let lastProgressAt = 0;
       handle = await fs.promises.open(temporaryPath, 'w');
       const writeChunk = async value => {
         const chunk = Buffer.from(value);
+        const nextDownloadedBytes = downloadedBytes + chunk.length;
+        if (nextDownloadedBytes > this.maxDownloadBytes) throw new Error('업데이트 파일이 허용된 최대 크기를 초과했습니다.');
+        if (officialSize && nextDownloadedBytes > officialSize) throw new Error('받은 파일 크기가 공식 파일 받기 페이지의 파일 정보보다 큽니다.');
         let offset = 0;
         while (offset < chunk.length) {
           const result = await handle.write(chunk, offset, chunk.length - offset);
@@ -270,14 +318,14 @@ class UpdateManager extends EventEmitter {
       };
       this.setState({ status: 'downloading', progress: 0, downloadedBytes: 0, totalBytes, error: '' });
       if (response.body && typeof response.body.getReader === 'function') {
-        const reader = response.body.getReader();
+        reader = response.body.getReader();
         while (true) {
-          const result = await reader.read();
+          const result = await awaitDownload(reader.read());
           if (result.done) break;
           await writeChunk(result.value);
         }
       } else {
-        await writeChunk(await response.arrayBuffer());
+        throw new Error('업데이트 서버가 안전한 스트리밍 형식으로 파일을 보내지 않았습니다.');
       }
       await handle.close();
       handle = null;
@@ -295,6 +343,17 @@ class UpdateManager extends EventEmitter {
         error: '',
       });
     } catch (error) {
+      if (controller) controller.abort();
+      if (reader && typeof reader.cancel === 'function') {
+        try {
+          const cancellation = reader.cancel();
+          if (cancellation && typeof cancellation.catch === 'function') {
+            cancellation.catch(cleanupError => reportRecoverableError('update-download-reader-cancel', cleanupError));
+          }
+        } catch (cleanupError) {
+          reportRecoverableError('update-download-reader-cancel', cleanupError);
+        }
+      }
       if (handle) {
         await handle.close().catch(cleanupError => {
           reportRecoverableError('update-download-handle-close', cleanupError);
@@ -338,6 +397,7 @@ function trustedReleasePage(value) {
 }
 
 module.exports = {
+  MAX_UPDATE_BYTES,
   RELEASE_API,
   RELEASE_PAGE,
   UpdateManager,
