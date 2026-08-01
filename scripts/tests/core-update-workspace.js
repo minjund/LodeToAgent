@@ -19,7 +19,7 @@ const {
 } = require('../../src/updateInstaller');
 const { installMacUpdate } = require('../../src/macUpdateHelper');
 const { readUpdateRelaunchRequest, signalRendererReady } = require('../../src/updateRelaunch');
-const { normalizeWorkspaces, readWorkspaces, removeWorkspace } = require('../../src/workspaceStore');
+const { normalizeWorkspaces, readWorkspaces, removeWorkspace, writeWorkspaces } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 const { ensureMacNodePtyRuntime, unpackedAsarPath } = require('../../src/nodePtyRuntime');
 const { ensureMacNodePtySpawnHelpersExecutable } = require('../after-pack');
@@ -37,15 +37,25 @@ function registerProviderAndWorkspaceTests(context) {
     const upper = path.join(workspaceRoot, 'Project');
     const lower = path.join(workspaceRoot, 'project');
     const file = path.join(workspaceRoot, 'not-a-directory.txt');
+    const unavailable = path.join(workspaceRoot, 'detached-volume', 'Project');
     fs.mkdirSync(upper, { recursive: true });
     fs.mkdirSync(lower, { recursive: true });
     fs.writeFileSync(file, 'fixture', 'utf8');
 
-    const items = [{ path: '' }, { path: file }, { path: upper }, { path: upper }, { path: lower }];
-    assert.deepStrictEqual(normalizeWorkspaces(items, { platform: 'win32' }).map(item => item.path), [path.resolve(upper)]);
-    assert.deepStrictEqual(normalizeWorkspaces(items, { platform: 'linux' }).map(item => item.path), [path.resolve(upper), path.resolve(lower)]);
+    const items = [{ path: '' }, { path: file }, { path: upper }, { path: upper }, { path: lower }, { path: unavailable }];
+    assert.deepStrictEqual(normalizeWorkspaces(items, { platform: 'win32' }).map(item => item.path), [path.resolve(upper), path.resolve(unavailable)]);
+    assert.deepStrictEqual(normalizeWorkspaces(items, { platform: 'linux' }).map(item => item.path), [path.resolve(upper), path.resolve(lower), path.resolve(unavailable)]);
     assert.equal(removeWorkspace([{ path: upper }], '').length, 1);
     assert.equal(removeWorkspace([{ path: upper }], upper).length, 0);
+
+    const persistedFile = path.join(workspaceRoot, 'persisted-workspaces.json');
+    const saved = writeWorkspaces(persistedFile, [{ path: unavailable, name: 'External project' }]);
+    assert.deepStrictEqual(saved, [{ path: path.resolve(unavailable), name: 'External project' }]);
+    assert.deepStrictEqual(readWorkspaces(persistedFile), saved);
+
+    fs.mkdirSync(path.dirname(unavailable), { recursive: true });
+    fs.writeFileSync(unavailable, 'not a workspace', 'utf8');
+    assert.deepStrictEqual(readWorkspaces(persistedFile), []);
   });
 
   test('손상되거나 배열이 아닌 작업 폴더 파일은 빈 목록으로 복구한다', () => {

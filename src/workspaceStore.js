@@ -3,11 +3,13 @@
 const fs = require('fs');
 const path = require('path');
 
-function isDirectory(fileSystem, target) {
+function workspacePathState(fileSystem, target) {
   try {
-    return fileSystem.statSync(target).isDirectory();
+    return fileSystem.statSync(target).isDirectory() ? 'directory' : 'not-directory';
   } catch (_missingOrUnreadableWorkspace) {
-    return false;
+    // Keep the user's intent when a removable/network volume is temporarily
+    // unavailable. A later save must not silently erase that workspace.
+    return 'unavailable';
   }
 }
 
@@ -27,7 +29,7 @@ function normalizeWorkspaces(items, options = {}) {
 
     const target = path.resolve(suppliedPath);
     const key = workspaceKey(target, platform);
-    if (seen.has(key) || !isDirectory(fileSystem, target)) continue;
+    if (seen.has(key) || workspacePathState(fileSystem, target) === 'not-directory') continue;
 
     seen.add(key);
     unique.push({
