@@ -72,8 +72,18 @@ const ACTION_MANIFEST = [
   },
   { selector: '#mobileAddWorkspaceBtn', action: 'workspace:add' },
   { selector: '#newRunBtn', action: 'run:open' },
-  { selector: '#newPowerShellBtn', action: 'terminal:create-windows' },
-  { selector: '#newWslBtn', action: 'terminal:create-linux' },
+  {
+    selector: '#newPowerShellBtn',
+    action: 'terminal:create-windows',
+    required: false,
+    optionalReason: 'The project-first terminal opens from its owning task and intentionally hides the legacy general-terminal creation header.',
+  },
+  {
+    selector: '#newWslBtn',
+    action: 'terminal:create-linux',
+    required: false,
+    optionalReason: 'The project-first terminal opens from its owning task and intentionally hides the legacy general-terminal creation header.',
+  },
   { selector: '[data-terminal-signal="interrupt"]', action: 'terminal:signal-interrupt' },
   { selector: '[data-terminal-signal="clear"]', action: 'terminal:signal-clear' },
   { selector: '#terminalRestartBtn', action: 'terminal:restart' },
@@ -85,8 +95,18 @@ const ACTION_MANIFEST = [
   { selector: '#terminalFontDecreaseBtn', action: 'terminal:font-decrease' },
   { selector: '#terminalFontIncreaseBtn', action: 'terminal:font-increase' },
   { selector: '#terminalComputerInputBtn', action: 'terminal:computer-input-focus' },
-  { selector: '#terminalModeQuestionBtn', action: 'terminal:mode-question' },
-  { selector: '#terminalModeComputerBtn', action: 'terminal:mode-computer' },
+  {
+    selector: '#terminalModeQuestionBtn',
+    action: 'terminal:mode-question',
+    required: false,
+    optionalReason: 'The contextual terminal infers its input mode from the opened task and keeps the legacy global mode switch hidden.',
+  },
+  {
+    selector: '#terminalModeComputerBtn',
+    action: 'terminal:mode-computer',
+    required: false,
+    optionalReason: 'The contextual terminal infers its input mode from the opened task and keeps the legacy global mode switch hidden.',
+  },
   { selector: '#terminalFocusBtn', action: 'terminal:focus-mode' },
   { selector: '#terminalSlashTrigger', action: 'terminal:slash-open' },
   { selector: '[data-terminal-slash-command]', action: 'terminal:slash-select' },
@@ -606,6 +626,23 @@ async function callCount(win, name) {
 
 async function clearCalls(win) {
   await win.webContents.executeJavaScript('window.interactionTest.clearCalls()');
+}
+
+async function invokeLegacyTerminalControl(win, selector, times = 1) {
+  const invoked = await win.webContents.executeJavaScript(`(() => {
+    const control = document.querySelector(${JSON.stringify(selector)});
+    if (!control || control.disabled) return false;
+    for (let index = 0; index < ${Math.max(1, Number(times) || 1)}; index += 1) control.click();
+    return true;
+  })()`);
+  assert(invoked, `숨겨진 레거시 터미널 테스트 준비 컨트롤을 실행하지 못했습니다: ${selector}`);
+}
+
+async function setLegacyTerminalMode(win, mode) {
+  const selector = mode === 'question' ? '#terminalModeQuestionBtn' : '#terminalModeComputerBtn';
+  await invokeLegacyTerminalControl(win, selector);
+  await waitFor(win, `document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-pressed') === 'true'`,
+    `레거시 터미널 ${mode} 모드 테스트 준비가 완료되지 않았습니다.`);
 }
 
 async function prepareProjectFirstStep(win, workspace = 'selected') {
@@ -3870,7 +3907,7 @@ async function exerciseTerminal(win, round) {
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('terminal', { focusMain: true })`);
   await waitFor(win, `Boolean(document.querySelector('[data-terminal-id="terminal-main"]'))`, '터미널 목록 로드 실패');
   await waitFor(win, `Boolean(document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea'))`, '터미널 직접 입력 요소가 준비되지 않았습니다.');
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `document.querySelector('#terminalModeComputerBtn')?.getAttribute('aria-pressed') === 'true'
     && getComputedStyle(document.querySelector('#terminalViewport')).display !== 'none'
     && document.activeElement === document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea')`,
@@ -3902,11 +3939,11 @@ async function exerciseTerminal(win, round) {
     const input = document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea');
     input.focus();
     window.interactionTest.emitSnapshot();
-    document.querySelector('#terminalModeQuestionBtn').focus();
+    document.querySelector('#backToProjectsBtn').focus();
   })()`);
   await sleep(260);
-  assert(await win.webContents.executeJavaScript(`document.activeElement?.id === 'terminalModeQuestionBtn'`),
-    '실시간 세션 갱신의 지연된 포커스 복구가 사용자가 새로 선택한 터미널 버튼의 포커스를 빼앗았습니다.');
+  assert(await win.webContents.executeJavaScript(`document.activeElement?.id === 'backToProjectsBtn'`),
+    '실시간 세션 갱신의 지연된 포커스 복구가 사용자가 선택한 프로젝트 복귀 버튼의 포커스를 빼앗았습니다.');
   mark('quality:terminal-snapshot-focus-guard');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
   await click(win, '[data-terminal-id="terminal-race-a"]', 'terminal:select-session');
@@ -3917,13 +3954,13 @@ async function exerciseTerminal(win, round) {
   await click(win, '#terminalComputerInputBtn', 'terminal:computer-input-focus');
   await waitFor(win, `document.activeElement === document.querySelector('#terminalViewport .terminal-screen:not(.hidden) .xterm-helper-textarea')`,
     '컴퓨터 작업 직접 입력 버튼이 실제 입력 위치로 이동하지 않았습니다.');
-  await click(win, '#terminalModeQuestionBtn', 'terminal:mode-question');
+  await setLegacyTerminalMode(win, 'question');
   await waitFor(win, `document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') === 'true'`,
     'AI 질문 모드로 돌아오지 못했습니다.');
   assert(await win.webContents.executeJavaScript(`document.querySelector('#terminalAttachTrigger')?.classList.contains('hidden')
     && document.querySelector('#terminalAttachTrigger')?.disabled`),
   '구현되지 않은 파일 첨부 버튼이 질문 명령 메뉴 동작으로 잘못 노출되었습니다.');
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `document.querySelector('#terminalModeComputerBtn')?.getAttribute('aria-pressed') === 'true'
     && getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
   '터미널 세션 목록 키보드 검증 전에 컴퓨터 작업 목록을 표시하지 못했습니다.');
@@ -4038,12 +4075,12 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `JSON.stringify(${JSON.stringify(reordered.before)}) === JSON.stringify([...document.querySelectorAll('#terminalSessionList [data-terminal-id]')].map(item => item.dataset.terminalId))`, 'Alt+위 키로 터미널 세션 순서를 복원하지 못했습니다.');
   round.observed.terminalReorder = { drag: true, keyboard: true, arrowsRemoved: true, persisted: round.index > 1 };
   await clearCalls(win);
-  await click(win, '#newPowerShellBtn', 'terminal:create-windows', 2);
+  await invokeLegacyTerminalControl(win, '#newPowerShellBtn', 2);
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')`, 'Windows 터미널 생성 실패');
   assert(await callCount(win, 'terminalCreate') === 1, 'Windows 터미널 버튼 연속 클릭이 중복 세션을 만들었습니다.');
   mark('terminal:create-single-flight');
   await clearCalls(win);
-  await click(win, '#newWslBtn', 'terminal:create-linux');
+  await invokeLegacyTerminalControl(win, '#newWslBtn');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')`, 'Linux 터미널 생성 실패');
   await win.webContents.executeJavaScript(`window.interactionTest.configure({ failures: { terminalResize: 1 }, delays: { terminalRestart: 180 } })`);
   await click(win, '[data-terminal-id="terminal-ended"]', 'terminal:select-session', 1, 1, '.terminal-past-sessions');
@@ -4221,7 +4258,7 @@ async function exerciseTerminal(win, round) {
   await click(win, '#terminalHistoryToggle', 'terminal:history-expand');
   await waitFor(win, `document.querySelector('#terminalHistoryToggle').getAttribute('aria-expanded') === 'true'`, '대화 기록 펼치기 실패');
 
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `document.querySelector('#terminalModeComputerBtn')?.getAttribute('aria-pressed') === 'true'
     && getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
   '터미널 신호 버튼 검증 전에 컴퓨터 작업 모드로 돌아오지 못했습니다.');
@@ -4296,7 +4333,7 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalDetach')`, '관리형 AI 터미널 화면 닫기가 tmux 작업을 분리하지 않았습니다.');
   assert(await callCount(win, 'terminalDetach') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 화면 닫기는 terminalDetach만 한 번 호출해야 합니다.');
   await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('이 화면은 닫혔지만 작업은 계속 실행 중')`, '분리된 관리형 세션이 목록에 유지되지 않았습니다.');
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
     '분리된 관리형 세션을 다시 선택할 목록이 표시되지 않았습니다.');
   await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
@@ -4310,7 +4347,7 @@ async function exerciseTerminal(win, round) {
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalStop')`, '관리형 AI 작업 중단이 terminalStop을 호출하지 않았습니다.');
   await waitFor(win, `document.querySelector('[data-terminal-id="terminal-managed"]')?.innerText.includes('작업 중지됨')`, '중단된 관리형 세션 기록이 목록에 보존되지 않았습니다.');
   assert(await callCount(win, 'terminalStop') === 1 && await callCount(win, 'terminalClose') === 0, '관리형 작업 중단은 기록을 삭제하지 않아야 합니다.');
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
     '중단된 관리형 세션 기록을 다시 선택할 목록이 표시되지 않았습니다.');
   await click(win, '[data-terminal-id="terminal-managed"]', 'terminal:select-session');
@@ -4321,7 +4358,7 @@ async function exerciseTerminal(win, round) {
   assert(await callCount(win, 'terminalClose') === 1, '관리형 세션 기록 삭제는 terminalClose를 정확히 한 번 호출해야 합니다.');
 
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls(); window.interactionTest.clearCalls()`);
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
     'AI 연결 터미널을 선택할 목록이 표시되지 않았습니다.');
   await click(win, '[data-terminal-id="terminal-main"]', 'terminal:select-session');
@@ -4336,7 +4373,7 @@ async function exerciseTerminal(win, round) {
   }))()`);
   assert(!aiCloseView.activeTerminalId && aiCloseView.terminalStillListed && aiCloseView.historyHidden && aiCloseView.emptyStateVisible, `AI 연결 터미널 닫기가 AI 세션을 종료하지 않고 화면만 닫지 못했습니다: ${JSON.stringify(aiCloseView)}`);
   assert(await callCount(win, 'terminalClose') === 0, 'AI 연결 터미널 화면을 닫는 동안 AI 프로세스가 종료됐습니다.');
-  await click(win, '#terminalModeComputerBtn', 'terminal:mode-computer');
+  await setLegacyTerminalMode(win, 'computer');
   await waitFor(win, `getComputedStyle(document.querySelector('#terminalResourcePanel')).display !== 'none'`,
     '닫은 AI 연결 터미널을 다시 선택할 목록이 표시되지 않았습니다.');
   await click(win, '[data-terminal-id="terminal-main"]', 'terminal:select-session');

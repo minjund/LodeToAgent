@@ -134,14 +134,7 @@ body:not([data-current-view="all"]) #newRunBtn {
 }
 
 body[data-current-view="terminal"] .terminal-section-head {
-  display: flex;
-}
-
-/* Mode selection and new-session actions are primary terminal controls. An
- * older compact-screen rule hides the guide, so restore it in the final studio
- * layer and let the existing responsive grid rules arrange its buttons. */
-body[data-current-view="terminal"] .terminal-mode-guide {
-  display: grid;
+  display: none;
 }
 
 body[data-current-view="terminal"] #terminalAnswerDestination {
