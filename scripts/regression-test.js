@@ -38,8 +38,8 @@ registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 133) {
-  throw new Error(`회귀 테스트 등록 수가 133개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 138) {
+  throw new Error(`회귀 테스트 등록 수가 138개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

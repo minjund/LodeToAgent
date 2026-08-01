@@ -261,10 +261,20 @@ const ACTION_MANIFEST = [
   { selector: '[data-conversation-interrupt]', action: 'agent:interrupt-response' },
   { selector: '#runForm', action: 'run:submit' },
   { selector: '#runPrompt', action: 'run:prompt-input' },
-  { selector: '#runCwd', action: 'run:cwd-input' },
+  {
+    selector: '#runCwd',
+    action: 'run:cwd-input',
+    required: false,
+    optionalReason: 'The project-first composer keeps the selected project path in a hidden readonly field instead of exposing an editable working-directory control.',
+  },
   { selector: '#runModel', action: 'run:model-input' },
   { selector: '#closeRunModalBtn', action: 'run:close-x' },
-  { selector: '#pickRunCwdBtn', action: 'run:pick-cwd' },
+  {
+    selector: '#pickRunCwdBtn',
+    action: 'run:pick-cwd',
+    required: false,
+    optionalReason: 'The project-first composer locks execution to the selected project, so its legacy working-directory picker stays hidden and disabled.',
+  },
   { selector: '#allowWrites', action: 'run:allow-writes' },
   { selector: '#cancelRunBtn', action: 'run:cancel' },
   { selector: '#clearRunDraftBtn', action: 'run:clear-draft' },
@@ -274,7 +284,12 @@ const ACTION_MANIFEST = [
   { selector: '[data-provider-recheck]', action: 'run:provider-recheck' },
   { selector: '[data-run-prompt-key]', action: 'run:prompt-example' },
   ...['fix', 'review', 'tests'].map(example => ({ selector: `[data-run-prompt-key="run.example.${example}"]`, action: `run:prompt-example-${example}` })),
-  { selector: '[data-run-workspace]', action: 'run:workspace-suggestion' },
+  {
+    selector: '[data-run-workspace]',
+    action: 'run:workspace-suggestion',
+    required: false,
+    optionalReason: 'The project-first composer locks execution to the selected project and no longer renders alternate workspace suggestions.',
+  },
   { selector: '.run-advanced > summary', action: 'run:advanced-settings' },
   { selector: '#tmuxCreateForm', action: 'tmux:modal-submit' },
   { selector: '#tmuxCreateDistro', action: 'tmux:modal-submit' },
@@ -2533,20 +2548,35 @@ async function exerciseRuntimeOverview(win, round) {
 }
 
 async function exerciseRunModal(win, round) {
-  await win.webContents.executeJavaScript(`(() => { window.LoadToAgentApp.state.workspace = '__projectless__'; document.querySelector('#runCwd').value = ''; window.LoadToAgentApp.openRunModal(); })()`);
-  await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')`, '프로젝트 없는 새 작업 모달을 열지 못했습니다.');
-  assert(await win.webContents.executeJavaScript(`document.querySelector('#appShell').inert && !document.querySelector('#runModal').inert && document.querySelector('#runModal').getAttribute('aria-hidden') === 'false'`), '새 작업 모달이 배경을 보조 기술에서 격리하지 못했습니다.');
-  mark('run:background-inert');
-  assert(await win.webContents.executeJavaScript(`document.querySelector('#runCwd').value === ''`), '프로젝트 없음 필터 sentinel이 실행 폴더로 복사되었습니다.');
-  await click(win, '#closeRunModalBtn', 'run:close-x');
-  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert && document.querySelector('#runModal').inert`, '새 작업 모달을 닫은 뒤 배경 상호작용이 복원되지 않았습니다.');
-  mark('run:background-restore');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.state.workspace = 'all'`);
-  await win.webContents.executeJavaScript(`(() => {
+  const projectRequired = await win.webContents.executeJavaScript(`(() => {
     const app = window.LoadToAgentApp;
     app.state.workspaces = [{ name: 'fixture', path: 'D:\\\\fixture' }];
     app.state.availability = Object.fromEntries(app.state.providers.map(provider => [provider.id, false]));
+    const inspect = workspace => {
+      app.state.workspace = workspace;
+      app.render('filter');
+      const opened = app.openRunModal();
+      return {
+        opened,
+        modalHidden: document.querySelector('#runModal').classList.contains('hidden'),
+        backgroundInteractive: !document.querySelector('#appShell').inert,
+        projectFocused: document.activeElement?.matches('#projectSidebarList [data-workspace]') || false,
+        guidance: document.querySelector('#toast').textContent,
+        expectedGuidance: window.LoadToAgentI18n.t('run.select_project_first'),
+      };
+    };
+    return {
+      projectless: inspect('__projectless__'),
+      all: inspect('all'),
+    };
   })()`);
+  for (const [workspace, result] of Object.entries(projectRequired)) {
+    assert(result.opened === false && result.modalHidden && result.backgroundInteractive
+      && result.projectFocused && result.guidance === result.expectedGuidance,
+    `프로젝트가 선택되지 않은 ${workspace} 상태에서 새 작업을 거부하고 프로젝트 선택을 안내하지 못했습니다: ${JSON.stringify(result)}`);
+  }
+  await click(win, '#projectSidebarList [data-workspace="D:\\\\fixture"]', 'workspace:select');
+  await waitFor(win, `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'`, 'fixture 프로젝트를 새 작업 대상으로 선택하지 못했습니다.');
   await click(win, '#newRunBtn', 'run:open');
   await waitFor(
     win,
@@ -2559,19 +2589,32 @@ async function exerciseRunModal(win, round) {
   const composer = await win.webContents.executeJavaScript(`(() => {
     const prompt = document.querySelector('#runPrompt');
     const providers = document.querySelector('#runProviderPicker');
-    const suggestion = document.querySelector('[data-run-workspace]');
+    const cwd = document.querySelector('#runCwd');
+    const picker = document.querySelector('#pickRunCwdBtn');
+    const suggestions = document.querySelector('#runWorkspaceSuggestions');
     const providerOptions = [...providers.querySelectorAll('[data-run-provider]')];
-    const providerBounds = providers.getBoundingClientRect();
-    const lastProviderBounds = providerOptions.at(-1)?.getBoundingClientRect();
+    const providerColumns = getComputedStyle(providers).gridTemplateColumns
+      .trim().split(' ').map(value => Number.parseFloat(value)).filter(value => Number.isFinite(value) && value > 0);
     return {
       promptFirst: Boolean(prompt && providers && (prompt.compareDocumentPosition(providers) & Node.DOCUMENT_POSITION_FOLLOWING)),
       promptCount: document.querySelector('#runPromptCount')?.textContent.trim(),
-      workspaceSelected: suggestion?.classList.contains('selected') || false,
-      providerBalance: providerOptions.length % 4 !== 1 || !lastProviderBounds
-        || Math.abs((lastProviderBounds.left - providerBounds.left) - (providerBounds.right - lastProviderBounds.right)) <= 1,
+      projectName: document.querySelector('#runProjectName')?.textContent.trim(),
+      projectLocked: cwd?.value === 'D:\\\\fixture' && cwd.readOnly
+        && cwd.getAttribute('aria-readonly') === 'true' && cwd.tabIndex === -1,
+      pickerUnavailable: picker?.disabled && picker.classList.contains('hidden') && picker.tabIndex === -1,
+      suggestionsUnavailable: suggestions?.classList.contains('hidden')
+        && suggestions.getAttribute('aria-hidden') === 'true'
+        && !suggestions.querySelector('[data-run-workspace]'),
+      providerBalance: providerOptions.length > 0 && providerColumns.length > 0
+        && Math.max(...providerColumns) - Math.min(...providerColumns) <= 1,
     };
   })()`);
-  assert(composer.promptFirst && composer.promptCount === '0/8,000자' && composer.workspaceSelected && composer.providerBalance, `새 작업 입력 흐름의 기본 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
+  assert(composer.promptFirst && composer.promptCount === '0/8,000자' && composer.projectName === 'fixture'
+    && composer.projectLocked && composer.pickerUnavailable && composer.suggestionsUnavailable && composer.providerBalance,
+  `새 작업 입력 흐름의 프로젝트 잠금 상태가 올바르지 않습니다: ${JSON.stringify(composer)}`);
+  mark('run:project-lock');
+  assert(await win.webContents.executeJavaScript(`document.querySelector('#appShell').inert && !document.querySelector('#runModal').inert && document.querySelector('#runModal').getAttribute('aria-hidden') === 'false'`), '새 작업 모달이 배경을 보조 기술에서 격리하지 못했습니다.');
+  mark('run:background-inert');
   mark('quality:run-provider-balance');
   const runAdvancedInitiallyOpen = await win.webContents.executeJavaScript(`document.querySelector('.run-advanced').open`);
   await click(win, '.run-advanced > summary', 'run:advanced-settings');
@@ -2582,23 +2625,24 @@ async function exerciseRunModal(win, round) {
   }
   await win.webContents.executeJavaScript(`(() => {
     document.querySelector('#runPrompt').value = '복원할 새 작업 초안';
-    document.querySelector('#runCwd').value = 'D:\\draft-fixture';
+    document.querySelector('#runCwd').value = 'C:/draft-fixture';
     document.querySelector('#runModel').value = 'draft-model';
     document.querySelector('#allowWrites').checked = true;
     for (const element of document.querySelectorAll('#runPrompt, #runCwd, #runModel')) element.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('#allowWrites').dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await recordExercise(win, '#runPrompt');
-  await recordExercise(win, '#runCwd');
   await recordExercise(win, '#runModel');
+  await waitFor(win, `document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly`, '초안 입력이 잠긴 프로젝트 경로를 바꾸었습니다.');
   await click(win, '#closeRunModalBtn', 'run:close-x');
-  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, '초안 복원 검증을 위해 모달을 닫지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert && document.querySelector('#runModal').inert`, '초안 복원 검증을 위해 모달을 닫고 배경 상호작용을 복원하지 못했습니다.');
+  mark('run:background-restore');
   await click(win, '#newRunBtn', 'run:open');
-  await waitFor(win, `document.querySelector('#runPrompt').value === '복원할 새 작업 초안' && document.querySelector('#runCwd').value === 'D:\\draft-fixture' && document.querySelector('#runModel').value === 'draft-model' && document.querySelector('#allowWrites').checked`, '새 작업 초안 필드가 다시 열 때 복원되지 않았습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').value === '복원할 새 작업 초안' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === 'draft-model' && document.querySelector('#allowWrites').checked`, '새 작업 초안을 복원하면서 선택한 프로젝트 잠금을 유지하지 못했습니다.');
   assert(await win.webContents.executeJavaScript(`JSON.parse(sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)).version === 2`), '새 작업 초안에 버전이 저장되지 않았습니다.');
   mark('quality:run-draft-restore');
   await click(win, '#clearRunDraftBtn', 'run:clear-draft');
-  await waitFor(win, `document.querySelector('#runPrompt').value === '' && document.querySelector('#runCwd').value === '' && document.querySelector('#runModel').value === '' && !document.querySelector('#allowWrites').checked && document.activeElement?.id === 'runPrompt' && !sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)`, '초안 지우기가 모든 필드·저장값·초점을 초기화하지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').value === '' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === '' && !document.querySelector('#allowWrites').checked && document.activeElement?.id === 'runPrompt' && !sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)`, '초안 지우기가 초안 필드·저장값·초점을 초기화하고 선택한 프로젝트를 유지하지 못했습니다.');
   const unavailable = await win.webContents.executeJavaScript(`(() => ({
     docs: document.querySelectorAll('[data-provider-docs]').length,
     disabledProviders: document.querySelectorAll('[data-run-provider]:disabled').length,
@@ -2636,11 +2680,10 @@ async function exerciseRunModal(win, round) {
   assert(await win.webContents.executeJavaScript(`!document.querySelector('#runModal').classList.contains('closing') && document.querySelector('#closeRunModalBtn').disabled && document.querySelector('#cancelRunBtn').disabled`), '새 작업 제출 중 취소나 닫기로 모달 상태가 어긋날 수 있습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.setRunSubmitting(false)`);
   mark('run:submit-close-guard');
-  await click(win, '[data-run-workspace]', 'run:workspace-suggestion');
-  await waitFor(win, `document.querySelector('[data-run-workspace]').classList.contains('selected') && document.querySelector('[data-run-workspace]').getAttribute('aria-pressed') === 'true' && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '최근 작업 폴더 선택이 입력과 선택 상태에 반영되지 않았습니다.');
-  await win.webContents.executeJavaScript(`document.querySelector('[data-run-workspace]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true }))`);
-  await waitFor(win, `document.activeElement?.hasAttribute('data-run-workspace')`, '최근 작업 폴더 키보드 이동이 포커스를 유지하지 못했습니다.');
-  mark('run:workspace-keyboard');
+  assert(await win.webContents.executeJavaScript(`document.querySelector('#runCwd').value === 'D:\\\\fixture'
+    && document.querySelector('#runCwd').readOnly
+    && document.querySelector('#pickRunCwdBtn').classList.contains('hidden')
+    && !document.querySelector('[data-run-workspace]')`), '새 작업 상태 변경 후 선택한 프로젝트 잠금이 풀렸습니다.');
   await click(win, '[data-run-provider="gpt"]', 'run:provider');
   await waitFor(win, `document.querySelector('[data-run-provider="gpt"]').getAttribute('aria-checked') === 'true' && document.querySelector('[data-run-provider="gpt"]').getAttribute('role') === 'radio' && document.querySelector('#runSubmitLabel').textContent.includes('GPT')`, 'AI 선택이 라디오 상태와 실행 버튼에 반영되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => { const option = document.querySelector('[data-run-provider="gpt"]'); option.focus(); option.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); })()`);
@@ -2649,24 +2692,27 @@ async function exerciseRunModal(win, round) {
   await click(win, '[data-run-provider="gpt"]', 'run:provider');
 
   await win.webContents.executeJavaScript(`(() => {
-    document.querySelector('#runCwd').value = 'D:\\fixture';
+    document.querySelector('#runCwd').value = 'C:/tampered-fixture';
     document.querySelector('#runPrompt').value = '   ';
     document.querySelector('#runPrompt').dispatchEvent(new Event('input', { bubbles: true }));
   })()`);
   await click(win, '#runForm button[type="submit"]', 'run:submit');
-  await waitFor(win, `document.querySelector('#runPrompt').getAttribute('aria-invalid') === 'true' && document.activeElement?.id === 'runPrompt' && document.querySelector('#runError').textContent.includes('할 일을 입력하세요')`, '빈 요청을 거부하고 첫 오류 입력에 초점을 두지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').getAttribute('aria-invalid') === 'true' && document.activeElement?.id === 'runPrompt' && document.querySelector('#runError').textContent.includes('할 일을 입력하세요') && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '빈 요청을 거부하고 첫 오류 입력에 초점을 두면서 프로젝트 잠금을 유지하지 못했습니다.');
   mark('quality:run-whitespace-validation');
 
-  await win.webContents.executeJavaScript(`(() => { document.querySelector('#runCwd').value = ''; document.querySelector('#runPrompt').value = ''; document.querySelector('#runPrompt').dispatchEvent(new Event('input', { bubbles: true })); window.interactionTest.clearCalls(); })()`);
+  await win.webContents.executeJavaScript(`(() => { document.querySelector('#runPrompt').value = ''; document.querySelector('#runPrompt').dispatchEvent(new Event('input', { bubbles: true })); window.interactionTest.clearCalls(); })()`);
   await win.webContents.executeJavaScript(`document.querySelector('#runPrompt').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }))`);
   mark('run:keyboard-submit');
-  const nativeInvalid = await win.webContents.executeJavaScript(`(() => ({ calls: window.interactionTest.getCalls().filter(item => item.name === 'runAgent').length, cwd: document.querySelector('#runCwd').matches(':invalid'), prompt: document.querySelector('#runPrompt').matches(':invalid'), ariaCwd: document.querySelector('#runCwd').getAttribute('aria-invalid'), ariaPrompt: document.querySelector('#runPrompt').getAttribute('aria-invalid'), visible: !document.querySelector('#runModal').classList.contains('hidden') }))()`);
-  assert(nativeInvalid.calls === 0 && nativeInvalid.cwd && nativeInvalid.prompt && nativeInvalid.ariaCwd === 'true' && nativeInvalid.ariaPrompt === 'true' && nativeInvalid.visible, `필수 필드 검증이 submit과 접근성 오류 상태를 반영하지 못했습니다: ${JSON.stringify(nativeInvalid)}`);
+  const nativeInvalid = await win.webContents.executeJavaScript(`(() => ({ calls: window.interactionTest.getCalls().filter(item => item.name === 'runAgent').length, cwd: document.querySelector('#runCwd').matches(':invalid'), cwdValue: document.querySelector('#runCwd').value, cwdReadonly: document.querySelector('#runCwd').readOnly, prompt: document.querySelector('#runPrompt').matches(':invalid'), ariaCwd: document.querySelector('#runCwd').getAttribute('aria-invalid'), ariaPrompt: document.querySelector('#runPrompt').getAttribute('aria-invalid'), visible: !document.querySelector('#runModal').classList.contains('hidden') }))()`);
+  assert(nativeInvalid.calls === 0 && !nativeInvalid.cwd && nativeInvalid.cwdValue === 'D:\\fixture'
+    && nativeInvalid.cwdReadonly && nativeInvalid.prompt && nativeInvalid.ariaCwd === null
+    && nativeInvalid.ariaPrompt === 'true' && nativeInvalid.visible,
+  `필수 요청 검증이 잠긴 프로젝트 경로와 접근성 오류 상태를 올바르게 반영하지 못했습니다: ${JSON.stringify(nativeInvalid)}`);
   mark('run:required-validation');
 
   await win.webContents.executeJavaScript(`(() => {
     window.interactionTest.configure({ failures: { runAgent: 1 } });
-    document.querySelector('#runCwd').value = 'D:\\\\failed-fixture';
+    document.querySelector('#runCwd').value = 'C:/failed-fixture';
     document.querySelector('#runModel').value = 'failure-model';
     document.querySelector('#runPrompt').value = '실패해도 보존할 요청';
   })()`);
@@ -2674,15 +2720,12 @@ async function exerciseRunModal(win, round) {
   await waitFor(win, `!document.querySelector('#runError').classList.contains('hidden')`, 'runAgent 실패 오류가 표시되지 않았습니다.');
   assert(await win.webContents.executeJavaScript(`document.activeElement?.id === 'runError'`), '새 작업 실행 실패 후 오류 메시지로 초점이 이동하지 않았습니다.');
   const preserved = await win.webContents.executeJavaScript(`(() => ({ cwd: document.querySelector('#runCwd').value, model: document.querySelector('#runModel').value, prompt: document.querySelector('#runPrompt').value }))()`);
-  assert(preserved.cwd === 'D:\\failed-fixture' && preserved.model === 'failure-model' && preserved.prompt === '실패해도 보존할 요청', `run 실패 후 필드가 보존되지 않았습니다: ${JSON.stringify(preserved)}`);
+  assert(preserved.cwd === 'D:\\fixture' && preserved.model === 'failure-model' && preserved.prompt === '실패해도 보존할 요청', `run 실패 후 선택한 프로젝트 잠금과 입력 필드가 보존되지 않았습니다: ${JSON.stringify(preserved)}`);
   mark('run:failure-preserve');
   await win.webContents.executeJavaScript(`window.interactionTest.clearControls()`);
 
   await clearCalls(win);
-  await click(win, '#pickRunCwdBtn', 'run:pick-cwd');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'pickWorkspace') && document.querySelector('#runCwd').value === 'D:\\\\fixture-picked'`, '작업 폴더 찾기 버튼이 값을 반영하지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
-    document.querySelector('#runCwd').value = 'D:\\\\fixture';
     document.querySelector('#runModel').value = 'gpt-fixture';
     document.querySelector('#runPrompt').value = '실제 DOM submit 검증';
   })()`);
@@ -2701,7 +2744,6 @@ async function exerciseRunModal(win, round) {
     && document.querySelector('#runSubmitLabel').textContent.includes('Claude')`,
   'Claude 새 작업 선택이 실행 버튼에 반영되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
-    document.querySelector('#runCwd').value = 'D:\\\\fixture';
     document.querySelector('#runModel').value = 'sonnet';
     document.querySelector('#runPrompt').value = 'Claude 실제 DOM submit 검증';
     document.querySelector('#allowWrites').checked = false;
@@ -4605,7 +4647,7 @@ app.whenReady().then(async () => {
       'drawer:tabs-keyboard', 'drawer:backdrop', 'terminal:ime-enter', 'terminal:duplicate-enter', 'terminal:history-expand',
       'drawer:close-scroll', 'drawer:background-inert', 'terminal:reorder-drag', 'tmux:wheel-scroll-preserve', 'tmux:kill-window-wheel-closed',
       'nav:keyboard-roaming', 'nav:keyboard-shortcut', 'filter:search-shortcut', 'run:background-inert', 'run:background-restore', 'tmux:background-inert',
-      'run:provider-keyboard', 'run:workspace-keyboard', 'terminal:create-single-flight',
+      'run:provider-keyboard', 'run:project-lock', 'terminal:create-single-flight',
       'mobile:keyboard-roaming', 'mobile:outside-dismiss', 'mobile:shortcut-guard', 'filter:keyboard-roaming', 'run:submit-close-guard', 'terminal:keyboard-roaming',
       'settings:provider-visibility-rollback',
       'quality:quick-keyboard', 'quality:quick-empty', 'quality:dashboard-storage',
