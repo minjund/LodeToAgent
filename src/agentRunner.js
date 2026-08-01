@@ -9,6 +9,8 @@ const { PROVIDERS, normalizeProvider, modelContextWindow, blankUsage, finalizeUs
 const { runBestEffort } = require('./diagnostics');
 const { pruneManagedRuns, restrictPathPermissions } = require('./dataRetention');
 
+const DEFAULT_TERMINATION_GRACE_MS = 1_000;
+
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
   restrictPathPermissions(dir);
@@ -369,6 +371,11 @@ class AgentRunner extends EventEmitter {
     this.spawn = options.spawn || spawn;
     this.execFile = options.execFile || execFile;
     this.killProcess = options.killProcess || process.kill;
+    const terminationGraceMs = Number(options.terminationGraceMs);
+    this.terminationGraceMs = Number.isFinite(terminationGraceMs) && terminationGraceMs >= 0
+      ? Math.min(terminationGraceMs, 30_000)
+      : DEFAULT_TERMINATION_GRACE_MS;
+    this.disposePromise = null;
     ensureDir(this.runsDir);
     pruneManagedRuns(this.runsDir, {
       retentionDays: options.retentionDays,
@@ -435,6 +442,10 @@ class AgentRunner extends EventEmitter {
       this.persist(run);
     });
     child.on('close', (code, signal) => {
+      run.closed = true;
+      run.closeCode = code;
+      run.closeSignal = signal;
+      if (run.disposing) return;
       this.flush(run, 'stdout');
       this.flush(run, 'stderr');
       if (run.stopping) {
@@ -588,36 +599,109 @@ class AgentRunner extends EventEmitter {
     return this.setPaused(id, false);
   }
 
-  dispose() {
-    const runs = [...this.active.values()];
-    const errors = [];
-    for (const run of runs) {
-      run.stopping = true;
-      if (this.platform === 'win32') {
-        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, error => {
-          if (error) runBestEffort('runner-dispose-taskkill', () => { throw error; });
-        });
-      } else {
-        if (run.state.status === 'paused') runBestEffort('runner-dispose-resume', () => this.signalRun(run, 'SIGCONT'));
-        try {
-          this.signalRun(run, 'SIGTERM');
-        } catch (error) {
-          errors.push({ runId: run.id, error: error.message });
-        }
+  closeWaiter(run) {
+    if (run.closed) return { promise: Promise.resolve(true), cancel: () => {} };
+    let timer = null;
+    let settled = false;
+    let resolveWait;
+    const child = run.child;
+    const onClose = () => finish(true);
+    const finish = closed => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (child && typeof child.removeListener === 'function') child.removeListener('close', onClose);
+      resolveWait(closed);
+    };
+    const promise = new Promise(resolve => {
+      resolveWait = resolve;
+      if (!child || typeof child.once !== 'function') {
+        finish(false);
+        return;
       }
-      run.state.status = 'cancelled';
-      run.state.statusDetail = errors.some(item => item.runId === run.id)
-        ? '프로그램 종료 중 실행 상태를 확인하지 못함'
-        : '프로그램 종료로 실행을 중지함';
-      run.state.endedAt = new Date().toISOString();
-      addLifecycle(run.state, 'process-end', '프로그램 종료로 실행 중지', {
-        id: 'process-end', detail: run.state.statusDetail, status: 'failed',
-      });
-      runBestEffort('runner-dispose-persist', () => this.persist(run));
-      this.active.delete(run.id);
-      this.emit('changed', { runId: run.id, state: run.state });
+      child.once('close', onClose);
+      timer = setTimeout(() => finish(false), this.terminationGraceMs);
+    });
+    return { promise, cancel: () => finish(false) };
+  }
+
+  terminateWindowsRun(run) {
+    return new Promise(resolve => {
+      try {
+        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, error => {
+          resolve(error || null);
+        });
+      } catch (error) {
+        resolve(error);
+      }
+    });
+  }
+
+  async terminatePosixRun(run) {
+    const errors = [];
+    const gracefulClose = this.closeWaiter(run);
+    if (run.state.status === 'paused') {
+      runBestEffort('runner-dispose-resume', () => this.signalRun(run, 'SIGCONT'));
     }
-    return { stopped: runs.length, errors };
+    if (run.closed) {
+      gracefulClose.cancel();
+      return errors;
+    }
+    try {
+      this.signalRun(run, 'SIGTERM');
+    } catch (error) {
+      errors.push(error);
+      gracefulClose.cancel();
+    }
+    const closed = errors.length ? false : await gracefulClose.promise;
+    if (!closed) {
+      try {
+        this.signalRun(run, 'SIGKILL');
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+    return errors;
+  }
+
+  finalizeDisposedRun(run, errors) {
+    runBestEffort('runner-dispose-flush-stdout', () => this.flush(run, 'stdout'));
+    runBestEffort('runner-dispose-flush-stderr', () => this.flush(run, 'stderr'));
+    run.state.status = 'cancelled';
+    run.state.statusDetail = errors.length
+      ? '프로그램 종료 중 실행 상태를 확인하지 못함'
+      : '프로그램 종료로 실행을 중지함';
+    run.state.endedAt = new Date().toISOString();
+    addLifecycle(run.state, 'process-end', '프로그램 종료로 실행 중지', {
+      id: 'process-end', detail: run.state.statusDetail, status: 'failed',
+    });
+    runBestEffort('runner-dispose-persist', () => this.persist(run));
+    this.active.delete(run.id);
+    this.emit('changed', { runId: run.id, state: run.state });
+  }
+
+  async disposeRun(run) {
+    run.stopping = true;
+    run.disposing = true;
+    let errors = [];
+    if (this.platform === 'win32') {
+      const error = await this.terminateWindowsRun(run);
+      if (error) errors.push(error);
+    } else {
+      errors = await this.terminatePosixRun(run);
+    }
+    this.finalizeDisposedRun(run, errors);
+    return errors.map(error => ({ runId: run.id, error: error.message }));
+  }
+
+  dispose() {
+    if (this.disposePromise) return this.disposePromise;
+    const runs = [...this.active.values()];
+    this.disposePromise = Promise.all(runs.map(run => this.disposeRun(run))).then(results => ({
+      stopped: runs.length,
+      errors: results.flat(),
+    }));
+    return this.disposePromise;
   }
 }
 

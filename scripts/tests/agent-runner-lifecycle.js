@@ -42,7 +42,7 @@ function runFixture(runsDir, id, pid, status = 'running') {
 function registerAgentRunnerLifecycleTests(context) {
   const { test, temp, root } = context;
 
-  test('직접 실행 AI는 POSIX 프로세스 그룹 전체를 제어하고 앱 종료 상태를 저장한다', async () => {
+  test('직접 실행 AI는 POSIX 프로세스 그룹 전체를 제어한다', async () => {
     const fallbackSignals = [];
     const fallback = signalPosixProcessTree(4_321, 'SIGTERM', (pid, signal) => {
       fallbackSignals.push([pid, signal]);
@@ -103,17 +103,90 @@ function registerAgentRunnerLifecycleTests(context) {
       [-6_001, 'SIGTERM'],
     ]);
     runner.active.delete(controlled.id);
+  });
 
-    const disposing = runFixture(runsDir, 'dispose-run', 6_002, 'paused');
+  test('앱 종료는 POSIX 직접 실행 AI의 자연스러운 close를 기다리고 상태를 저장한다', async () => {
+    const runsDir = path.join(temp, 'agent-runner-graceful-dispose');
+    const signals = [];
+    const runner = new AgentRunner({
+      runsDir,
+      platform: 'darwin',
+      terminationGraceMs: 50,
+      killProcess: (pid, signal) => { signals.push([pid, signal]); },
+    });
+    const disposing = runFixture(runsDir, 'graceful-dispose-run', 6_002, 'paused');
     runner.active.set(disposing.id, disposing);
-    const disposed = runner.dispose();
-    assert.deepStrictEqual(disposed, { stopped: 1, errors: [] });
-    assert.deepStrictEqual(signals.slice(-2), [[-6_002, 'SIGCONT'], [-6_002, 'SIGTERM']]);
+
+    const disposal = runner.dispose();
+    assert.strictEqual(runner.dispose(), disposal);
+    assert.deepStrictEqual(signals, [[-6_002, 'SIGCONT'], [-6_002, 'SIGTERM']]);
+    assert.equal(runner.listActive().length, 1);
+    assert.equal(disposing.state.status, 'paused');
+
+    disposing.child.emit('close', 0, 'SIGTERM');
+    assert.deepStrictEqual(await disposal, { stopped: 1, errors: [] });
+    assert.deepStrictEqual(signals, [[-6_002, 'SIGCONT'], [-6_002, 'SIGTERM']]);
     assert.deepStrictEqual(runner.listActive(), []);
     const persisted = JSON.parse(fs.readFileSync(path.join(disposing.dir, 'session.json'), 'utf8'));
     assert.equal(persisted.status, 'cancelled');
     assert.equal(Boolean(persisted.endedAt), true);
     assert.equal(persisted.lifecycle.some(item => item.id === 'process-end'), true);
+  });
+
+  test('앱 종료는 SIGTERM을 무시하는 POSIX 직접 실행 AI 그룹에 SIGKILL을 전달한다', async () => {
+    const runsDir = path.join(temp, 'agent-runner-forced-dispose');
+    const signals = [];
+    const runner = new AgentRunner({
+      runsDir,
+      platform: 'linux',
+      terminationGraceMs: 5,
+      killProcess: (pid, signal) => { signals.push([pid, signal]); },
+    });
+    const disposing = runFixture(runsDir, 'forced-dispose-run', 6_003);
+    runner.active.set(disposing.id, disposing);
+
+    const disposal = runner.dispose();
+    assert.deepStrictEqual(signals, [[-6_003, 'SIGTERM']]);
+    assert.equal(runner.listActive().length, 1);
+
+    assert.deepStrictEqual(await disposal, { stopped: 1, errors: [] });
+    assert.deepStrictEqual(signals, [[-6_003, 'SIGTERM'], [-6_003, 'SIGKILL']]);
+    assert.deepStrictEqual(runner.listActive(), []);
+  });
+
+  test('앱 종료는 Windows taskkill 콜백이 완료될 때까지 직접 실행 AI를 유지한다', async () => {
+    const runsDir = path.join(temp, 'agent-runner-windows-dispose');
+    const calls = [];
+    let taskkillCallback = null;
+    const runner = new AgentRunner({
+      runsDir,
+      platform: 'win32',
+      execFile: (command, args, options, callback) => {
+        calls.push({ command, args, options });
+        taskkillCallback = callback;
+      },
+    });
+    const disposing = runFixture(runsDir, 'windows-dispose-run', 6_004);
+    runner.active.set(disposing.id, disposing);
+
+    let settled = false;
+    const disposal = runner.dispose().then(result => {
+      settled = true;
+      return result;
+    });
+    assert.deepStrictEqual(calls, [{
+      command: 'taskkill',
+      args: ['/PID', '6004', '/T', '/F'],
+      options: { windowsHide: true },
+    }]);
+    await Promise.resolve();
+    assert.equal(settled, false);
+    assert.equal(runner.listActive().length, 1);
+
+    taskkillCallback(null);
+    assert.deepStrictEqual(await disposal, { stopped: 1, errors: [] });
+    assert.equal(settled, true);
+    assert.deepStrictEqual(runner.listActive(), []);
   });
 }
 

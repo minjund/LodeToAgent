@@ -62,6 +62,8 @@ let updateManager = null;
 let updateInstallPromise = null;
 let attentionNotifier = null;
 let isQuitting = false;
+let quitCleanupPromise = null;
+let quitCleanupComplete = false;
 let appLocale = 'ko';
 let providerVisibilityStore = null;
 let pendingAttentionSessionId = '';
@@ -857,18 +859,46 @@ app.on('window-all-closed', () => {
   app.quit();
 });
 
-app.on('before-quit', () => {
-  isQuitting = true;
-  if (runner) runner.dispose();
-  if (attentionNotifier) attentionNotifier.dispose();
-  if (terminalManager instanceof TerminalHostClient) terminalManager.dispose({ shutdownIfIdle: true });
-  else if (terminalManager) terminalManager.dispose({ preserveSessions: true });
-  if (monitorWorker) {
-    monitorWorker.postMessage({ type: 'stop' });
-    monitorWorker.terminate();
+function quitCleanupTask(operation, action) {
+  try {
+    return Promise.resolve(action()).catch(error => reportRecoverableError(`before-quit:${operation}`, error));
+  } catch (error) {
+    reportRecoverableError(`before-quit:${operation}`, error);
+    return Promise.resolve();
   }
-  if (monitorWorkerRestartTimer) clearTimeout(monitorWorkerRestartTimer);
-  monitorWorkerRestartTimer = null;
+}
+
+async function cleanupBeforeQuit() {
+  await Promise.all([
+    quitCleanupTask('agent-runner', () => runner && runner.dispose()),
+    quitCleanupTask('attention-notifier', () => attentionNotifier && attentionNotifier.dispose()),
+    quitCleanupTask('terminal-manager', () => {
+      if (terminalManager instanceof TerminalHostClient) terminalManager.dispose({ shutdownIfIdle: true });
+      else if (terminalManager) terminalManager.dispose({ preserveSessions: true });
+    }),
+    quitCleanupTask('monitor-worker', () => {
+      if (!monitorWorker) return;
+      monitorWorker.postMessage({ type: 'stop' });
+      return monitorWorker.terminate();
+    }),
+    quitCleanupTask('monitor-restart-timer', () => {
+      if (monitorWorkerRestartTimer) clearTimeout(monitorWorkerRestartTimer);
+      monitorWorkerRestartTimer = null;
+    }),
+  ]);
+}
+
+app.on('before-quit', event => {
+  isQuitting = true;
+  if (quitCleanupComplete) return;
+  event.preventDefault();
+  if (quitCleanupPromise) return;
+  quitCleanupPromise = cleanupBeforeQuit()
+    .catch(error => reportRecoverableError('before-quit-cleanup', error))
+    .then(() => {
+      quitCleanupComplete = true;
+      setImmediate(() => app.quit());
+    });
 });
 
 app.on('will-quit', () => {
