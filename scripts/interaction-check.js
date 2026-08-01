@@ -1016,6 +1016,17 @@ async function exerciseGuideAndMobileTools(win, round) {
     && !document.querySelector('#appShell').inert
     && document.activeElement?.id === 'mobileMoreBtn'`, '모바일 더보기의 명시적 닫기 버튼과 포커스 복원 실패');
   await click(win, '#mobileMoreBtn', 'mobile:more');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('#mobileToolsMenu button')?.focus({ preventScroll: true });
+    window.LoadToAgentApp.selectView('active');
+  })()`);
+  await waitFor(win, `document.querySelector('#mobileToolsMenu').classList.contains('hidden')
+    && !document.querySelector('#appShell').inert
+    && document.activeElement?.id === 'mainContent'
+    && !window.LoadToAgentApp.motionState.focusScopes.some(scope => scope.surface === 'mobileToolsMenu')`,
+  '외부 화면 전환으로 모바일 메뉴가 닫힐 때 숨은 메뉴의 초점 또는 포커스 스코프가 남았습니다.');
+  mark('mobile:external-view-focus-cleanup');
+  await click(win, '#mobileMoreBtn', 'mobile:more');
   await win.webContents.executeJavaScript(`(() => { const first = document.querySelector('#mobileToolsMenu button'); first.focus(); first.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true, cancelable: true })); })()`);
   await waitFor(win, `document.activeElement?.dataset.mobileView === 'settings'`, '모바일 더보기 메뉴 End 키 이동 실패');
   mark('mobile:keyboard-roaming');
@@ -1437,6 +1448,7 @@ async function exerciseManagementControls(win, round) {
 
   await click(win, '[data-view="waiting"]', 'nav:waiting');
   await click(win, '.attention-more-cards > summary', 'management:more-cards');
+  await win.webContents.executeJavaScript(`document.querySelector('[data-management-session="fixture-failed"] .attention-primary-action[data-open-session="fixture-failed"]').focus({ preventScroll: true })`);
   await click(win, '[data-management-session="fixture-failed"] .attention-primary-action[data-open-session="fixture-failed"]', 'drawer:open-graph');
   await click(win, '.drawer-tab[data-tab="summary"]', 'drawer:tab-summary');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
@@ -1451,7 +1463,17 @@ async function exerciseManagementControls(win, round) {
   await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden') && document.querySelector('#runPrompt').value.includes('GPT 코딩 도우미 작업의 완료 여부 확인') && document.querySelector('#runCwd').value === 'D:\\\\fixture'`, '재배정이 원래 목표와 작업 폴더를 새 실행 창에 보존하지 못했습니다.');
   await click(win, '#clearRunDraftBtn', 'run:clear-draft');
   await click(win, '#cancelRunBtn', 'run:cancel');
-  await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '재배정 창을 닫은 뒤 앱 상호작용이 복원되지 않았습니다.');
+  await waitFor(win, `(() => {
+    const origin = document.querySelector('[data-management-session="fixture-failed"] .attention-primary-action[data-open-session="fixture-failed"]');
+    const active = document.activeElement;
+    return document.querySelector('#runModal').classList.contains('hidden')
+      && !document.querySelector('#appShell').inert
+      && active === origin
+      && active.isConnected
+      && !active.closest('[hidden], [inert], [aria-hidden="true"], .hidden')
+      && active.getClientRects().length > 0;
+  })()`, '재배정 취소 뒤 닫힌 상세 창 내부가 아닌 바깥 트리거로 초점이 복원되지 않았습니다.');
+  mark('management:reassign-focus-restore');
   await click(win, '[data-management-session="fixture-failed"] .attention-primary-action[data-open-session="fixture-failed"]', 'drawer:open-graph');
   await click(win, '.drawer-tab[data-tab="summary"]', 'drawer:tab-summary');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
@@ -2774,8 +2796,46 @@ async function exerciseDrawer(win, round) {
   mark('drawer:background-inert');
   await waitFor(win, `Number(getComputedStyle(document.querySelector('#drawerBackdrop')).opacity) > 0
     && getComputedStyle(document.querySelector('#drawerBackdrop')).pointerEvents !== 'none'`, '상세 창 배경이 클릭 가능한 상태가 되지 않았습니다.');
+  const replacedDrawerTrigger = await win.webContents.executeJavaScript(`(() => {
+    const original = document.querySelector('[data-session-id="fixture-ended"]');
+    const replacement = original.cloneNode(true);
+    original.replaceWith(replacement);
+    return {
+      originalDetached: !original.isConnected,
+      replacementConnected: replacement.isConnected,
+      replacementMatches: replacement.matches('[data-session-id="fixture-ended"]'),
+    };
+  })()`);
+  assert(replacedDrawerTrigger.originalDetached && replacedDrawerTrigger.replacementConnected && replacedDrawerTrigger.replacementMatches,
+    `상세 창 트리거 재렌더링 준비 실패: ${JSON.stringify(replacedDrawerTrigger)}`);
   await click(win, '#drawerBackdrop', 'drawer:backdrop');
-  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden') && !document.querySelector('#appShell').inert`, '상세 창 배경 클릭이 창을 닫고 배경 상호작용을 복원하지 못했습니다.');
+  await waitFor(win, `(() => {
+    const trigger = document.querySelector('[data-session-id="fixture-ended"]');
+    return document.querySelector('#drawerBackdrop').classList.contains('hidden')
+      && !document.querySelector('#appShell').inert
+      && document.activeElement === trigger
+      && trigger.isConnected
+      && !trigger.closest('[hidden], [inert], [aria-hidden="true"], .hidden');
+  })()`, '재렌더링된 상세 창 트리거로 안전하게 초점이 복원되지 않았습니다.');
+  mark('drawer:focus-rerender-restore');
+  await win.webContents.executeJavaScript(`(() => {
+    const firstTrigger = document.querySelector('[data-session-id="fixture-ended"]');
+    firstTrigger.focus({ preventScroll: true });
+    window.LoadToAgentApp.openDrawer('fixture-ended');
+  })()`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '빠른 재열기 검증용 첫 상세 창을 열지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    window.LoadToAgentApp.closeDrawer();
+    const nextTrigger = document.querySelector('#searchInput');
+    nextTrigger.focus({ preventScroll: true });
+    window.LoadToAgentApp.openDrawer('fixture-root');
+  })()`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && window.LoadToAgentApp.state.selectedId === 'fixture-root'`, '닫힘 애니메이션 중 다른 상세 창을 다시 열지 못했습니다.');
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')
+    && document.activeElement === document.querySelector('#searchInput')`,
+  '상세 창을 빠르게 바꿔 연 뒤 새 트리거로 초점이 복원되지 않았습니다.');
+  mark('drawer:rapid-reopen-focus-restore');
   await click(win, '[data-session-id="fixture-ended"]', 'drawer:open-card');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, '상세 창 배경 검증 뒤 완료 세션을 다시 열지 못했습니다.');
   await clearCalls(win);
@@ -3065,7 +3125,12 @@ async function exerciseDrawer(win, round) {
   })`);
   assert(endedModelUi.view === 'active' && endedModelUi.drawerOpen && endedModelUi.selectedId === 'fixture-projectless',
     `종료 세션 모델 명령 뒤 대화창이 유지되지 않았습니다: ${JSON.stringify(endedModelUi)}`);
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open') && document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '중첩 포커스 검증 전에 기존 상세 창을 닫지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('#searchInput').focus({ preventScroll: true });
+    window.LoadToAgentApp.openDrawer('fixture-root');
+  })()`);
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-reset="fixture-root"]'))`, '세션 초기화 버튼을 다시 열지 못했습니다.');
   await clearCalls(win);
   await click(win, '[data-session-reset="fixture-root"]', 'session:reset');
@@ -3081,6 +3146,28 @@ async function exerciseDrawer(win, round) {
     && window.LoadToAgentApp.state.view === 'active'
     && document.querySelector('#detailDrawer').classList.contains('open')`),
   '세션 초기화 취소 시 기존 대화창과 세션이 유지되지 않았습니다.');
+  await click(win, '#closeDrawerBtn', 'drawer:close');
+  await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '중첩 초기화 창 이후 상세 창 닫기 애니메이션이 끝나지 않았습니다.');
+  const nestedFocusRestore = await win.webContents.executeJavaScript(`(() => {
+    const active = document.activeElement;
+    const expected = document.querySelector('#searchInput');
+    return {
+      restored: active === expected,
+      active: active?.id || active?.outerHTML?.slice(0, 120) || '',
+      activeConnected: Boolean(active?.isConnected),
+      activeBlocked: Boolean(active?.closest?.('[hidden], [inert], [aria-hidden="true"], .hidden')),
+      expectedVisible: Boolean(expected?.isConnected && expected.getClientRects().length),
+      scopes: window.LoadToAgentApp.motionState.focusScopes.map(scope => scope.surface),
+    };
+  })()`);
+  assert(nestedFocusRestore.restored && nestedFocusRestore.activeConnected && !nestedFocusRestore.activeBlocked && nestedFocusRestore.expectedVisible,
+    `중첩 초기화 창을 취소하고 상세 창을 닫은 뒤 바깥 트리거로 초점이 복원되지 않았습니다: ${JSON.stringify(nestedFocusRestore)}`);
+  mark('drawer:nested-modal-focus-restore');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('#searchInput').focus({ preventScroll: true });
+    window.LoadToAgentApp.openDrawer('fixture-root');
+  })()`);
+  await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && Boolean(document.querySelector('[data-session-reset="fixture-root"]'))`, '초기화 확인 실행을 위해 상세 창을 다시 열지 못했습니다.');
   await click(win, '[data-session-reset="fixture-root"]', 'session:reset');
   await waitFor(win, `!document.querySelector('#sessionResetModal').classList.contains('hidden')
     && document.querySelector('#sessionResetDescription').textContent.trim().length > 10`,

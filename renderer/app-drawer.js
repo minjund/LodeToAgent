@@ -6,7 +6,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   const CONTEXT_DRAWER_MIN_WIDTH = 1680;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
-    $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState,
+    $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState,
     providerInfo, isLiveSession, controlRoomStatus = session => session?.status, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionOriginPath, sessionWorkspaceLabel,
     pendingConversationDelivery = () => null,
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
@@ -14,6 +14,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     agentCommandComposer,
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
   } = context;
+  let drawerFocusToken = null;
   const deliveryLabelKey = (phase) => ({
     sending: "control.delivery_sending",
     confirming: "control.delivery_confirming",
@@ -77,8 +78,13 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
   }
 
+  function rememberDrawerTrigger() {
+    if ($("#detailDrawer").classList.contains("open")) return;
+    drawerFocusToken = rememberDialogTrigger("detailDrawer", { refresh: Boolean(drawerFocusToken) });
+  }
+
   function openDrawer(id, options = {}) {
-    rememberDialogTrigger();
+    rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = id;
     state.drawerMode = "session";
@@ -97,7 +103,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   function openSubagentConversation(id, options = {}) {
     const child = snapshotSession(id) || state.details.get(id);
     if (!child || !child.parentId) return openDrawer(id, options);
-    rememberDialogTrigger();
+    rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = id;
     state.drawerMode = "subagent";
@@ -118,7 +124,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   function openExecutionActivity(ownerId, executionId) {
     const owner = snapshotSession(ownerId) || state.details.get(ownerId);
     if (!owner) return;
-    rememberDialogTrigger();
+    rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = ownerId;
     state.drawerMode = "execution";
@@ -135,7 +141,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   function closeDrawer(restoreFocus = true) {
     if (!$("#detailDrawer").classList.contains("open")) return;
     const presentation = state.drawerPresentation;
-    const drawerGeneration = motionState.dialogGeneration;
+    const focusToken = drawerFocusToken;
     $("#detailDrawer").classList.remove("open");
     if (presentation === "modal") {
       setDialogOpenState($("#detailDrawer"), false);
@@ -155,9 +161,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
         $("#drawerBackdrop").classList.remove("closing");
         setDrawerPresentation("modal");
         $("#drawerBackdrop").classList.add("hidden");
-        if (drawerGeneration !== motionState.dialogGeneration) return;
-        if (restoreFocus) restoreDialogTrigger(drawerGeneration);
-        else motionState.activeDialogTrigger = null;
+        if (drawerFocusToken !== focusToken) return;
+        drawerFocusToken = null;
+        if (!focusToken) return;
+        if (restoreFocus) restoreDialogTrigger(focusToken);
+        else discardDialogTrigger(focusToken);
       },
       motionPreference.matches ? 0 : 260,
     );

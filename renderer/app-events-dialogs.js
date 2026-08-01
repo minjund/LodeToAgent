@@ -7,10 +7,10 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
   const CONTEXT_WORKSPACE_MIN_WIDTH = 960;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
-    $, $$, state, motionState, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
+    $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, backToAgentFlow, renderDrawer, render = () => {}, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
-    rememberDialogTrigger = () => {}, restoreDialogTrigger = () => {}, setDialogOpenState = () => {},
+    rememberDialogTrigger = () => {}, restoreDialogTrigger = () => {}, discardDialogTrigger = () => {}, setDialogOpenState = () => {},
     copyText = async () => false,
     dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
     resetAgentSession = async () => {},
@@ -141,7 +141,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
 
   function bindDrawerAndGlobalEvents() {
     let pendingSessionResetId = "";
-    let resetDialogGeneration = 0;
+    let resetFocusToken = null;
     const conversationSlashStates = new Map();
     const conversationSlashState = input => {
       const sessionId = input?.dataset.agentCommandDraft || "";
@@ -301,14 +301,17 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       pendingSessionResetId = "";
       const drawer = $("#detailDrawer");
       if (drawer?.classList.contains("open")) drawer.removeAttribute("inert");
-      if (restoreFocus) restoreDialogTrigger(resetDialogGeneration);
+      const focusToken = resetFocusToken;
+      resetFocusToken = null;
+      if (!focusToken) return;
+      if (restoreFocus) restoreDialogTrigger(focusToken);
+      else discardDialogTrigger(focusToken);
     };
     const openSessionResetDialog = sessionId => {
       const modal = $("#sessionResetModal");
       if (!modal) return;
       pendingSessionResetId = sessionId;
-      rememberDialogTrigger();
-      resetDialogGeneration = motionState?.dialogGeneration || 0;
+      if (!resetFocusToken) resetFocusToken = rememberDialogTrigger("sessionResetModal");
       modal.classList.remove("hidden");
       $("#detailDrawer")?.setAttribute("inert", "");
       setDialogOpenState(modal, true);

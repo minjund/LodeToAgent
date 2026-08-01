@@ -17,8 +17,8 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   const MAX_QUALITY_TEXT = 180;
   let activeCommandIndex = 0;
   let visibleCommands = [];
-  let quickDialogGeneration = 0;
-  let shortcutDialogGeneration = 0;
+  let quickFocusToken = null;
+  let shortcutFocusToken = null;
   let qualityMutationFrame = 0;
   let runDraftTimer = 0;
   const pendingQualityRoots = new Set();
@@ -238,8 +238,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
   function openQuickPalette() {
     if (currentDialog?.()) return;
-    rememberDialogTrigger();
-    quickDialogGeneration = context.motionState?.dialogGeneration || 0;
+    if (!quickFocusToken) quickFocusToken = rememberDialogTrigger("quickPaletteModal");
     const modal = $("#quickPaletteModal");
     setDialogOpenState(modal, true);
     modal.classList.remove("hidden");
@@ -254,7 +253,9 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     if (modal.classList.contains("hidden")) return;
     modal.classList.add("hidden");
     setDialogOpenState(modal, false);
-    restoreDialogTrigger(quickDialogGeneration);
+    const focusToken = quickFocusToken;
+    quickFocusToken = null;
+    if (focusToken) restoreDialogTrigger(focusToken);
   }
 
   function executeQuickCommand(id) {
@@ -266,8 +267,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
   function openShortcutHelp() {
     if (currentDialog?.()) return;
-    rememberDialogTrigger();
-    shortcutDialogGeneration = context.motionState?.dialogGeneration || 0;
+    if (!shortcutFocusToken) shortcutFocusToken = rememberDialogTrigger("shortcutHelpModal");
     const modal = $("#shortcutHelpModal");
     setDialogOpenState(modal, true);
     modal.classList.remove("hidden");
@@ -279,7 +279,9 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     if (modal.classList.contains("hidden")) return;
     modal.classList.add("hidden");
     setDialogOpenState(modal, false);
-    restoreDialogTrigger(shortcutDialogGeneration);
+    const focusToken = shortcutFocusToken;
+    shortcutFocusToken = null;
+    if (focusToken) restoreDialogTrigger(focusToken);
   }
 
   async function copyText(value) {

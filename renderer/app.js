@@ -100,7 +100,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
   const motionState = {
     ready: false, modalTimer: 0, modalFocusTimer: 0, toastTimer: 0, drawerTimer: 0, drawerContentTimer: 0,
-    drawerRenderKey: "", drawerTab: "", activeDialogTrigger: null, dialogGeneration: 0,
+    drawerRenderKey: "", drawerTab: "", focusScopes: [], focusScopeSequence: 0,
   };
   function disclosureElements(root = document) {
     const elements = [];
@@ -149,6 +149,60 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     }
     return null;
   }
+  function isRestorableFocusTarget(element) {
+    if (!(element instanceof HTMLElement)
+      || element === document.body
+      || element === document.documentElement
+      || !element.isConnected
+      || element.matches(":disabled")
+      || element.getAttribute("aria-disabled") === "true"
+      || element.closest("[hidden], [inert], [aria-hidden='true'], .hidden, .closing")) return false;
+    const style = getComputedStyle(element);
+    return element.getClientRects().length > 0
+      && style.display !== "none"
+      && style.visibility !== "hidden"
+      && style.visibility !== "collapse"
+      && Number(style.opacity) > 0;
+  }
+  function focusTargetSnapshot(element) {
+    if (!isRestorableFocusTarget(element)) return null;
+    return { element, locator: stableFocusLocator(element) };
+  }
+  function resolveFocusTarget(snapshot) {
+    if (!snapshot) return null;
+    if (isRestorableFocusTarget(snapshot.element)) return snapshot.element;
+    if (!snapshot.locator) return null;
+    const root = snapshot.locator.rootId ? document.getElementById(snapshot.locator.rootId) : document;
+    const replacement = root?.querySelector(snapshot.locator.selector);
+    return isRestorableFocusTarget(replacement) ? replacement : null;
+  }
+  function appendFocusTarget(targets, snapshot) {
+    if (!snapshot || (!snapshot.element && !snapshot.locator)) return;
+    const duplicate = targets.some((target) => target.element === snapshot.element
+      || (target.locator && snapshot.locator
+        && target.locator.rootId === snapshot.locator.rootId
+        && target.locator.selector === snapshot.locator.selector));
+    if (!duplicate) targets.push({ element: snapshot.element || null, locator: snapshot.locator || null });
+  }
+  function focusScopeTargets(scope) {
+    if (!scope) return [];
+    return [
+      { element: scope.element, locator: scope.locator },
+      ...(scope.fallbackTargets || []),
+    ];
+  }
+  function resolveFocusScopeTarget(scope) {
+    for (const target of focusScopeTargets(scope)) {
+      const resolved = resolveFocusTarget(target);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+  function focusWithoutScroll(element) {
+    if (!isRestorableFocusTarget(element)) return false;
+    element.focus({ preventScroll: true });
+    return document.activeElement === element;
+  }
   function captureRenderFocus(root = document) {
     const element = document.activeElement;
     if (!(element instanceof HTMLElement)
@@ -168,9 +222,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (current && current !== document.body && current !== document.documentElement) return false;
     const root = token.locator.rootId ? document.getElementById(token.locator.rootId) : document;
     const replacement = root?.querySelector(token.locator.selector);
-    if (!(replacement instanceof HTMLElement)
-      || replacement.matches(":disabled")
-      || replacement.closest("[hidden], [inert], [aria-hidden='true'], .hidden")) return false;
+    if (!isRestorableFocusTarget(replacement)) return false;
     replacement.focus({ preventScroll: true });
     if (document.activeElement !== replacement) return false;
     if (token.selection && (replacement instanceof HTMLInputElement || replacement instanceof HTMLTextAreaElement)) {
@@ -372,8 +424,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     context.renderSessions(options.motionKind || "view");
     const mobileToolsMenu = $("#mobileToolsMenu");
     if (mobileToolsMenu && !mobileToolsMenu.classList.contains("hidden")) {
+      const focusWasInsideMobileTools = mobileToolsMenu.contains(document.activeElement);
       setDialogOpenState(mobileToolsMenu, false);
       mobileToolsMenu.classList.add("hidden");
+      discardDialogTrigger("mobileToolsMenu");
+      if (focusWasInsideMobileTools && !options.focusMain) $("#mainContent")?.focus({ preventScroll: true });
     }
     $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
     document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
@@ -422,9 +477,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       "button:not([disabled])", "[href]", "input:not([disabled])", "select:not([disabled])",
       "textarea:not([disabled])", '[tabindex]:not([tabindex="-1"])',
     ].join(", ");
-    return [...dialog.querySelectorAll(selector)].filter(
-      (element) => !element.closest(".hidden") && !element.hidden && element.getClientRects().length,
-    );
+    return [...dialog.querySelectorAll(selector)].filter(isRestorableFocusTarget);
   }
   function trapDialogFocus(event) {
     if (event.key !== "Tab") return;
@@ -442,16 +495,75 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       first.focus();
     }
   }
-  function rememberDialogTrigger() {
-    motionState.dialogGeneration += 1;
-    motionState.activeDialogTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  function focusScopeIndex(reference = null) {
+    if (!motionState.focusScopes.length) return -1;
+    if (reference == null) return motionState.focusScopes.length - 1;
+    for (let index = motionState.focusScopes.length - 1; index >= 0; index -= 1) {
+      const scope = motionState.focusScopes[index];
+      if (scope === reference
+        || (typeof reference === "object" && reference.id === scope.id)
+        || (typeof reference === "string" && reference === scope.surface)) return index;
+    }
+    return -1;
   }
-  function restoreDialogTrigger(expectedGeneration = null) {
-    if (expectedGeneration != null && expectedGeneration !== motionState.dialogGeneration) return false;
-    const trigger = motionState.activeDialogTrigger;
-    motionState.activeDialogTrigger = null;
-    if (trigger && trigger.isConnected) trigger.focus({ preventScroll: true });
-    return true;
+  function rememberDialogTrigger(surface = "", options = {}) {
+    const surfaceId = String(surface || "");
+    const existingIndex = surfaceId ? focusScopeIndex(surfaceId) : -1;
+    if (existingIndex >= 0) {
+      const existing = motionState.focusScopes[existingIndex];
+      const refreshedTarget = options.refresh ? focusTargetSnapshot(document.activeElement) : null;
+      if (!refreshedTarget) return existing;
+      const refreshedTargets = [];
+      appendFocusTarget(refreshedTargets, refreshedTarget);
+      focusScopeTargets(existing).forEach(target => appendFocusTarget(refreshedTargets, target));
+      const [target = null, ...fallbackTargets] = refreshedTargets;
+      existing.element = target?.element || null;
+      existing.locator = target?.locator || null;
+      existing.fallbackTargets = fallbackTargets;
+      return existing;
+    }
+    const targets = [];
+    appendFocusTarget(targets, focusTargetSnapshot(document.activeElement));
+    for (let index = motionState.focusScopes.length - 1; index >= 0; index -= 1) {
+      focusScopeTargets(motionState.focusScopes[index]).forEach(target => appendFocusTarget(targets, target));
+    }
+    const [target = null, ...fallbackTargets] = targets;
+    const scope = {
+      id: ++motionState.focusScopeSequence,
+      surface: surfaceId,
+      element: target?.element || null,
+      locator: target?.locator || null,
+      fallbackTargets,
+    };
+    motionState.focusScopes.push(scope);
+    return scope;
+  }
+  function takeFocusScope(reference = null) {
+    const index = focusScopeIndex(reference);
+    if (index < 0) return { scope: null, hadNewerScope: false };
+    const hadNewerScope = index < motionState.focusScopes.length - 1;
+    const [scope] = motionState.focusScopes.splice(index, 1);
+    return { scope, hadNewerScope };
+  }
+  function discardDialogTrigger(reference = null) {
+    return Boolean(takeFocusScope(reference).scope);
+  }
+  function focusRestorationFallback() {
+    const active = document.activeElement;
+    if (isRestorableFocusTarget(active)) return true;
+    const roots = [currentDialog()];
+    const drawer = $("#detailDrawer");
+    if (drawer?.classList.contains("open") && !roots.includes(drawer)) roots.push(drawer);
+    for (const root of roots) {
+      if (root && focusWithoutScroll(dialogFocusable(root)[0])) return true;
+    }
+    if (focusWithoutScroll($("#mainContent"))) return true;
+    return focusWithoutScroll(dialogFocusable($("#appShell"))[0]);
+  }
+  function restoreDialogTrigger(reference = null) {
+    const { scope, hadNewerScope } = takeFocusScope(reference);
+    if (!scope || hadNewerScope) return false;
+    return focusWithoutScroll(resolveFocusScopeTarget(scope)) || focusRestorationFallback();
   }
   function setDialogOpenState(dialog, open) {
     if (!dialog) return;
@@ -480,7 +592,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     setDialogOpenState(menu, false);
     menu.classList.add("hidden");
     $("#mobileMoreBtn")?.setAttribute("aria-expanded", "false");
-    motionState.activeDialogTrigger = null;
+    discardDialogTrigger("mobileToolsMenu");
     if (!currentDialog()) {
       $("#appShell")?.removeAttribute("inert");
       document.body.classList.remove("dialog-open");
@@ -514,7 +626,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       region.textContent = String(message || "");
     });
   }
-  window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState, announce };
+  window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState, announce };
   function readablePreview(value, maxCharacters = 120) {
     const full = String(value == null ? "" : value)
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
@@ -1125,6 +1237,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     trapDialogFocus,
     rememberDialogTrigger,
     restoreDialogTrigger,
+    discardDialogTrigger,
     setDialogOpenState,
     announce,
     readablePreview,

@@ -9,6 +9,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench, tmuxRows, updateSnapshot,
     syncComposer,
   } = context;
+  let tmuxModalFocusToken = null;
 
   function relativeTime(value) {
     const ms = Date.now() - Date.parse(value || 0);
@@ -766,7 +767,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   }
 
   function openTmuxModal() {
-    window.LoadToAgentA11y?.rememberDialogTrigger();
+    if (!tmuxModalFocusToken) tmuxModalFocusToken = window.LoadToAgentA11y?.rememberDialogTrigger('tmuxCreateModal');
     const distros = state.snapshot && state.snapshot.tmux && state.snapshot.tmux.distros || [];
     $('#tmuxCreateDistro').innerHTML = distros.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('');
     $('#tmuxCreateError').classList.add('hidden');
@@ -781,7 +782,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     window.LoadToAgentA11y?.setDialogOpenState($('#tmuxCreateModal'), false);
     $('#tmuxCreateForm').reset();
     $('#tmuxCreateForm').querySelectorAll('[aria-invalid="true"]').forEach(element => element.removeAttribute('aria-invalid'));
-    window.LoadToAgentA11y?.restoreDialogTrigger();
+    const focusToken = tmuxModalFocusToken;
+    tmuxModalFocusToken = null;
+    if (focusToken) window.LoadToAgentA11y?.restoreDialogTrigger(focusToken);
   }
 
   async function refreshSnapshot() {

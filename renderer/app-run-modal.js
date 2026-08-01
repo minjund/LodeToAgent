@@ -24,6 +24,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     restoreRunDraft = () => {},
     clearRunDraft = () => {},
   } = context;
+  let runFocusToken = null;
 
   function providerPickerHtml() {
     return visibleProviders()
@@ -178,7 +179,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       projectTarget?.focus({ preventScroll: true });
       return false;
     }
-    rememberDialogTrigger();
+    if (!runFocusToken) runFocusToken = rememberDialogTrigger("runModal");
     restoreRunDraft();
     const installed = visibleProviders().find((provider) => state.availability[provider.id]);
     if ((!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) && installed) state.runProvider = installed.id;
@@ -206,7 +207,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const modal = $("#runModal");
     if (modal.classList.contains("hidden") || modal.classList.contains("closing")) return;
     if (force !== true && $('#runForm button[type="submit"]').dataset.submitting === "true") return;
-    const modalGeneration = motionState.dialogGeneration;
+    const focusToken = runFocusToken;
     clearTimeout(motionState.modalFocusTimer);
     modal.classList.add("closing");
     clearTimeout(motionState.modalTimer);
@@ -215,7 +216,9 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         modal.classList.add("hidden");
         modal.classList.remove("closing");
         setDialogOpenState(modal, false);
-        restoreDialogTrigger(modalGeneration);
+        if (runFocusToken !== focusToken) return;
+        runFocusToken = null;
+        if (focusToken) restoreDialogTrigger(focusToken);
       },
       motionPreference.matches ? 0 : 220,
     );

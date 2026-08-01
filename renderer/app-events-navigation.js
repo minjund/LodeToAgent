@@ -7,8 +7,9 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
   const {
     $, state, motionPreference, saveGuideState, selectView, renderUpdateSettings,
     filteredSessions, renderSessions, openRunModal, openDrawer, toast, performUiAction,
-    rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState, trapDialogFocus,
+    rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState, trapDialogFocus,
   } = context;
+  let mobileToolsFocusToken = null;
 
   function bindNavigationAndUpdateEvents() {
     const closeMobileTools = (restoreFocus = true) => {
@@ -16,7 +17,11 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
       setDialogOpenState(menu, false);
       menu.classList.add("hidden");
       $("#mobileMoreBtn").setAttribute("aria-expanded", "false");
-      if (restoreFocus) restoreDialogTrigger();
+      const focusToken = mobileToolsFocusToken;
+      mobileToolsFocusToken = null;
+      if (!focusToken) return;
+      if (restoreFocus) restoreDialogTrigger(focusToken);
+      else discardDialogTrigger(focusToken);
     };
     $(".view-nav").addEventListener("click", (event) => {
       const button = event.target.closest(".nav-item");
@@ -96,7 +101,7 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
       const opening = menu.classList.contains("hidden");
       if (!opening) return closeMobileTools(true);
       $("#mobileMoreBtn").focus({ preventScroll: true });
-      rememberDialogTrigger();
+      mobileToolsFocusToken = rememberDialogTrigger("mobileToolsMenu");
       menu.classList.remove("hidden");
       setDialogOpenState(menu, true);
       $("#mobileMoreBtn").setAttribute("aria-expanded", "true");
