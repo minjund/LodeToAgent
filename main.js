@@ -75,10 +75,10 @@ let detailRequestId = 0;
 const pendingDetails = new Map();
 const MAIN_COPY = {
   ko: {
-    trayTooltip: 'LoadToAgent · 뒤에서 실행 중인 명령창 {count}개',
+    trayTooltip: 'LoadToAgent · 뒤에서 실행 중인 작업 {count}개',
     trayOpen: 'LoadToAgent 열기',
-    traySessions: '명령창 {count}개가 뒤에서 실행 중',
-    trayQuit: '프로그램 끝내기 · 명령창 작업은 계속 실행',
+    traySessions: '작업 {count}개가 뒤에서 실행 중',
+    trayQuit: '프로그램 끝내기 · 명령창은 유지, 직접 실행은 중지',
     addWorkspaces: '추가할 프로젝트 폴더 선택',
     pickWorkspace: '작업 폴더 선택',
     attentionTitle: '내 답변이나 확인이 필요합니다',
@@ -88,10 +88,10 @@ const MAIN_COPY = {
     terminalHostReconnectFailed: '명령창 연결을 복구하지 못했습니다. 명령창을 다시 열어 주세요.',
   },
   en: {
-    trayTooltip: 'LoadToAgent · {count} background terminals',
+    trayTooltip: 'LoadToAgent · {count} background tasks',
     trayOpen: 'Open LoadToAgent',
-    traySessions: '{count} background terminals active',
-    trayQuit: 'Quit app · Keep terminal sessions',
+    traySessions: '{count} background tasks active',
+    trayQuit: 'Quit · Keep terminals, stop direct runs',
     addWorkspaces: 'Choose a project folder to add',
     pickWorkspace: 'Choose workspace',
     attentionTitle: 'Your review is needed',
@@ -101,10 +101,10 @@ const MAIN_COPY = {
     terminalHostReconnectFailed: 'Could not restore the terminal connection: {reason}',
   },
   'zh-CN': {
-    trayTooltip: 'LoadToAgent · {count} 个后台终端',
+    trayTooltip: 'LoadToAgent · {count} 个后台任务',
     trayOpen: '打开 LoadToAgent',
-    traySessions: '正在保持 {count} 个后台终端',
-    trayQuit: '退出应用 · 保留终端会话',
+    traySessions: '正在保持 {count} 个后台任务',
+    trayQuit: '退出 · 保留终端并停止直接运行',
     addWorkspaces: '选择要添加的项目文件夹',
     pickWorkspace: '选择工作文件夹',
     attentionTitle: '需要你的确认',
@@ -279,7 +279,7 @@ function createWindow() {
     showWindow();
   });
   mainWindow.on('close', event => {
-    if (isQuitting || !backgroundTerminalSessions().length) return;
+    if (isQuitting || !backgroundWorkloadCount()) return;
     event.preventDefault();
     mainWindow.hide();
     ensureBackgroundTray();
@@ -299,6 +299,14 @@ function backgroundTerminalSessions() {
   ));
 }
 
+function backgroundAgentRuns() {
+  return runner ? runner.listActive() : [];
+}
+
+function backgroundWorkloadCount() {
+  return backgroundTerminalSessions().length + backgroundAgentRuns().length;
+}
+
 function visibleTerminalSessions(sessions) {
   return (sessions || []).filter(session => !session.transient && (session.type !== 'agent' || isProviderVisible(session.provider)));
 }
@@ -312,7 +320,7 @@ function showMainWindow() {
 
 function updateBackgroundTrayMenu() {
   if (!backgroundTray) return;
-  const count = backgroundTerminalSessions().length;
+  const count = backgroundWorkloadCount();
   backgroundTray.setToolTip(mainText('trayTooltip', { count }));
   backgroundTray.setContextMenu(Menu.buildFromTemplate([
     { label: mainText('trayOpen'), click: showMainWindow },
@@ -633,7 +641,10 @@ async function setupRuntime() {
   availability = probeProviders();
   monitorWorkerConfig = { runsDir, home: os.homedir(), intervalMs: 1200, availability };
   startMonitorWorker();
-  runner.on('changed', () => monitorWorker && monitorWorker.postMessage({ type: 'scan' }));
+  runner.on('changed', () => {
+    if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
+    updateBackgroundTrayMenu();
+  });
 }
 
 function bridgePresence() {
@@ -708,7 +719,9 @@ function registerIpcHandlers() {
     rendererReady: markRendererReady,
     backgroundState: () => ({
       visible: Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()),
-      backgroundSessions: backgroundTerminalSessions().length,
+      backgroundSessions: backgroundWorkloadCount(),
+      backgroundTerminals: backgroundTerminalSessions().length,
+      backgroundRuns: backgroundAgentRuns().length,
       trayReady: Boolean(backgroundTray),
     }),
     show: () => { showMainWindow(); return { ok: true }; },
@@ -823,11 +836,17 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform === 'darwin') return;
+  if (backgroundWorkloadCount()) {
+    ensureBackgroundTray();
+    return;
+  }
+  app.quit();
 });
 
 app.on('before-quit', () => {
   isQuitting = true;
+  if (runner) runner.dispose();
   if (attentionNotifier) attentionNotifier.dispose();
   if (terminalManager instanceof TerminalHostClient) terminalManager.dispose({ shutdownIfIdle: true });
   else if (terminalManager) terminalManager.dispose({ preserveSessions: true });

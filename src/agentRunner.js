@@ -343,11 +343,32 @@ function commandSpec(provider, opts, executable) {
   return { command: executable, args };
 }
 
+function signalPosixProcessTree(pidValue, signal, killProcess = process.kill) {
+  const pid = Number(pidValue);
+  if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error('실행 중인 프로그램의 PID가 올바르지 않습니다.');
+  try {
+    killProcess(-pid, signal);
+    return { group: true, pid, signal };
+  } catch (groupError) {
+    try {
+      killProcess(pid, signal);
+      return { group: false, pid, signal };
+    } catch (processError) {
+      if (!processError.cause) processError.cause = groupError;
+      throw processError;
+    }
+  }
+}
+
 class AgentRunner extends EventEmitter {
   constructor(options = {}) {
     super();
     this.runsDir = options.runsDir;
     this.active = new Map();
+    this.platform = options.platform || process.platform;
+    this.spawn = options.spawn || spawn;
+    this.execFile = options.execFile || execFile;
+    this.killProcess = options.killProcess || process.kill;
     ensureDir(this.runsDir);
     pruneManagedRuns(this.runsDir, {
       retentionDays: options.retentionDays,
@@ -380,9 +401,10 @@ class AgentRunner extends EventEmitter {
 
     let child;
     try {
-      child = spawn(spec.command, spec.args, {
+      child = this.spawn(spec.command, spec.args, {
         cwd,
         env: { ...process.env, NO_COLOR: '1', FORCE_COLOR: '0' },
+        detached: this.platform !== 'win32',
         windowsHide: true,
         shell: false,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -394,7 +416,10 @@ class AgentRunner extends EventEmitter {
       return { ok: false, error: error.message };
     }
 
-    const run = { id, provider, dir, child, state, stdoutBuffer: '', stderrBuffer: '', stopping: false };
+    const run = {
+      id, provider, dir, child, state, stdoutBuffer: '', stderrBuffer: '', stopping: false,
+      processGroup: this.platform !== 'win32',
+    };
     this.active.set(id, run);
     state.status = 'running';
     state.statusDetail = '자세한 활동 기록 연결됨';
@@ -471,17 +496,30 @@ class AgentRunner extends EventEmitter {
     atomicJson(path.join(run.dir, 'session.json'), run.state);
   }
 
+  signalRun(run, signal) {
+    return signalPosixProcessTree(run && run.child && run.child.pid, signal, this.killProcess);
+  }
+
   stop(id) {
     const run = this.active.get(String(id || ''));
     if (!run) return { ok: false, error: '실행 중인 작업을 찾을 수 없습니다.' };
     run.stopping = true;
     run.state.statusDetail = '중지 요청 중';
     this.persist(run);
-    if (process.platform === 'win32') {
-      execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, () => {});
+    if (this.platform === 'win32') {
+      this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, () => {});
     } else {
-      if (run.state.status === 'paused') runBestEffort('runner-stop-resume', () => process.kill(run.child.pid, 'SIGCONT'));
-      runBestEffort('runner-stop', () => run.child.kill('SIGTERM'));
+      if (run.state.status === 'paused') runBestEffort('runner-stop-resume', () => this.signalRun(run, 'SIGCONT'));
+      try {
+        this.signalRun(run, 'SIGTERM');
+      } catch (error) {
+        run.state.statusDetail = '중지 요청을 전달하지 못함';
+        addLifecycle(run.state, 'error', '프로그램 중지 실패', {
+          id: `stop-error:${Date.now()}`, detail: error.message, status: 'failed',
+        });
+        this.persist(run);
+        return { ok: false, error: error.message };
+      }
     }
     return { ok: true };
   }
@@ -524,9 +562,9 @@ class AgentRunner extends EventEmitter {
       this.emit('changed', { runId: run.id, state: run.state });
       return { ok: true, status: run.state.status };
     };
-    if (process.platform !== 'win32') {
+    if (this.platform !== 'win32') {
       try {
-        process.kill(run.child.pid, paused ? 'SIGSTOP' : 'SIGCONT');
+        this.signalRun(run, paused ? 'SIGSTOP' : 'SIGCONT');
         return Promise.resolve(applyState());
       } catch (error) {
         return Promise.resolve({ ok: false, error: error.message });
@@ -536,7 +574,7 @@ class AgentRunner extends EventEmitter {
     const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
     const command = `${paused ? 'Suspend' : 'Resume'}-Process -Id ${Number(run.child.pid)} -ErrorAction Stop`;
     return new Promise(resolve => {
-      execFile(powershell, ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true }, error => {
+      this.execFile(powershell, ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true }, error => {
         resolve(error ? { ok: false, error: error.message } : applyState());
       });
     });
@@ -549,6 +587,38 @@ class AgentRunner extends EventEmitter {
   resume(id) {
     return this.setPaused(id, false);
   }
+
+  dispose() {
+    const runs = [...this.active.values()];
+    const errors = [];
+    for (const run of runs) {
+      run.stopping = true;
+      if (this.platform === 'win32') {
+        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, error => {
+          if (error) runBestEffort('runner-dispose-taskkill', () => { throw error; });
+        });
+      } else {
+        if (run.state.status === 'paused') runBestEffort('runner-dispose-resume', () => this.signalRun(run, 'SIGCONT'));
+        try {
+          this.signalRun(run, 'SIGTERM');
+        } catch (error) {
+          errors.push({ runId: run.id, error: error.message });
+        }
+      }
+      run.state.status = 'cancelled';
+      run.state.statusDetail = errors.some(item => item.runId === run.id)
+        ? '프로그램 종료 중 실행 상태를 확인하지 못함'
+        : '프로그램 종료로 실행을 중지함';
+      run.state.endedAt = new Date().toISOString();
+      addLifecycle(run.state, 'process-end', '프로그램 종료로 실행 중지', {
+        id: 'process-end', detail: run.state.statusDetail, status: 'failed',
+      });
+      runBestEffort('runner-dispose-persist', () => this.persist(run));
+      this.active.delete(run.id);
+      this.emit('changed', { runId: run.id, state: run.state });
+    }
+    return { stopped: runs.length, errors };
+  }
 }
 
 module.exports = {
@@ -557,5 +627,6 @@ module.exports = {
   findExecutable,
   commandSpec,
   handleClaude,
+  signalPosixProcessTree,
   usageFrom,
 };

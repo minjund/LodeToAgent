@@ -15,6 +15,7 @@ const { registerTerminalAgentActionTests } = require('./tests/terminal-agent-act
 const { registerTerminalComposerTests } = require('./tests/terminal-composer');
 const { registerTerminalInteractionTests } = require('./tests/terminal-interactions');
 const { registerTerminalPromptTests } = require('./tests/terminal-prompts');
+const { registerAgentRunnerLifecycleTests } = require('./tests/agent-runner-lifecycle');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -30,6 +31,7 @@ registerTerminalAgentActionTests(context);
 registerTerminalComposerTests(context);
 registerTerminalInteractionTests(context);
 registerTerminalPromptTests(context);
+registerAgentRunnerLifecycleTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
