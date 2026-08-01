@@ -2560,7 +2560,8 @@ async function exerciseRunModal(win, round) {
         opened,
         modalHidden: document.querySelector('#runModal').classList.contains('hidden'),
         backgroundInteractive: !document.querySelector('#appShell').inert,
-        projectFocused: document.activeElement?.matches('#projectSidebarList [data-workspace]') || false,
+        projectFocused: document.activeElement?.matches('#projectSidebarList [data-workspace], #sidebarNewProjectBtn, #mobileAddWorkspaceBtn, #mobileMoreBtn') || false,
+        activeTarget: document.activeElement?.id || document.activeElement?.dataset?.workspace || '',
         guidance: document.querySelector('#toast').textContent,
         expectedGuidance: window.LoadToAgentI18n.t('run.select_project_first'),
       };

@@ -175,7 +175,15 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const projectPath = selectedProjectPath();
     if (!projectPath) {
       toast(t("run.select_project_first"));
-      const projectTarget = $("#projectSidebarList [data-workspace]") || $("#sidebarNewProjectBtn");
+      const projectTarget = [
+        ...document.querySelectorAll("#projectSidebarList [data-workspace]"),
+        $("#sidebarNewProjectBtn"),
+        $("#mobileAddWorkspaceBtn"),
+        $("#mobileMoreBtn"),
+      ].find((element) => element
+        && !element.disabled
+        && !element.closest("[hidden], [inert], [aria-hidden='true'], .hidden")
+        && element.getClientRects().length > 0);
       projectTarget?.focus({ preventScroll: true });
       return false;
     }
