@@ -211,6 +211,12 @@ html[data-theme="light"] body[data-current-view="all"][data-project-selected="tr
   background-image: radial-gradient(circle, rgba(83, 113, 132, .15) 1px, transparent 1px);
 }
 
+html[data-theme="light"] body[data-current-view="all"][data-project-selected="true"] .control-project-body .control-room-session > header > .control-session-flow {
+  border-color: #b8c9d2;
+  color: #405866;
+  background: #f7fafb;
+}
+
 body[data-current-view="all"][data-project-selected="true"] .project-history-rail {
   display: block;
   grid-column: 1;
