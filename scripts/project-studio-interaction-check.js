@@ -341,6 +341,7 @@ app.whenReady().then(async () => {
     const mainControls = await visibleControlCount(win, '.main-stage');
     report.mainControls = mainControls;
     for (let index = 0; index < mainControls; index += 1) {
+      await reloadApp(win);
       await prepareProject(win);
       const clicked = await clickIndexedControl(win, '.main-stage', index);
       if (!clicked.ok) throw new Error(`현재 프로젝트 ${index + 1}번째 버튼을 찾지 못했습니다.`);
