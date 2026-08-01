@@ -8,6 +8,7 @@ const { reportRecoverableError } = require('./diagnostics');
 
 const RELEASE_API = 'https://api.github.com/repos/minjund/LodeToAgent/releases/latest';
 const RELEASE_PAGE = 'https://github.com/minjund/LodeToAgent/releases/latest';
+const MAX_UPDATE_CHECK_BYTES = 2 * 1024 * 1024;
 const MAX_UPDATE_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_CHECK_TIMEOUT_MS = 30_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
@@ -26,6 +27,53 @@ function withTimeout(promise, timeoutMs, onTimeout, message) {
     }, timeoutMs);
   });
   return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
+function cancelResponseReader(reader) {
+  if (!reader || typeof reader.cancel !== 'function') return;
+  try {
+    const cancellation = reader.cancel();
+    if (cancellation && typeof cancellation.catch === 'function') {
+      cancellation.catch(error => reportRecoverableError('update-check-reader-cancel', error));
+    }
+  } catch (error) {
+    reportRecoverableError('update-check-reader-cancel', error);
+  }
+}
+
+async function readJsonResponse(response, awaitRead, maxBytes) {
+  const rawContentLength = Number(response.headers && response.headers.get && response.headers.get('content-length') || 0);
+  const contentLength = Number.isSafeInteger(rawContentLength) && rawContentLength > 0 ? rawContentLength : 0;
+  if (contentLength > maxBytes) {
+    throw new Error('업데이트 서버 응답이 허용된 최대 크기를 초과했습니다.');
+  }
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    throw new Error('업데이트 서버가 안전한 스트리밍 형식으로 정보를 보내지 않았습니다.');
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const result = await awaitRead(() => reader.read());
+      if (result.done) break;
+      const chunk = Buffer.from(result.value);
+      if (chunk.length > maxBytes - totalBytes) {
+        throw new Error('업데이트 서버 응답이 허용된 최대 크기를 초과했습니다.');
+      }
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+    }
+  } catch (error) {
+    cancelResponseReader(reader);
+    throw error;
+  }
+  if (typeof reader.releaseLock === 'function') reader.releaseLock();
+  try {
+    return JSON.parse(Buffer.concat(chunks, totalBytes).toString('utf8').replace(/^\uFEFF/, ''));
+  } catch (_invalidJson) {
+    throw new Error('업데이트 서버 응답 형식이 올바르지 않습니다.');
+  }
 }
 
 function normalizeVersion(value) {
@@ -155,6 +203,7 @@ class UpdateManager extends EventEmitter {
     this.verifyInstaller = options.verifyInstaller;
     this.downloadsDir = String(options.downloadsDir || '');
     this.apiUrl = String(options.apiUrl || RELEASE_API);
+    this.maxCheckBytes = boundedPositiveInteger(options.maxCheckBytes, MAX_UPDATE_CHECK_BYTES, MAX_UPDATE_CHECK_BYTES);
     this.maxDownloadBytes = boundedPositiveInteger(options.maxDownloadBytes, MAX_UPDATE_BYTES, MAX_UPDATE_BYTES);
     this.checkTimeoutMs = boundedPositiveInteger(options.checkTimeoutMs, DEFAULT_CHECK_TIMEOUT_MS);
     this.downloadTimeoutMs = boundedPositiveInteger(options.downloadTimeoutMs, DEFAULT_DOWNLOAD_TIMEOUT_MS);
@@ -203,18 +252,28 @@ class UpdateManager extends EventEmitter {
   async performCheck() {
     this.setState({ status: 'checking', error: '', checkedAt: new Date().toISOString() });
     const controller = this.AbortController ? new this.AbortController() : null;
+    const timeoutMessage = '업데이트 확인 시간이 초과되었습니다. 다시 시도해 주세요.';
+    const deadline = Date.now() + this.checkTimeoutMs;
+    const awaitCheck = operation => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        if (controller) controller.abort();
+        return Promise.reject(new Error(timeoutMessage));
+      }
+      return withTimeout(Promise.resolve().then(operation), remaining, () => controller && controller.abort(), timeoutMessage);
+    };
     try {
       if (typeof this.fetch !== 'function') throw new Error('업데이트 서버에 연결할 수 없습니다.');
-      const response = await withTimeout(this.fetch(this.apiUrl, {
+      const response = await awaitCheck(() => this.fetch(this.apiUrl, {
         headers: {
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': `LoadToAgent/${this.currentVersion}`,
         },
         ...(controller ? { signal: controller.signal } : {}),
-      }), this.checkTimeoutMs, () => controller && controller.abort(), '업데이트 확인 시간이 초과되었습니다. 다시 시도해 주세요.');
+      }));
       if (!response || !response.ok) throw new Error('최신 버전을 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.');
-      const release = await response.json();
+      const release = await readJsonResponse(response, awaitCheck, this.maxCheckBytes);
       const latest = normalizeVersion(release && release.tag_name);
       if (!latest || release.draft || release.prerelease) throw new Error('공개된 최신 정식 버전 정보가 올바르지 않습니다.');
       const releaseUrl = trustedReleasePage(release.html_url) ? release.html_url : RELEASE_PAGE;
@@ -243,6 +302,7 @@ class UpdateManager extends EventEmitter {
           : (available && !hasTrustedDigest(asset) ? '설치 파일이 원본인지 확인할 안전 정보가 없어 업데이트할 수 없습니다.' : '')),
       });
     } catch (error) {
+      if (controller) controller.abort();
       return this.setState({ status: 'error', error: error && error.message || '업데이트 확인 중 문제가 발생했습니다.', checkedAt: new Date().toISOString() });
     }
   }
@@ -397,6 +457,7 @@ function trustedReleasePage(value) {
 }
 
 module.exports = {
+  MAX_UPDATE_CHECK_BYTES,
   MAX_UPDATE_BYTES,
   RELEASE_API,
   RELEASE_PAGE,

@@ -294,14 +294,14 @@ function registerCliAndUpdateTests(context) {
     assert.equal(available.asset.name, asset.name);
     const malformedSizeManager = new UpdateManager({
       currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
-      fetch: async () => ({ ok: true, json: async () => ({ ...release, assets: [{ ...asset, size: 'Infinity' }] }) }),
+      fetch: async () => new Response(JSON.stringify({ ...release, assets: [{ ...asset, size: 'Infinity' }] }), { status: 200 }),
     });
     const malformedSize = await malformedSizeManager.check();
     assert.equal(malformedSize.asset.size, 0);
     assert.equal(malformedSize.totalBytes, 0);
     const missingDigestManager = new UpdateManager({
       currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
-      fetch: async () => ({ ok: true, json: async () => ({ ...release, assets: [{ ...asset, digest: '' }] }) }),
+      fetch: async () => new Response(JSON.stringify({ ...release, assets: [{ ...asset, digest: '' }] }), { status: 200 }),
     });
     const missingDigest = await missingDigestManager.check();
     assert.equal(missingDigest.asset, null);
