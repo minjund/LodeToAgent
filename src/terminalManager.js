@@ -464,6 +464,18 @@ function jsonBudgetedReplayTail(value, maxBytes) {
 }
 
 function restoredOptions(value = {}, platform = process.platform, storeVersion = STORE_VERSION) {
+  if (storeVersion >= STORE_VERSION) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const persistedType = cleanText(value.type, 30);
+    const persistedCwd = typeof value.cwd === 'string' ? cleanText(value.cwd, 2_000) : '';
+    if (!TERMINAL_TYPES.has(persistedType)
+      || typeof value.cwd !== 'string'
+      || (['powershell', 'cmd', 'shell', 'agent'].includes(persistedType) && !persistedCwd)
+      || !SESSION_BACKENDS.has(value.sessionBackend)
+      || (value.sessionBackend === 'managed-tmux' && !cleanText(value.managedTmuxSession, 100))) {
+      return null;
+    }
+  }
   const fallbackType = platform === 'win32' ? 'powershell' : 'shell';
   const type = TERMINAL_TYPES.has(value.type) ? value.type : fallbackType;
   const provider = cleanText(value.provider, 30).toLowerCase();

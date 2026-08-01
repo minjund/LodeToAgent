@@ -2039,6 +2039,77 @@ function registerTerminalFailureTests(context) {
     manager.dispose({ preserveSessions: true });
   });
 
+  test('v2 터미널 저장소의 필수 실행 설정이 손상되면 자동으로 셸을 시작하지 않는다', () => {
+    const storeDir = path.join(temp, 'terminal-store-invalid-v2-options');
+    const storeFile = path.join(storeDir, 'terminal-sessions.json');
+    const timestamp = '2026-08-01T00:00:00.000Z';
+    const original = JSON.stringify({
+      version: 2,
+      sessions: [
+        {
+          id: 'terminal:valid-shell',
+          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+        {
+          id: 'terminal:missing-options',
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+        {
+          id: 'terminal:missing-type',
+          options: { cwd: root, sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+        {
+          id: 'terminal:unknown-type',
+          options: { type: 'unknown', cwd: root, sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+        {
+          id: 'terminal:missing-cwd',
+          options: { type: 'shell', sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+      ],
+    });
+    fs.mkdirSync(storeDir, { recursive: true });
+    fs.writeFileSync(storeFile, original, 'utf8');
+    const spawns = [];
+    const persistenceErrors = [];
+    class FakePty {
+      constructor() { this.pid = 19_000 + spawns.length; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      onPersistenceError: (operation, error) => persistenceErrors.push([operation, error.message]),
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty();
+          spawns.push(handle);
+          return handle;
+        },
+      },
+    });
+
+    assert.deepStrictEqual(manager.list().map(session => session.id), ['terminal:valid-shell']);
+    assert.deepStrictEqual(manager.recoverPersistedSessions().map(session => session.id), ['terminal:valid-shell']);
+    assert.equal(spawns.length, 1);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions.map(session => session.id), ['terminal:valid-shell']);
+    assert.equal(persistenceErrors.filter(([operation]) => operation === 'load-record').length, 4);
+    const quarantine = fs.readdirSync(storeDir)
+      .find(name => name.startsWith('terminal-sessions.json.unreadable-'));
+    assert.ok(quarantine);
+    assert.equal(fs.readFileSync(path.join(storeDir, quarantine), 'utf8'), original);
+    manager.dispose({ preserveSessions: true });
+  });
+
   test('읽을 수 없는 터미널 저장소는 격리 실패 시 덮어쓰지 않는다', () => {
     const successfulDir = path.join(temp, 'terminal-store-envelope-quarantine');
     const successfulStore = path.join(successfulDir, 'terminal-sessions.json');
