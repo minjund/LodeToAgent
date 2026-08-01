@@ -464,26 +464,39 @@ function jsonBudgetedReplayTail(value, maxBytes) {
 }
 
 function restoredOptions(value = {}, platform = process.platform, storeVersion = STORE_VERSION) {
+  const persistedType = cleanText(value?.type, 30);
+  const persistedCwd = typeof value?.cwd === 'string' ? cleanText(value.cwd, 2_000) : '';
+  const persistedDistro = cleanText(value?.distro, 100);
   if (storeVersion >= STORE_VERSION) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-    const persistedType = cleanText(value.type, 30);
-    const persistedCwd = typeof value.cwd === 'string' ? cleanText(value.cwd, 2_000) : '';
-    if (!TERMINAL_TYPES.has(persistedType)
+    const canonicalType = typeof value.type === 'string' && value.type === persistedType;
+    const directWslAgent = platform === 'win32'
+      && persistedType === 'agent'
+      && value.sessionBackend === 'direct'
+      && Boolean(persistedDistro);
+    if (!canonicalType
+      || !TERMINAL_TYPES.has(persistedType)
       || typeof value.cwd !== 'string'
-      || (['powershell', 'cmd', 'shell', 'agent'].includes(persistedType) && !persistedCwd)
+      || (['powershell', 'cmd', 'shell', 'agent'].includes(persistedType) && !directWslAgent && !persistedCwd)
       || !SESSION_BACKENDS.has(value.sessionBackend)
       || (value.sessionBackend === 'managed-tmux' && !cleanText(value.managedTmuxSession, 100))) {
       return null;
     }
   }
   const fallbackType = platform === 'win32' ? 'powershell' : 'shell';
-  const type = TERMINAL_TYPES.has(value.type) ? value.type : fallbackType;
+  const type = storeVersion >= STORE_VERSION
+    ? persistedType
+    : (TERMINAL_TYPES.has(value.type) ? value.type : fallbackType);
   const provider = cleanText(value.provider, 30).toLowerCase();
   if (type === 'agent' && !AGENT_PROVIDERS[provider]) return null;
+  const directWslAgent = platform === 'win32'
+    && type === 'agent'
+    && value.sessionBackend === 'direct'
+    && Boolean(persistedDistro);
   return {
     type,
-    cwd: cleanText(value.cwd, 2_000) || os.homedir(),
-    distro: cleanText(value.distro, 100),
+    cwd: directWslAgent ? persistedCwd : (persistedCwd || os.homedir()),
+    distro: persistedDistro,
     tmuxSession: cleanText(value.tmuxSession, 100),
     tmuxPane: cleanText(value.tmuxPane, 100),
     provider,

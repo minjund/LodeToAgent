@@ -2066,6 +2066,11 @@ function registerTerminalFailureTests(context) {
           status: 'running', createdAt: timestamp, updatedAt: timestamp,
         },
         {
+          id: 'terminal:whitespace-type',
+          options: { type: 'agent ', provider: 'codex', cwd: root, args: ['resume', 'must-not-run'], sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp,
+        },
+        {
           id: 'terminal:missing-cwd',
           options: { type: 'shell', sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp,
@@ -2102,11 +2107,63 @@ function registerTerminalFailureTests(context) {
     assert.deepStrictEqual(manager.recoverPersistedSessions().map(session => session.id), ['terminal:valid-shell']);
     assert.equal(spawns.length, 1);
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions.map(session => session.id), ['terminal:valid-shell']);
-    assert.equal(persistenceErrors.filter(([operation]) => operation === 'load-record').length, 4);
+    assert.equal(persistenceErrors.filter(([operation]) => operation === 'load-record').length, 5);
     const quarantine = fs.readdirSync(storeDir)
       .find(name => name.startsWith('terminal-sessions.json.unreadable-'));
     assert.ok(quarantine);
     assert.equal(fs.readFileSync(path.join(storeDir, quarantine), 'utf8'), original);
+    manager.dispose({ preserveSessions: true });
+  });
+
+  test('v2 Windows WSL 직접 AI 세션은 빈 작업 폴더를 보존해 안전하게 복구한다', () => {
+    const storeDir = path.join(temp, 'terminal-store-valid-wsl-agent');
+    const storeFile = path.join(storeDir, 'terminal-sessions.json');
+    const timestamp = '2026-08-01T00:00:00.000Z';
+    fs.mkdirSync(storeDir, { recursive: true });
+    fs.writeFileSync(storeFile, JSON.stringify({
+      version: 2,
+      sessions: [{
+        id: 'terminal:wsl-agent',
+        options: {
+          type: 'agent',
+          provider: 'codex',
+          cwd: '',
+          distro: 'Ubuntu',
+          args: ['resume', 'wsl-session-123'],
+          sessionBackend: 'direct',
+        },
+        status: 'running',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      }],
+    }), 'utf8');
+    const spawns = [];
+    class FakePty {
+      constructor() { this.pid = 20_001; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile,
+      killTree: () => {},
+      ptyModule: {
+        spawn: (file, args, options) => {
+          spawns.push({ file, args, options });
+          return new FakePty();
+        },
+      },
+    });
+
+    assert.equal(manager.list()[0].cwd, '');
+    assert.deepStrictEqual(manager.recoverPersistedSessions().map(session => session.id), ['terminal:wsl-agent']);
+    assert.equal(spawns.length, 1);
+    assert.equal(spawns[0].file, 'wsl.exe');
+    assert.deepStrictEqual(spawns[0].args, ['-d', 'Ubuntu', '--', 'codex', 'resume', 'wsl-session-123']);
+    assert.equal(manager.list()[0].cwd, '');
     manager.dispose({ preserveSessions: true });
   });
 
