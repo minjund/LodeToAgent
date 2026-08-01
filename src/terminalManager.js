@@ -406,6 +406,63 @@ function validTimestamp(value, fallback) {
   return text && Number.isFinite(Date.parse(text)) ? new Date(text).toISOString() : fallback;
 }
 
+function isHighSurrogate(code) {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function isLowSurrogate(code) {
+  return code >= 0xdc00 && code <= 0xdfff;
+}
+
+function unicodeSafeReplayTail(value, maxChars = MAX_REPLAY_CHARS) {
+  const text = String(value == null ? '' : value);
+  if (text.length <= maxChars) return text;
+  let start = text.length - maxChars;
+  if (start > 0
+    && isLowSurrogate(text.charCodeAt(start))
+    && isHighSurrogate(text.charCodeAt(start - 1))) {
+    start += 1;
+  }
+  return text.slice(start);
+}
+
+function jsonBudgetedReplayTail(value, maxBytes) {
+  const text = String(value == null ? '' : value);
+  const byteLimit = Math.max(0, Math.floor(Number(maxBytes) || 0));
+  let start = text.length;
+  let chars = 0;
+  let bytes = 0;
+  while (start > 0) {
+    const code = text.charCodeAt(start - 1);
+    let unitStart = start - 1;
+    let unitChars = 1;
+    let unitBytes;
+    if (isLowSurrogate(code) && start > 1 && isHighSurrogate(text.charCodeAt(start - 2))) {
+      unitStart = start - 2;
+      unitChars = 2;
+      unitBytes = 4;
+    } else if (isHighSurrogate(code) || isLowSurrogate(code)) {
+      unitBytes = 6;
+    } else if (code === 0x22 || code === 0x5c
+      || code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d) {
+      unitBytes = 2;
+    } else if (code < 0x20) {
+      unitBytes = 6;
+    } else if (code < 0x80) {
+      unitBytes = 1;
+    } else if (code < 0x800) {
+      unitBytes = 2;
+    } else {
+      unitBytes = 3;
+    }
+    if (chars + unitChars > MAX_REPLAY_CHARS || bytes + unitBytes > byteLimit) break;
+    start = unitStart;
+    chars += unitChars;
+    bytes += unitBytes;
+  }
+  return { replay: text.slice(start), bytes };
+}
+
 function restoredOptions(value = {}, platform = process.platform, storeVersion = STORE_VERSION) {
   const fallbackType = platform === 'win32' ? 'powershell' : 'shell';
   const type = TERMINAL_TYPES.has(value.type) ? value.type : fallbackType;
@@ -448,6 +505,50 @@ function persistedSession(session) {
   };
 }
 
+function serializedStorePayload(sessions, maxStoreBytes) {
+  const records = sessions.map(persistedSession);
+  const replays = records.map(record => String(record.replay || ''));
+  for (const record of records) record.replay = '';
+  const payload = { version: STORE_VERSION, sessions: records };
+  const replayless = JSON.stringify(payload);
+  const replaylessBytes = Buffer.byteLength(replayless, 'utf8');
+  if (replaylessBytes > maxStoreBytes) {
+    const error = new Error('명령창 기록의 필수 정보가 저장 용량을 초과했습니다.');
+    error.code = 'TERMINAL_STORE_TOO_LARGE';
+    throw error;
+  }
+  const availableReplayBytes = maxStoreBytes - replaylessBytes;
+  const fullReplays = replays.map(replay => jsonBudgetedReplayTail(replay, Number.MAX_SAFE_INTEGER));
+  const requiredReplayBytes = fullReplays.reduce((total, replay) => total + replay.bytes, 0);
+  if (requiredReplayBytes <= availableReplayBytes) {
+    for (let index = 0; index < records.length; index += 1) {
+      records[index].replay = fullReplays[index].replay;
+    }
+  } else {
+    let remainingBytes = availableReplayBytes;
+    const allocations = fullReplays
+      .map((replay, index) => ({ index, replay }))
+      .sort((left, right) => left.replay.bytes - right.replay.bytes);
+    for (let position = 0; position < allocations.length; position += 1) {
+      const allocation = allocations[position];
+      const remainingRecords = allocations.length - position;
+      const share = Math.floor(remainingBytes / remainingRecords);
+      const bounded = allocation.replay.bytes <= share
+        ? allocation.replay
+        : jsonBudgetedReplayTail(replays[allocation.index], share);
+      records[allocation.index].replay = bounded.replay;
+      remainingBytes -= bounded.bytes;
+    }
+  }
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, 'utf8') > maxStoreBytes) {
+    const error = new Error('명령창 기록 파일이 저장 용량을 초과했습니다.');
+    error.code = 'TERMINAL_STORE_TOO_LARGE';
+    throw error;
+  }
+  return serialized;
+}
+
 function hasSafeAgentResume(options = {}) {
   if (options.type !== 'agent') return true;
   const args = resumableAgentArguments(options);
@@ -476,7 +577,13 @@ class TerminalManager extends EventEmitter {
       : () => {};
     this.retentionDays = retentionDays(options.retentionDays);
     this.now = typeof options.now === 'function' ? options.now : Date.now;
+    const requestedStoreBytes = Math.floor(Number(options.maxStoreBytes));
+    this.maxStoreBytes = Number.isSafeInteger(requestedStoreBytes) && requestedStoreBytes > 0
+      ? Math.min(requestedStoreBytes, MAX_STORE_BYTES)
+      : MAX_STORE_BYTES;
     this.persistTimer = null;
+    this.storeWriteBlocked = false;
+    this.quarantinedStoreFile = '';
     this.sessions = new Map();
     this.loadPersistedSessions();
     this.deduplicateAgentBridgeSessions();
@@ -486,52 +593,81 @@ class TerminalManager extends EventEmitter {
     runBestEffort(`terminal-persistence:${operation}`, () => this.onPersistenceError(operation, error));
   }
 
+  quarantineUnreadableStore() {
+    try {
+      const suffix = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}`;
+      const quarantine = `${this.storeFile}.unreadable-${suffix}`;
+      const stat = this.fileSystem.statSync(this.storeFile);
+      if (!stat.isFile()) throw new Error('읽을 수 없는 명령창 기록 경로가 파일이 아닙니다.');
+      this.fileSystem.renameSync(this.storeFile, quarantine);
+      this.quarantinedStoreFile = quarantine;
+      restrictPathPermissions(quarantine, { fileSystem: this.fileSystem, platform: this.platform });
+      return true;
+    } catch (error) {
+      this.storeWriteBlocked = true;
+      this.persistenceError('quarantine', error);
+      return false;
+    }
+  }
+
   loadPersistedSessions() {
     if (!this.storeFile) return;
     try {
       const stat = this.fileSystem.statSync(this.storeFile);
-      if (!stat.isFile() || stat.size > MAX_STORE_BYTES) throw new Error('명령창 기록 파일이 너무 큽니다.');
+      if (!stat.isFile() || stat.size > this.maxStoreBytes) throw new Error('명령창 기록 파일이 너무 큽니다.');
       const parsed = JSON.parse(this.fileSystem.readFileSync(this.storeFile, 'utf8'));
       if (![1, STORE_VERSION].includes(parsed?.version) || !Array.isArray(parsed.sessions)) throw new Error('이 버전에서 읽을 수 없는 명령창 기록입니다.');
-      for (const value of parsed.sessions.slice(0, MAX_SESSIONS)) {
-        if (!shouldRetainTerminalSession(value, this.retentionDays, this.now())) continue;
-        const id = cleanText(value?.id, 200);
-        const options = normalizeLaunchOptions(
-          restoredOptions(value?.options, this.platform, parsed.version),
-          this.platform,
-        );
-        if (!id || !options || this.sessions.has(id)) continue;
-        const now = new Date().toISOString();
-        const createdAt = validTimestamp(value.createdAt, now);
-        const updatedAt = validTimestamp(value.updatedAt, createdAt);
-        const status = options.sessionBackend === 'managed-tmux' && ['detached', 'stopped'].includes(value.status)
-          ? value.status
-          : (value.status === 'failed' ? 'failed' : 'exited');
-        this.sessions.set(id, {
-          id,
-          options,
-          spec: null,
-          title: cleanText(value.title, 100) || options.title || options.tmuxSession || options.provider || options.type,
-          shell: cleanText(value.shell, 2_000),
-          pid: null,
-          status,
-          createdAt,
-          updatedAt,
-          exitCode: Number.isFinite(value.exitCode) ? value.exitCode : null,
-          signal: Number.isFinite(value.signal) ? value.signal : null,
-          cols: options.cols,
-          rows: options.rows,
-          replay: String(value.replay || '').slice(-MAX_REPLAY_CHARS),
-          deliveries: restoredDeliveries(value.deliveries),
-          process: null,
-          generation: 0,
-          recoveryPending: value.status === 'running' || value.status === 'starting',
-          recoveredAfterHostRestart: false,
-          recoverySkippedReason: '',
-        });
+      let hasUnreadableRecord = false;
+      for (const [index, value] of parsed.sessions.slice(0, MAX_SESSIONS).entries()) {
+        try {
+          if (!shouldRetainTerminalSession(value, this.retentionDays, this.now())) continue;
+          const id = cleanText(value?.id, 200);
+          if (!id || this.sessions.has(id)) continue;
+          const restored = restoredOptions(value?.options, this.platform, parsed.version);
+          if (!restored) throw new Error('저장된 명령창 실행 설정을 읽을 수 없습니다.');
+          const options = normalizeLaunchOptions(restored, this.platform);
+          const now = new Date().toISOString();
+          const createdAt = validTimestamp(value.createdAt, now);
+          const updatedAt = validTimestamp(value.updatedAt, createdAt);
+          const status = options.sessionBackend === 'managed-tmux' && ['detached', 'stopped'].includes(value.status)
+            ? value.status
+            : (value.status === 'failed' ? 'failed' : 'exited');
+          this.sessions.set(id, {
+            id,
+            options,
+            spec: null,
+            title: cleanText(value.title, 100) || options.title || options.tmuxSession || options.provider || options.type,
+            shell: cleanText(value.shell, 2_000),
+            pid: null,
+            status,
+            createdAt,
+            updatedAt,
+            exitCode: Number.isFinite(value.exitCode) ? value.exitCode : null,
+            signal: Number.isFinite(value.signal) ? value.signal : null,
+            cols: options.cols,
+            rows: options.rows,
+            replay: unicodeSafeReplayTail(value.replay),
+            deliveries: restoredDeliveries(value.deliveries),
+            process: null,
+            generation: 0,
+            recoveryPending: value.status === 'running' || value.status === 'starting',
+            recoveredAfterHostRestart: false,
+            recoverySkippedReason: '',
+          });
+        } catch (error) {
+          hasUnreadableRecord = true;
+          const id = cleanText(value?.id, 200) || `#${index + 1}`;
+          const recordError = new Error(`저장된 명령창 기록 ${id}을(를) 건너뛰었습니다: ${error.message}`);
+          recordError.cause = error;
+          this.persistenceError('load-record', recordError);
+        }
       }
+      if (hasUnreadableRecord) this.quarantineUnreadableStore();
     } catch (error) {
-      if (error?.code !== 'ENOENT') this.persistenceError('load', error);
+      if (error?.code !== 'ENOENT') {
+        this.persistenceError('load', error);
+        this.quarantineUnreadableStore();
+      }
     }
   }
 
@@ -550,23 +686,27 @@ class TerminalManager extends EventEmitter {
       clearTimeout(this.persistTimer);
       this.persistTimer = null;
     }
+    if (this.storeWriteBlocked) return false;
     const temporary = `${this.storeFile}.${process.pid}.tmp`;
     try {
+      const sessions = [...this.sessions.values()]
+        .filter(session => !session.options.transient)
+        .filter(session => shouldRetainTerminalSession(session, this.retentionDays, this.now()));
+      const serialized = serializedStorePayload(sessions, this.maxStoreBytes);
       this.fileSystem.mkdirSync(path.dirname(this.storeFile), { recursive: true, mode: 0o700 });
-      const payload = {
-        version: STORE_VERSION,
-        sessions: [...this.sessions.values()]
-          .filter(session => !session.options.transient)
-          .filter(session => shouldRetainTerminalSession(session, this.retentionDays, this.now()))
-          .map(persistedSession),
-      };
-      this.fileSystem.writeFileSync(temporary, JSON.stringify(payload), { encoding: 'utf8', mode: 0o600 });
+      this.fileSystem.writeFileSync(temporary, serialized, { encoding: 'utf8', mode: 0o600 });
       this.fileSystem.renameSync(temporary, this.storeFile);
       restrictPathPermissions(path.dirname(this.storeFile), { fileSystem: this.fileSystem, platform: this.platform });
       restrictPathPermissions(this.storeFile, { fileSystem: this.fileSystem, platform: this.platform });
       return true;
     } catch (error) {
-      runBestEffort('terminal-persistence-temp-cleanup', () => this.fileSystem.unlinkSync(temporary));
+      runBestEffort('terminal-persistence-temp-cleanup', () => {
+        try {
+          this.fileSystem.unlinkSync(temporary);
+        } catch (cleanupError) {
+          if (cleanupError?.code !== 'ENOENT') throw cleanupError;
+        }
+      });
       this.persistenceError('save', error);
       return false;
     }
@@ -593,13 +733,13 @@ class TerminalManager extends EventEmitter {
           session.recoveredAfterHostRestart = false;
           session.recoverySkippedReason = 'managed-tmux-missing';
           const missingMessage = '\r\n[LoadToAgent] 저장된 명령창 묶음을 찾지 못해 새 AI 대화를 자동으로 시작하지 않았습니다.\r\n';
-          session.replay = `${session.replay}${missingMessage}`.slice(-MAX_REPLAY_CHARS);
+          session.replay = unicodeSafeReplayTail(`${session.replay}${missingMessage}`);
           continue;
         }
         session.recoveredAfterHostRestart = true;
         session.recoverySkippedReason = '';
         const reattachMessage = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
-        session.replay = `${session.replay}${reattachMessage}`.slice(-MAX_REPLAY_CHARS);
+        session.replay = unicodeSafeReplayTail(`${session.replay}${reattachMessage}`);
         try {
           session.spec = managedTmuxAttachSpec(session.options, this.platform);
           this.spawn(session);
@@ -620,13 +760,13 @@ class TerminalManager extends EventEmitter {
         session.recoveredAfterHostRestart = false;
         session.recoverySkippedReason = 'unsafe-agent-restart';
         const skippedMessage = '\r\n[LoadToAgent] 이어갈 기존 AI 대화를 찾지 못했습니다. 새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다.\r\n';
-        session.replay = `${session.replay}${skippedMessage}`.slice(-MAX_REPLAY_CHARS);
+        session.replay = unicodeSafeReplayTail(`${session.replay}${skippedMessage}`);
         continue;
       }
       session.recoveredAfterHostRestart = true;
       session.recoverySkippedReason = '';
       const message = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤 새 프로그램으로 복구했습니다. 이전 명령창의 임시 상태는 이어지지 않습니다.\r\n';
-      session.replay = `${session.replay}${message}`.slice(-MAX_REPLAY_CHARS);
+      session.replay = unicodeSafeReplayTail(`${session.replay}${message}`);
       try {
         this.spawn(session);
       } catch (_recoveryFailed) {
@@ -671,7 +811,7 @@ class TerminalManager extends EventEmitter {
         const removedForKey = removedByKey.get(key) || 0;
         if (!removedForKey) continue;
         const message = `\r\n[LoadToAgent] 같은 AI 대화에 중복으로 열린 연결 ${removedForKey}개를 정리했습니다.\r\n`;
-        session.replay = `${session.replay}${message}`.slice(-MAX_REPLAY_CHARS);
+        session.replay = unicodeSafeReplayTail(`${session.replay}${message}`);
       }
     }
     return removed;
@@ -942,7 +1082,7 @@ class TerminalManager extends EventEmitter {
         const readyPid = Number(processHandle.pid);
         if (Number.isSafeInteger(readyPid) && readyPid > 0) session.pid = readyPid;
         const text = String(data || '');
-        session.replay = `${session.replay}${text}`.slice(-MAX_REPLAY_CHARS);
+        session.replay = unicodeSafeReplayTail(`${session.replay}${text}`);
         session.updatedAt = new Date().toISOString();
         this.emit('data', { id: session.id, data: text });
         this.schedulePersist();
@@ -977,7 +1117,7 @@ class TerminalManager extends EventEmitter {
       session.status = 'failed';
       session.updatedAt = new Date().toISOString();
       const failureMessage = `\r\n[LoadToAgent] 명령창을 시작하지 못했습니다: ${error.message}\r\n`;
-      session.replay = `${session.replay}${failureMessage}`.slice(-MAX_REPLAY_CHARS);
+      session.replay = unicodeSafeReplayTail(`${session.replay}${failureMessage}`);
       this.emit('data', { id: session.id, data: failureMessage });
       this.emitState('updated', session);
       throw error;

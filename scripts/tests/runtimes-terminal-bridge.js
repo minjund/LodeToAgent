@@ -1966,6 +1966,281 @@ function registerTerminalLifecycleTests(context) {
 function registerTerminalFailureTests(context) {
   const { test, temp, root } = context;
 
+  test('손상된 cwd 레코드만 격리하고 나머지 터미널을 복구한다', () => {
+    const storeDir = path.join(temp, 'terminal-store-invalid-record');
+    const storeFile = path.join(storeDir, 'terminal-sessions.json');
+    const timestamp = '2026-08-01T00:00:00.000Z';
+    const original = JSON.stringify({
+      version: 2,
+      sessions: [
+        {
+          id: 'terminal:valid-before',
+          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'before',
+        },
+        {
+          id: 'terminal:missing-cwd',
+          options: { type: 'shell', cwd: path.join(storeDir, 'missing'), sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'missing',
+        },
+        {
+          id: 'terminal:valid-after',
+          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'after',
+        },
+      ],
+    });
+    fs.mkdirSync(storeDir, { recursive: true });
+    fs.writeFileSync(storeFile, original, 'utf8');
+    const spawns = [];
+    const persistenceErrors = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      onPersistenceError: (operation, error) => persistenceErrors.push([operation, error.message]),
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(17_000 + spawns.length);
+          spawns.push(handle);
+          return handle;
+        },
+      },
+    });
+
+    assert.deepStrictEqual(manager.list().map(session => session.id), [
+      'terminal:valid-before',
+      'terminal:valid-after',
+    ]);
+    const recovered = manager.recoverPersistedSessions();
+    assert.deepStrictEqual(recovered.map(session => session.id), [
+      'terminal:valid-before',
+      'terminal:valid-after',
+    ]);
+    assert.equal(spawns.length, 2);
+    const active = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    assert.deepStrictEqual(active.sessions.map(session => session.id), [
+      'terminal:valid-before',
+      'terminal:valid-after',
+    ]);
+    const quarantine = fs.readdirSync(storeDir)
+      .find(name => name.startsWith('terminal-sessions.json.unreadable-'));
+    assert.ok(quarantine);
+    assert.equal(fs.readFileSync(path.join(storeDir, quarantine), 'utf8'), original);
+    assert.equal(persistenceErrors.filter(([operation]) => operation === 'load-record').length, 1);
+    manager.dispose({ preserveSessions: true });
+  });
+
+  test('읽을 수 없는 터미널 저장소는 격리 실패 시 덮어쓰지 않는다', () => {
+    const successfulDir = path.join(temp, 'terminal-store-envelope-quarantine');
+    const successfulStore = path.join(successfulDir, 'terminal-sessions.json');
+    const malformed = '{not-json';
+    fs.mkdirSync(successfulDir, { recursive: true });
+    fs.writeFileSync(successfulStore, malformed, 'utf8');
+    const successfulErrors = [];
+    const recoveredManager = new TerminalManager({
+      storeFile: successfulStore,
+      onPersistenceError: (operation, error) => successfulErrors.push([operation, error.message]),
+    });
+
+    assert.deepStrictEqual(recoveredManager.recoverPersistedSessions(), []);
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(successfulStore, 'utf8')), {
+      version: 2,
+      sessions: [],
+    });
+    const quarantine = fs.readdirSync(successfulDir)
+      .find(name => name.startsWith('terminal-sessions.json.unreadable-'));
+    assert.ok(quarantine);
+    assert.equal(fs.readFileSync(path.join(successfulDir, quarantine), 'utf8'), malformed);
+    assert.equal(successfulErrors.some(([operation]) => operation === 'load'), true);
+
+    const blockedDir = path.join(temp, 'terminal-store-quarantine-blocked');
+    const blockedStore = path.join(blockedDir, 'terminal-sessions.json');
+    fs.mkdirSync(blockedDir, { recursive: true });
+    fs.writeFileSync(blockedStore, malformed, 'utf8');
+    const blockedFileSystem = Object.create(fs);
+    const blockedErrors = [];
+    let writes = 0;
+    blockedFileSystem.renameSync = (source, destination) => {
+      if (source === blockedStore && destination.startsWith(`${blockedStore}.unreadable-`)) {
+        const error = new Error('simulated quarantine failure');
+        error.code = 'EACCES';
+        throw error;
+      }
+      return fs.renameSync(source, destination);
+    };
+    blockedFileSystem.writeFileSync = (...args) => {
+      writes += 1;
+      return fs.writeFileSync(...args);
+    };
+    const blockedManager = new TerminalManager({
+      storeFile: blockedStore,
+      fileSystem: blockedFileSystem,
+      onPersistenceError: (operation, error) => blockedErrors.push([operation, error.message]),
+    });
+
+    assert.deepStrictEqual(blockedManager.recoverPersistedSessions(), []);
+    assert.equal(blockedManager.persistNow(), false);
+    assert.equal(writes, 0);
+    assert.equal(fs.readFileSync(blockedStore, 'utf8'), malformed);
+    assert.deepStrictEqual(blockedErrors.map(([operation]) => operation), ['load', 'quarantine']);
+  });
+
+  test('터미널 저장소는 JSON UTF-8 예산 안에서 replay 꼬리를 surrogate-safe하게 저장한다', () => {
+    const storeDir = path.join(temp, 'terminal-store-byte-budget');
+    const storeFile = path.join(storeDir, 'terminal-sessions.json');
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; }
+      onData(callback) { this.dataCallback = callback; }
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const managerOptions = maxStoreBytes => ({
+      platform: 'darwin',
+      storeFile,
+      maxStoreBytes,
+      killTree: () => {},
+      onPersistenceError: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(18_000 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const hasUnpairedSurrogate = value => {
+      for (let index = 0; index < value.length; index += 1) {
+        const code = value.charCodeAt(index);
+        if (code >= 0xd800 && code <= 0xdbff) {
+          const next = value.charCodeAt(index + 1);
+          if (next < 0xdc00 || next > 0xdfff) return true;
+          index += 1;
+        } else if (code >= 0xdc00 && code <= 0xdfff) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const replayCapProcesses = [];
+    const replayCapManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(17_900 + replayCapProcesses.length);
+          replayCapProcesses.push(handle);
+          return handle;
+        },
+      },
+    });
+    const replayCapSession = replayCapManager.create({ type: 'shell', cwd: root });
+    replayCapProcesses[0].dataCallback(`😀${'x'.repeat(2 * 1024 * 1024 - 1)}`);
+    const characterCappedReplay = replayCapManager.get(replayCapSession.id, true).replay;
+    assert.equal(characterCappedReplay.length, 2 * 1024 * 1024 - 1);
+    assert.equal(hasUnpairedSurrogate(characterCappedReplay), false);
+    replayCapManager.dispose();
+
+    let manager = new TerminalManager(managerOptions());
+    const created = manager.create({ type: 'shell', cwd: root });
+    manager.dispose({ preserveSessions: true });
+    const emptyBaseBytes = fs.statSync(storeFile).size;
+
+    manager = new TerminalManager(managerOptions(emptyBaseBytes + 3));
+    manager.restart(created.id);
+    processes.at(-1).dataCallback('x😀');
+    assert.equal(manager.get(created.id, true).replay, 'x😀');
+    assert.equal(manager.persistNow(), true);
+    let stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions[0];
+    assert.equal(stored.replay, '');
+    assert.equal(manager.get(created.id, true).replay, 'x😀');
+    assert.equal(fs.statSync(storeFile).size <= emptyBaseBytes + 3, true);
+    manager.dispose({ preserveSessions: true });
+
+    const replaylessBytes = fs.statSync(storeFile).size;
+    manager = new TerminalManager(managerOptions(replaylessBytes + 12));
+    manager.restart(created.id);
+    const retainedTail = `${String.fromCharCode(92, 27)}😀`;
+    const fullReplay = `discarded😀${retainedTail}`;
+    processes.at(-1).dataCallback(fullReplay);
+    assert.equal(manager.persistNow(), true);
+    stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions[0];
+    assert.equal(stored.replay, retainedTail);
+    assert.equal(hasUnpairedSurrogate(stored.replay), false);
+    assert.equal(manager.get(created.id, true).replay, fullReplay);
+    assert.equal(fs.statSync(storeFile).size <= replaylessBytes + 12, true);
+    manager.dispose({ preserveSessions: true });
+
+    const sparseStoreFile = path.join(storeDir, 'sparse-terminal-sessions.json');
+    const sparseProcesses = [];
+    const sparseManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: sparseStoreFile,
+      maxStoreBytes: 4_096,
+      killTree: () => {},
+      onPersistenceError: () => {},
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(18_500 + sparseProcesses.length);
+          sparseProcesses.push(handle);
+          return handle;
+        },
+      },
+    });
+    const replayOwner = sparseManager.create({ type: 'shell', cwd: root });
+    sparseManager.create({ type: 'shell', cwd: root });
+    const sparseAvailableBytes = 4_096 - fs.statSync(sparseStoreFile).size;
+    const fittingReplay = 'r'.repeat(Math.floor(sparseAvailableBytes * 0.75));
+    sparseProcesses[0].dataCallback(fittingReplay);
+    assert.equal(sparseManager.persistNow(), true);
+    const sparseStored = JSON.parse(fs.readFileSync(sparseStoreFile, 'utf8')).sessions
+      .find(session => session.id === replayOwner.id);
+    assert.equal(sparseStored.replay, fittingReplay);
+    assert.equal(fs.statSync(sparseStoreFile).size <= 4_096, true);
+    sparseManager.dispose({ preserveSessions: true });
+
+    const preserved = fs.readFileSync(storeFile, 'utf8');
+    const fixedPayloadBytes = Buffer.byteLength(preserved, 'utf8') - 12;
+    const sizeMaskingFileSystem = Object.create(fs);
+    let writes = 0;
+    sizeMaskingFileSystem.statSync = target => {
+      const stat = fs.statSync(target);
+      if (target !== storeFile) return stat;
+      return {
+        ...stat,
+        size: 0,
+        isFile: () => stat.isFile(),
+        isDirectory: () => stat.isDirectory(),
+      };
+    };
+    sizeMaskingFileSystem.writeFileSync = (...args) => {
+      writes += 1;
+      return fs.writeFileSync(...args);
+    };
+    const oversizedMetadata = new TerminalManager({
+      // Loading a saved running session normalizes its in-memory status to
+      // exited, which shortens the fixed payload by one byte.
+      ...managerOptions(fixedPayloadBytes - 2),
+      fileSystem: sizeMaskingFileSystem,
+    });
+    assert.equal(oversizedMetadata.get(created.id) != null, true);
+    assert.equal(oversizedMetadata.persistNow(), false);
+    assert.equal(writes, 0);
+    assert.equal(fs.readFileSync(storeFile, 'utf8'), preserved);
+  });
+
   test('손상된 POSIX 실행 시간과 실패한 재스캔은 stale 프로세스로 남지 않는다', () => {
     assert.deepStrictEqual(posixProcessRows('12 1 invalid codex codex --json'), []);
     let fail = false;
