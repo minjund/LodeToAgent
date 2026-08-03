@@ -404,14 +404,34 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     return form;
   }
 
-  function selectedSession() {
-    return (
-      state.details.get(state.selectedId) || ((state.snapshot && state.snapshot.sessions) || []).find((session) => session.id === state.selectedId) || null
-    );
-  }
-
   function snapshotSession(id) {
     return ((state.snapshot && state.snapshot.sessions) || []).find((session) => session.id === id) || null;
+  }
+
+  function selectedSession() {
+    const detail = state.details.get(state.selectedId) || null;
+    const snapshot = snapshotSession(state.selectedId);
+    if (!detail) return snapshot;
+    if (!snapshot) return detail;
+
+    const detailUpdatedAt = Date.parse(detail.updatedAt || 0);
+    const snapshotUpdatedAt = Date.parse(snapshot.updatedAt || 0);
+    if (Number.isFinite(detailUpdatedAt) && Number.isFinite(snapshotUpdatedAt) && snapshotUpdatedAt < detailUpdatedAt) {
+      return detail;
+    }
+
+    // Full-history detail is kept for conversation and lifecycle rendering,
+    // but its cached liveness can lag behind the frequently refreshed card.
+    // Use the latest observed fields so opening a past record cannot revive an
+    // already idle session as "running" while retaining the complete history.
+    const selected = { ...detail };
+    for (const field of [
+      "status", "statusDetail", "statusObserved", "updatedAt", "completedAt", "completionObserved",
+      "attention", "outcome", "responseIntent", "runtimePresence", "executions",
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(snapshot, field)) selected[field] = snapshot[field];
+    }
+    return selected;
   }
 
   function chosenAgentCommandTarget(session, requestedRoute = "") {

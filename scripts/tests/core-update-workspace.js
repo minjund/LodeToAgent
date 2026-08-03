@@ -663,7 +663,7 @@ function registerCliAndUpdateTests(context) {
     }), { version: '3.1.0', executable: 'LoadToAgent' });
     assert.equal(metadataCall.command, 'plutil');
     assert.deepStrictEqual(metadataCall.args, [
-      '-convert', 'json', '-o', '-', '/Applications/LoadToAgent.app/Contents/Info.plist',
+      '-convert', 'json', '-o', '-', path.join('/Applications/LoadToAgent.app', 'Contents', 'Info.plist'),
     ]);
     await assert.rejects(
       readBundleMetadata('/Applications/LoadToAgent.app', {
@@ -982,6 +982,18 @@ function registerCliAndUpdateTests(context) {
               if (backupRemoveCalls === 2) throw new Error('fixture backup cleanup denied');
             }
             return fs.promises.rm(targetPath, options);
+          };
+        }
+        if (property === 'rename') {
+          return async (source, destination) => {
+            for (let attempt = 0; ; attempt += 1) {
+              try {
+                return await fs.promises.rename(source, destination);
+              } catch (error) {
+                if (!['EACCES', 'EPERM'].includes(error?.code) || attempt >= 4) throw error;
+                await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)));
+              }
+            }
           };
         }
         const value = Reflect.get(target, property);

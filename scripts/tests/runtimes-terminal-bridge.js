@@ -1975,17 +1975,17 @@ function registerTerminalFailureTests(context) {
       sessions: [
         {
           id: 'terminal:valid-before',
-          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          options: { type: 'powershell', cwd: root, sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'before',
         },
         {
           id: 'terminal:missing-cwd',
-          options: { type: 'shell', cwd: path.join(storeDir, 'missing'), sessionBackend: 'direct' },
+          options: { type: 'powershell', cwd: path.join(storeDir, 'missing'), sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'missing',
         },
         {
           id: 'terminal:valid-after',
-          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          options: { type: 'powershell', cwd: root, sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp, replay: 'after',
         },
       ],
@@ -2003,7 +2003,7 @@ function registerTerminalFailureTests(context) {
       kill() {}
     }
     const manager = new TerminalManager({
-      platform: 'darwin',
+      platform: 'win32',
       storeFile,
       killTree: () => {},
       onPersistenceError: (operation, error) => persistenceErrors.push([operation, error.message]),
@@ -2048,7 +2048,7 @@ function registerTerminalFailureTests(context) {
       sessions: [
         {
           id: 'terminal:valid-shell',
-          options: { type: 'shell', cwd: root, sessionBackend: 'direct' },
+          options: { type: 'powershell', cwd: root, sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp,
         },
         {
@@ -2072,7 +2072,7 @@ function registerTerminalFailureTests(context) {
         },
         {
           id: 'terminal:missing-cwd',
-          options: { type: 'shell', sessionBackend: 'direct' },
+          options: { type: 'powershell', sessionBackend: 'direct' },
           status: 'running', createdAt: timestamp, updatedAt: timestamp,
         },
       ],
@@ -2090,7 +2090,7 @@ function registerTerminalFailureTests(context) {
       kill() {}
     }
     const manager = new TerminalManager({
-      platform: 'darwin',
+      platform: 'win32',
       storeFile,
       killTree: () => {},
       onPersistenceError: (operation, error) => persistenceErrors.push([operation, error.message]),
@@ -2235,7 +2235,7 @@ function registerTerminalFailureTests(context) {
       kill() {}
     }
     const managerOptions = maxStoreBytes => ({
-      platform: 'darwin',
+      platform: 'win32',
       storeFile,
       maxStoreBytes,
       killTree: () => {},
@@ -2264,7 +2264,7 @@ function registerTerminalFailureTests(context) {
 
     const replayCapProcesses = [];
     const replayCapManager = new TerminalManager({
-      platform: 'darwin',
+      platform: 'win32',
       killTree: () => {},
       ptyModule: {
         spawn: () => {
@@ -2274,7 +2274,7 @@ function registerTerminalFailureTests(context) {
         },
       },
     });
-    const replayCapSession = replayCapManager.create({ type: 'shell', cwd: root });
+    const replayCapSession = replayCapManager.create({ type: 'powershell', cwd: root });
     replayCapProcesses[0].dataCallback(`😀${'x'.repeat(2 * 1024 * 1024 - 1)}`);
     const characterCappedReplay = replayCapManager.get(replayCapSession.id, true).replay;
     assert.equal(characterCappedReplay.length, 2 * 1024 * 1024 - 1);
@@ -2282,7 +2282,7 @@ function registerTerminalFailureTests(context) {
     replayCapManager.dispose();
 
     let manager = new TerminalManager(managerOptions());
-    const created = manager.create({ type: 'shell', cwd: root });
+    const created = manager.create({ type: 'powershell', cwd: root });
     manager.dispose({ preserveSessions: true });
     const emptyBaseBytes = fs.statSync(storeFile).size;
 
@@ -2314,7 +2314,7 @@ function registerTerminalFailureTests(context) {
     const sparseStoreFile = path.join(storeDir, 'sparse-terminal-sessions.json');
     const sparseProcesses = [];
     const sparseManager = new TerminalManager({
-      platform: 'darwin',
+      platform: 'win32',
       storeFile: sparseStoreFile,
       maxStoreBytes: 4_096,
       killTree: () => {},
@@ -2327,8 +2327,8 @@ function registerTerminalFailureTests(context) {
         },
       },
     });
-    const replayOwner = sparseManager.create({ type: 'shell', cwd: root });
-    sparseManager.create({ type: 'shell', cwd: root });
+    const replayOwner = sparseManager.create({ type: 'powershell', cwd: root });
+    sparseManager.create({ type: 'powershell', cwd: root });
     const sparseAvailableBytes = 4_096 - fs.statSync(sparseStoreFile).size;
     const fittingReplay = 'r'.repeat(Math.floor(sparseAvailableBytes * 0.75));
     sparseProcesses[0].dataCallback(fittingReplay);

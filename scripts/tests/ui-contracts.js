@@ -1431,6 +1431,48 @@ function registerUiContractTests(context) {
     );
   });
 
+  test('지난 기록 상세 화면은 전체 대화는 보존하고 최신 대기 상태를 우선한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
+    const sandbox = {
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: key => key, errorText: error => String(error) },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
+    const detailMessages = [{ id: 'message-1', role: 'assistant', text: '완료된 답변' }];
+    const staleDetail = {
+      id: 'history-session',
+      status: 'running',
+      statusDetail: '작업 진행 중',
+      updatedAt: '2026-08-03T01:00:00.000Z',
+      messages: detailMessages,
+      lifecycle: [{ id: 'turn-1', status: 'running' }],
+      executions: [{ id: 'shell-1', status: 'running' }],
+    };
+    const latestSnapshot = {
+      id: staleDetail.id,
+      status: 'idle',
+      statusDetail: '다음 요청 대기',
+      updatedAt: '2026-08-03T01:01:00.000Z',
+      completionObserved: true,
+      executions: [{ id: 'shell-1', status: 'completed' }],
+    };
+    const state = {
+      selectedId: staleDetail.id,
+      details: new Map([[staleDetail.id, staleDetail]]),
+      snapshot: { sessions: [latestSnapshot] },
+    };
+    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({ state });
+    const selected = actions.selectedSession();
+
+    assert.equal(selected.status, 'idle');
+    assert.equal(selected.statusDetail, '다음 요청 대기');
+    assert.equal(selected.executions[0].status, 'completed');
+    assert.strictEqual(selected.messages, detailMessages);
+    assert.strictEqual(selected.lifecycle, staleDetail.lifecycle);
+  });
+
   test('AI 표시 설정은 기본값·저장값·세션과 tmux 투영을 일관되게 적용한다', () => {
     const source = [
       fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8'),

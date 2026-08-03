@@ -5,6 +5,11 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.6 - 2026-08-03
+
+- Keep past-session details aligned with the latest observed idle state so an
+  already finished task is not shown as running when its history is opened.
+
 ## 1.6.5 - 2026-08-01
 
 - Make terminal questions delivery-safe across Claude, Codex, Gemini, and Grok
