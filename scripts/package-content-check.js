@@ -37,12 +37,16 @@ if (result.status !== 0) {
   throw new Error(`npm pack --dry-run failed (${result.status})\n${result.stdout || ''}${result.stderr || ''}`);
 }
 
-let reports;
+let reportOutput;
 try {
-  reports = JSON.parse(result.stdout);
+  reportOutput = JSON.parse(result.stdout);
 } catch (error) {
   throw new Error(`npm pack returned invalid JSON: ${error.message}`);
 }
+
+const reports = Array.isArray(reportOutput)
+  ? reportOutput
+  : (reportOutput && typeof reportOutput === 'object' ? Object.values(reportOutput) : []);
 
 if (!Array.isArray(reports) || reports.length !== 1 || !Array.isArray(reports[0].files)) {
   throw new Error('npm pack returned an unexpected report shape.');
