@@ -5,6 +5,18 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.9 - 2026-08-04
+
+- Replace the inline AI command box in the task map with a responsive live-
+  progress overview showing the current step, recorded-step completion, active
+  and finished helpers or commands, blockers, and recent activity.
+- Open attachable live sessions with their PTY and restored scrollback directly
+  in the session drawer, with connection, reconnect, focus, and delivery
+  feedback while retaining conversation-only views for external sessions.
+- Improve long-running session inspection by showing recent conversation
+  immediately, paging older turns, preserving delivered messages and helper-AI
+  results, and recovering linked sessions outside the recent-history scan.
+
 ## 1.6.8 - 2026-08-04
 
 - Rebuild the light and dark palettes so terminal, tmux, drawers, graphs,
