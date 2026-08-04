@@ -1,9 +1,9 @@
 /*
  * Theme
  * -----
- * Persistent dark/light appearance controls and the light palette. This file
- * is intentionally loaded last so legacy feature styles cannot leak dark
- * surfaces or button colors into light mode.
+ * Persistent dark/light appearance controls and the central light palette.
+ * Later product layers must consume these tokens; styles-polish.css enforces
+ * the final cross-layer contrast contract.
  */
 
 .theme-toggle-button {
@@ -588,8 +588,7 @@ html[data-theme="light"] :is(
   .chat-history-head,
   .conversation-context-meter,
   .agent-communication-event,
-  .subagent-work-source,
-  .management-detail-card
+  .subagent-work-source
 ) {
   border-color: #e0e5eb;
   background: #f8f9fb;

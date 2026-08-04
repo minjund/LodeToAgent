@@ -9,6 +9,8 @@
 :root {
   --studio-sans: var(--font-sans);
   --green-text: #69e1b6;
+  --empty-text: #718391;
+  --empty-border: #2b3c48;
   --surface-ring:
     0 0 0 1px rgba(255, 255, 255, .025),
     0 10px 28px rgba(0, 0, 0, .12);
@@ -21,6 +23,8 @@ html {
 
 html[data-theme="light"] {
   --green-text: #0b7650;
+  --empty-text: #526875;
+  --empty-border: #c7d6dc;
   --surface-ring:
     0 0 0 1px rgba(31, 55, 70, .035),
     0 1px 2px rgba(31, 55, 70, .035),
@@ -440,11 +444,220 @@ html[data-theme="light"] :is(.project-sidebar-copy small, .project-sidebar-sessi
 }
 
 :is(.project-history-empty, .sessions-empty, .empty-state p, .empty-state small) {
-  color: #718391;
+  color: var(--empty-text);
 }
 
-html[data-theme="light"] :is(.management-result-review span, .management-outcome header span) {
+.project-history-empty :is(b, small) {
+  color: var(--empty-text);
+}
+
+.session-token-empty {
+  border-color: var(--empty-border);
+  color: var(--empty-text);
+}
+
+html[data-theme="light"] .session-token-empty {
+  background: #ffffff;
+}
+
+/* The result summary is rendered inside a light drawer, but its feature CSS
+ * originally painted dark translucent cards. Keep every summary surface and
+ * status color on the active theme contract at the final cascade boundary. */
+html[data-theme="light"] :is(
+  .management-progress,
+  .management-health,
+  .management-artifacts,
+  .management-checks,
+  .management-evidence,
+  .management-controls,
+  .management-attention-detail,
+  .management-outcome
+) {
+  border-color: var(--management-border-strong);
+  background: var(--management-surface);
+  color: var(--text);
+  box-shadow: none;
+}
+
+html[data-theme="light"] .management-result-review {
+  border-color: #a9d5c2;
+  background: var(--management-review-surface);
+  color: var(--text);
+  box-shadow: inset 3px 0 #198a63;
+}
+
+html[data-theme="light"] :is(
+  .management-result-review span,
+  .management-outcome header span,
+  .management-progress > header strong,
+  .management-health.healthy > header strong
+) {
   color: var(--green-text);
+}
+
+html[data-theme="light"] :is(
+  .management-result-review b,
+  .management-outcome h3,
+  .management-artifacts li b,
+  .management-evidence dd,
+  .management-progress > header b,
+  .management-health > header b,
+  .management-artifacts > header b,
+  .management-checks > header b,
+  .management-evidence > header b,
+  .management-controls > header b
+) {
+  color: var(--text);
+}
+
+html[data-theme="light"] :is(
+  .management-outcome > p,
+  .management-result-review small,
+  .management-progress > p span,
+  .management-health li span,
+  .management-artifacts li span,
+  .management-checks li span,
+  .management-evidence dt,
+  .management-evidence > p
+) {
+  color: var(--management-copy);
+}
+
+html[data-theme="light"] :is(
+  .management-progress > aside,
+  .management-progress > aside span,
+  .management-health.warning > header strong,
+  .management-attention-detail > header span,
+  .management-outcome em:not(.verified)
+) {
+  color: var(--management-warning-text);
+}
+
+html[data-theme="light"] .management-outcome em:not(.verified) {
+  background: var(--management-warning-surface);
+}
+
+html[data-theme="light"] .management-outcome em.verified {
+  background: var(--management-positive-surface);
+  color: var(--management-positive-text);
+}
+
+html[data-theme="light"] .management-health.critical > header strong {
+  color: #b33c50;
+}
+
+html[data-theme="light"] .management-quick-actions .approve {
+  border-color: var(--management-approve-border);
+  background: var(--management-approve-surface);
+  color: var(--management-approve-text);
+}
+
+html[data-theme="light"] .management-control-buttons .danger {
+  border-color: var(--management-danger-border);
+  background: var(--management-danger-surface);
+  color: var(--management-danger-text);
+}
+
+/* Command controls also appear inside management summaries. Their feature
+ * gradients are intentionally dark by default, so give the complete control
+ * family a light contract instead of fixing only the textarea. */
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) {
+  --command-accent: #0b7650;
+  border-color: #bfd8cf;
+  background: linear-gradient(145deg, #f0f8f5, #ffffff 72%);
+  color: var(--text);
+  box-shadow: 0 8px 22px rgba(31, 55, 70, .08);
+}
+
+html[data-theme="light"] .agent-command-panel.unavailable:not(.conversation-composer) {
+  --command-accent: #526875;
+  border-color: #d5dde4;
+  background: linear-gradient(145deg, #f4f7f9, #ffffff 72%);
+}
+
+html[data-theme="light"] .agent-command-panel.control-connect:not(.conversation-composer) {
+  --command-accent: #765000;
+  border-color: #e3c984;
+  background: linear-gradient(145deg, #fff7e2, #ffffff 72%);
+}
+
+html[data-theme="light"] .agent-command-panel.control-handoff:not(.conversation-composer) {
+  --command-accent: #0b7650;
+  border-color: #afd4c5;
+  background: linear-gradient(145deg, #edf8f3, #ffffff 72%);
+}
+
+html[data-theme="light"] :is(
+  .agent-command-panel.control-origin:not(.conversation-composer),
+  .agent-command-panel.control-origin-resume:not(.conversation-composer)
+) {
+  --command-accent: #245a98;
+  border-color: #bfd5ed;
+  background: linear-gradient(145deg, #eef6ff, #ffffff 72%);
+}
+
+html[data-theme="light"] .agent-command-panel.control-ended:not(.conversation-composer) {
+  --command-accent: #526875;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-icon {
+  border-color: color-mix(in srgb, var(--command-accent) 34%, #d4dde2);
+  background: color-mix(in srgb, var(--command-accent) 9%, #ffffff);
+  color: var(--command-accent);
+}
+
+html[data-theme="light"] :is(
+  .agent-command-panel:not(.conversation-composer) header b,
+  .agent-command-panel:not(.conversation-composer) .agent-command-target > span,
+  .agent-command-panel:not(.conversation-composer) header small,
+  .agent-command-panel:not(.conversation-composer) .agent-command-actions > small
+) {
+  color: var(--management-copy);
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-target select,
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-input textarea {
+  border-color: #bfd0c9;
+  background: #ffffff;
+  color: #243640;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-input textarea::placeholder {
+  color: #687b85;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-target select:focus,
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-input textarea:focus {
+  border-color: #17815d;
+  box-shadow: 0 0 0 3px rgba(23, 129, 93, .12);
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-input-count {
+  background: #e6f0ec;
+  color: #435963;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-actions button {
+  border-color: #b8d1c8;
+  background: #ffffff;
+  color: #31574c;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-actions button:last-child {
+  border-color: #075f40;
+  background: #0b7650;
+  color: #ffffff;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-actions button:hover:not(:disabled) {
+  border-color: #17815d;
+  background: #eef8f4;
+  color: #174f3d;
+}
+
+html[data-theme="light"] .agent-command-panel:not(.conversation-composer) .agent-command-actions button:last-child:hover:not(:disabled) {
+  background: #095f41;
+  color: #ffffff;
 }
 
 html[data-theme="light"] .global-stat.live strong {

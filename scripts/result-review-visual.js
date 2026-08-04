@@ -21,6 +21,177 @@ async function waitFor(win, expression, message, attempts = 120) {
   throw new Error(message);
 }
 
+async function capture(win, output) {
+  await win.webContents.executeJavaScript(
+    'document.fonts.ready.then(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } return true; })',
+  );
+  win.webContents.invalidate();
+  await wait(220);
+  fs.writeFileSync(output, (await win.webContents.capturePage()).toPNG());
+  return output;
+}
+
+function auditResultReview() {
+  const surfaceSelectors = [
+    '.management-result-review',
+    '.management-progress',
+    '.management-health',
+    '.management-artifacts',
+    '.management-checks',
+    '.management-evidence',
+    '.management-controls',
+    '.management-attention-detail',
+    '.management-outcome',
+    '.agent-command-panel',
+  ];
+  const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+  const number = (value, percentageScale = 1) => {
+    const input = String(value || '').trim();
+    const parsed = Number.parseFloat(input);
+    if (!Number.isFinite(parsed)) return null;
+    return input.endsWith('%') ? parsed / 100 * percentageScale : parsed;
+  };
+  const parse = value => {
+    const input = String(value || '').trim();
+    const rgbMatch = input.match(/^rgba?\(([^)]+)\)$/i);
+    const srgbMatch = input.match(/^color\(\s*srgb\s+([^)]+)\)$/i);
+    const match = rgbMatch || srgbMatch;
+    if (!match) return null;
+    const values = match[1].replace(/,/g, ' ').split(/[\s/]+/).filter(Boolean);
+    if (values.length < 3) return null;
+    const srgb = Boolean(srgbMatch);
+    const scale = srgb ? 1 : 255;
+    const red = number(values[0], scale);
+    const green = number(values[1], scale);
+    const blue = number(values[2], scale);
+    const alpha = values.length > 3 ? number(values[3], 1) : 1;
+    if ([red, green, blue, alpha].some(channel => channel === null)) return null;
+    return {
+      r: clamp(srgb ? red * 255 : red, 0, 255),
+      g: clamp(srgb ? green * 255 : green, 0, 255),
+      b: clamp(srgb ? blue * 255 : blue, 0, 255),
+      a: clamp(alpha, 0, 1),
+    };
+  };
+  const composite = (foreground, background) => {
+    const alpha = foreground.a + background.a * (1 - foreground.a);
+    if (alpha <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+    return {
+      r: (foreground.r * foreground.a + background.r * background.a * (1 - foreground.a)) / alpha,
+      g: (foreground.g * foreground.a + background.g * background.a * (1 - foreground.a)) / alpha,
+      b: (foreground.b * foreground.a + background.b * background.a * (1 - foreground.a)) / alpha,
+      a: alpha,
+    };
+  };
+  const effectiveBackground = element => {
+    const layers = [];
+    let current = element;
+    while (current) {
+      const color = parse(getComputedStyle(current).backgroundColor);
+      if (color && color.a > .001) {
+        layers.push(color);
+        if (color.a >= .999) break;
+      }
+      current = current.parentElement;
+    }
+    let background = { r: 255, g: 255, b: 255, a: 1 };
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      background = composite(layers[index], background);
+    }
+    return background;
+  };
+  const linear = channel => {
+    const value = channel / 255;
+    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+  };
+  const luminance = color => .2126 * linear(color.r) + .7152 * linear(color.g) + .0722 * linear(color.b);
+  const contrast = (foreground, background) => {
+    const first = luminance(foreground);
+    const second = luminance(background);
+    return (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
+  };
+  const identity = element => [
+    element.id && '#' + element.id,
+    ...[...element.classList].slice(0, 3).map(name => '.' + name),
+  ].filter(Boolean).join('') || element.tagName.toLowerCase();
+  const visible = element => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width >= 2 && rect.height >= 2 && style.display !== 'none'
+      && style.visibility !== 'hidden' && Number(style.opacity) >= .55;
+  };
+  const root = document.querySelector('.management-detail');
+  if (!root) {
+    return {
+      theme: document.documentElement.dataset.theme,
+      missingRoot: true,
+      missingSurfaces: surfaceSelectors,
+      surfaces: [],
+      surfaceMismatches: [],
+      text: { total: 0, minimumContrast: 0, lowContrast: [] },
+    };
+  }
+  const surfaces = [...root.querySelectorAll(surfaceSelectors.join(','))]
+    .filter(visible)
+    .map(element => {
+      const style = getComputedStyle(element);
+      const background = effectiveBackground(element);
+      const backgroundLuminance = luminance(background);
+      return {
+        selector: identity(element),
+        background: style.backgroundColor,
+        backgroundImage: style.backgroundImage,
+        effectiveBackground: 'rgb(' + background.r.toFixed(1) + ', ' + background.g.toFixed(1) + ', ' + background.b.toFixed(1) + ')',
+        luminance: Number(backgroundLuminance.toFixed(3)),
+      };
+    });
+  const theme = document.documentElement.dataset.theme;
+  const surfaceMismatches = surfaces.filter(surface => (
+    (theme === 'light' && surface.luminance < .55)
+    || (theme === 'dark' && surface.luminance > .45)
+  ));
+  const textResults = [root, ...root.querySelectorAll('*')].flatMap(element => {
+    if (!visible(element) || element.closest('[aria-hidden="true"], [inert], .hidden, .sr-only, .visually-hidden, script, style')) {
+      return [];
+    }
+    const text = [...element.childNodes]
+      .filter(node => node.nodeType === Node.TEXT_NODE)
+      .map(node => String(node.textContent || '').replace(/\s+/g, ' ').trim())
+      .filter(Boolean)
+      .join(' ');
+    if (text.length < 2) return [];
+    const style = getComputedStyle(element);
+    const foreground = parse(style.color);
+    if (!foreground || foreground.a < .75) return [];
+    const background = effectiveBackground(element);
+    const paintedForeground = foreground.a < .999 ? composite(foreground, background) : foreground;
+    const ratio = contrast(paintedForeground, background);
+    const fontSize = Number.parseFloat(style.fontSize) || 0;
+    const fontWeight = Number.parseInt(style.fontWeight, 10) || 400;
+    const required = fontSize >= 24 || (fontSize >= 18.66 && fontWeight >= 700) ? 3 : 4.5;
+    return [{
+      selector: identity(element),
+      text: text.slice(0, 100),
+      foreground: style.color,
+      background: 'rgb(' + background.r.toFixed(1) + ', ' + background.g.toFixed(1) + ', ' + background.b.toFixed(1) + ')',
+      contrast: Number(ratio.toFixed(2)),
+      required,
+    }];
+  });
+  return {
+    theme,
+    missingRoot: false,
+    missingSurfaces: surfaceSelectors.filter(selector => !root.querySelector(selector)),
+    surfaces,
+    surfaceMismatches,
+    text: {
+      total: textResults.length,
+      minimumContrast: textResults.length ? Math.min(...textResults.map(result => result.contrast)) : 0,
+      lowContrast: textResults.filter(result => result.contrast + .02 < result.required),
+    },
+  };
+}
+
 app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -94,10 +265,37 @@ app.whenReady().then(async () => {
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
     const output = path.join(outputDir, 'loadtoagent-result-review.png');
+    const outputs = {};
+    const themeAudits = {};
     win.show();
-    win.webContents.invalidate();
-    await wait(520);
-    fs.writeFileSync(output, (await win.webContents.capturePage()).toPNG());
+    for (const theme of ['dark', 'light']) {
+      await win.webContents.executeJavaScript(`window.LoadToAgentTheme.setTheme(${JSON.stringify(theme)})`);
+      await waitFor(
+        win,
+        `document.documentElement.dataset.theme === ${JSON.stringify(theme)}
+          && document.querySelector('#detailDrawer')?.classList.contains('open')
+          && window.LoadToAgentApp.state.drawerTab === 'summary'
+          && Boolean(document.querySelector('[data-result-review-complete="${before.id}"]'))`,
+        `${theme} 테마의 결과 검토 화면이 준비되지 않았습니다.`,
+      );
+      const audit = await win.webContents.executeJavaScript(`(${auditResultReview.toString()})()`);
+      themeAudits[theme] = audit;
+      if (
+        audit.theme !== theme
+        || audit.missingRoot
+        || audit.missingSurfaces.length
+        || audit.surfaceMismatches.length
+        || !audit.text.total
+        || audit.text.lowContrast.length
+      ) {
+        throw new Error(`${theme} 테마 결과 검토 대비 검증 실패: ${JSON.stringify(audit, null, 2)}`);
+      }
+      outputs[theme] = await capture(
+        win,
+        path.join(outputDir, `loadtoagent-result-review-${theme}.png`),
+      );
+    }
+    fs.copyFileSync(outputs.light, output);
 
     await win.webContents.executeJavaScript(`document.querySelector('[data-result-review-complete]').click()`);
     await waitFor(
@@ -135,7 +333,7 @@ app.whenReady().then(async () => {
       '같은 세션의 새 결과가 다시 확인 목록에 나타나지 않았습니다.',
     );
 
-    process.stdout.write(`결과 확인 완료 UI 검증 통과\n${JSON.stringify({ before, drawer, newResultReturned: true }, null, 2)}\n${output}\n`);
+    process.stdout.write(`결과 확인 완료 UI 검증 통과\n${JSON.stringify({ before, drawer, themeAudits, newResultReturned: true }, null, 2)}\n${Object.values(outputs).join('\n')}\n${output}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

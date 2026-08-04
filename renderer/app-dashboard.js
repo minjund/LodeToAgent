@@ -522,7 +522,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
             <span><b>${esc(shortText(session.title, 54))}</b><small>${esc([providerLabel, updatedLabel].filter(Boolean).join(" · "))}</small></span><i aria-hidden="true">›</i>
           </button>`;
         }).join("")
-        : `<p><span aria-hidden="true">○</span><b>${esc(t("studio.history.empty"))}</b><small>${esc(t("studio.history.empty_detail"))}</small></p>`;
+        : `<p class="project-history-empty"><span aria-hidden="true">○</span><b>${esc(t("studio.history.empty"))}</b><small>${esc(t("studio.history.empty_detail"))}</small></p>`;
     }
     const projectSelect = $("#controlRoomProjectSelect");
     if (projectSelect) {

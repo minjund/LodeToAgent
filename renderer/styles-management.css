@@ -4,6 +4,60 @@
  * Action inbox, operational health, structured progress, evidence, and outcome surfaces.
  */
 
+:root {
+  --management-surface: rgba(9, 15, 24, .72);
+  --management-review-surface: color-mix(in srgb, var(--green) 9%, rgba(9, 15, 24, .82));
+  --management-border-strong: #2b3a4d;
+  --management-heading-muted: #cbd6e3;
+  --management-copy: #d8e2ee;
+  --management-track: #182333;
+  --management-button-border: #2a3a4c;
+  --management-button-surface: #111a27;
+  --management-button-text: #c9d5e4;
+  --management-primary-border: rgba(76, 227, 154, .58);
+  --management-primary-surface: var(--green);
+  --management-primary-text: #04130c;
+  --management-approve-border: rgba(76, 227, 154, .35);
+  --management-approve-surface: rgba(76, 227, 154, .08);
+  --management-approve-text: #72dfaa;
+  --management-danger-border: rgba(255, 107, 118, .3);
+  --management-danger-surface: transparent;
+  --management-danger-text: #ff9ba3;
+  --management-warning-surface: rgba(233, 185, 73, .09);
+  --management-warning-text: #f0c56d;
+  --management-positive-surface: rgba(76, 227, 154, .09);
+  --management-positive-text: #74dca8;
+  --management-artifact-surface: #142330;
+  --management-artifact-text: #7ddaf1;
+}
+
+html[data-theme="light"] {
+  --management-surface: #f7fafb;
+  --management-review-surface: linear-gradient(135deg, #eef9f4, #ffffff 76%);
+  --management-border-strong: #d4e0e5;
+  --management-heading-muted: #435963;
+  --management-copy: #4f5d67;
+  --management-track: #dce6ea;
+  --management-button-border: #bfd0d8;
+  --management-button-surface: #ffffff;
+  --management-button-text: #2e4652;
+  --management-primary-border: #075f40;
+  --management-primary-surface: #0b7650;
+  --management-primary-text: #ffffff;
+  --management-approve-border: #9ed6bd;
+  --management-approve-surface: #edf9f3;
+  --management-approve-text: #0b7650;
+  --management-danger-border: #efc1c8;
+  --management-danger-surface: #fff3f5;
+  --management-danger-text: #a63d4f;
+  --management-warning-surface: #fff5db;
+  --management-warning-text: #765000;
+  --management-positive-surface: #e8f6ef;
+  --management-positive-text: #0b7650;
+  --management-artifact-surface: #e9f6fa;
+  --management-artifact-text: #17677f;
+}
+
 .advanced-tools-nav {
   margin: 8px 0;
   border: 1px solid var(--line-soft);
@@ -578,11 +632,11 @@
 .management-quick-actions,
 .management-control-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; }
 .management-quick-actions button,
-.management-control-buttons button { min-height: 34px; padding: 0 12px; border: 1px solid #2a3a4c; border-radius: 9px; color: #c9d5e4; background: #111a27; }
+.management-control-buttons button { min-height: 34px; padding: 0 12px; border: 1px solid var(--management-button-border); border-radius: 9px; color: var(--management-button-text); background: var(--management-button-surface); }
 .management-quick-actions button:hover,
-.management-control-buttons button:hover { border-color: var(--cyan); color: #fff; }
-.management-quick-actions .approve { color: #72dfaa; border-color: rgba(76, 227, 154, .35); background: rgba(76, 227, 154, .08); }
-.management-control-buttons .danger { color: #ff9ba3; border-color: rgba(255, 107, 118, .3); }
+.management-control-buttons button:hover { border-color: var(--cyan); color: var(--text); }
+.management-quick-actions .approve { color: var(--management-approve-text); border-color: var(--management-approve-border); background: var(--management-approve-surface); }
+.management-control-buttons .danger { color: var(--management-danger-text); border-color: var(--management-danger-border); background: var(--management-danger-surface); }
 
 .management-progress,
 .management-health,
@@ -591,7 +645,7 @@
 .management-evidence,
 .management-controls,
 .management-attention-detail,
-.management-outcome { border: 1px solid var(--line-soft); border-radius: 14px; background: rgba(9, 15, 24, .72); overflow: hidden; }
+.management-outcome { border: 1px solid var(--line-soft); border-radius: 14px; background: var(--management-surface); overflow: hidden; }
 .management-progress > header,
 .management-health > header,
 .management-artifacts > header,
@@ -609,15 +663,15 @@
 .management-artifacts > header b,
 .management-checks > header b,
 .management-evidence > header b,
-.management-controls > header b { margin-left: auto; color: #cbd6e3; font-size: 12px; }
+.management-controls > header b { margin-left: auto; color: var(--management-heading-muted); font-size: 12px; }
 .management-progress > header strong,
 .management-health > header strong { min-width: 40px; color: var(--green); font-variant-numeric: tabular-nums; text-align: right; }
-.management-progress-track { height: 5px; margin: 12px 13px 0; border-radius: 999px; background: #182333; overflow: hidden; }
+.management-progress-track { height: 5px; margin: 12px 13px 0; border-radius: 999px; background: var(--management-track); overflow: hidden; }
 .management-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--green)); }
 .management-progress > p { display: flex; justify-content: space-between; gap: 12px; margin: 0; padding: 10px 13px 12px; }
 .management-progress > p b { font-size: 12px; }
 .management-progress > p span { color: var(--muted); font-size: 12px; }
-.management-progress > aside { margin: 0 13px 12px; padding: 9px 11px; border-radius: 9px; color: #f0cc75; background: rgba(233, 185, 73, .08); }
+.management-progress > aside { margin: 0 13px 12px; padding: 9px 11px; border-radius: 9px; color: var(--management-warning-text); background: var(--management-warning-surface); }
 .management-progress > aside span { display: block; margin-bottom: 3px; font-size: 12px; }
 .management-checkpoints,
 .management-health ul,
@@ -665,7 +719,7 @@
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--green) 42%, var(--line-soft));
   border-radius: 14px;
-  background: color-mix(in srgb, var(--green) 9%, rgba(9, 15, 24, .82));
+  background: var(--management-review-surface);
   box-shadow: inset 3px 0 0 color-mix(in srgb, var(--green) 72%, transparent);
 }
 .management-result-review > div {
@@ -694,10 +748,10 @@
   min-width: 112px;
   min-height: 42px;
   padding: 0 18px;
-  border: 1px solid color-mix(in srgb, var(--green) 58%, transparent);
+  border: 1px solid var(--management-primary-border);
   border-radius: 11px;
-  color: #04130c;
-  background: var(--green);
+  color: var(--management-primary-text);
+  background: var(--management-primary-surface);
   font: inherit;
   font-size: 13px;
   font-weight: 850;
@@ -728,19 +782,19 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
-.management-outcome { padding: 16px; border-color: #2b3a4d; }
+.management-outcome { padding: 16px; border-color: var(--management-border-strong); }
 .management-outcome > header { display: flex; justify-content: space-between; gap: 16px; }
 .management-outcome h3 { margin: 4px 0 0; font-size: 20px; }
 .management-outcome header span { color: var(--green); font-size: 12px; font-weight: 800; }
-.management-outcome em { align-self: start; padding: 5px 8px; border-radius: 999px; color: #f0c56d; background: rgba(233, 185, 73, .09); font-size: 12px; font-style: normal; }
-.management-outcome em.verified { color: #74dca8; background: rgba(76, 227, 154, .09); }
-.management-outcome > p { margin: 14px 0 0; color: #d8e2ee; line-height: 1.65; white-space: pre-wrap; }
+.management-outcome em { align-self: start; padding: 5px 8px; border-radius: 999px; color: var(--management-warning-text); background: var(--management-warning-surface); font-size: 12px; font-style: normal; }
+.management-outcome em.verified { color: var(--management-positive-text); background: var(--management-positive-surface); }
+.management-outcome > p { margin: 14px 0 0; color: var(--management-copy); line-height: 1.65; white-space: pre-wrap; }
 .management-attention-detail { padding: 14px; border-color: rgba(233, 185, 73, .25); }
 .management-attention-detail > header span { display: block; margin-bottom: 5px; color: #e9b949; font-size: 12px; }
 .management-attention-detail > header b { line-height: 1.5; }
 .management-attention-detail .management-quick-actions { margin-top: 12px; }
 .management-attention-detail .agent-command-panel { margin-top: 12px; }
-.management-artifacts li i { min-width: 50px; padding: 3px 6px; border-radius: 6px; color: #7ddaf1; background: #142330; font-size: 12px; font-style: normal; text-align: center; text-transform: uppercase; }
+.management-artifacts li i { min-width: 50px; padding: 3px 6px; border-radius: 6px; color: var(--management-artifact-text); background: var(--management-artifact-surface); font-size: 12px; font-style: normal; text-align: center; text-transform: uppercase; }
 .management-artifacts li {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -748,7 +802,7 @@
 .management-artifacts li b {
   min-width: 0;
   overflow: hidden;
-  color: #e5ebf3;
+  color: var(--text);
   font-size: 13px;
   font-weight: 650;
   line-height: 1.45;
@@ -759,7 +813,7 @@
 .management-evidence dl div { padding: 11px 13px; border-right: 1px solid var(--line-soft); }
 .management-evidence dl div:last-child { border-right: 0; }
 .management-evidence dt { color: var(--muted); font-size: 12px; }
-.management-evidence dd { margin: 4px 0 0; color: #dce6f1; font-size: 12px; }
+.management-evidence dd { margin: 4px 0 0; color: var(--management-copy); font-size: 12px; }
 .management-evidence > p { margin: 0; padding: 10px 13px; border-top: 1px solid var(--line-soft); color: var(--muted); font-size: 12px; }
 .management-controls .management-control-buttons { padding: 12px; }
 .management-empty { display: grid; gap: 5px; padding: 34px; color: var(--muted); text-align: center; }

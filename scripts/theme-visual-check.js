@@ -77,6 +77,16 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     '.drawer-composer',
     '.drawer-section',
     '.drawer-summary-card',
+    '.management-result-review',
+    '.management-progress',
+    '.management-health',
+    '.management-artifacts',
+    '.management-checks',
+    '.management-evidence',
+    '.management-controls',
+    '.management-attention-detail',
+    '.management-outcome',
+    '.agent-command-panel',
     '.execution-purpose-card',
     '.execution-process-card',
     '.execution-process-card > header',
@@ -103,11 +113,44 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     '.run-modal-actions',
   ].join(',');
   const pixels = value => Number.parseFloat(value) || 0;
+  const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+  const number = (value, percentageScale = 1) => {
+    const input = String(value || '').trim();
+    const parsed = Number.parseFloat(input);
+    if (!Number.isFinite(parsed)) return null;
+    return input.endsWith('%') ? parsed / 100 * percentageScale : parsed;
+  };
   const parse = value => {
-    const match = String(value || '').match(/rgba?\\(([^)]+)\\)/);
+    const input = String(value || '').trim();
+    const rgbMatch = input.match(/^rgba?\\(([^)]+)\\)$/i);
+    const srgbMatch = input.match(/^color\\(\\s*srgb\\s+([^)]+)\\)$/i);
+    const match = rgbMatch || srgbMatch;
     if (!match) return null;
-    const values = match[1].split(/[\\s,\\/]+/).filter(Boolean).map(Number);
-    return { r: values[0] || 0, g: values[1] || 0, b: values[2] || 0, a: values.length > 3 ? values[3] : 1 };
+    const values = match[1].replace(/,/g, ' ').split(/[\\s\\/]+/).filter(Boolean);
+    if (values.length < 3) return null;
+    const srgb = Boolean(srgbMatch);
+    const scale = srgb ? 1 : 255;
+    const red = number(values[0], scale);
+    const green = number(values[1], scale);
+    const blue = number(values[2], scale);
+    const alpha = values.length > 3 ? number(values[3], 1) : 1;
+    if ([red, green, blue, alpha].some(channel => channel === null)) return null;
+    return {
+      r: clamp(srgb ? red * 255 : red, 0, 255),
+      g: clamp(srgb ? green * 255 : green, 0, 255),
+      b: clamp(srgb ? blue * 255 : blue, 0, 255),
+      a: clamp(alpha, 0, 1),
+    };
+  };
+  const composite = (foreground, background) => {
+    const alpha = foreground.a + background.a * (1 - foreground.a);
+    if (alpha <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+    return {
+      r: (foreground.r * foreground.a + background.r * background.a * (1 - foreground.a)) / alpha,
+      g: (foreground.g * foreground.a + background.g * background.a * (1 - foreground.a)) / alpha,
+      b: (foreground.b * foreground.a + background.b * background.a * (1 - foreground.a)) / alpha,
+      a: alpha,
+    };
   };
   const linear = channel => {
     const value = channel / 255;
@@ -120,13 +163,21 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     return (Math.max(first, second) + .05) / (Math.min(first, second) + .05);
   };
   const effectiveBackground = element => {
+    const layers = [];
     let current = element;
     while (current) {
       const color = parse(getComputedStyle(current).backgroundColor);
-      if (color && color.a >= .92) return color;
+      if (color && color.a > .001) {
+        layers.push(color);
+        if (color.a >= .999) break;
+      }
       current = current.parentElement;
     }
-    return parse(getComputedStyle(document.body).backgroundColor) || { r: 255, g: 255, b: 255, a: 1 };
+    let background = { r: 255, g: 255, b: 255, a: 1 };
+    for (let index = layers.length - 1; index >= 0; index -= 1) {
+      background = composite(layers[index], background);
+    }
+    return background;
   };
   const theme = document.documentElement.dataset.theme;
   const buttons = [...document.querySelectorAll('button')].filter(button => {
@@ -142,7 +193,7 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     const background = effectiveBackground(button);
     const ratio = foreground ? contrast(foreground, background) : 0;
     const backgroundLuminance = luminance(background);
-    const semantic = button.matches('.primary-button,.new-run-cta,.conversation-send,.accent,[data-status-action],.stop-run,.conversation-interrupt');
+    const semantic = button.matches('.primary-button,.new-run-cta,.conversation-send,.accent,[data-status-action],[data-result-review-complete],.stop-run,.conversation-interrupt');
     const terminal = Boolean(button.closest('.terminal-screen,.terminal-xterm,.xterm,.xterm-viewport'));
     const trackedAction = button.matches(trackedActionSelector);
     const themeMismatch = !terminal && (
@@ -231,8 +282,8 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
     if (rect.width < 2 || rect.height < 2 || style.display === 'none' || style.visibility === 'hidden'
       || rect.bottom <= 0 || rect.right <= 0 || rect.top >= innerHeight || rect.left >= innerWidth) return [];
     const background = effectiveBackground(element);
-    const imageColors = [...String(style.backgroundImage || '').matchAll(/rgba?\\(([^)]+)\\)/g)]
-      .map(match => parse('rgb(' + match[1] + ')'))
+    const imageColors = (String(style.backgroundImage || '').match(/(?:rgba?\\([^)]*\\)|color\\(\\s*srgb\\s+[^)]*\\))/gi) || [])
+      .map(parse)
       .filter(Boolean);
     const backgroundLuminance = luminance(background);
     const darkGradient = imageColors.some(color => color.a >= .6 && luminance(color) < .55);
@@ -459,6 +510,22 @@ app.whenReady().then(async () => {
       })()`);
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')`, '작업 상세 패널을 열지 못했습니다.');
       await inspect(theme, 'drawer');
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+
+      await win.webContents.executeJavaScript(`(() => {
+        window.LoadToAgentApp.selectView('all');
+        window.LoadToAgentApp.openDrawer('fixture-failed', { tab: 'summary' });
+        return true;
+      })()`);
+      await waitFor(
+        win,
+        `document.querySelector('#detailDrawer')?.classList.contains('open')
+          && window.LoadToAgentApp.state.selectedId === 'fixture-failed'
+          && window.LoadToAgentApp.state.drawerTab === 'summary'
+          && Boolean(document.querySelector('.management-result-review [data-result-review-complete="fixture-failed"]'))`,
+        '결과 검토 요약 패널을 열지 못했습니다.',
+      );
+      await inspect(theme, 'result-review-drawer');
       await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
 
       await win.webContents.executeJavaScript(`window.LoadToAgentApp.openSubagentConversation('fixture-child')`);
