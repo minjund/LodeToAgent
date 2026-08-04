@@ -94,8 +94,23 @@
 
       <section id="projectSelectionPrompt" class="project-selection-prompt hidden" aria-live="polite">
         <div class="project-selection-content">
-          <span class="project-selection-light" aria-hidden="true"></span>
-          <h2 data-i18n="studio.project_selection_title">프로젝트를 선택해주세요</h2>
+          <span class="project-selection-direction" aria-hidden="true"><i>←</i><b data-i18n="studio.project_selection_direction">왼쪽 프로젝트 목록</b></span>
+          <div class="project-selection-visual" aria-hidden="true">
+            <i class="project-selection-orbit orbit-outer"></i>
+            <i class="project-selection-orbit orbit-inner"></i>
+            <span class="project-selection-halo"></span>
+            <span class="project-selection-stack">
+              <i class="project-selection-card card-back"></i>
+              <i class="project-selection-card card-middle"></i>
+              <i class="project-selection-card card-front"><b></b><b></b><em></em></i>
+            </span>
+            <span class="project-selection-scan"></span>
+          </div>
+          <div class="project-selection-copy">
+            <span class="project-selection-eyebrow"><i></i><b data-i18n="studio.project_selection_eyebrow">프로젝트 작업 공간</b></span>
+            <h2 data-i18n="studio.project_selection_title">프로젝트를 선택해주세요</h2>
+            <p data-i18n="studio.project_selection_prompt">왼쪽 목록에서 확인할 프로젝트를 선택해주세요.</p>
+          </div>
         </div>
       </section>
 
@@ -137,8 +152,7 @@
 
       <section id="settingsSection" class="settings-section hidden" aria-labelledby="settingsTitle">
         <header class="settings-head">
-          <div class="settings-emblem" aria-hidden="true"><span>↟</span><i></i></div>
-          <div><h2 id="settingsTitle" data-i18n="settings.page_title">화면 및 업데이트 설정</h2><p data-i18n="ui.choose_the_display_language_and_compare_the_installed_version_with">언어, 화면 색상, 표시할 AI, 업데이트를 한곳에서 바꿀 수 있습니다.</p></div>
+          <div><h2 id="settingsTitle" data-i18n="settings.page_title">설정</h2><p data-i18n="ui.choose_the_display_language_and_compare_the_installed_version_with">언어, 화면 색상, AI 목록, 업데이트를 관리합니다.</p></div>
         </header>
 
         <section class="language-settings-card" aria-labelledby="languageSettingsTitle">
@@ -179,12 +193,12 @@
           <div class="provider-visibility-copy">
             <span data-i18n="settings.providers.eyebrow"></span>
             <h3 id="providerVisibilityTitle" data-i18n="settings.providers.title">화면에 표시할 AI</h3>
-            <p data-i18n="settings.providers.description">스위치에는 현재 표시 상태가 적혀 있습니다. 바꾸면 바로 저장되고 완료 알림이 나타나며, 기존 작업은 그대로 남습니다.</p>
+            <p data-i18n="settings.providers.description">목록에 보일 AI를 선택하세요. 변경 내용은 즉시 저장됩니다.</p>
           </div>
           <div id="providerVisibilityList" class="provider-visibility-list"></div>
         </section>
 
-        <div id="updatePanel" class="update-panel" data-update-status="idle">
+        <div id="updatePanel" class="update-panel" data-update-status="idle" aria-labelledby="updateStateTitle">
           <div class="version-route" aria-label="설치 버전과 최신 버전 비교" data-i18n-aria-label="ui.compare_installed_and_latest_versions">
             <article class="version-node local-version-node">
               <span data-i18n="ui.installed_version">현재 설치된 버전</span>
@@ -217,12 +231,6 @@
 
           <div id="updateError" class="update-error hidden" role="status"></div>
           <div id="releaseNotes" class="release-notes hidden"><div><span data-i18n="ui.release_notes">이번 버전의 변경 사항</span><button id="openReleaseBtn" type="button" data-i18n="ui.view_all_on_github">버전 안내 전체 보기 ↗</button></div><pre id="releaseNotesText"></pre></div>
-        </div>
-
-        <div class="settings-meta-grid">
-          <article><span data-i18n="ui.update_source">업데이트 기준</span><b data-i18n="ui.stable_github_releases">정식으로 공개된 버전</b><p data-i18n="ui.drafts_and_prereleases_are_excluded_only_tags_newer_than_the">시험용 버전은 제외하고, 지금 설치된 버전보다 새로운 정식 버전만 알려드립니다.</p></article>
-          <article><span data-i18n="ui.file_verification">설치 파일 안전 확인</span><b data-i18n="ui.sha256_size_check">파일이 바뀌지 않았는지 확인</b><p data-i18n="ui.the_installer_will_not_open_if_its_hash_or_size">받은 파일이 공식 원본과 다르면 안전을 위해 설치 파일을 열지 않습니다.</p></article>
-          <article><span data-i18n="ui.runtime">설치 파일 정보</span><b id="runtimeVersions">설치 파일 확인 중</b><p data-i18n="ui.selects_the_windows_installer_or_macos_dmg_that_matches_the">이 컴퓨터에 맞는 Windows 또는 macOS 설치 파일을 선택합니다.</p></article>
         </div>
       </section>
 
@@ -518,6 +526,20 @@
       <button id="drawerTabLifecycle" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle" aria-label="진행 과정">진행 과정</button>
       <button id="drawerTabTokens" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens" aria-label="사용량">사용량</button>
     </div>
+    <section id="drawerTerminalSurface" class="drawer-terminal-surface hidden" role="tabpanel" aria-labelledby="drawerTabChat" aria-hidden="true">
+      <header class="drawer-terminal-statusbar" data-tone="connecting">
+        <span class="drawer-terminal-connection"><i aria-hidden="true"></i><b id="drawerTerminalStatus" data-i18n="drawer.terminal_connecting">PTY 연결 중</b><small id="drawerTerminalMeta"></small></span>
+        <span class="drawer-terminal-tools">
+          <button id="drawerTerminalFocusBtn" type="button" title="터미널에 직접 입력" aria-label="터미널에 직접 입력" data-i18n-title="drawer.terminal_focus" data-i18n-aria-label="drawer.terminal_focus"><span aria-hidden="true">⌨</span></button>
+          <button id="drawerTerminalReconnectBtn" type="button" title="PTY 다시 연결" aria-label="PTY 다시 연결" data-i18n-title="drawer.terminal_reconnect" data-i18n-aria-label="drawer.terminal_reconnect"><span aria-hidden="true">↻</span></button>
+        </span>
+      </header>
+      <div id="drawerTerminalViewport" class="drawer-terminal-viewport" aria-label="현재 AI 작업의 PTY 터미널" data-i18n-aria-label="drawer.terminal_viewport">
+        <div id="drawerTerminalEmpty" class="drawer-terminal-empty" role="status">
+          <span aria-hidden="true">›_</span><b data-i18n="drawer.terminal_connecting">PTY 연결 중</b><small data-i18n="drawer.terminal_connecting_help">같은 세션의 실행 화면과 scrollback을 불러오고 있습니다.</small>
+        </div>
+      </div>
+    </section>
     <div id="drawerContent" class="drawer-content" role="tabpanel" aria-labelledby="drawerTabChat" tabindex="0"></div>
     <div id="drawerComposer" class="drawer-composer hidden" aria-label="대화 참여"></div>
   </aside>
@@ -638,5 +660,6 @@
   <script src="terminal-events.js"></script>
   <script src="terminal-prompt.js"></script>
   <script src="terminal.js"></script>
+  <script src="drawer-terminal.js"></script>
 </body>
 </html>

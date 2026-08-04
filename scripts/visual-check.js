@@ -118,9 +118,12 @@ app.whenReady().then(() => {
         const promptRect = prompt?.getBoundingClientRect();
         return {
           guideHidden: Boolean(guide?.classList.contains('hidden')),
-          promptText: prompt?.textContent.trim() || '',
+          promptText: prompt?.querySelector('h2')?.textContent.trim() || '',
           promptVisible: Boolean(promptRect && promptRect.width > 0 && promptRect.height > 0 && promptStyle.display !== 'none'),
           promptUnboxed: Boolean(promptStyle && promptStyle.borderTopWidth === '0px' && promptStyle.backgroundColor === 'rgba(0, 0, 0, 0)'),
+          promptDesignReady: Boolean(prompt?.querySelector('.project-selection-visual') && !prompt?.querySelector('.project-selection-flow')),
+          promptMotionActive: [...(prompt?.querySelectorAll('.project-selection-orbit, .project-selection-stack, .project-selection-scan') || [])]
+            .filter(element => getComputedStyle(element).animationName !== 'none').length >= 3,
           projectToolbarHidden: document.querySelector('#projectTaskToolbar')?.classList.contains('hidden') || false,
           visiblePrimaryNavControls: [...document.querySelectorAll('#projectContextNav button, #projectContextNav summary')]
             .filter(item => item.getBoundingClientRect().width > 0 && item.getBoundingClientRect().height > 0).length,
@@ -129,8 +132,8 @@ app.whenReady().then(() => {
         };
       })()`);
       if (!beginnerMetrics.guideHidden || beginnerMetrics.promptText !== '프로젝트를 선택해주세요'
-        || !beginnerMetrics.promptVisible || !beginnerMetrics.promptUnboxed || !beginnerMetrics.projectToolbarHidden
-        || beginnerMetrics.visiblePrimaryNavControls !== 4 || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
+        || !beginnerMetrics.promptVisible || !beginnerMetrics.promptUnboxed || !beginnerMetrics.promptDesignReady || !beginnerMetrics.promptMotionActive || !beginnerMetrics.projectToolbarHidden
+        || beginnerMetrics.visiblePrimaryNavControls !== 0 || beginnerMetrics.oldJargonVisible.length || !beginnerMetrics.noHorizontalOverflow) {
         throw new Error(`프로젝트 선택 기본 화면이 올바르지 않습니다: ${JSON.stringify(beginnerMetrics)}`);
       }
       setTestWindowSize(win, 1080, 700);
@@ -166,7 +169,12 @@ app.whenReady().then(() => {
       const settingsMetrics = await win.webContents.executeJavaScript(`(() => {
         const section = document.querySelector('#settingsSection');
         const card = document.querySelector('.language-settings-card');
+        const themeCard = document.querySelector('.theme-settings-card');
         const select = document.querySelector('#languageSelect');
+        const sectionRect = section?.getBoundingClientRect();
+        const cardRect = card?.getBoundingClientRect();
+        const themeRect = themeCard?.getBoundingClientRect();
+        const isHidden = element => !element || getComputedStyle(element).display === 'none' || element.getBoundingClientRect().height === 0;
         return {
           visible: Boolean(section && !section.classList.contains('hidden')),
           locale: window.LoadToAgentI18n?.getLocale(),
@@ -175,9 +183,15 @@ app.whenReady().then(() => {
           options: select?.options.length || 0,
           cardVisible: Boolean(card && card.getBoundingClientRect().height > 0),
           noOverflow: Boolean(section && section.scrollWidth <= section.clientWidth + 2),
+          focusedChrome: isHidden(document.querySelector('.topbar')) && isHidden(document.querySelector('#projectContextNav')),
+          headerVisible: !isHidden(document.querySelector('.settings-head')),
+          noDiagnosticCards: !document.querySelector('.settings-meta-grid'),
+          noProviderCompanyLabels: !document.querySelector('.provider-visibility-name small'),
+          readableWidth: Boolean(sectionRect && sectionRect.width <= 1042),
+          primaryCardsAligned: Boolean(cardRect && themeRect && Math.abs(cardRect.top - themeRect.top) <= 2),
         };
       })()`);
-      if (!settingsMetrics.visible || settingsMetrics.locale !== 'zh-CN' || settingsMetrics.language !== 'zh-CN' || !settingsMetrics.title.includes('设置') || settingsMetrics.options !== 3 || !settingsMetrics.cardVisible || !settingsMetrics.noOverflow) throw new Error(`다국어 설정 화면이 올바르지 않습니다: ${JSON.stringify(settingsMetrics)}`);
+      if (!settingsMetrics.visible || settingsMetrics.locale !== 'zh-CN' || settingsMetrics.language !== 'zh-CN' || !settingsMetrics.title.includes('设置') || settingsMetrics.options !== 3 || !settingsMetrics.cardVisible || !settingsMetrics.noOverflow || !settingsMetrics.focusedChrome || !settingsMetrics.headerVisible || !settingsMetrics.noDiagnosticCards || !settingsMetrics.noProviderCompanyLabels || !settingsMetrics.readableWidth || !settingsMetrics.primaryCardsAligned) throw new Error(`다국어 설정 화면이 올바르지 않습니다: ${JSON.stringify(settingsMetrics)}`);
       const settingsImage = await win.webContents.capturePage();
       const settingsOutput = path.join(outputDir, 'loadtoagent-language-settings.png');
       fs.writeFileSync(settingsOutput, settingsImage.toPNG());
@@ -687,9 +701,10 @@ app.whenReady().then(() => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.renderSessions();
+        window.LoadToAgentApp.openDrawer(${JSON.stringify(densityFocusId)});
         const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(densityFocusId)});
         const targets = window.LoadToAgentTerminal.agentTargets(session);
-        const form = document.querySelector('[data-agent-command-form="${densityFocusId}"]');
+        const form = document.querySelector('#drawerComposer [data-agent-command-form="${densityFocusId}"]');
         const input = form?.querySelector('[data-agent-command-draft]');
         const picker = form?.querySelector('[data-agent-command-target]');
         const initiallyDisabled = form?.querySelector('[type="submit"]')?.disabled || false;
@@ -703,6 +718,10 @@ app.whenReady().then(() => {
           form.requestSubmit();
         }
         return {
+          progressPanelVisible: Boolean(document.querySelector('[data-workflow-progress="${densityFocusId}"]')),
+          workScreenComposerAbsent: !document.querySelector('.agent-workflow-canvas [data-agent-command-form]'),
+          drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
+          drawerComposerVisible: Boolean(form),
           formVisible: Boolean(form),
           connected: form?.classList.contains('connected') || false,
           targetCount: targets.length,
@@ -714,20 +733,22 @@ app.whenReady().then(() => {
         };
       })()`);
       const directReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(commandTerminalId)}); return value?.replay.includes(${JSON.stringify(directMarker)}) ? value.replay : ''; })()`, 50, 200);
-      if (!commandUiMetrics.formVisible || !commandUiMetrics.connected || commandUiMetrics.targetCount !== 2 || !commandUiMetrics.targetIds.includes(commandTerminalId) || !commandUiMetrics.targetIds.includes(alternateCommandTerminalId) || !commandUiMetrics.pickerVisible || !commandUiMetrics.initiallyDisabled || commandUiMetrics.selectedTargetId !== commandTerminalId || commandUiMetrics.maxLength !== 8000 || !directReplay) {
-        throw new Error(`선택한 AI의 터미널 직접 지시가 올바르지 않습니다: ${JSON.stringify(commandUiMetrics)}`);
+      if (!commandUiMetrics.progressPanelVisible || !commandUiMetrics.workScreenComposerAbsent || !commandUiMetrics.drawerOpen || !commandUiMetrics.drawerComposerVisible
+        || !commandUiMetrics.formVisible || !commandUiMetrics.connected || commandUiMetrics.targetCount !== 2 || !commandUiMetrics.targetIds.includes(commandTerminalId) || !commandUiMetrics.targetIds.includes(alternateCommandTerminalId) || !commandUiMetrics.pickerVisible || !commandUiMetrics.initiallyDisabled || commandUiMetrics.selectedTargetId !== commandTerminalId || commandUiMetrics.maxLength !== 8000 || !directReplay) {
+        throw new Error(`진행 화면과 별도 대화창의 터미널 직접 지시가 올바르지 않습니다: ${JSON.stringify(commandUiMetrics)}`);
       }
       const openDraft = '이 문장을 터미널 입력창에서 이어서 작성';
-      await win.webContents.executeJavaScript(`(() => {
+      await win.webContents.executeJavaScript(`(async () => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.renderSessions();
-        const input = document.querySelector('[data-agent-command-draft="${densityFocusId}"]');
+        window.LoadToAgentApp.openDrawer(${JSON.stringify(densityFocusId)});
+        const input = document.querySelector('#drawerComposer [data-agent-command-draft="${densityFocusId}"]');
         if (input) {
           input.value = ${JSON.stringify(openDraft)};
           input.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        document.querySelector('[data-agent-terminal-open="${densityFocusId}"]')?.click();
+        await window.LoadToAgentApp.openAgentTerminal(${JSON.stringify(densityFocusId)});
       })()`);
       const terminalOpenReady = await waitForRenderer(win, `(() => window.LoadToAgentApp.state.view === 'terminal' && document.querySelector('.terminal-session-item.active')?.dataset.terminalId === ${JSON.stringify(commandTerminalId)} && document.querySelector('#terminalCommandInput')?.value === ${JSON.stringify(openDraft)})()`);
       if (!terminalOpenReady) throw new Error('선택한 AI에서 정확한 일반 터미널과 지시 초안을 열지 못했습니다.');
@@ -886,13 +907,23 @@ app.whenReady().then(() => {
           drawerClosingDeferred: document.querySelector('#drawerBackdrop')?.classList.contains('closing') && !document.querySelector('#drawerBackdrop')?.classList.contains('hidden'),
         };
       })()`);
+      const refreshMotionMetrics = await win.webContents.executeJavaScript(`(() => {
+        window.LoadToAgentApp.renderSessions('refresh');
+        window.LoadToAgentApp.drawAgentWorkflowConnections();
+        const canvas = document.querySelector('.agent-workflow-canvas');
+        const path = canvas?.querySelector('.agent-workflow-edge');
+        return {
+          workflowAnimatedAfterRefresh: canvas?.classList.contains('motion-connect') || false,
+          edgeAnimationAfterRefresh: path?.getAnimations().some(animation => animation.animationName === 'motion-edge-draw') || false,
+        };
+      })()`);
       await new Promise(resolve => setTimeout(resolve, 950));
       const motionClosedMetrics = await win.webContents.executeJavaScript(`(() => ({
         modalHidden: document.querySelector('#runModal')?.classList.contains('hidden') || false,
         drawerBackdropHidden: document.querySelector('#drawerBackdrop')?.classList.contains('hidden') || false,
       }))()`);
-      if (!motionMetrics.preferenceMatches || motionMetrics.lastMotion !== 'focus' || motionMetrics.keyedElements < 10 || !motionMetrics.workflowAnimated || motionMetrics.pathLength !== '1' || (!motionMetrics.reduced && !motionMetrics.edgeAnimation) || !motionMetrics.modalOpening || !motionMetrics.modalClosingDeferred || !motionMetrics.drawerClosingDeferred || !motionClosedMetrics.modalHidden || !motionClosedMetrics.drawerBackdropHidden) {
-        throw new Error(`부드러운 화면 전환 모션이 올바르지 않습니다: ${JSON.stringify({ ...motionMetrics, ...motionClosedMetrics })}`);
+      if (!motionMetrics.preferenceMatches || motionMetrics.lastMotion !== 'focus' || motionMetrics.keyedElements < 10 || !motionMetrics.workflowAnimated || motionMetrics.pathLength !== '1' || (!motionMetrics.reduced && (!motionMetrics.edgeAnimation || !refreshMotionMetrics.edgeAnimationAfterRefresh)) || !refreshMotionMetrics.workflowAnimatedAfterRefresh || !motionMetrics.modalOpening || !motionMetrics.modalClosingDeferred || !motionMetrics.drawerClosingDeferred || !motionClosedMetrics.modalHidden || !motionClosedMetrics.drawerBackdropHidden) {
+        throw new Error(`부드러운 화면 전환 모션이 올바르지 않습니다: ${JSON.stringify({ ...motionMetrics, ...refreshMotionMetrics, ...motionClosedMetrics })}`);
       }
       const focusImage = await captureStableState(win, `(() => {
         document.querySelector('#closeDrawerBtn')?.click();
@@ -902,7 +933,7 @@ app.whenReady().then(() => {
         window.LoadToAgentApp.renderSessions();
         window.LoadToAgentApp.drawAgentWorkflowConnections();
         document.querySelector('.main-stage')?.scrollTo(0, 0);
-      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && document.querySelectorAll('.downstream-column .agent-workflow-node').length === 0 && document.querySelector('[data-subagent-completed-toggle]') && !document.querySelector('[data-completed-subagent-list]') && !document.querySelector('[data-subagent-search], [data-subagent-provider], [data-subagent-status]') && !document.querySelector('#detailDrawer')?.classList.contains('open') && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')`);
+      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && document.querySelectorAll('.downstream-column .agent-workflow-node').length === 0 && document.querySelector('[data-subagent-completed-toggle]') && document.querySelector('[data-workflow-progress="${densityFocusId}"]') && !document.querySelector('.agent-workflow-canvas [data-agent-command-form]') && !document.querySelector('[data-completed-subagent-list]') && !document.querySelector('[data-subagent-search], [data-subagent-provider], [data-subagent-status]') && !document.querySelector('#detailDrawer')?.classList.contains('open') && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')`);
       const focusOutput = path.join(outputDir, 'loadtoagent-agent-focus.png');
       fs.writeFileSync(focusOutput, focusImage.toPNG());
       const metrics = await win.webContents.executeJavaScript(`(() => {
@@ -943,6 +974,11 @@ app.whenReady().then(() => {
           graphFocused: Boolean(window.LoadToAgentApp.state.graphFocusId),
           breadcrumbSteps: document.querySelectorAll('#graphBreadcrumbs button').length,
           workflowCanvas: document.querySelectorAll('.agent-workflow-canvas').length,
+          progressOwner: document.querySelector('[data-workflow-progress]')?.dataset.workflowProgress || '',
+          progressStage: document.querySelector('[data-workflow-progress]')?.dataset.progressStage || '',
+          progressEvents: document.querySelectorAll('.workflow-progress-events > li').length,
+          progressBasisVisible: Boolean(document.querySelector('.workflow-progress-panel > footer small')?.textContent.trim()),
+          workScreenComposerCount: document.querySelectorAll('.agent-workflow-canvas [data-agent-command-form]').length,
           upstreamNodes: document.querySelectorAll('.upstream-column .agent-workflow-origin, .upstream-column .agent-workflow-node').length,
           selectedNodes: document.querySelectorAll('.selected-column .agent-node').length,
           downstreamNodes: document.querySelectorAll('.downstream-column .agent-workflow-node').length,
@@ -977,7 +1013,7 @@ app.whenReady().then(() => {
           noHorizontalOverflow: grid ? grid.scrollWidth <= grid.clientWidth + 2 : false,
         };
       })()`);
-      if (!metrics.graphFocused || metrics.liveNodes !== 1 || metrics.workflowCanvas !== 1 || metrics.upstreamNodes !== 1 || metrics.selectedNodes !== 1 || metrics.downstreamNodes !== 10 || metrics.connectionPaths !== 2 || metrics.downstreamGroups !== 1 || metrics.groupArrowheads !== 1 || metrics.downstreamColumns < 2 || metrics.summaryChips < 1 || metrics.routeCollisions !== 0 || metrics.ports !== 4 || !metrics.upstreamAligned || !metrics.groupPortInsideCanvas || metrics.collaborationMetrics.created !== '10' || metrics.collaborationMetrics.capacity !== '3' || metrics.collaborationMetrics.running !== '0' || metrics.collaborationMetrics.completed !== '10' || metrics.collaborationCommunications !== 30 || metrics.collaborationAssignments !== 10 || metrics.collaborationResults !== 10 || metrics.delegatedTaskCards !== 10 || metrics.readableSessionCards !== 10 || metrics.sessionAgentRows !== 10 || metrics.workingSubagents !== 0 || metrics.restingSubagents !== 10 || metrics.conversationCards !== 9 || metrics.nestedFlowCards !== 1 || !metrics.completedToggle || !metrics.completedExpanded || metrics.legacyFilters !== 0 || metrics.tmuxBadges !== 1 || metrics.standardBadges !== 9 || metrics.recentSubagents !== 0 || !metrics.desktopDirectionFixed || !metrics.noHorizontalOverflow || metrics.averageRenderMs > 250) throw new Error(`연결형 에이전트 작업 흐름이 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+      if (!metrics.graphFocused || metrics.liveNodes !== 1 || metrics.workflowCanvas !== 1 || metrics.progressOwner !== densityFocusId || metrics.progressStage !== 'running' || metrics.progressEvents < 1 || metrics.progressEvents > 5 || !metrics.progressBasisVisible || metrics.workScreenComposerCount !== 0 || metrics.upstreamNodes !== 1 || metrics.selectedNodes !== 1 || metrics.downstreamNodes !== 10 || metrics.connectionPaths !== 2 || metrics.downstreamGroups !== 1 || metrics.groupArrowheads !== 1 || metrics.downstreamColumns < 2 || metrics.summaryChips < 1 || metrics.routeCollisions !== 0 || metrics.ports !== 4 || !metrics.upstreamAligned || !metrics.groupPortInsideCanvas || metrics.collaborationMetrics.created !== '10' || metrics.collaborationMetrics.capacity !== '3' || metrics.collaborationMetrics.running !== '0' || metrics.collaborationMetrics.completed !== '10' || metrics.collaborationCommunications !== 30 || metrics.collaborationAssignments !== 10 || metrics.collaborationResults !== 10 || metrics.delegatedTaskCards !== 10 || metrics.readableSessionCards !== 10 || metrics.sessionAgentRows !== 10 || metrics.workingSubagents !== 0 || metrics.restingSubagents !== 10 || metrics.conversationCards !== 9 || metrics.nestedFlowCards !== 1 || !metrics.completedToggle || !metrics.completedExpanded || metrics.legacyFilters !== 0 || metrics.tmuxBadges !== 1 || metrics.standardBadges !== 9 || metrics.recentSubagents !== 0 || !metrics.desktopDirectionFixed || !metrics.noHorizontalOverflow || metrics.averageRenderMs > 250) throw new Error(`연결형 에이전트 작업 흐름이 올바르지 않습니다: ${JSON.stringify(metrics)}`);
 
       const communicationImage = await captureStableState(win, `(() => {
         window.__ensureLoadToAgentDensityFixture?.();
@@ -1008,26 +1044,22 @@ app.whenReady().then(() => {
         window.LoadToAgentApp.renderSessions();
         window.LoadToAgentApp.drawAgentWorkflowConnections();
         const focusedSession = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(childFocusId)});
-        const commandPanel = document.querySelector('.agent-workflow-selected-stack > .agent-command-panel');
         const upstream = document.querySelector('.upstream-column .agent-workflow-node')?.getBoundingClientRect();
         const selected = document.querySelector('.agent-workflow-selected')?.getBoundingClientRect();
         return {
           focusId: window.LoadToAgentApp.state.graphFocusId,
+          progressOwner: document.querySelector('[data-workflow-progress]')?.dataset.workflowProgress || '',
+          progressVisible: Boolean(document.querySelector('[data-workflow-progress]')),
+          workScreenComposerAbsent: !document.querySelector('.agent-workflow-canvas [data-agent-command-form]'),
           parentId: document.querySelector('.upstream-column [data-graph-focus]')?.dataset.graphFocus || '',
           parentOnLeft: Boolean(upstream && selected && upstream.right < selected.left),
           downstreamNodes: document.querySelectorAll('.downstream-column .agent-workflow-node').length,
           emptyShown: Boolean(document.querySelector('.downstream-column .agent-workflow-empty')),
           connectionPaths: document.querySelectorAll('.agent-workflow-edge').length,
-          resumeReady: commandPanel?.classList.contains('resume-ready') || false,
-          commandEnabled: commandPanel?.querySelector('[data-agent-command-draft]')?.disabled === false,
-          resumeMode: commandPanel?.classList.contains('control-resume') || false,
-          bridgeCopyVisible: Boolean(commandPanel?.querySelector('[data-agent-bridge-copy]')),
           communicationEvents: Number(document.querySelector('[data-collaboration-communications]')?.dataset.collaborationCommunications || 0),
           provider: focusedSession?.provider || '',
           externalId: focusedSession?.externalId || '',
           resumeSupport: window.LoadToAgentTerminal.resumeSupport(focusedSession),
-          commandPanel: commandPanel?.className || '',
-          commandStatus: commandPanel?.querySelector('header small')?.textContent || '',
           targets: window.LoadToAgentTerminal.agentTargets(focusedSession).map(item => ({ id: item.id, kind: item.kind })),
         };
       })()`);
@@ -1041,70 +1073,10 @@ app.whenReady().then(() => {
       })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(childFocusId)} && document.querySelector('.upstream-column [data-graph-focus]')?.dataset.graphFocus === ${JSON.stringify(densityFocusId)} && !document.querySelector('#detailDrawer')?.classList.contains('open') && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')`);
       const childFocusOutput = path.join(outputDir, 'loadtoagent-agent-child-focus.png');
       fs.writeFileSync(childFocusOutput, childFocusImage.toPNG());
-      if (childMetrics.focusId !== childFocusId || childMetrics.parentId !== densityFocusId || !childMetrics.parentOnLeft
+      if (childMetrics.focusId !== childFocusId || !childMetrics.progressVisible || childMetrics.progressOwner !== childFocusId || !childMetrics.workScreenComposerAbsent || childMetrics.parentId !== densityFocusId || !childMetrics.parentOnLeft
         || childMetrics.downstreamNodes !== 1 || !childMetrics.emptyShown || childMetrics.connectionPaths !== 2
-        || childMetrics.resumeReady || childMetrics.commandEnabled || childMetrics.resumeMode || childMetrics.bridgeCopyVisible
         || !childMetrics.resumeSupport?.parentControlled || childMetrics.communicationEvents !== 3) {
         throw new Error(`중첩 도움 AI 선택 후 부모 방향·메인 관리 상태·하위 통신 기록이 올바르지 않습니다: ${JSON.stringify(childMetrics)}`);
-      }
-
-      const controlStateMetrics = await win.webContents.executeJavaScript(`(() => {
-        window.__ensureLoadToAgentDensityFixture?.();
-        const inspect = id => {
-          window.LoadToAgentApp.state.graphFocusId = id;
-          window.LoadToAgentApp.renderSessions();
-          const panel = document.querySelector('.agent-workflow-selected-stack > .agent-command-panel');
-          return {
-            classes: panel?.className || '',
-            status: panel?.querySelector('header small')?.textContent || '',
-            origin: Boolean(panel?.querySelector('[data-agent-open-origin]')),
-            bridge: Boolean(panel?.querySelector('[data-agent-bridge-copy]')),
-            enabledTextarea: panel?.querySelector('textarea')?.disabled === false,
-          };
-        };
-        const sessions = window.LoadToAgentApp.state.snapshot.sessions || [];
-        const connectSession = sessions.find(item => item.id === 'visual-density:child:0');
-        const previousConnectStatus = connectSession?.status;
-        const previousConnectProvider = connectSession?.provider;
-        if (connectSession) connectSession.status = 'running';
-        if (connectSession) connectSession.provider = 'grok';
-        const connect = inspect('visual-density:child:0');
-        if (connectSession) connectSession.status = previousConnectStatus;
-        if (connectSession) connectSession.provider = previousConnectProvider;
-        const originSession = sessions.find(item => item.id === 'visual-density:child:1');
-        const previousOriginStatus = originSession?.status;
-        if (originSession) originSession.status = 'running';
-        const origin = inspect('visual-density:child:1');
-        if (originSession) originSession.status = previousOriginStatus;
-        const originResume = inspect('visual-density:child:1');
-        const resume = inspect('visual-density:child:2');
-        const handoffSession = sessions.find(item => item.id === 'visual-density:child:4');
-        const previousHandoffStatus = handoffSession?.status;
-        const previousHandoffProvider = handoffSession?.provider;
-        if (handoffSession) { handoffSession.status = 'running'; handoffSession.provider = 'codex'; }
-        const handoff = inspect('visual-density:child:4');
-        if (handoffSession) { handoffSession.status = previousHandoffStatus; handoffSession.provider = previousHandoffProvider; }
-        const endedSession = sessions.find(item => item.id === 'visual-density:child:3');
-        const previousEndedProvider = endedSession?.provider;
-        if (endedSession) endedSession.provider = 'grok';
-        const ended = inspect('visual-density:child:3');
-        if (endedSession) endedSession.provider = previousEndedProvider;
-        return {
-          connect,
-          origin,
-          originResume,
-          resume,
-          handoff,
-          ended,
-        };
-      })()`);
-      if (!controlStateMetrics.connect.classes.includes('control-connect') || !controlStateMetrics.connect.bridge || controlStateMetrics.connect.enabledTextarea
-        || !controlStateMetrics.origin.classes.includes('control-connect') || !controlStateMetrics.origin.bridge || controlStateMetrics.origin.enabledTextarea
-        || !controlStateMetrics.originResume.classes.includes('control-ended') || controlStateMetrics.originResume.origin || controlStateMetrics.originResume.bridge || controlStateMetrics.originResume.enabledTextarea
-        || !controlStateMetrics.resume.classes.includes('control-ended') || controlStateMetrics.resume.origin || controlStateMetrics.resume.bridge || controlStateMetrics.resume.enabledTextarea
-        || !controlStateMetrics.handoff.classes.includes('control-connect') || !controlStateMetrics.handoff.bridge || controlStateMetrics.handoff.enabledTextarea
-        || !controlStateMetrics.ended.classes.includes('control-ended') || controlStateMetrics.ended.origin || controlStateMetrics.ended.bridge || controlStateMetrics.ended.enabledTextarea) {
-        throw new Error(`AI 입력 채널 연결·종료 상태 UI가 올바르지 않습니다: ${JSON.stringify(controlStateMetrics)}`);
       }
 
       const returnClick = await win.webContents.executeJavaScript(`(() => {
@@ -1158,17 +1130,15 @@ app.whenReady().then(() => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.state.expandedCompletedSubagents.add(${JSON.stringify(densityFocusId)});
-        const root = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(densityFocusId)});
-        const longEvent = root?.collaboration?.communications?.find(item => item.childId === 'visual-density:child:2' && item.kind === 'assignment');
-        if (longEvent) {
-          longEvent.text = '아주 긴 서브에이전트 작업 지시 내용 '.repeat(80);
-          longEvent.protected = false;
-        }
         const child = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'visual-density:child:2');
         if (child) window.LoadToAgentApp.state.details.set(child.id, child);
         window.LoadToAgentApp.renderSessions();
         document.querySelector('.downstream-column [data-open-subagent-chat="visual-density:child:2"]')?.click();
-      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)} && window.LoadToAgentApp.state.drawerMode === 'subagent' && document.querySelector('.subagent-assignment-card')`);
+      })()`, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(densityFocusId)}
+        && window.LoadToAgentApp.state.drawerMode === 'subagent'
+        && document.querySelector('#drawerComposer')?.classList.contains('hidden')
+        && !document.querySelector('.subagent-assignment-card')
+        && document.querySelector('#drawerContent .chat-row.assistant')?.innerText.includes('3번 검사 완료')`);
       const subagentConversationOutput = path.join(outputDir, 'loadtoagent-subagent-conversation.png');
       fs.writeFileSync(subagentConversationOutput, subagentConversationImage.toPNG());
       const subagentConversationMetrics = await win.webContents.executeJavaScript(`(() => {
@@ -1189,16 +1159,17 @@ app.whenReady().then(() => {
           coordinationEvents: document.querySelectorAll('[data-subagent-communication]').length,
           coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open,
           visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length,
-          inlineRelay: !document.querySelector('#drawerComposer [data-agent-command-route], #drawerComposer .conversation-terminal-toggle, #drawerComposer [data-agent-command-count], #drawerComposer .agent-command-actions > small')
-            && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandRouteSelected === 'parent'
-            && document.querySelector('#drawerComposer [data-agent-command-form] button[type="submit"]')?.disabled
-            && Boolean(document.querySelector('#drawerComposer [data-agent-command-draft]')),
-          actualWorkVisible: Boolean(document.querySelector('#drawerContent .chat-row')),
+          composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden')
+            && !document.querySelector('#drawerComposer [data-agent-command-form], #drawerComposer [data-agent-command-draft]'),
+          actualResponseVisible: document.querySelector('#drawerContent .chat-row.assistant')?.innerText.includes('3번 검사 완료'),
+          protectedAssignmentHidden: !document.querySelector('.subagent-assignment-card')
+            && !document.querySelector('#drawerContent')?.innerText.includes('실제로 보낸 작업 지시는')
+            && !document.querySelector('#drawerContent')?.innerText.includes('도움 AI에게 일을 맡기기 직전'),
           placeholderNoise: /보호된 메시지|내용 없이 통신 상태|서브에이전트 실행이 시작/.test(document.querySelector('#drawerContent')?.innerText || ''),
           drawerOverflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 2,
         };
       })()`);
-      if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 2 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.inlineRelay || !subagentConversationMetrics.actualWorkVisible || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 작업 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
+      if (subagentConversationMetrics.focusId !== densityFocusId || subagentConversationMetrics.drawerMode !== 'subagent' || subagentConversationMetrics.workMessages !== 1 || subagentConversationMetrics.coordinationEvents !== 1 || !subagentConversationMetrics.coordinationCollapsed || subagentConversationMetrics.visibleTabs !== 1 || !subagentConversationMetrics.composerHidden || !subagentConversationMetrics.actualResponseVisible || !subagentConversationMetrics.protectedAssignmentHidden || subagentConversationMetrics.placeholderNoise || subagentConversationMetrics.drawerOverflow) throw new Error(`서브에이전트 실제 응답 상세가 올바르지 않습니다: ${JSON.stringify(subagentConversationMetrics)}`);
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
 
       setTestWindowSize(win, 1080, 700);
@@ -1293,7 +1264,7 @@ app.whenReady().then(() => {
       fs.writeFileSync(drawerOutput, drawerImage.toPNG());
       await win.webContents.executeJavaScript(`window.loadtoagent.terminalList().then(items => Promise.all(items.map(item => window.loadtoagent.terminalClose(item.id).catch(() => null))))`);
       await new Promise(resolve => setTimeout(resolve, 250));
-      process.stdout.write(`${output}\n${compactOutput}\n${settingsOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${deliveryOutput}\n${treeOutput}\n${managementOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, settings: settingsMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, terminalCommand: commandUiMetrics, controlStates: controlStateMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, management: managementMetrics, motion: { ...motionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics, deliveryStatus: deliveryMetrics })}\n`);
+      process.stdout.write(`${output}\n${compactOutput}\n${settingsOutput}\n${terminalOutput}\n${sessionTerminalOutput}\n${terminalCompactOutput}\n${tmuxOutput}\n${tmuxControlOutput}\n${tmuxFocusOutput}\n${tmuxDetailOutput}\n${structuredOutput}\n${deliveryOutput}\n${treeOutput}\n${managementOutput}\n${focusOutput}\n${communicationOutput}\n${childFocusOutput}\n${subagentStateOutput}\n${subagentConversationOutput}\n${workflowCompactOutput}\n${drawerOutput}\n${JSON.stringify({ bridge: bridgeInfo, beginner: beginnerMetrics, compact: compactMetrics, settings: settingsMetrics, terminal: terminalMetrics, sessionTerminal: sessionTerminalMetrics, terminalCompact: terminalCompactMetrics, terminalContinuity: continuityMetrics, drawerCommand: commandUiMetrics, tmuxControl: tmuxControlMetrics, dashboard: metrics, density: densityMetrics, management: managementMetrics, motion: { ...motionMetrics, ...refreshMotionMetrics, ...motionClosedMetrics }, workflowChild: childMetrics, workflowReturn: returnMetrics, subagentConversation: subagentConversationMetrics, workflowCompact: workflowCompactMetrics, tmux: tmuxMetrics, tmuxDetail: tmuxDetailMetrics, structuredDetail: structuredMetrics, deliveryStatus: deliveryMetrics })}\n`);
     } catch (error) {
       const detail = `${error.stack || error.message}\n`;
       process.stderr.write(detail);

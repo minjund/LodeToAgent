@@ -3,6 +3,8 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createDrawerContent = function createDrawerContent(context = {}) {
+  const INITIAL_CONVERSATION_TURNS = 120;
+  const CONVERSATION_TURN_PAGE = 120;
   const {
     esc, uiLocale, state, messageContentHtml, compact, fullNumber, timeOnly, providerInfo, statusIcon, agentPathTaskName, snapshotSession,
     controlRoomAgentGoal, inferredExecutionSummary, executionActivityLabel, executionActivityStatus,
@@ -163,12 +165,22 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         });
         entry.presented = true;
       } else {
-        const actualIndex = messages.indexOf(delivery.userMessage);
+        // The lightweight snapshot can observe the delivered turn before the
+        // full-history detail request catches up. Match by stable identity,
+        // then insert the observed row when the detail cache does not have it
+        // yet so an acknowledged user message never disappears in between.
+        const actualIndex = messages.findIndex(message =>
+          messageIdentity(message) === messageIdentity(delivery.userMessage));
         if (actualIndex >= 0) {
           messages[actualIndex] = {
             ...delivery.userMessage,
             deliveryStatus: delivery.phase,
           };
+        } else {
+          messages.push({
+            ...delivery.userMessage,
+            deliveryStatus: delivery.phase,
+          });
         }
       }
       forceLatestLive = true;
@@ -272,7 +284,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
 
   function subagentCallHtml(call, options = {}) {
     const fullTime = new Date(call.timestamp).toLocaleString(uiLocale());
-    const assignment = call.workSummary || call.assignment || (call.assignmentProtected ? t("drawer.assignment_protected_short") : call.taskName);
+    const assignment = call.workSummary || call.assignment || call.taskName || t("control.subagent");
     const elapsed = subagentCallElapsed(call.elapsedAfterRequestMs);
     const timing = elapsed
       ? t("drawer.called_after_user_request", { elapsed })
@@ -324,7 +336,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const overlay = conversationOverlay(session);
     session = overlay.session;
     const messages = session.messages || [];
-    const calls = options.showSubagentCalls === false ? [] : subagentCallEvents(session);
+    const allCalls = options.showSubagentCalls === false ? [] : subagentCallEvents(session);
     const context = session.context || {};
     const contextPercent = Math.max(0, Math.min(100, Number(context.percent || 0)));
     const contextValue = context.window
@@ -335,11 +347,22 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       <div class="conversation-context-track" role="progressbar" aria-label="${esc(t("session.live_context"))}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${contextPercent}"><i></i></div>
       <strong>${context.window ? `${contextPercent.toFixed(1)}%` : t("session.context_size_unknown")}</strong>
     </section>`;
-    if (!messages.length && !calls.length) return `${contextHtml}<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
+    if (!messages.length && !allCalls.length) return `${contextHtml}<div class="empty-state"><h3>${esc(t("drawer.no_conversation"))}</h3></div>`;
     const userLabel = options.userLabel || t("drawer.user");
     const assistantLabel = options.assistantLabel || providerInfo(session.provider).label;
     const conversationLabel = options.conversationLabel || t("drawer.conversation");
-    const turns = conversationTurns(session, { ...options, forceLatestLive: overlay.forceLatestLive });
+    const allTurns = conversationTurns(session, { ...options, forceLatestLive: overlay.forceLatestLive });
+    const configuredTurnLimit = Number(state.conversationTurnLimits?.get(session.id) || INITIAL_CONVERSATION_TURNS);
+    const turnLimit = Math.max(INITIAL_CONVERSATION_TURNS, configuredTurnLimit);
+    const hiddenTurnCount = Math.max(0, allTurns.length - turnLimit);
+    const turns = hiddenTurnCount ? allTurns.slice(hiddenTurnCount) : allTurns;
+    const firstVisibleAt = Date.parse(turns[0]?.user?.timestamp || turns[0]?.representative?.timestamp || 0);
+    const calls = hiddenTurnCount && Number.isFinite(firstVisibleAt)
+      ? allCalls.filter(call => {
+        const calledAt = Date.parse(call.timestamp || 0);
+        return !Number.isFinite(calledAt) || calledAt >= firstVisibleAt;
+      })
+      : allCalls;
     const omitted = Number(session.omittedMessages || 0);
     const notice =
       omitted || session.truncated
@@ -369,11 +392,17 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     }));
     const callOnlyRows = unmatchedCalls.map(subagentCallHtml).join("");
     const emptyConversation = turns.length || calls.length ? "" : `<div class="empty-state compact"><h3>${esc(t("drawer.no_user_ai_conversation"))}</h3></div>`;
+    const earlierTurns = hiddenTurnCount
+      ? `<div class="chat-earlier-history"><button type="button" data-load-earlier-turns="${esc(session.id)}"
+        data-next-turn-limit="${turnLimit + CONVERSATION_TURN_PAGE}">${esc(t("drawer.load_earlier_turns", {
+          count: Math.min(hiddenTurnCount, CONVERSATION_TURN_PAGE).toLocaleString(uiLocale()),
+        }))}</button><small>${esc(t("drawer.earlier_turns_remaining", { count: hiddenTurnCount.toLocaleString(uiLocale()) }))}</small></div>`
+      : "";
     return `${contextHtml}${notice}<div class="chat-history-head">
-      <span>${esc(t("drawer.turn_summary", { label: conversationLabel, count: turns.length, updates: "" }))}</span>
+      <span>${esc(t("drawer.turn_summary", { label: conversationLabel, count: allTurns.length, updates: "" }))}</span>
       <button type="button" data-scroll-latest>${esc(t("drawer.latest_conversation"))} ↓</button>
       </div>
-      <div class="chat-list">${callOnlyRows}${rows}${emptyConversation}<div class="chat-latest-anchor" aria-label="${esc(t("drawer.latest_conversation"))}">
+      <div class="chat-list">${earlierTurns}${callOnlyRows}${rows}${emptyConversation}<div class="chat-latest-anchor" aria-label="${esc(t("drawer.latest_conversation"))}">
       </div>
       </div>`;
   }
@@ -492,16 +521,20 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       (message.role === "user" || message.role === "assistant") && String(message.text || "").trim(),
     );
     if (!hasConversation && delegation.assignmentObserved && !delegation.assignmentProtected && String(delegation.assignment || "").trim()) {
-      messages.push({
+      const assignmentMessage = {
         id: `${session.id}:delegation`, role: "user", text: delegation.assignment,
         timestamp: delegation.startedAt || session.startedAt || session.updatedAt,
-      });
+      };
+      messages.push(assignmentMessage);
+      existingKeys.add(messageKey(assignmentMessage));
     }
-    if (!hasConversation && String(session.result || delegation.result || "").trim()) {
-      messages.push({
-        id: `${session.id}:result`, role: "assistant", text: session.result || delegation.result,
-        timestamp: session.completedAt || delegation.completedAt || session.updatedAt,
-      });
+    const result = String(session.result || delegation.result || "").trim();
+    const resultMessage = {
+      id: `${session.id}:result`, role: "assistant", text: result,
+      timestamp: session.completedAt || delegation.completedAt || session.updatedAt,
+    };
+    if (result && !existingKeys.has(messageKey(resultMessage))) {
+      messages.push(resultMessage);
     }
     return messages.sort((left, right) => Date.parse(left.timestamp || 0) - Date.parse(right.timestamp || 0));
   }
@@ -541,18 +574,11 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
       : "";
     const eventAssignment = assignmentEvent && !assignmentEvent.protected ? assignmentEvent.text : "";
     const assignment = String(delegatedAssignment || eventAssignment || "").trim();
-    const assignmentProtected = Boolean(delegation.assignmentProtected || assignmentEvent?.protected);
-    const assignmentContext = String(delegation.assignmentContext || "").trim();
-    const assignmentBody = assignment || (assignmentProtected
-      ? t("drawer.assignment_protected")
-      : t("management.signal_unavailable"));
     const assignmentSource = delegation.assignmentSource === "claude-agent-prompt"
       ? t("drawer.assignment_source_claude")
       : delegation.assignmentSource === "spawn-message"
         ? t("drawer.assignment_source_codex")
-        : assignmentProtected
-          ? t("drawer.assignment_source_protected")
-          : "";
+        : "";
     let assignmentRemoved = false;
     const messages = subagentWorkMessages(session).filter(message => {
       if (assignmentRemoved || message.role !== "user" || !assignment) return true;
@@ -565,10 +591,12 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     const sourceCopy = session.source === "collaboration-history"
       ? t("drawer.subagent_history_reconstructed")
       : t("drawer.subagent_history_actual");
-    return `<section class="subagent-assignment-card" data-subagent-assignment="true">
-      <span aria-hidden="true">⌁</span><div><b>${esc(t("control.main_assignment"))}</b>${parent ? `<small>${esc(t("control.created_from"))} · ${esc(parent.title)}</small>` : ""}${assignmentSource ? `<small>${esc(assignmentSource)}</small>` : ""}<p>${esc(assignmentBody)}</p>
-      ${assignmentContext ? `<aside><b>${esc(t("drawer.assignment_context"))}</b><p>${esc(assignmentContext)}</p></aside>` : ""}</div>
-    </section><section class="subagent-work-source" data-subagent-work-messages="${conversationCount}" data-conversation-scope="subagent-only">
+    const assignmentCard = assignment
+      ? `<section class="subagent-assignment-card" data-subagent-assignment="true">
+        <span aria-hidden="true">⌁</span><div><b>${esc(t("control.main_assignment"))}</b>${parent ? `<small>${esc(t("control.created_from"))} · ${esc(parent.title)}</small>` : ""}${assignmentSource ? `<small>${esc(assignmentSource)}</small>` : ""}<p>${esc(assignment)}</p></div>
+      </section>`
+      : "";
+    return `${assignmentCard}<section class="subagent-work-source" data-subagent-work-messages="${conversationCount}" data-conversation-scope="subagent-only">
       <b>${esc(t("control.subagent_conversation"))}</b><span>${esc(sourceCopy)}</span>
     </section>${chatHtml(workSession, {
       userLabel: t("drawer.user"),

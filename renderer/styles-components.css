@@ -614,7 +614,7 @@ button[aria-busy="true"] {
 }
 
 .chat-row.tool .chat-avatar {
-  color: #b19ae9;
+  color: var(--theme-accent);
 }
 
 .chat-bubble {
@@ -1203,6 +1203,32 @@ button[aria-busy="true"] {
 .chat-list {
   display: grid;
   gap: 18px;
+}
+
+.chat-earlier-history {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #263548;
+  border-radius: 10px;
+  background: #0d1520;
+}
+
+.chat-earlier-history button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--drawer-provider) 38%, #344357);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--drawer-provider) 8%, #121b27);
+  color: #c6d3e0;
+  cursor: pointer;
+}
+
+.chat-earlier-history small {
+  color: #78889b;
+  font-size: 12px;
 }
 
 .chat-turn {

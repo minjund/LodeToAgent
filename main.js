@@ -153,7 +153,7 @@ function readAppearanceTheme() {
 }
 
 function appearanceBackground(theme) {
-  return theme === 'light' ? '#f6f3ed' : '#0c0b11';
+  return theme === 'light' ? '#f6f3ed' : '#050506';
 }
 
 function setAppearanceTheme(value) {

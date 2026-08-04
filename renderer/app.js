@@ -70,6 +70,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     resolvedConversationMessages: new Map(),
     conversationInterruptRequests: new Set(),
     expandedConversationPrompts: new Set(),
+    conversationTurnLimits: new Map(),
     stopRequests: new Set(),
     runControlRequests: new Set(),
     managementFilter: "all",
@@ -959,10 +960,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (
       delivery.phase === "responded"
       && delivery.observationSessionId
-      && delivery.observationSessionId !== session?.id
       && delivery.userMessage
       && delivery.assistantMessage
     ) {
+      // Snapshot cards can reach the completed response before the selected
+      // full-history detail cache. Pin both observed rows regardless of
+      // whether they came from a resumed session or the same session id; the
+      // drawer deduplicates them once the detail request catches up.
       const sessionId = String(session?.id || "");
       const previous = state.resolvedConversationMessages.get(sessionId) || [];
       const delivered = [delivery.userMessage, delivery.assistantMessage].map(message => ({

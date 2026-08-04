@@ -521,6 +521,22 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         content.scrollTo({ top: content.scrollHeight, behavior: "smooth" });
         return;
       }
+      const earlierTurns = event.target.closest("[data-load-earlier-turns]");
+      if (earlierTurns) {
+        const content = $("#drawerContent");
+        const previousHeight = content.scrollHeight;
+        const previousTop = content.scrollTop;
+        const sessionId = earlierTurns.dataset.loadEarlierTurns;
+        const nextLimit = Number(earlierTurns.dataset.nextTurnLimit || 0);
+        if (sessionId && nextLimit > 0) state.conversationTurnLimits.set(sessionId, nextLimit);
+        state.drawerForceLatest = false;
+        renderDrawer();
+        requestAnimationFrame(() => {
+          content.scrollTop = previousTop + Math.max(0, content.scrollHeight - previousHeight);
+          content.querySelector("[data-load-earlier-turns]")?.focus({ preventScroll: true });
+        });
+        return;
+      }
       const interrupt = event.target.closest("[data-conversation-interrupt]");
       if (interrupt) {
         await interruptConversation(interrupt.dataset.conversationInterrupt);

@@ -149,3 +149,7 @@ html[data-theme] .version-connector i {
 html[data-theme] button:disabled .conversation-send-label {
   color: var(--theme-text-secondary) !important;
 }
+
+html[data-theme] .detail-drawer[data-terminal-chat="true"] .conversation-send:disabled .conversation-send-label {
+  color: inherit !important;
+}

@@ -1,0 +1,370 @@
+/*
+ * Session drawer PTY
+ * ------------------
+ * Only the live session's conversation body and composer change here. Drawer
+ * placement, width, header, metadata, tabs, and every other tab are untouched.
+ */
+
+.drawer-terminal-surface {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #080c12;
+}
+
+.detail-drawer[data-terminal-chat="true"] .drawer-terminal-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.drawer-terminal-statusbar {
+  position: relative;
+  z-index: 2;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 13px;
+  border-bottom: 1px solid rgba(113, 155, 176, .2);
+  background: #0a1119;
+  color: #94a8b5;
+}
+
+.drawer-terminal-connection,
+.drawer-terminal-tools {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.drawer-terminal-connection > i {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #6b7d89;
+  box-shadow: 0 0 0 3px rgba(107, 125, 137, .1);
+}
+
+.drawer-terminal-connection b {
+  flex: 0 0 auto;
+  color: #9fdcc9;
+  font: 750 11px/1.25 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.drawer-terminal-connection small {
+  min-width: 0;
+  overflow: hidden;
+  color: #708493;
+  font: 500 10px/1.25 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drawer-terminal-statusbar[data-tone="connected"] .drawer-terminal-connection > i,
+.drawer-terminal-statusbar[data-tone="running"] .drawer-terminal-connection > i,
+.drawer-terminal-statusbar[data-tone="delivered"] .drawer-terminal-connection > i {
+  background: #50d5ac;
+  box-shadow: 0 0 0 3px rgba(80, 213, 172, .11);
+}
+
+.drawer-terminal-statusbar[data-tone="attention"] .drawer-terminal-connection > i {
+  background: #f1b24e;
+  box-shadow: 0 0 0 3px rgba(241, 178, 78, .13);
+}
+
+.drawer-terminal-statusbar[data-tone="attention"] .drawer-terminal-connection b {
+  color: #f3bc64;
+}
+
+.drawer-terminal-statusbar[data-tone="error"] .drawer-terminal-connection > i,
+.drawer-terminal-statusbar[data-tone="unavailable"] .drawer-terminal-connection > i {
+  background: #ef7e8f;
+  box-shadow: 0 0 0 3px rgba(239, 126, 143, .12);
+}
+
+.drawer-terminal-statusbar[data-tone="error"] .drawer-terminal-connection b,
+.drawer-terminal-statusbar[data-tone="unavailable"] .drawer-terminal-connection b {
+  color: #f3a0ad;
+}
+
+.drawer-terminal-tools {
+  flex: 0 0 auto;
+}
+
+.drawer-terminal-tools button {
+  width: 30px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(128, 157, 174, .24);
+  border-radius: 8px;
+  background: #0c151e;
+  color: #8fa5b2;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.drawer-terminal-tools button:hover:not(:disabled),
+.drawer-terminal-tools button:focus-visible {
+  border-color: rgba(103, 220, 184, .55);
+  color: #d9f5ec;
+  outline: none;
+}
+
+.drawer-terminal-viewport {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background-color: #080c12;
+  background-image:
+    linear-gradient(rgba(107, 145, 158, .018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(107, 145, 158, .018) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+#drawerTerminalViewport > .terminal-screen {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: hidden;
+}
+
+#drawerTerminalViewport > .terminal-screen .xterm {
+  height: 100%;
+  padding: 11px 12px;
+}
+
+#drawerTerminalViewport > .terminal-screen .xterm-viewport {
+  background: transparent !important;
+}
+
+.drawer-terminal-empty {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.drawer-terminal-empty > span {
+  color: #62d9b4;
+  font: 750 20px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.drawer-terminal-empty b {
+  color: #b7c6cf;
+  font-size: 13px;
+}
+
+.drawer-terminal-empty small {
+  max-width: 360px;
+  color: #70818e;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer {
+  padding: 8px 12px 12px;
+  border-top-color: rgba(109, 153, 173, .24);
+  background: #081019;
+  box-shadow: 0 -12px 30px rgba(0, 0, 0, .24);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  border: 1px solid rgba(88, 190, 158, .3);
+  border-radius: 13px;
+  background: #09131c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation:focus-within {
+  border-color: rgba(98, 218, 180, .58);
+  box-shadow: 0 0 0 3px rgba(82, 198, 163, .08), 0 8px 24px rgba(0, 0, 0, .2);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer[data-tone="attention"] .terminal-conversation {
+  border-color: rgba(241, 178, 78, .6);
+  box-shadow: 0 0 0 3px rgba(241, 178, 78, .08), 0 8px 24px rgba(0, 0, 0, .2);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation > header {
+  display: none;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 7px 9px 0;
+  color: #6f8491;
+  font: 600 10px/1.2 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target select {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgba(128, 157, 174, .22);
+  border-radius: 7px;
+  background: #0c151e;
+  color: #9eb0ba;
+  font: 500 10px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input {
+  position: relative;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input::before {
+  position: absolute;
+  z-index: 1;
+  top: 15px;
+  left: 12px;
+  color: #61dcb7;
+  font: 800 15px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+  content: ">";
+  pointer-events: none;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea {
+  width: 100%;
+  min-height: 52px;
+  max-height: 128px;
+  padding: 12px 12px 7px 34px;
+  resize: vertical;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  box-shadow: none;
+  color: #e7eff4;
+  font: 500 13px/1.55 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea:focus {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea::placeholder {
+  color: #657884;
+}
+
+.drawer-terminal-input-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 12px 3px 34px;
+  color: #607583;
+  font: 500 9px/1.25 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions {
+  min-height: 42px;
+  padding: 2px 7px 7px 10px;
+  border-radius: 0 0 12px 12px;
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"] {
+  min-width: 72px;
+  height: 36px;
+  min-height: 36px;
+  border-radius: 9px;
+  background: #16483d;
+  color: #a8f0d7;
+  font-family: var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"]:hover:not(:disabled) {
+  background: #1b5a4c;
+  color: #dcfff3;
+}
+
+html[data-theme="light"] .drawer-terminal-surface,
+html[data-theme="light"] .drawer-terminal-viewport {
+  background-color: #f3f0ea;
+}
+
+html[data-theme="light"] .drawer-terminal-statusbar,
+html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer {
+  background: #eeeae3;
+}
+
+html[data-theme="light"] .drawer-terminal-statusbar {
+  border-bottom-color: rgba(72, 67, 61, .18);
+}
+
+html[data-theme="light"] .drawer-terminal-connection b {
+  color: #176a54;
+}
+
+html[data-theme="light"] .drawer-terminal-connection small,
+html[data-theme="light"] .drawer-terminal-input-hint {
+  color: #746d66;
+}
+
+html[data-theme="light"] .drawer-terminal-tools button,
+html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation,
+html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target select {
+  background: #f8f5f0;
+  color: #4d4843;
+}
+
+html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea {
+  color: #28241f;
+}
+
+@media (max-width: 620px) {
+  .drawer-terminal-statusbar {
+    gap: 6px;
+    padding-inline: 10px;
+  }
+
+  .drawer-terminal-connection small {
+    display: none;
+  }
+
+  #drawerTerminalViewport > .terminal-screen .xterm {
+    padding: 8px;
+  }
+
+  .detail-drawer[data-terminal-chat="true"] #drawerComposer {
+    padding: 7px 9px calc(9px + env(safe-area-inset-bottom));
+  }
+
+  .drawer-terminal-input-hint span:first-child {
+    display: none;
+  }
+
+  .drawer-terminal-input-hint {
+    justify-content: flex-end;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer-terminal-statusbar,
+  .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation {
+    transition: none;
+  }
+}

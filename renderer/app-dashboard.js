@@ -11,6 +11,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     PROJECTLESS_WORKSPACE,
     state,
     compact,
+    readablePreview = value => ({ full: String(value || "").trim(), text: String(value || "").trim() }),
     providerStyle,
     visibleProviders = () => state.providers,
     visibleSessions = () => ((state.snapshot && state.snapshot.sessions) || []),
@@ -27,11 +28,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function shortText(value, maxCharacters = 54) {
-    const text = String(value || "").trim() || t("studio.session.untitled");
-    const characters = Array.from(text);
-    return characters.length > maxCharacters
-      ? `${characters.slice(0, Math.max(1, maxCharacters - 1)).join("")}…`
-      : text;
+    return readablePreview(value || t("studio.session.untitled"), maxCharacters).text || t("studio.session.untitled");
   }
 
   function projectInitial(value) {
@@ -518,7 +515,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           const updatedLabel = Number.isNaN(updatedAt.getTime())
             ? ""
             : updatedAt.toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
-          return `<button type="button" data-open-session="${esc(session.id)}" title="${esc(session.title || t("studio.session.untitled"))}">
+          const title = readablePreview(session.title || t("studio.session.untitled"), 54);
+          return `<button type="button" data-open-session="${esc(session.id)}" title="${esc(title.full || title.text)}">
             <span><b>${esc(shortText(session.title, 54))}</b><small>${esc([providerLabel, updatedLabel].filter(Boolean).join(" · "))}</small></span><i aria-hidden="true">›</i>
           </button>`;
         }).join("")
@@ -856,7 +854,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           }).format(new Date(update.publishedAt)),
         })
       : window.LoadToAgentI18n.t("ui.stable_releases_only");
-    $("#runtimeVersions").textContent = t("ui.technical_info_ready");
+    const runtimeVersions = $("#runtimeVersions");
+    if (runtimeVersions) runtimeVersions.textContent = t("ui.technical_info_ready");
     $("#updateStateGlyph").textContent = glyph;
     $("#updateStateLabel").textContent = label;
     $("#updateStateTitle").textContent = title;
@@ -1111,7 +1110,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       const status = window.LoadToAgentI18n.t(visible ? "settings.providers.visible" : "settings.providers.hidden");
       return `<label class="provider-visibility-option ${visible ? "enabled" : "disabled"}" style="${providerStyle(provider.id)}">
         <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
-        <span class="provider-visibility-name"><b>${esc(provider.label)}</b><small>${esc(t("settings.providers.company", { company: provider.company }))}</small></span>
+        <span class="provider-visibility-name"><b>${esc(provider.label)}</b></span>
         <input type="checkbox" data-provider-visibility="${esc(provider.id)}" ${visible ? "checked" : ""}
           aria-label="${esc(t(visible ? "settings.providers.hide_action" : "settings.providers.show_action", { provider: provider.label }))}">
         <span class="provider-toggle" aria-hidden="true"><b>${esc(status)}</b><i></i></span>

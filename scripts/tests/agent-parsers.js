@@ -410,6 +410,40 @@ function registerClaudeParserTests(context) {
 
 function registerCodexParserTests(context) {
   const { test, temp, jsonl } = context;
+  test('실행 중인 Codex 연결은 최근 파일 한도를 벗어난 정확한 대화도 불러온다', () => {
+    const home = path.join(temp, 'pinned-codex-home');
+    const sessionsRoot = path.join(home, '.codex', 'sessions', '2026', '07', '24');
+    const pinnedId = '019f92f6-b724-7ee1-85f6-3d3bc6939e0b';
+    const pinnedFile = path.join(sessionsRoot, `rollout-2026-07-24T16-11-15-${pinnedId}.jsonl`);
+    jsonl(pinnedFile, [
+      { timestamp: '2026-07-24T07:11:15Z', type: 'session_meta', payload: { id: pinnedId, cwd: 'D:\\repo', originator: 'Codex Desktop', source: 'vscode', thread_source: 'user' } },
+      { timestamp: '2026-07-24T07:11:16Z', type: 'event_msg', payload: { type: 'user_message', message: '오래 실행 중인 연결의 실제 대화를 보여줘' } },
+      { timestamp: '2026-07-24T07:11:17Z', type: 'event_msg', payload: { type: 'agent_message', message: '정확한 대화를 불러왔습니다.' } },
+    ]);
+    const oldTime = new Date('2026-07-24T07:11:17Z');
+    fs.utimesSync(pinnedFile, oldTime, oldTime);
+    for (let index = 0; index < 81; index += 1) {
+      const id = `recent-${String(index).padStart(3, '0')}`;
+      const file = path.join(home, '.codex', 'sessions', '2026', '08', '04', `rollout-2026-08-04T10-${String(index).padStart(2, '0')}-00-${id}.jsonl`);
+      jsonl(file, [
+        { timestamp: `2026-08-04T01:${String(index % 60).padStart(2, '0')}:00Z`, type: 'session_meta', payload: { id, cwd: 'D:\\other' } },
+        { timestamp: `2026-08-04T01:${String(index % 60).padStart(2, '0')}:01Z`, type: 'event_msg', payload: { type: 'user_message', message: `최근 대화 ${index}` } },
+      ]);
+      const recentTime = new Date(2026, 7, 4, 10, index % 60, index);
+      fs.utimesSync(file, recentTime, recentTime);
+    }
+    const monitor = new AgentMonitor({ home });
+    const localEnvironment = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
+    assert.equal(monitor.scanNow().sessions.some(session => session.externalId === pinnedId), false);
+    monitor.setPinnedSessions([{ provider: 'codex', linkedSessionId: `codex:${pinnedId}`, environment: localEnvironment }]);
+    const pinned = monitor.scanNow().sessions.find(session => session.externalId === pinnedId);
+    assert.ok(pinned, '실행 중인 연결의 정확한 과거 세션을 찾지 못했습니다.');
+    assert.deepStrictEqual(pinned.messages.filter(message => message.role === 'user' || message.role === 'assistant').map(message => message.text), [
+      '오래 실행 중인 연결의 실제 대화를 보여줘',
+      '정확한 대화를 불러왔습니다.',
+    ]);
+  });
+
   test('Codex thread, turn, item, token_count와 사용자 응답 대기를 정규화한다', () => {
     const file = path.join(temp, 'codex', 'rollout-test.jsonl');
     const info = jsonl(file, [

@@ -521,7 +521,7 @@ app.whenReady().then(async () => {
     width: 1440,
     height: 900,
     show: true,
-    backgroundColor: '#0c0b11',
+    backgroundColor: '#050506',
     webPreferences: {
       preload: path.join(__dirname, 'interaction-fixture-preload.js'),
       contextIsolation: true,

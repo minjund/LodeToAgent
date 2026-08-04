@@ -316,6 +316,7 @@ parentPort.on('message', message => {
   }
   if (message.type === 'bridge-presence') {
     currentBridges = Array.isArray(message.bridges) ? message.bridges : [];
+    monitor.setPinnedSessions(currentBridges);
     monitor.scanNow();
   }
   if (message.type === 'detail') {

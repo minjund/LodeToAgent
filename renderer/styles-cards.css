@@ -201,7 +201,7 @@
 }
 
 .preview-line.tool b {
-  color: #b49dea;
+  color: var(--theme-accent);
 }
 
 .preview-line.user span {

@@ -64,6 +64,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/terminal-composer.js',
   'renderer/terminal-events.js',
   'renderer/terminal.js',
+  'renderer/drawer-terminal.js',
   'scripts/bridge-integration-test.js',
   'scripts/runtime-overview-visual.js',
   'scripts/organize-css.js',
@@ -143,6 +144,11 @@ const REQUIRED_UI_IDS = [
   'terminalFocusBtn',
   'drawerContent',
   'drawerComposer',
+  'drawerTerminalSurface',
+  'drawerTerminalViewport',
+  'drawerTerminalStatus',
+  'drawerTerminalFocusBtn',
+  'drawerTerminalReconnectBtn',
   'drawerTabSummary',
   'sidebarAppVersion',
   'backToProjectsBtn',
@@ -443,8 +449,6 @@ const COLLABORATION_VIEW_CONTRACTS = [
   'data-subagent-message-preview',
   'data-truncated',
   'assignmentProtected',
-  'assignmentContext',
-  'drawer.assignment_protected',
   'drawer.assignment_source_claude',
   'drawer.assignment_source_codex',
   'graph.created_in_task',
@@ -529,9 +533,36 @@ const TERMINAL_VIEW_CONTRACTS = [
   'data-user-prompt-copy',
   'function memoryCandidatesHtml',
   'data-scroll-latest',
+  'conversationTurnLimits',
+  'data-load-earlier-turns',
+  'drawer.loading_history_inline',
+  'drawer.load_earlier_turns',
   'data-graph-focus',
   'data-tmux-type',
   'data-open-session',
+];
+
+const DRAWER_TERMINAL_CONTRACTS = [
+  'const terminalTargets = !session.parentId && !subagentMode && !executionMode && isLiveSession(session)',
+  'const terminalConversation = terminalTargets.some(target => target.kind === "terminal")',
+  'const terminalChat = terminalConversation && state.drawerTab === "chat"',
+  'drawer-external-session-note',
+  'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
+  'drawer.dataset.terminalChat = terminalChat ? "true" : "false"',
+  'window.LoadToAgentDrawerTerminal?.mount?.(session)',
+  'window.LoadToAgentDrawerTerminal?.unmount?.()',
+  'mountForAgent',
+  'unmountEmbedded',
+  'embeddedTerminalId',
+  'const generation = ++state.embeddedGeneration',
+  'await window.loadtoagent.terminalReconnect(terminalId)',
+  'state.selectedId !== key && state.embeddedTerminalId !== key',
+  'window.LoadToAgentTerminal.dispatchAgentCommand',
+  "if (terminalComposer && input) input.placeholder",
+  "event.detail.deliveryState === 'rejected'",
+  'drawerTerminalSurface',
+  'drawerTerminalViewport',
+  'terminal-conversation',
 ];
 
 const APP_AGENT_CONTRACTS = [
@@ -566,6 +597,7 @@ const STYLE_FILES = [
   'styles-responsive-runtime.css',
   'styles-responsive-product.css',
   'styles-control-room.css',
+  'styles-drawer-terminal.css',
 ];
 
 const I18N_RUNTIME_CONTRACTS = [
@@ -1022,6 +1054,11 @@ function registerUiContractTests(context) {
       .map(file => fs.readFileSync(path.join(root, 'renderer', file), 'utf8'))
       .join('\n');
     const app = rendererSource(APP_MODULES);
+    const terminalIntegration = rendererSource([
+      'terminal-workbench.js',
+      'terminal.js',
+      'drawer-terminal.js',
+    ]);
     assertIncludesAll(
       app,
       APP_PUBLIC_API_CONTRACTS,
@@ -1029,6 +1066,11 @@ function registerUiContractTests(context) {
     );
     assertIncludesAll(app, APP_READABILITY_CONTRACTS);
     assertIncludesAll(app, APP_AGENT_CONTRACTS);
+    assertIncludesAll(
+      `${app}\n${terminalIntegration}\n${html}`,
+      DRAWER_TERMINAL_CONTRACTS,
+      contract => `${contract} 드로어 PTY 계약이 없습니다.`,
+    );
     assertIncludesAll(
       app,
       MANAGEMENT_SEMANTIC_CONTRACTS,
@@ -1130,6 +1172,7 @@ function registerUiContractTests(context) {
       'terminal-composer.js',
       'terminal-events.js',
       'terminal.js',
+      'drawer-terminal.js',
     ];
     rendererScripts.reduce((previous, script) => {
       const index = html.indexOf(`src="${script}"`);
@@ -1471,6 +1514,264 @@ function registerUiContractTests(context) {
     assert.equal(selected.executions[0].status, 'completed');
     assert.strictEqual(selected.messages, detailMessages);
     assert.strictEqual(selected.lifecycle, staleDetail.lifecycle);
+  });
+
+  test('같은 세션의 최신 스냅샷에서 확인된 대화는 상세 캐시가 갱신될 때까지 보존한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
+    const sandbox = {
+      localStorage: { getItem: () => null, setItem: () => {} },
+      document: { documentElement: { dataset: {} } },
+      console: { info: () => {} },
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentRendererUtils: {
+          $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
+          providerLabel: value => value, reportRecoverableError: () => {},
+        },
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        LoadToAgentConversationDelivery: {
+          messageKey: message => `id:${message.id}`,
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app.js' });
+    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const staleDetail = {
+      id: 'same-session',
+      messages: [{ id: 'old-answer', role: 'assistant', text: '이전 답변' }],
+    };
+    const deliveredUser = {
+      id: 'new-user', role: 'user', text: '화면에서 사라지면 안 되는 질문', timestamp: '2026-08-04T01:00:00.000Z',
+    };
+    const deliveredAssistant = {
+      id: 'new-answer', role: 'assistant', text: '새 답변', timestamp: '2026-08-04T01:00:01.000Z',
+    };
+
+    core.observeConversationDelivery(staleDetail, {}, {
+      phase: 'responded',
+      observationSessionId: staleDetail.id,
+      userMessage: deliveredUser,
+      assistantMessage: deliveredAssistant,
+    });
+
+    assert.deepStrictEqual(
+      Array.from(core.state.resolvedConversationMessages.get(staleDetail.id) || [], message => message.id),
+      ['new-user', 'new-answer'],
+    );
+  });
+
+  test('수신 확인된 사용자 메시지는 상세 캐시에 아직 없어도 대화 화면에서 유지한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
+    const sandbox = {
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: key => key },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app-drawer-content.js' });
+    const session = { id: 'same-session', provider: 'codex', messages: [] };
+    const observedUser = {
+      id: 'observed-user', role: 'user', text: '수신 뒤에도 남아야 하는 질문', timestamp: '2026-08-04T01:00:00.000Z',
+    };
+    const entry = { id: 'local-user', text: observedUser.text, timestamp: observedUser.timestamp };
+    const state = {
+      pendingConversationMessages: new Map([[session.id, [entry]]]),
+      resolvedConversationMessages: new Map(),
+      expandedConversationPrompts: new Set(),
+      details: new Map(),
+    };
+    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+      esc: value => String(value),
+      uiLocale: () => 'ko',
+      state,
+      messageContentHtml: message => String(message?.text || ''),
+      fullNumber: value => String(value || 0),
+      timeOnly: () => '10:00',
+      providerInfo: () => ({ mark: 'C', label: 'Codex' }),
+      snapshotSession: () => null,
+      conversationDeliveryState: () => ({ phase: 'received', userMessage: observedUser }),
+      observeConversationDelivery: () => {},
+    });
+
+    const html = drawer.chatHtml(session, { showSubagentCalls: false, synthesizeRequest: false });
+
+    assert.ok(html.includes(observedUser.text));
+    assert.ok(html.includes('chat-delivery-status received'));
+  });
+
+  test('도움 AI 상세는 보호된 지시 대체문과 입력창 없이 실제 응답을 보여준다', () => {
+    const contentSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
+    const drawerSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
+    const sandbox = {
+      Intl,
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: {
+          t: (key, params = {}) => `${key}:${params.count || ''}`,
+          observedText: value => value,
+        },
+      },
+    };
+    vm.runInNewContext(contentSource, sandbox, { filename: 'app-drawer-content.js' });
+    const parent = { id: 'parent', title: '담당 AI 작업', messages: [], collaboration: { spawns: [], communications: [] } };
+    const state = {
+      pendingConversationMessages: new Map(),
+      resolvedConversationMessages: new Map(),
+      expandedConversationPrompts: new Set(),
+      conversationTurnLimits: new Map(),
+      details: new Map([[parent.id, parent]]),
+    };
+    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+      esc: value => String(value),
+      uiLocale: () => 'ko',
+      state,
+      messageContentHtml: message => String(message?.text || ''),
+      compact: value => String(value || 0),
+      fullNumber: value => String(value || 0),
+      timeOnly: () => '10:00',
+      providerInfo: () => ({ mark: 'C', label: 'Codex' }),
+      statusIcon: () => '',
+      agentPathTaskName: value => String(value || '').split('/').filter(Boolean).at(-1) || '',
+      snapshotSession: id => id === parent.id ? parent : null,
+      conversationDeliveryState: () => null,
+      observeConversationDelivery: () => {},
+    });
+    const session = {
+      id: 'protected-child', parentId: parent.id, provider: 'codex', title: '도움 AI 작업',
+      status: 'completed', updatedAt: '2026-08-04T01:00:02.000Z', completedAt: '2026-08-04T01:00:02.000Z',
+      messages: [{ id: 'progress', role: 'assistant', text: '진행 중 응답', timestamp: '2026-08-04T01:00:01.000Z' }],
+      result: '최종 응답',
+      delegation: {
+        assignmentProtected: true,
+        assignmentSource: 'protected',
+        assignmentContext: '화면에 보이면 안 되는 직전 설명',
+      },
+    };
+
+    const html = drawer.subagentConversationHtml(session);
+    assert.ok(html.includes('진행 중 응답'));
+    assert.ok(html.includes('최종 응답'));
+    assert.ok(html.includes('data-subagent-work-messages="2"'));
+    assert.equal(html.includes('subagent-assignment-card'), false);
+    assert.equal(html.includes('화면에 보이면 안 되는 직전 설명'), false);
+    assert.equal(html.includes('drawer.assignment_protected'), false);
+    assert.match(drawerSource, /const showComposer = !session\.parentId\s*&& !executionMode/);
+  });
+
+  test('긴 대화 기록은 최근 요청부터 제한해 렌더링하고 이전 기록을 단계적으로 연다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
+    const sandbox = {
+      Intl,
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: {
+          t: (key, params = {}) => `${key}:${params.count || ''}`,
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app-drawer-content.js' });
+    const messages = [];
+    for (let index = 0; index < 260; index += 1) {
+      messages.push({ id: `user-${index}`, role: 'user', text: `[요청:${index}:끝]`, timestamp: new Date(1700000000000 + index * 2000).toISOString() });
+      messages.push({ id: `assistant-${index}`, role: 'assistant', text: `답변-${index}`, timestamp: new Date(1700000001000 + index * 2000).toISOString() });
+    }
+    const state = {
+      pendingConversationMessages: new Map(),
+      resolvedConversationMessages: new Map(),
+      expandedConversationPrompts: new Set(),
+      conversationTurnLimits: new Map(),
+      details: new Map(),
+    };
+    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+      esc: value => String(value),
+      uiLocale: () => 'ko',
+      state,
+      messageContentHtml: message => String(message?.text || ''),
+      fullNumber: value => String(value || 0),
+      timeOnly: () => '10:00',
+      providerInfo: () => ({ mark: 'C', label: 'Codex' }),
+      snapshotSession: () => null,
+      conversationDeliveryState: () => null,
+      observeConversationDelivery: () => {},
+    });
+    const session = { id: 'long-session', provider: 'codex', messages };
+
+    const initial = drawer.chatHtml(session, { showSubagentCalls: false, synthesizeRequest: false });
+    assert.equal(initial.includes('[요청:0:끝]'), false);
+    assert.ok(initial.includes('[요청:140:끝]'));
+    assert.ok(initial.includes('[요청:259:끝]'));
+    assert.ok(initial.includes('data-next-turn-limit="240"'));
+
+    state.conversationTurnLimits.set(session.id, 240);
+    const expanded = drawer.chatHtml(session, { showSubagentCalls: false, synthesizeRequest: false });
+    assert.equal(expanded.includes('[요청:19:끝]'), false);
+    assert.ok(expanded.includes('[요청:20:끝]'));
+    assert.ok(expanded.includes('data-next-turn-limit="360"'));
+  });
+
+  test('포커스 작업 흐름 연결선 모션은 주기적 상태 새로고침 뒤에도 유지한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-graph-view.js'), 'utf8');
+    const focusedStart = source.indexOf('function focusedGraph(');
+    const focusedEnd = source.indexOf('\n  return {', focusedStart);
+    const focusedSource = source.slice(focusedStart, focusedEnd);
+    assert.ok(focusedStart >= 0 && focusedEnd > focusedStart, '포커스 작업 흐름 렌더러를 찾을 수 없습니다.');
+    assert.ok(focusedSource.includes('const connectMotion = "motion-connect";'));
+    assert.equal(focusedSource.includes('["focus", "focus-back", "view"].includes(motionKind)'), false);
+    assert.ok(focusedSource.includes('workflowProgressPanel(focus, children)'), '작업 흐름에 읽기 전용 진행 현황이 없습니다.');
+    assert.equal(focusedSource.includes('context.agentCommandComposer(focus)'), false, '별도 대화창이 있는데 작업 진행 화면에 지시 입력창이 다시 노출되었습니다.');
+    assert.ok(source.includes('data-workflow-progress='), '현재 단계와 최근 활동을 식별할 진행 패널 계약이 없습니다.');
+    assert.ok(source.includes('graph.progress_basis_note'), '기록된 단계 비율을 전체 계획 진척률로 오해하지 않도록 근거 안내가 필요합니다.');
+  });
+
+  test('프로젝트 선택 화면은 진행 작업 정보 없이 선택 안내와 지속 모션만 제공한다', () => {
+    const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+    const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-studio-shell.css'), 'utf8');
+    const themeStyles = fs.readFileSync(path.join(root, 'renderer', 'styles-theme.css'), 'utf8');
+    const historyEmptyRule = styles.match(/\.project-history-list > \.project-history-empty\s*\{([^}]*)\}/)?.[1] || '';
+    const selection = html.slice(html.indexOf('id="projectSelectionPrompt"'), html.indexOf('id="projectTaskToolbar"'));
+    for (const contract of ['project-selection-visual', 'project-selection-direction', 'project-selection-orbit', 'project-selection-scan']) {
+      assert.ok(selection.includes(contract), `${contract} 프로젝트 선택 안내 요소가 없습니다.`);
+    }
+    assert.equal(selection.includes('project-selection-flow'), false, '프로젝트 선택 전에는 진행 작업 안내를 표시하지 않아야 합니다.');
+    assert.ok(themeStyles.includes('body[data-current-view="all"]:not([data-project-selected="true"]) #projectContextNav'), '프로젝트 선택 전에는 처리 중 작업 탭을 숨겨야 합니다.');
+    assert.match(historyEmptyRule, /grid-column:\s*1\s*\/\s*-1\s*;/, '지난 세션 빈 상태가 기록 그리드의 첫 열에만 갇혀 있습니다.');
+    assert.match(historyEmptyRule, /align-content:\s*center\s*;/, '지난 세션 빈 상태의 문구 묶음이 세로 중앙에 정렬되지 않습니다.');
+    assert.match(historyEmptyRule, /border:\s*1px\s+dashed/, '지난 세션 빈 상태의 경계가 주변 기록 카드와 구분되지 않습니다.');
+    const messages = fs.readFileSync(path.join(root, 'renderer', 'i18n-messages.js'), 'utf8');
+    assert.ok(messages.includes('아직 완료된 작업이 없습니다'), '지난 기록 빈 상태가 실행 중 작업까지 없다는 뜻으로 읽힙니다.');
+    assert.ok(messages.includes('진행 중인 작업은 위에 표시되고'), '실행 중 작업과 완료 기록의 위치를 구분하는 안내가 없습니다.');
+    for (const animation of ['project-selection-enter', 'project-selection-orbit', 'project-selection-float', 'project-selection-breathe', 'project-selection-scan', 'project-selection-point']) {
+      assert.ok(styles.includes(`@keyframes ${animation}`), `${animation} 프로젝트 선택 모션이 없습니다.`);
+    }
+    assert.ok(
+      styles.includes('@media (prefers-reduced-motion: reduce)')
+        && styles.includes('.project-selection-eyebrow i'),
+      '프로젝트 선택 모션은 감소 모션 환경에서 중단되어야 합니다.',
+    );
+  });
+
+  test('설정 화면은 변경 가능한 항목만 읽기 쉬운 순서로 표시한다', () => {
+    const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+    const themeStyles = fs.readFileSync(path.join(root, 'renderer', 'styles-theme.css'), 'utf8');
+    const dashboard = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
+    const settings = html.slice(html.indexOf('id="settingsSection"'), html.indexOf('id="terminalSection"'));
+    assert.equal(settings.includes('settings-meta-grid'), false, '설정과 무관한 설치 진단 정보가 다시 노출되면 안 됩니다.');
+    assert.equal(settings.includes('settings-emblem'), false, '설정 제목에 의미 없는 장식이 다시 추가되면 안 됩니다.');
+    assert.equal(dashboard.includes('provider-visibility-name"><b>${esc(provider.label)}</b><small>'), false, 'AI 표시 설정에 제공사 부가 정보가 다시 노출되면 안 됩니다.');
+    assert.ok(
+      themeStyles.includes('body[data-current-view="settings"] .topbar')
+        && themeStyles.includes('body[data-current-view="settings"] #projectContextNav')
+        && themeStyles.includes('body[data-current-view="settings"] .sidebar-projects')
+        && themeStyles.includes('body[data-current-view="settings"] .project-sidebar-list')
+        && themeStyles.includes('width: min(100%, 1040px);'),
+      '설정 화면은 읽기 폭을 제한하면서 프로젝트와 작업 탐색 탭을 유지해야 합니다.',
+    );
+    const languageIndex = settings.indexOf('language-settings-card');
+    const themeIndex = settings.indexOf('theme-settings-card');
+    const providersIndex = settings.indexOf('provider-visibility-card');
+    const updateIndex = settings.indexOf('id="updatePanel"');
+    assert.ok(languageIndex < themeIndex && themeIndex < providersIndex && providersIndex < updateIndex, '설정 항목의 읽기 순서가 언어, 화면, AI 목록, 업데이트 순이어야 합니다.');
   });
 
   test('AI 표시 설정은 기본값·저장값·세션과 tmux 투영을 일관되게 적용한다', () => {

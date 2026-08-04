@@ -29,6 +29,7 @@ const MAX_LIFECYCLE = 220;
 const ACTIVE_THRESHOLD_MS = 18_000;
 const STALE_TURN_THRESHOLD_MS = 5 * 60_000;
 const LIST_CACHE_MS = 60_000;
+const PINNED_FILE_CACHE_MS = 60_000;
 
 function asText(value) {
   if (typeof value === 'string') return value;
@@ -508,6 +509,8 @@ class AgentMonitor extends EventEmitter {
     this.availability = {};
     this.parseCache = new Map();
     this.listCache = new Map();
+    this.pinnedFileCache = new Map();
+    this.pinnedSessions = [];
     this.historyHomes = [];
     this.timer = null;
     this.scanning = false;
@@ -517,6 +520,53 @@ class AgentMonitor extends EventEmitter {
 
   setAvailability(availability) {
     this.availability = { ...availability };
+  }
+
+  setPinnedSessions(bindings = []) {
+    const normalized = [];
+    const seen = new Set();
+    for (const binding of bindings || []) {
+      const provider = String(binding && binding.provider || '').toLowerCase();
+      if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) continue;
+      const rawId = String(binding.linkedSessionId || binding.sessionId || binding.bridgeId || '').trim();
+      const prefix = `${provider}:`;
+      const externalId = rawId.toLowerCase().startsWith(prefix) ? rawId.slice(prefix.length) : rawId;
+      if (!/^[a-z0-9._-]{3,160}$/i.test(externalId)) continue;
+      const environment = String(binding.environment || '').toLowerCase();
+      const distro = String(binding.distro || '').toLowerCase();
+      const key = `${provider}:${externalId}:${environment}:${distro}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push({ provider, externalId, environment, distro });
+    }
+    this.pinnedSessions = normalized;
+  }
+
+  pinnedFiles(provider, history, root, predicate) {
+    const environment = String(history && history.kind || '').toLowerCase();
+    const distro = String(history && history.distro || '').toLowerCase();
+    const files = [];
+    for (const binding of this.pinnedSessions) {
+      if (binding.provider !== provider) continue;
+      if (binding.environment && binding.environment !== environment) continue;
+      if (binding.distro && binding.distro !== distro) continue;
+      const cacheKey = `${root}|${provider}|${binding.externalId}`;
+      const cached = this.pinnedFileCache.get(cacheKey);
+      let file = cached && Date.now() - cached.at < PINNED_FILE_CACHE_MS ? cached.file : '';
+      if (file && !safeStat(file)) file = '';
+      if (!file && (!cached || Date.now() - cached.at >= PINNED_FILE_CACHE_MS)) {
+        const externalId = binding.externalId.toLowerCase();
+        const match = walkRecent(root, (candidate, name) => (
+          predicate(candidate, name)
+          && String(name || '').toLowerCase().includes(externalId)
+        ), 1, 6)[0];
+        file = match && match.file || '';
+        this.pinnedFileCache.set(cacheKey, { at: Date.now(), file });
+      }
+      const stat = safeStat(file);
+      if (stat && stat.isFile()) files.push({ file, mtimeMs: stat.mtimeMs, size: stat.size });
+    }
+    return files;
   }
 
   setHistoryHomes(historyHomes = []) {
@@ -654,7 +704,10 @@ class AgentMonitor extends EventEmitter {
           const infos = history.files && Array.isArray(history.files[provider])
             ? this.hintedFiles(history.files[provider], max)
             : this.files(key, roots[provider], predicate, max, 6, cacheMs);
-          for (const info of infos) {
+          const pinnedInfos = this.pinnedFiles(provider, history, roots[provider], predicate);
+          const uniqueInfos = [...infos, ...pinnedInfos]
+            .filter((info, index, list) => list.findIndex(other => other.file === info.file) === index);
+          for (const info of uniqueInfos) {
             const value = this.parseFile(info, parser);
             if (!value) continue;
             const copy = structuredClone(value);

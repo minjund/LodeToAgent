@@ -105,9 +105,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <span class="status-pill ${statusClass(presentationStatus)}">${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</span>
         </span>
         <span class="agent-task-label">
-          ${session.parentId ? t("graph.assigned_task", { source: delegation.assignmentSource === "protected"
-            ? t("graph.assignment_protected_suffix")
-            : (delegation.assignmentSource === "parent-narration" ? t("graph.main_ai_explanation_suffix") : "") }) : t("graph.current_goal")}
+          ${session.parentId ? t("graph.assigned_task", { source: "" }) : t("graph.current_goal")}
         </span>
         <strong class="agent-task" title="${esc(goalPreview.full)}">${esc(goalPreview.text)}</strong>
         ${goalPreview.truncated ? `<span class="agent-goal-note">${esc(t("graph.summary_shown"))}</span>` : ""}
@@ -159,11 +157,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const outcomeText = delivery ? t(deliverySummaryKey(delivery.phase)) : outcome || latestWorkCopy(session);
     const assignedWorkPreview = readablePreview(assignedWork, session.parentId ? 110 : 104);
     const taskLabel = session.parentId ? `${label || agentRoleLabel(session.agentRole)}${taskName ? t("graph.assigned_name_suffix", { name: taskName }) : ""}` : label;
-    const assignmentSourceNote = session.parentId && delegation.assignmentSource === "protected"
-      ? `<span class="agent-flow-assignment-source">${esc(t("graph.assignment_source_protected"))}</span>`
-      : session.parentId && delegation.assignmentSource === "parent-narration"
-        ? `<span class="agent-flow-assignment-source">${esc(t("graph.main_ai_prestart_explanation"))}</span>`
-        : "";
     const sharedGoalCopy =
       session.parentId && sharedGoal && sharedGoal !== assignedWork ? `<span class="agent-flow-shared">${esc(t("graph.shared_goal"))} · ${esc(sharedGoal)}</span>` : "";
     const outcomeCopy = session.parentId
@@ -200,7 +193,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
             <strong>${esc(session.agentName || t("graph.name_unknown"))}</strong>
             <small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small>
             </span>
-          ${assignmentCopy}${assignmentSourceNote}${outcomeCopy}<span class="agent-flow-child-action">${esc(action)}</span>
+          ${assignmentCopy}${outcomeCopy}<span class="agent-flow-child-action">${esc(action)}</span>
         </span>
         <span class="agent-flow-provider">
           ${executionModeBadge(session, true)}
@@ -219,7 +212,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         ${taskLabel ? `<small>${esc(taskLabel)}</small>` : ""}
         <b title="${esc(assignedWorkPreview.full)}">${esc(assignedWorkPreview.text)}</b>
         <em>${esc(identity)} · ${directChildren ? `${t("graph.helper_ai_count", { count: directChildren })} · ` : ""}${esc(timeAgo(session.updatedAt))}</em>
-        ${assignmentSourceNote}${sharedGoalCopy}${outcomeCopy}
+        ${sharedGoalCopy}${outcomeCopy}
       </span>
       <span class="agent-flow-provider"><i>${esc(provider.mark)}</i><small>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</small></span>
     </button>`;
@@ -843,6 +836,133 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     </div>`;
   }
 
+  function workflowProgressPanel(session, children) {
+    const progress = session.progress || {};
+    const activity = currentActivity(session) || {};
+    const checkpoints = Array.isArray(progress.checkpoints) ? progress.checkpoints.filter(Boolean) : [];
+    const executions = Array.isArray(session.executions) ? session.executions.filter(Boolean) : [];
+    const activeChildren = children.filter(isLiveSession);
+    const finishedChildren = children.filter(child => ["completed", "failed", "cancelled"].includes(child.status) || child.completionObserved);
+    const activeExecutions = executions.filter(item => item.status === "running");
+    const finishedExecutions = executions.filter(item => ["completed", "failed", "cancelled"].includes(item.status));
+    const completedSteps = Math.max(0, Number(progress.completedSteps || 0));
+    const totalSteps = Math.max(0, Number(progress.totalSteps || checkpoints.length || 0));
+    const failedSteps = Math.max(0, Number(progress.failedSteps || 0));
+    const completedRatio = totalSteps ? Math.max(0, Math.min(100, Math.round(completedSteps / totalSteps * 100))) : 0;
+    const presentationStatus = controlRoomStatus(session);
+    const delivery = pendingConversationDelivery(session);
+    const lastActivityAt = progress.lastActivityAt || session.updatedAt || null;
+    const activeCheckpoint = [...checkpoints].reverse().find(row => ["running", "pending", "started"].includes(row.status));
+    const latestCheckpoint = checkpoints.at(-1) || null;
+    const currentSource = activeCheckpoint || latestCheckpoint;
+    const currentRaw = progress.currentStep || activity.title || latestWorkCopy(session) || session.statusDetail || session.title;
+    const detailRaw = currentSource?.detail || activity.detail || (session.statusDetail !== currentRaw ? session.statusDetail : "");
+    const current = readablePreview(window.LoadToAgentI18n.observedText(currentRaw), 240);
+    const detail = readablePreview(window.LoadToAgentI18n.observedText(detailRaw), 360);
+    const normalizeObservationStatus = value => {
+      const status = String(value || "").toLowerCase();
+      if (["failed", "error"].includes(status)) return "failed";
+      if (["completed", "passed", "success", "succeeded"].includes(status)) return "completed";
+      if (["running", "pending", "started", "starting", "active", "working", "executing"].includes(status)) return "running";
+      if (["waiting", "paused", "cancelled", "idle"].includes(status)) return status;
+      return "idle";
+    };
+    const observationStatusLabel = value => ({
+      completed: t("ui.completed"),
+      running: t("ui.working"),
+      failed: t("ui.problem"),
+      cancelled: t("ui.stopped"),
+      waiting: t("ui.waiting_for_review"),
+      paused: t("management.attention.paused"),
+      idle: t("ui.idle"),
+    })[normalizeObservationStatus(value)] || t("ui.idle");
+    const checkpointRows = checkpoints.map((row, index) => ({
+      id: row.id || `checkpoint-${index}`,
+      kind: "checkpoint",
+      kindLabel: t("graph.progress_source_checkpoint"),
+      label: row.label || t("graph.progress_current_step"),
+      detail: row.detail || "",
+      status: normalizeObservationStatus(row.status),
+      timestamp: row.timestamp || row.completedAt || null,
+    }));
+    const executionRows = executions.map(item => ({
+      id: item.id || item.callId || item.label,
+      kind: "execution",
+      kindLabel: t("graph.progress_source_execution"),
+      label: item.label || item.command || executionActivityLabel(item),
+      detail: item.statusDetail || item.command || "",
+      status: normalizeObservationStatus(item.status),
+      timestamp: item.updatedAt || item.completedAt || item.startedAt || null,
+    }));
+    const helperRows = children.map(child => ({
+      id: child.id,
+      kind: "helper",
+      kindLabel: t("graph.progress_source_helper"),
+      label: child.taskName || child.delegation?.taskName || child.title || child.agentName,
+      detail: child.delegation?.result || child.result || latestWorkCopy(child) || child.statusDetail || "",
+      status: normalizeObservationStatus(child.status),
+      timestamp: child.completedAt || child.updatedAt || child.startedAt || null,
+    }));
+    const observations = [...checkpointRows, ...executionRows, ...helperRows]
+      .filter(row => String(row.label || "").trim())
+      .sort((left, right) => Date.parse(right.timestamp || 0) - Date.parse(left.timestamp || 0));
+    const recent = [];
+    const seen = new Set();
+    for (const row of observations) {
+      const key = `${row.kind}:${row.id || row.label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      recent.push(row);
+      if (recent.length >= 5) break;
+    }
+    const stageTone = normalizeObservationStatus(delivery ? "running" : presentationStatus);
+    const stageLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus);
+    const activityCountLabel = observations.length > recent.length
+      ? t("graph.recent_of_total_events", { recent: recent.length, total: observations.length })
+      : t("common.events", { count: observations.length });
+    const activityRows = recent.length
+      ? `<ol class="workflow-progress-events">${recent.map(row => {
+        const rowLabel = readablePreview(window.LoadToAgentI18n.observedText(row.label), 150);
+        const rowDetail = readablePreview(window.LoadToAgentI18n.observedText(row.detail), 220);
+        return `<li class="${esc(row.status)}" data-progress-event-kind="${esc(row.kind)}">
+          <i class="workflow-progress-node" aria-hidden="true"></i>
+          <span class="workflow-progress-kind">${esc(row.kindLabel)}</span>
+          <span class="workflow-progress-event-copy"><b>${esc(rowLabel.full)}</b>${rowDetail.full ? `<small>${esc(rowDetail.full)}</small>` : ""}</span>
+          <span class="workflow-progress-event-state">${esc(observationStatusLabel(row.status))}</span>
+          <time${row.timestamp ? ` datetime="${esc(row.timestamp)}"` : ""}>${esc(row.timestamp ? timeAgo(row.timestamp) : t("memory.time_unknown"))}</time>
+        </li>`;
+      }).join("")}</ol>`
+      : `<div class="workflow-progress-empty"><span aria-hidden="true">○</span><b>${esc(t("graph.progress_activity_empty"))}</b><small>${esc(t("graph.progress_activity_empty_help"))}</small></div>`;
+    return `<section class="workflow-progress-panel" data-workflow-progress="${esc(session.id)}" data-progress-stage="${esc(stageTone)}">
+      <header class="workflow-progress-head">
+        <div><span>${esc(t("graph.progress_eyebrow"))}</span><h3>${esc(t("graph.progress_title"))}</h3><p>${esc(t("graph.progress_description"))}</p></div>
+        <span class="workflow-progress-status ${esc(stageTone)}"><i aria-hidden="true"></i><b>${esc(stageLabel)}</b><small>${esc(lastActivityAt ? t("graph.progress_last_update", { time: timeAgo(lastActivityAt) }) : t("management.signal_unavailable"))}</small></span>
+      </header>
+      <div class="workflow-progress-layout">
+        <section class="workflow-progress-now">
+          <span class="workflow-progress-section-label">${esc(t("graph.progress_current_step"))}</span>
+          <strong aria-live="polite">${esc(current.full)}</strong>
+          ${detail.full && detail.full !== current.full ? `<p>${esc(detail.full)}</p>` : ""}
+          ${progress.blocker ? `<aside class="workflow-progress-blocker"><span>${esc(t("graph.progress_blocker"))}</span><b>${esc(progress.blocker)}</b></aside>` : ""}
+          <dl class="workflow-progress-metrics">
+            <div><dt>${esc(t("graph.progress_recorded_steps"))}</dt><dd>${totalSteps ? `${completedSteps}/${totalSteps}` : "—"}${failedSteps ? `<small>${esc(t("graph.progress_failed_steps", { count: failedSteps }))}</small>` : ""}</dd></div>
+            <div><dt>${esc(t("graph.progress_running_units"))}</dt><dd>${activeChildren.length + activeExecutions.length}<small>${esc(t("graph.progress_units_breakdown", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small></dd></div>
+            <div><dt>${esc(t("graph.progress_completed_units"))}</dt><dd>${finishedChildren.length + finishedExecutions.length}<small>${esc(t("graph.progress_units_breakdown", { helpers: finishedChildren.length, executions: finishedExecutions.length }))}</small></dd></div>
+          </dl>
+          ${totalSteps ? `<div class="workflow-progress-ratio">
+            <span><b>${esc(t("graph.progress_recorded_ratio"))}</b><small>${esc(t("management.progress_steps", { completed: completedSteps, total: totalSteps }))}</small></span><strong>${completedRatio}%</strong>
+            <div role="progressbar" aria-label="${esc(t("graph.progress_recorded_ratio"))}" aria-valuemin="0" aria-valuemax="${totalSteps}" aria-valuenow="${completedSteps}"><i style="width:${completedRatio}%"></i></div>
+          </div>` : `<p class="workflow-progress-no-ratio">${esc(t("graph.progress_no_recorded_steps"))}</p>`}
+        </section>
+        <section class="workflow-progress-activity">
+          <header><div><b>${esc(t("graph.progress_activity_title"))}</b><small>${esc(t("graph.progress_activity_help"))}</small></div><span>${esc(activityCountLabel)}</span></header>
+          ${activityRows}
+        </section>
+      </div>
+      <footer><small>${esc(t("graph.progress_basis_note"))}</small></footer>
+    </section>`;
+  }
+
   function splitSubagents(children) {
     return children.reduce(
       (out, session) => {
@@ -892,7 +1012,9 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   function workflowCommunicationPanel(focus, parent, model) {
     const owner = focus;
     const all = (owner.collaboration && owner.collaboration.communications) || [];
-    const relevant = all.filter((event) => ["assignment", "started", "followup", "message", "result", "interrupt"].includes(event.kind));
+    const relevant = all
+      .filter((event) => ["assignment", "started", "followup", "message", "result", "interrupt"].includes(event.kind))
+      .filter((event) => !event.protected && !["protected", "parent-narration"].includes(event.assignmentSource));
     const events = relevant.slice(-60);
     if (!events.length) {
       return `<section class="agent-communication-panel empty" data-collaboration-communications="0">
@@ -909,21 +1031,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       .map((event) => {
         const text =
           event.text ||
-          (event.protected
-            ? t("graph.assigned_to_subagent", { task: event.taskName || t("graph.this_task") })
-            : event.kind === "started"
-              ? t("graph.runtime_start_confirmed")
-              : t("graph.status_only_recorded"));
-        const sourceLabel = event.assignmentSource === "protected"
-          ? ` · ${t("graph.assignment_source_protected_short")}`
-          : (event.assignmentSource === "parent-narration" ? ` · ${t("graph.main_ai_prestart_short")}` : "");
+          (event.kind === "started"
+            ? t("graph.runtime_start_confirmed")
+            : t("graph.status_only_recorded"));
         return `<article class="agent-communication-event ${esc(event.kind)}" data-communication-kind="${esc(event.kind)}">
         <span class="communication-route">
           <b>${esc(communicationEndpoint(event.from, owner, model))}</b><i>→</i>
           <b>${esc(communicationEndpoint(event.to, owner, model))}</b>
         </span>
         <span class="communication-copy">
-          <small>${esc(window.LoadToAgentI18n.observedText(event.label))}${event.taskName ? ` · ${esc(event.taskName)}` : ""}${sourceLabel}</small>
+          <small>${esc(window.LoadToAgentI18n.observedText(event.label))}${event.taskName ? ` · ${esc(event.taskName)}` : ""}</small>
           <strong>${esc(text)}</strong>
           </span>
         <time>${esc(timeOnly(event.timestamp))}</time>
@@ -1053,7 +1170,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const { ongoing, completed } = splitSubagents(children);
     const completedExpanded = state.expandedCompletedSubagents.has(focus.id);
     const shownChildren = completedExpanded ? [...ongoing, ...completed] : ongoing;
-    const metrics = workflowMetrics(focus, children);
     const upstream = parent
       ? workflowCompactNode(parent, model, "upstream", parent.parentId ? t("graph.back_to_previous_ai") : t("graph.back_to_main_ai"))
       : `<div class="agent-workflow-origin">
@@ -1078,11 +1194,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         </div>`
       : "";
     const downstream = `${ongoingRows}${completedSubagentDisclosure(focus.id, completed, completedExpanded)}${completedRows}`;
-    const connectMotion = ["focus", "focus-back", "view"].includes(motionKind) ? "motion-connect" : "";
+    // Focused workflow markup is rebuilt whenever a live snapshot changes.
+    // Keep the connection animation class on refresh renders as well; otherwise
+    // the first status update silently removes every edge animation from a
+    // long-lived screen. The reduced-motion media contract still disables it.
+    const connectMotion = "motion-connect";
     const childGroupPort = shownChildren.length || executionCount
       ? '<span class="agent-workflow-port input group-input" data-workflow-port="children-group-input" aria-hidden="true"></span>'
       : "";
     return `<div class="agent-workflow-canvas ${connectMotion}" data-workflow-focus="${esc(focus.id)}">
+      ${workflowProgressPanel(focus, children)}
       <svg class="agent-workflow-edges" role="img" aria-label="${esc(t("graph.workflow_aria"))}">
         <title>${esc(t("graph.workflow_title"))}</title>
         <desc>${esc(t("graph.workflow_description"))}</desc>
@@ -1105,7 +1226,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
               <span class="agent-workflow-port input" data-workflow-port="focus-input" aria-hidden="true"></span>
               ${graphNode(focus, { focus: true })}
             </div>
-            ${context.agentCommandComposer(focus)}
             ${shownChildren.length || executionCount ? '<span class="agent-workflow-port output" data-workflow-port="focus-output" aria-hidden="true"></span>' : ""}
           </div>
         </section>
@@ -1128,7 +1248,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   return {
     graphNode, compactGraphNode, providerFlowLane, workflowCompactNode, liveTmuxEntries, tmuxEntrySession, filteredLiveTmuxEntries, liveTmuxPaneCard, runtimeSeparatedOverview,
     controlRoomIntent, controlRoomSummary, controlRoomAgentGoal, inferredExecutionSummary,
-    workflowMetrics, workflowChildrenSummary, splitSubagents, completedSubagentDisclosure, agentPathTaskName, communicationEndpoint,
+    workflowMetrics, workflowChildrenSummary, workflowProgressPanel, splitSubagents, completedSubagentDisclosure, agentPathTaskName, communicationEndpoint,
     workflowCommunicationPanel, executionActivityLabel, executionActivityStatus, executionActivityCard, executionActivityPanel, focusedGraph,
   };
 };

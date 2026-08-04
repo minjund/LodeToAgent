@@ -2386,7 +2386,7 @@ body[data-current-view="tmux"] .tmux-session-tree {
 }
 
 .attention-inbox-summary [data-management-inbox-filter="approval"] i {
-  background: #9d84ec;
+  background: var(--theme-accent);
 }
 
 .attention-inbox-summary [data-management-inbox-filter="answer"],
@@ -4172,10 +4172,6 @@ body[data-current-view="tmux"] .tmux-pane-node.needs-review .tmux-pane-head i {
 
 body[data-current-view="tmux"] .tmux-section:has(.tmux-simple-summary.needs-review) .tmux-section-actions {
   display: none;
-}
-
-body[data-current-view="settings"] .settings-head {
-  display: none !important;
 }
 
 body[data-current-view="settings"] .theme-settings-copy > span {

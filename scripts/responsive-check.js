@@ -235,16 +235,22 @@ async function layoutMetrics(win) {
 }
 
 function assertLayout(metrics, context) {
-  const expectedPrimaryNavigation = metrics.compact
-    ? ['all', 'active', 'waiting', 'mobileMoreBtn']
-    : ['all', 'active', 'waiting'];
+  const projectSelectionView = metrics.currentView === 'all' && !metrics.projectSelected;
+  const expectedPrimaryNavigation = projectSelectionView
+    ? []
+    : metrics.compact
+      ? ['all', 'active', 'waiting', 'mobileMoreBtn']
+      : ['all', 'active', 'waiting'];
   const primaryNavigationValid = JSON.stringify(metrics.visibleNavItems) === JSON.stringify(expectedPrimaryNavigation);
   const sidebarOverflowFree = metrics.sidebarNoInternalOverflow || metrics.sidebarOverflowItems.length === 0;
+  const projectToolsStateValid = projectSelectionView
+    ? !metrics.projectToolsVisible
+    : metrics.compact || metrics.projectToolsVisible;
   const projectStateValid = metrics.currentView !== 'all'
     || (metrics.projectSelected
       ? metrics.projectNavigationInMain && metrics.liveSectionVisible && !metrics.projectSelectionPromptVisible
       : !metrics.projectNavigationInMain && !metrics.liveSectionVisible && metrics.projectSelectionPromptVisible);
-  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || (!metrics.compact && !metrics.projectToolsVisible) || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !primaryNavigationValid || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !sidebarOverflowFree || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
+  if (metrics.documentOverflow || metrics.stageOverflow || Math.abs(metrics.stageScrollLeft) > 1 || !metrics.stageRect || metrics.stageRect.left < -1 || metrics.stageRect.right > metrics.width + 1 || !metrics.topbarRect || metrics.topbarRect.left < -1 || metrics.topbarRect.right > metrics.width + 1 || !metrics.topbarCopyRect || metrics.topbarCopyRect.width <= 0 || metrics.topbarCopyRect.height <= 0 || metrics.topbarCopyRect.left < -1 || metrics.topbarCopyRect.right > metrics.width + 1 || !projectStateValid || !metrics.projectToolsAccessible || !projectToolsStateValid || metrics.sectionOverflow.length || !metrics.sidebarInsideViewport || !metrics.sidebarHiddenOnCompact || metrics.navCount !== 4 || !primaryNavigationValid || !metrics.navItemsInsideViewport || !metrics.navAccessibleNames || !sidebarOverflowFree || !metrics.narrowSidebarLabelsVisible || !metrics.narrowSidebarTitles || !metrics.projectLayoutValid || !metrics.compactContentClearance || (!metrics.compact && metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport)) {
     throw new Error(`${context} 반응형 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
@@ -455,14 +461,16 @@ async function stickyNavigationMetrics(win) {
 }
 
 function assertStickyNavigation(metrics, context) {
-  const visibleProjectNavigationIsValid = metrics.available
+  const settingsChromeIsNavigable = metrics.available
     && metrics.projectNavVisible
     && metrics.position === 'sticky'
+    && metrics.visibleTopbarChildren.length === 0
     && metrics.noStickyOverlap
-    && metrics.projectNavInsideViewport;
+    && metrics.projectNavInsideViewport
+    && Math.abs(metrics.projectNavRect.top) <= 1;
   const scrollExerciseIsValid = metrics.scrollRange >= 100 && metrics.scrolledTop >= 100;
-  if (!scrollExerciseIsValid || !visibleProjectNavigationIsValid || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
-    throw new Error(`${context} 고정 프로젝트 탐색 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
+  if (!scrollExerciseIsValid || !settingsChromeIsNavigable || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
+    throw new Error(`${context} 설정 화면의 고정 작업 탭 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }
 
@@ -642,7 +650,7 @@ function assertDashboardStickyNavigation(metrics, context) {
   const expectedTokenIds = ['claude', 'codex', 'gemini', 'grok'];
   const tokenDataPresent = metrics.tokenData?.length === 4
     && metrics.tokenData.every(item => item.id && item.title && item.visible
-      && (item.value > 0 ? Boolean(item.label) : /수치 미확인|unavailable|未知/.test(item.title)))
+      && (item.label || /수치 미확인|unavailable|未知/.test(item.title)))
     && JSON.stringify(metrics.tokenData.map(item => item.id)) === JSON.stringify(expectedTokenIds);
   const oneProjectNavStickyOwner = JSON.stringify(metrics.stickyOwners) === JSON.stringify(['projectContextNav']);
   if (!metrics.available || metrics.scrollRange < 100 || metrics.scrolledTop < 100 || metrics.tokenCardCount !== 4 || metrics.visibleTokenCardCount < minimumVisibleTokens || !tokenDataPresent || metrics.tokenOverviewRect.height <= 0 || metrics.topbarPosition !== 'relative' || metrics.projectNavPosition !== 'sticky' || metrics.projectToolbarPosition !== 'static' || metrics.historyRailPosition !== 'static' || !oneProjectNavStickyOwner || metrics.stickyCollisions.length || !metrics.topbarClearedStickyLayer || metrics.projectNavRect.width <= 0 || metrics.projectNavRect.height <= 0 || Math.abs(metrics.restoredScrollTop - metrics.originalScrollTop) > 1) {
@@ -830,9 +838,9 @@ async function workflowMetrics(win) {
     window.__ensureResponsiveWorkflowFixture?.();
     window.LoadToAgentApp.drawAgentWorkflowConnections();
     const canvas = document.querySelector('.agent-workflow-canvas');
+    const progress = document.querySelector('[data-workflow-progress]');
     const upstream = document.querySelector('.upstream-column .agent-workflow-origin, .upstream-column .agent-workflow-node');
     const selected = document.querySelector('.agent-workflow-selected');
-    const command = document.querySelector('.agent-command-panel');
     const downstream = document.querySelector('.downstream-column');
     const output = document.querySelector('[data-workflow-port="focus-output"]');
     const identity = document.querySelector('.agent-workflow-selected .agent-identity');
@@ -852,22 +860,22 @@ async function workflowMetrics(win) {
     const path = document.querySelector('.agent-workflow-edge.downstream');
     const rect = element => element && element.getBoundingClientRect();
     const canvasRect = rect(canvas);
+    const progressRect = rect(progress);
     const upstreamRect = rect(upstream);
     const selectedRect = rect(selected);
-    const commandRect = rect(command);
     const downstreamRect = rect(downstream);
     const outputRect = rect(output);
     const tmuxShortcutRect = rect(tmuxShortcut);
     const tmuxNavRect = rect(tmuxNav);
-    let pathCrossesCommand = false;
-    if (path && commandRect && canvasRect) {
+    let pathCrossesProgress = false;
+    if (path && progressRect && canvasRect) {
       const length = path.getTotalLength();
       for (let step = 0; step <= 80; step += 1) {
         const point = path.getPointAtLength(length * step / 80);
         const x = canvasRect.left + point.x;
         const y = canvasRect.top + point.y;
-        if (x >= commandRect.left && x <= commandRect.right && y >= commandRect.top && y <= commandRect.bottom) {
-          pathCrossesCommand = true;
+        if (x >= progressRect.left && x <= progressRect.right && y >= progressRect.top && y <= progressRect.bottom) {
+          pathCrossesProgress = true;
           break;
         }
       }
@@ -880,12 +888,15 @@ async function workflowMetrics(win) {
       hybrid,
       canvasOverflow: Boolean(canvas && canvas.scrollWidth > canvas.clientWidth + 2),
       bodyOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
-      selectedBeforeCommand: Boolean(selectedRect && commandRect && selectedRect.bottom <= commandRect.top + 1),
-      commandBeforeDownstream: Boolean(commandRect && downstreamRect && commandRect.bottom <= downstreamRect.top + 1),
-      outputAfterCommand: Boolean(outputRect && commandRect && outputRect.top >= commandRect.bottom - 1),
-      verticalOrder: !stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.bottom <= selectedRect.top + 1 && selectedRect.bottom <= commandRect.top + 1 && commandRect.bottom <= downstreamRect.top + 1),
+      progressVisible: Boolean(progressRect && progressRect.width > 0 && progressRect.height > 0),
+      progressBeforeWorkflow: Boolean(progressRect && upstreamRect && selectedRect && progressRect.bottom <= Math.min(upstreamRect.top, selectedRect.top) + 1),
+      progressNoOverflow: Boolean(progress && progress.scrollWidth <= progress.clientWidth + 2),
+      progressHasCurrentStep: Boolean(progress?.querySelector('.workflow-progress-now > strong')?.textContent.trim()),
+      progressHasActivity: Boolean(progress?.querySelector('.workflow-progress-events, .workflow-progress-empty')),
+      outputAfterSelected: Boolean(outputRect && selectedRect && outputRect.top >= selectedRect.bottom - 1),
+      verticalOrder: !stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.bottom <= selectedRect.top + 1 && selectedRect.bottom <= downstreamRect.top + 1),
       horizontalOrder: stacked || Boolean(upstreamRect && selectedRect && downstreamRect && upstreamRect.right <= selectedRect.left + 1 && (hybrid || selectedRect.right <= downstreamRect.left + 1)),
-      pathCrossesCommand,
+      pathCrossesProgress,
       identityClipped: Boolean(identity && (identity.scrollWidth > identity.clientWidth + 1 || identity.scrollHeight > identity.clientHeight + 1)),
       tmuxShortcutVisible: Boolean(
         tmuxShortcutRect && tmuxShortcutRect.width > 0 && tmuxShortcutRect.height >= 40
@@ -905,14 +916,14 @@ async function workflowMetrics(win) {
         assignment: helpAssignment ? { client: helpAssignment.clientWidth, scroll: helpAssignment.scrollWidth, overflow: getComputedStyle(helpAssignment).textOverflow } : null,
         outcome: helpOutcome ? { client: helpOutcome.clientWidth, scroll: helpOutcome.scrollWidth, overflow: getComputedStyle(helpOutcome).textOverflow, text: helpOutcome.textContent } : null,
       },
-      formCount: document.querySelectorAll('.agent-command-panel').length,
+      graphComposerCount: document.querySelectorAll('.agent-workflow-canvas .agent-command-panel').length,
       connectionPaths: document.querySelectorAll('.agent-workflow-edge').length,
     };
   })()`);
 }
 
 function assertWorkflow(metrics) {
-  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.selectedBeforeCommand || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesCommand || metrics.identityClipped || (metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport) || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.formCount !== 1 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && (!metrics.commandBeforeDownstream || !metrics.outputAfterCommand))) {
+  if (metrics.canvasOverflow || metrics.bodyOverflow || !metrics.progressVisible || !metrics.progressBeforeWorkflow || !metrics.progressNoOverflow || !metrics.progressHasCurrentStep || !metrics.progressHasActivity || !metrics.verticalOrder || !metrics.horizontalOrder || metrics.pathCrossesProgress || metrics.identityClipped || (metrics.tmuxShortcutVisible && !metrics.tmuxShortcutInsideViewport) || !metrics.helpCardInsideColumn || !metrics.helpTitleEllipsisReady || !metrics.helpAssignmentEllipsisReady || !metrics.helpOutcomeEllipsisReady || !metrics.helpTextTruncated || metrics.graphComposerCount !== 0 || metrics.connectionPaths !== 2 || ((metrics.stacked || metrics.hybrid) && !metrics.outputAfterSelected)) {
     throw new Error(`선택 AI 작업 흐름 배치가 올바르지 않습니다: ${JSON.stringify(metrics)}`);
   }
 }

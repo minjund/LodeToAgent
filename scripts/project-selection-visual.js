@@ -82,7 +82,11 @@ app.whenReady().then(async () => {
       });
       return {
         workspace: window.LoadToAgentApp.state.workspace,
-        prompt: prompt?.textContent.trim() || '',
+        prompt: prompt?.querySelector('h2')?.textContent.trim() || '',
+        designReady: Boolean(prompt?.querySelector('.project-selection-visual') && !prompt?.querySelector('.project-selection-flow')),
+        ongoingAnimations: [...(prompt?.querySelectorAll('.project-selection-orbit, .project-selection-stack, .project-selection-scan') || [])]
+          .filter(element => getComputedStyle(element).animationName !== 'none').length,
+        processingNavigationHidden: getComputedStyle(document.querySelector('#projectContextNav')).display === 'none',
         promptVisible: visible(prompt),
         projectCount: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
         projectActivityOrder: [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
@@ -116,7 +120,7 @@ app.whenReady().then(async () => {
       || initial.removableProjects < 1 || initial.sidebarAddOpensRun
       || !initial.settingsAboveProviders || initial.visibleSettingsButtons !== 1
       || !initial.settingsRemovedFromTools || !initial.projectListNoHorizontalOverflow
-      || !initial.projectInitialsMatch
+      || !initial.projectInitialsMatch || !initial.designReady || initial.ongoingAnimations < 3 || !initial.processingNavigationHidden
       || !initial.fixedProjectOrder
       || !['attention', 'live', 'idle'].every(priority => initial.projectOrder.some(project => project.priority === priority))
       || !activeProjectsFirst || initial.liveVisible || initial.operationsVisible) {
@@ -190,11 +194,26 @@ app.whenReady().then(async () => {
     const settingsHelpLayout = await win.webContents.executeJavaScript(`(() => {
       const shortcut = document.querySelector('#shortcutHelpBtn');
       const rect = shortcut?.getBoundingClientRect();
+      const projectList = document.querySelector('#projectSidebarList');
+      const projectTab = projectList?.querySelector('[data-workspace]');
+      const contextNav = document.querySelector('#projectContextNav');
+      const sidebar = document.querySelector('.sidebar');
+      const visible = element => Boolean(element
+        && getComputedStyle(element).display !== 'none'
+        && element.getBoundingClientRect().width > 0
+        && element.getBoundingClientRect().height > 0);
       return {
         helpCardRemoved: !document.querySelector('.settings-help-card'),
         shortcutInBrand: Boolean(shortcut?.closest('.brand')),
         shortcutWidth: rect?.width || 0,
         shortcutHeight: rect?.height || 0,
+        sidebarWidth: sidebar?.getBoundingClientRect().width || 0,
+        projectListVisible: visible(projectList),
+        projectTabVisible: visible(projectTab),
+        projectTabWidth: projectTab?.getBoundingClientRect().width || 0,
+        projectTabCount: projectList?.querySelectorAll('[data-workspace]').length || 0,
+        workTabsVisible: visible(contextNav),
+        workTabCount: [...(contextNav?.querySelectorAll('[data-view]') || [])].filter(visible).length,
         legacyHelpCopyVisible: [...document.querySelectorAll('h1, h2, h3, p, span, b, small')]
           .some(node => node.getClientRects().length && /도움말 및 상태|사용 안내와 앱 상태|기본 사용법 완료/.test(node.textContent || '')),
       };
@@ -205,8 +224,15 @@ app.whenReady().then(async () => {
       || settingsHelpLayout.shortcutHeight < 44
       || settingsHelpLayout.shortcutWidth > 48
       || settingsHelpLayout.shortcutHeight > 48
+      || settingsHelpLayout.sidebarWidth < 220
+      || !settingsHelpLayout.projectListVisible
+      || !settingsHelpLayout.projectTabVisible
+      || settingsHelpLayout.projectTabWidth < 160
+      || settingsHelpLayout.projectTabCount < 1
+      || !settingsHelpLayout.workTabsVisible
+      || settingsHelpLayout.workTabCount < 3
       || settingsHelpLayout.legacyHelpCopyVisible) {
-      throw new Error(`설정 도움말 제거·브랜드 단축키 배치 검증 실패: ${JSON.stringify(settingsHelpLayout)}`);
+      throw new Error(`설정 도움말 제거·탐색 탭·브랜드 단축키 배치 검증 실패: ${JSON.stringify(settingsHelpLayout)}`);
     }
     const settingsOutput = path.join(outputDir, 'loadtoagent-settings-with-brand-shortcut.png');
     await capture(win, settingsOutput);
@@ -214,8 +240,23 @@ app.whenReady().then(async () => {
     await waitFor(win, `!document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '브랜드 단축키 버튼이 키보드 도움말을 열지 못했습니다.');
     await win.webContents.executeJavaScript(`document.querySelector('#closeShortcutHelpBtn')?.click()`);
     await waitFor(win, `document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '키보드 도움말을 닫지 못했습니다.');
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('all')`);
-    await waitFor(win, `window.LoadToAgentApp.state.view === 'all'`, '설정 화면에서 프로젝트 선택 화면으로 돌아오지 못했습니다.');
+    const settingsReturnWorkspace = await win.webContents.executeJavaScript(`(() => {
+      const project = document.querySelector('#projectSidebarList [data-workspace]');
+      project?.click();
+      return project?.dataset.workspace || '';
+    })()`);
+    await waitFor(
+      win,
+      `window.LoadToAgentApp.state.view === 'all'
+        && window.LoadToAgentApp.state.workspace === ${JSON.stringify(settingsReturnWorkspace)}`,
+      '설정 화면의 왼쪽 프로젝트 탭으로 작업 화면에 돌아오지 못했습니다.',
+    );
+    await win.webContents.executeJavaScript(`(() => {
+      window.LoadToAgentApp.state.workspace = 'all';
+      window.LoadToAgentApp.renderWorkspaces();
+      window.LoadToAgentApp.renderSessions('filter');
+    })()`);
+    await waitFor(win, `window.LoadToAgentApp.state.view === 'all' && window.LoadToAgentApp.state.workspace === 'all'`, '프로젝트 선택 화면 복원에 실패했습니다.');
 
     const selectedWorkspace = await win.webContents.executeJavaScript(`(() => {
       const first = document.querySelector('#projectSidebarList [data-workspace]');

@@ -401,6 +401,15 @@
     overflow: hidden;
   }
 
+  .workflow-progress-layout {
+    grid-template-columns: minmax(0,1fr);
+  }
+
+  .workflow-progress-now {
+    border-right: 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
   .agent-workflow-grid {
     grid-template-columns: minmax(0,1fr);
     gap: 56px;
@@ -619,6 +628,68 @@
 
 /* Compact screens ≤ 640px: stack relationship cards and route connectors vertically. */
 @media (max-width:640px) {
+  .workflow-progress-panel {
+    margin-bottom: 18px;
+    border-radius: 13px;
+  }
+
+  .workflow-progress-head {
+    min-height: 0;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .workflow-progress-head h3 { font-size: 18px; }
+  .workflow-progress-status { width: 100%; box-sizing: border-box; }
+  .workflow-progress-now { padding: 14px; }
+
+  .workflow-progress-metrics {
+    grid-template-columns: repeat(2,minmax(0,1fr));
+  }
+
+  .workflow-progress-metrics > div:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .workflow-progress-activity > header {
+    align-items: flex-start;
+    padding: 11px 12px;
+  }
+
+  .workflow-progress-events > li {
+    grid-template-columns: 12px 62px minmax(0,1fr);
+    align-items: start;
+    gap: 6px 8px;
+    min-height: 72px;
+    padding: 10px 11px;
+  }
+
+  .workflow-progress-node {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    margin-top: 5px;
+  }
+
+  .workflow-progress-kind { grid-column: 2; grid-row: 1; }
+  .workflow-progress-event-copy { grid-column: 3; grid-row: 1; }
+  .workflow-progress-event-copy b,
+  .workflow-progress-event-copy small {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+  .workflow-progress-event-state { grid-column: 2; grid-row: 2; }
+  .workflow-progress-events time { grid-column: 3; grid-row: 2; justify-self: end; }
+
+  .workflow-progress-panel > footer {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 11px 12px;
+  }
+
   .execution-activity-card>summary {
     grid-template-columns: 30px minmax(0,1fr);
   }

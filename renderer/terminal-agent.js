@@ -61,6 +61,13 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     }
   }
 
+  function emitCommandDelivery(agentSession, target, deliveryState) {
+    if (typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
+    window.dispatchEvent(new CustomEvent('loadtoagent:terminal-command-delivery', {
+      detail: { sessionId: agentSession.id, target, deliveryState },
+    }));
+  }
+
   function tmuxRows(snapshot = state.snapshot) {
     const rows = [];
     for (const distro of snapshot && snapshot.tmux && snapshot.tmux.distros || []) {
@@ -181,6 +188,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     }
     if (!result || result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
     const deliveryState = normalizedDeliveryState(result);
+    emitCommandDelivery(agentSession, target, deliveryState);
     deliveryNotice(t(deliveryState === 'unknown'
       ? 'terminal.agent.delivery_uncertain'
       : 'terminal.agent.command_sent', { target: target.label }), deliveryState === 'unknown' ? 'warning' : 'success');
@@ -293,6 +301,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         terminalId: reusable.id,
       };
       const promptSent = Boolean(sendDraft && prompt && deliveryState === 'accepted');
+      if (sendDraft && prompt) emitCommandDelivery(agentSession, target, deliveryState);
       if (options.focus === false) return { ...target, promptSent, deliveryState, background: true, reused: true };
       try {
         state.mode = 'general';
@@ -371,6 +380,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       terminalId: created.id,
     };
     const promptSent = Boolean(sendDraft && prompt && deliveryState === 'accepted');
+    if (sendDraft && prompt) emitCommandDelivery(agentSession, target, deliveryState);
     if (options.focus === false) return {
       ...target,
       promptSent,

@@ -1,4 +1,4 @@
-@layer theme-critical, vendor, foundation, components, cards, overlays, features, product, management, quality, responsive, readability, control-room, philosophical, novice, rhythm, studio, polish, theme;
+@layer theme-critical, vendor, foundation, components, cards, overlays, features, product, management, quality, responsive, readability, control-room, philosophical, novice, rhythm, studio, polish, theme, drawer-terminal;
 
 @import url("styles-theme-critical.css") layer(theme-critical);
 @import url("../node_modules/@xterm/xterm/css/xterm.css") layer(vendor);
@@ -31,6 +31,7 @@
 @import url("styles-studio-shell.css") layer(studio);
 @import url("styles-polish.css") layer(polish);
 @import url("styles-theme.css") layer(theme);
+@import url("styles-drawer-terminal.css") layer(drawer-terminal);
 
 @layer control-room {
   .downstream-stack .child-session .agent-flow-session-title,

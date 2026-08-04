@@ -15,6 +15,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     conversationMessageKey,
   } = context;
 
+  function emitTerminalDelivery(sessionId, deliveryState, target = null) {
+    if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
+    window.dispatchEvent(new CustomEvent("loadtoagent:terminal-command-delivery", {
+      detail: { sessionId, target, deliveryState },
+    }));
+  }
+
   function agentCommandTargets(session) {
     try {
       return window.LoadToAgentTerminal && typeof window.LoadToAgentTerminal.agentTargets === "function"
@@ -234,7 +241,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         };
     const { route, targetSession, targets, available: routeAvailable } = routeContext;
     const mode = routingEnabled && !routeAvailable ? "ended" : agentControlMode(targetSession, targets);
-    const inputMode = options.conversation ? "conversation" : "terminal";
+    const inputMode = options.terminal ? "terminal" : options.conversation ? "conversation" : "terminal";
     const relayed = routingEnabled && route === "parent" && routeAvailable;
     const targetKey = agentCommandTargetKey(session, route);
     const savedTarget = state.agentCommandTargets.get(targetKey) || "";
@@ -356,9 +363,9 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         : actions;
       const showDraftCount = draft.length >= 7200;
       return `<div class="conversation-composer-shell mode-conversation">
-        <form class="agent-command-panel ${availabilityClass} control-${mode} conversation-composer"
+        <form class="agent-command-panel ${availabilityClass} control-${mode} conversation-composer ${options.terminal ? "terminal-conversation" : ""}"
           data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}"
-          data-agent-command-input-mode-selected="conversation" data-agent-command-routing="conversation"
+          data-agent-command-input-mode-selected="${esc(inputMode)}" data-agent-command-routing="conversation"
           data-agent-command-provider="${esc(session.provider)}" data-agent-send-available="${sendAvailable ? "true" : "false"}">
           <div class="conversation-slash-menu hidden" id="${esc(slashMenuId)}" data-conversation-slash-menu role="listbox"
             aria-label="${esc(t("terminal.slash.title", { provider: providerInfo(session.provider).label }))}">
@@ -368,12 +375,14 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
             </header>
             <div class="conversation-slash-menu-list" data-conversation-slash-list></div>
           </div>
+          ${options.terminal ? picker : ""}
           <label class="agent-command-input">
             <span class="sr-only">${esc(t("agent.command_sr"))}</span>
             <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="2"
               aria-controls="${esc(slashMenuId)}" aria-expanded="false" aria-autocomplete="list" aria-haspopup="listbox"
-              placeholder="${esc(t("agent.chat_placeholder"))}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
+              placeholder="${esc(t(options.terminal ? "drawer.terminal_placeholder" : "agent.chat_placeholder"))}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
           </label>
+          ${options.terminal ? `<small class="drawer-terminal-input-hint"><span>${esc(t("drawer.terminal_raw_input"))}</span><span>${esc(t("drawer.terminal_shortcuts"))}</span></small>` : ""}
           <div class="agent-command-actions">
             <span class="conversation-draft-count ${showDraftCount ? "" : "hidden"}" data-conversation-draft-count
               aria-live="polite">${esc(t("agent.input_count", { count: draft.length.toLocaleString() }))}</span>
@@ -537,12 +546,14 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
             ? deliveryStateOf(transportError)
             : deliveryStateOf(resumedTarget, "accepted");
           if (deliveryState === "rejected") {
+            if (inputMode === "terminal") emitTerminalDelivery(sessionId, "rejected", resumedTarget);
             settleCommandDelivery(deliveryKey, deliveryId, "rejected");
             removePendingConversation(sessionId, pendingMessage);
             context.toast(t("agent.delivery_retry_ready"));
             return;
           }
           if (transportError || resumedTarget?.deliveryState === "unknown") {
+            if (inputMode === "terminal") emitTerminalDelivery(sessionId, "unknown", resumedTarget);
             settleCommandDelivery(deliveryKey, deliveryId, "unknown");
             updateConversationMessage(
               sessionId,
@@ -633,12 +644,14 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         ? deliveryStateOf(transportError)
         : deliveryStateOf(dispatched, "accepted");
       if (deliveryState === "rejected") {
+        if (inputMode === "terminal") emitTerminalDelivery(sessionId, "rejected", dispatched?.target || dispatched || target);
         settleCommandDelivery(deliveryKey, deliveryId, "rejected");
         removePendingConversation(sessionId, pendingMessage);
         context.toast(t("agent.delivery_retry_ready"));
         return;
       }
       if (transportError || dispatched?.deliveryState === "unknown") {
+        if (inputMode === "terminal") emitTerminalDelivery(sessionId, "unknown", dispatched?.target || dispatched || target);
         settleCommandDelivery(deliveryKey, deliveryId, "unknown");
         updateConversationMessage(
           sessionId,

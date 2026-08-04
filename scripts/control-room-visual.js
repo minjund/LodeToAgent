@@ -58,7 +58,7 @@ app.whenReady().then(async () => {
     );
     const initialSelectionMetrics = await win.webContents.executeJavaScript(`(() => ({
       workspace: window.LoadToAgentApp.state.workspace,
-      prompt: document.querySelector('#projectSelectionPrompt')?.textContent.trim() || '',
+      prompt: document.querySelector('#projectSelectionPrompt h2')?.textContent.trim() || '',
       projectCount: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
       liveHidden: document.querySelector('#liveSection')?.classList.contains('hidden'),
       operationsHidden: document.querySelector('#operationsOverview')?.classList.contains('hidden'),
@@ -600,33 +600,28 @@ app.whenReady().then(async () => {
       win,
       `document.querySelector('#detailDrawer')?.classList.contains('open')
         && document.querySelector('#detailDrawer')?.dataset.mode === 'subagent'
-        && Boolean(document.querySelector('.subagent-assignment-card'))
-        && Boolean(document.querySelector('#drawerComposer .agent-command-panel'))`,
-      '서브에이전트 대화와 참여 입력창이 열리지 않았습니다.',
+        && document.querySelector('#drawerComposer')?.classList.contains('hidden')
+        && Boolean(document.querySelector('#drawerContent .chat-row.assistant'))`,
+      '서브에이전트의 실제 응답을 보여주는 읽기 전용 상세가 열리지 않았습니다.',
     );
 
     const drawerMetrics = await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
-      const assignment = drawer.querySelector('.subagent-assignment-card')?.innerText || '';
       const child = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-child');
-      const form = drawer.querySelector('[data-agent-command-form="fixture-child"]');
       return {
         mode: drawer.dataset.mode,
         presentation: drawer.dataset.presentation,
         contextPanelOpen: document.body.classList.contains('conversation-context-open')
           && !document.querySelector('#appShell')?.inert
           && document.querySelector('#drawerBackdrop')?.classList.contains('hidden'),
-        assignmentVisible: assignment.includes('담당 AI가 나눠 맡긴 작업')
-          && Boolean(drawer.querySelector('.subagent-assignment-card p')?.textContent.trim()),
+        protectedAssignmentHidden: !drawer.querySelector('.subagent-assignment-card')
+          && !drawer.innerText.includes('실제로 보낸 작업 지시는')
+          && !drawer.innerText.includes('도움 AI에게 일을 맡기기 직전'),
         conversationMessages: drawer.querySelectorAll('.chat-row').length,
         routeControlsHidden: drawer.querySelectorAll('[data-agent-command-route]').length === 0,
-        automaticRoute: form?.dataset.agentCommandRouteSelected || '',
-        composerVisible: !document.querySelector('#drawerComposer')?.classList.contains('hidden'),
-        defaultInputMode: form?.dataset.agentCommandInputModeSelected || '',
-        simpleComposer: Boolean(form?.querySelector('[data-agent-command-draft]'))
-          && !drawer.querySelector('.conversation-terminal-toggle, .conversation-terminal-expanded, [data-agent-command-count], .agent-command-actions > small'),
+        composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden')
+          && !drawer.querySelector('[data-agent-command-form="fixture-child"], [data-agent-command-draft="fixture-child"]'),
         focusControlRemoved: !document.querySelector('#drawerFocusModeBtn'),
-        emptyTargetDisabled: Boolean(drawer.querySelector('[data-agent-command-form="fixture-child"] button[type="submit"]')?.disabled),
         runtimePresence: child?.runtimePresence || [],
         directTargets: window.LoadToAgentTerminal?.agentTargets(child) || [],
         scope: drawer.querySelector('[data-conversation-scope]')?.dataset.conversationScope || '',
@@ -636,38 +631,10 @@ app.whenReady().then(async () => {
       };
     })()`);
     if (drawerMetrics.mode !== 'subagent' || drawerMetrics.presentation !== 'context' || !drawerMetrics.contextPanelOpen
-      || !drawerMetrics.assignmentVisible || drawerMetrics.conversationMessages < 1
-      || !drawerMetrics.routeControlsHidden || drawerMetrics.automaticRoute !== 'direct'
-      || !drawerMetrics.composerVisible || drawerMetrics.defaultInputMode !== 'conversation'
-      || !drawerMetrics.simpleComposer || !drawerMetrics.focusControlRemoved || !drawerMetrics.emptyTargetDisabled
+      || !drawerMetrics.protectedAssignmentHidden || drawerMetrics.conversationMessages < 1
+      || !drawerMetrics.routeControlsHidden || !drawerMetrics.composerHidden || !drawerMetrics.focusControlRemoved
       || drawerMetrics.scope !== 'subagent-only' || !drawerMetrics.childWorkVisible || !drawerMetrics.parentConversationHidden || !drawerMetrics.noDrawerOverflow) {
-      throw new Error(`서브에이전트 대화 참여 검증 실패: ${JSON.stringify(drawerMetrics)}`);
-    }
-
-    await win.webContents.executeJavaScript(`(() => {
-      window.interactionTest.clearCalls();
-      const input = document.querySelector('#drawerComposer [data-agent-command-draft]');
-      input.value = '서브에이전트에게만 직접 전달할 메시지';
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.closest('form').requestSubmit();
-    })()`);
-    await waitFor(
-      win,
-      `window.interactionTest.getCalls().some(call => call.name === 'terminalCommand'
-        && call.args[0] === 'terminal-race-a'
-        && call.args[1] === '서브에이전트에게만 직접 전달할 메시지')`,
-      '서브에이전트 직접 지시가 해당 서브에이전트 입력 채널로 전달되지 않았습니다.',
-    );
-    const directRouteMetrics = await win.webContents.executeJavaScript(`(() => {
-      const calls = window.interactionTest.getCalls().filter(call => call.name === 'terminalCommand');
-      return {
-        childCalls: calls.filter(call => call.args[0] === 'terminal-race-a').length,
-        parentCalls: calls.filter(call => call.args[0] === 'terminal-main').length,
-        selectedRoute: document.querySelector('#detailDrawer [data-agent-command-form]')?.dataset.agentCommandRouteSelected || '',
-      };
-    })()`);
-    if (directRouteMetrics.childCalls !== 1 || directRouteMetrics.parentCalls !== 0 || directRouteMetrics.selectedRoute !== 'direct') {
-      throw new Error(`서브에이전트 직접 전달 경로 검증 실패: ${JSON.stringify(directRouteMetrics)}`);
+      throw new Error(`서브에이전트 실제 응답 상세 검증 실패: ${JSON.stringify(drawerMetrics)}`);
     }
 
     await wait(180);

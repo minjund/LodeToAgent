@@ -8,27 +8,27 @@
   const tmuxTargetKey = (distroName, paneId) => JSON.stringify([String(distroName || ''), String(paneId || '')]);
   const XTERM_THEMES = Object.freeze({
     dark: Object.freeze({
-      background: '#0a0910',
-      foreground: '#ece8f4',
-      cursor: '#aaa0ff',
-      cursorAccent: '#171620',
-      selectionBackground: '#39345a',
-      black: '#171620',
+      background: '#030304',
+      foreground: '#f0f0f2',
+      cursor: '#f4f4f5',
+      cursorAccent: '#09090b',
+      selectionBackground: '#3a3a40',
+      black: '#111113',
       red: '#ff7b91',
       green: '#4dd2a2',
       yellow: '#f1b95f',
       blue: '#76b7f3',
       magenta: '#c69af4',
       cyan: '#73c7d4',
-      white: '#d4cfda',
-      brightBlack: '#7e788a',
+      white: '#d6d6da',
+      brightBlack: '#7f7f89',
       brightRed: '#ffa0ae',
       brightGreen: '#7be0b8',
       brightYellow: '#f5d18a',
       brightBlue: '#9bcbfa',
       brightMagenta: '#dcb6fa',
       brightCyan: '#98dee5',
-      brightWhite: '#faf8fc',
+      brightWhite: '#ffffff',
     }),
     light: Object.freeze({
       background: '#f3f0ea',
@@ -132,6 +132,11 @@
     terminalFontSize: terminalViewPreferences.fontSize,
     pendingInputFocusId: '',
     terminalFocusMode: false,
+    embeddedTerminalId: '',
+    embeddedAgentSessionId: '',
+    embeddedMount: null,
+    embeddedResizeObserver: null,
+    embeddedGeneration: 0,
     pendingPrompts: new Map(),
     promptDismissals: new Map(),
     promptRefreshInFlight: false,
@@ -773,6 +778,125 @@
     syncComposer: (...args) => composer?.sync(...args),
   });
 
+  function detachEmbedded() {
+    state.embeddedResizeObserver?.disconnect();
+    state.embeddedResizeObserver = null;
+    const terminalId = state.embeddedTerminalId;
+    const entry = terminalId ? state.terminals.get(terminalId) : null;
+    const terminalViewport = $('#terminalViewport');
+    if (entry?.host) {
+      entry.host.classList.add('hidden');
+      if (terminalViewport && entry.host.parentElement !== terminalViewport) terminalViewport.appendChild(entry.host);
+    }
+    state.embeddedTerminalId = '';
+    state.embeddedAgentSessionId = '';
+    state.embeddedMount = null;
+  }
+
+  function unmountEmbedded() {
+    state.embeddedGeneration += 1;
+    detachEmbedded();
+  }
+
+  async function mountForAgent(agentSession, options = {}) {
+    const mount = options.mount;
+    if (!agentSession?.id || !mount?.appendChild) {
+      return { ok: false, reason: 'invalid-mount', targets: [] };
+    }
+    const generation = ++state.embeddedGeneration;
+    await init();
+    if (generation !== state.embeddedGeneration) {
+      return { ok: false, reason: 'cancelled', targets: [] };
+    }
+    const requestedTargetId = String(options.targetId || '');
+    const current = state.embeddedTerminalId
+      && state.embeddedAgentSessionId === agentSession.id
+      && state.embeddedMount === mount
+      ? state.terminals.get(state.embeddedTerminalId)
+      : null;
+    if (current && (!requestedTargetId || requestedTargetId === state.embeddedTerminalId)) {
+      current.host.classList.remove('hidden');
+      fitEntry(current, state.embeddedTerminalId);
+      const targets = agentTargets(agentSession);
+      const target = targets.find(item => item.id === state.embeddedTerminalId) || {
+        id: state.embeddedTerminalId,
+        kind: 'terminal',
+        terminalId: state.embeddedTerminalId,
+      };
+      return {
+        ok: true,
+        reused: true,
+        target,
+        targets,
+        terminal: state.sessions.find(item => item.id === state.embeddedTerminalId) || null,
+      };
+    }
+
+    detachEmbedded();
+    let targets = agentTargets(agentSession);
+    if (!targets.length) {
+      await refreshSessions();
+      if (generation !== state.embeddedGeneration) return { ok: false, reason: 'cancelled', targets: [] };
+      targets = agentTargets(agentSession);
+    }
+    const requested = requestedTargetId ? targets.find(item => item.id === requestedTargetId) : null;
+    const target = requested || targets.find(item => item.kind === 'terminal') || targets[0] || null;
+    if (!target) return { ok: false, reason: 'no-target', targets };
+    if (target.kind !== 'terminal') return { ok: false, reason: 'tmux-readonly', target, targets };
+
+    const terminalId = String(target.terminalId || target.id || '');
+    if (target.reconnectable) {
+      const reconnected = await window.loadtoagent.terminalReconnect(terminalId);
+      if (!reconnected || reconnected.ok === false) throw new Error(reconnected?.error || t('agent.reconnect_failed'));
+      if (generation !== state.embeddedGeneration) {
+        return { ok: false, reason: 'cancelled', target, targets };
+      }
+      await refreshSessions();
+      if (generation !== state.embeddedGeneration) {
+        return { ok: false, reason: 'cancelled', target, targets };
+      }
+    }
+    const terminalSession = state.sessions.find(item => item.id === terminalId) || { id: terminalId };
+    const entry = await ensureSessionTerminal(terminalSession);
+    if (generation !== state.embeddedGeneration || !mount.isConnected) {
+      return { ok: false, reason: 'cancelled', target, targets };
+    }
+    state.embeddedTerminalId = terminalId;
+    state.embeddedAgentSessionId = agentSession.id;
+    state.embeddedMount = mount;
+    mount.appendChild(entry.host);
+    entry.host.classList.remove('hidden');
+    if ('ResizeObserver' in window) {
+      state.embeddedResizeObserver = new ResizeObserver(() => fitEntry(entry, terminalId));
+      state.embeddedResizeObserver.observe(mount);
+    }
+    fitEntry(entry, terminalId);
+    if (options.focus) requestAnimationFrame(() => entry.terminal.focus());
+    return {
+      ok: true,
+      reused: false,
+      target,
+      targets,
+      terminal: state.sessions.find(item => item.id === terminalId) || terminalSession,
+    };
+  }
+
+  function embeddedState() {
+    const entry = state.embeddedTerminalId ? state.terminals.get(state.embeddedTerminalId) : null;
+    return {
+      agentSessionId: state.embeddedAgentSessionId,
+      terminalId: state.embeddedTerminalId,
+      connected: Boolean(entry?.host && state.embeddedMount && entry.host.parentElement === state.embeddedMount),
+    };
+  }
+
+  function focusEmbedded() {
+    const entry = state.embeddedTerminalId ? state.terminals.get(state.embeddedTerminalId) : null;
+    if (!entry || entry.host.classList.contains('hidden')) return false;
+    entry.terminal.focus();
+    return true;
+  }
+
   function pendingPromptForSession(sessionOrId) {
     const id = typeof sessionOrId === 'object' ? sessionOrId?.id : sessionOrId;
     return state.pendingPrompts.get(String(id || '')) || null;
@@ -923,6 +1047,7 @@
   }
 
   async function activate(snapshot, workspaces, mode = 'general') {
+    if (state.embeddedAgentSessionId) unmountEmbedded();
     const nextMode = mode === 'tmux' ? 'tmux' : 'general';
     const enteringMode = !state.active || state.mode !== nextMode;
     state.active = true;
@@ -1136,6 +1261,10 @@
     openForAgent,
     resumeForAgent,
     resetForAgent,
+    mountForAgent,
+    unmountEmbedded,
+    embeddedState,
+    focusEmbedded,
     pendingPromptForSession,
     respondToPrompt,
     refreshPendingPrompts: () => schedulePendingPromptRefresh(true),

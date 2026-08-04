@@ -62,7 +62,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) rememberUserScroll();
       }, true);
       terminal.onData(data => {
-        if (state.selectedId !== key) return;
+        if (state.selectedId !== key && state.embeddedTerminalId !== key) return;
         entry.writeQueue = entry.writeQueue
           .then(() => window.loadtoagent.terminalWrite(key, data))
           .catch(error => notice(errorMessage(error), 'error'));

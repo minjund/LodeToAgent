@@ -1646,16 +1646,21 @@ body details.control-room-project-group > summary.control-project-header {
 .control-node-copy small,
 .control-node-copy b,
 .control-node-copy em {
-  display: block;
+  display: -webkit-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.3;
   white-space: normal;
   word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
 }
 
 .control-node-copy small {
   color: #76869a;
   font-size: 12px;
   font-style: normal;
+  -webkit-line-clamp: 2;
 }
 
 .control-node-copy b {
@@ -1663,6 +1668,7 @@ body details.control-room-project-group > summary.control-project-header {
   color: #d6e0e8;
   font-size: 13px;
   line-height: 1.35;
+  -webkit-line-clamp: 3;
 }
 
 .control-node-copy em {
@@ -1670,6 +1676,7 @@ body details.control-room-project-group > summary.control-project-header {
   color: #78889b;
   font-size: 12px;
   font-style: normal;
+  -webkit-line-clamp: 2;
 }
 
 .control-node-state {
