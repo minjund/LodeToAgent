@@ -5,6 +5,13 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.7 - 2026-08-04
+
+- Match result-review cards, status controls, and embedded AI command panels to
+  the active light or dark theme instead of retaining dark-only surfaces.
+- Improve empty-state and action contrast, and expand automated theme coverage
+  across management summaries in both appearances.
+
 ## 1.6.6 - 2026-08-03
 
 - Keep past-session details aligned with the latest observed idle state so an
