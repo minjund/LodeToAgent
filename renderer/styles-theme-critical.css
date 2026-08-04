@@ -1,0 +1,151 @@
+/*
+ * Important theme contract
+ * ------------------------
+ * Cascade-layer priority is reversed for !important declarations. Keep this
+ * layer first and limit it to legacy important colors that would otherwise
+ * bypass the final semantic theme layer. Layout never belongs here.
+ */
+
+html[data-theme] [aria-invalid="true"] {
+  border-color: var(--theme-danger) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-danger) 16%, transparent) !important;
+}
+
+html[data-theme] :where(
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  summary,
+  [role="button"],
+  [tabindex]
+):focus-visible {
+  box-shadow: 0 0 0 6px var(--theme-focus-ring) !important;
+}
+
+/* Readability owns the type floor with !important legacy colors. Keep that
+ * sizing contract while routing the color through the active palette. */
+html[data-theme] body small,
+html[data-theme] body :is(time, dt, dd) {
+  color: var(--theme-text-muted) !important;
+}
+
+/* Semantic status surfaces need stronger copy than the global metadata tone. */
+html[data-theme] .project-sidebar-group.has-attention :is(
+  .project-sidebar-copy small,
+  .project-sidebar-attention small
+) {
+  color: var(--theme-text-secondary) !important;
+}
+
+html[data-theme] .runtime-now-strip time {
+  color: var(--theme-text-secondary) !important;
+}
+
+html[data-theme] .subagent-call-copy .subagent-call-timing {
+  color: var(--theme-warning) !important;
+}
+
+/* A composite search field gets one focus affordance, not nested teal/violet
+ * rings from the input and its container. */
+html[data-theme] .quality-search:focus-within {
+  border-color: var(--theme-accent) !important;
+  box-shadow: 0 0 0 3px var(--theme-focus-ring) !important;
+}
+
+html[data-theme] .quality-search input:focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Legacy terminal controls use important dark fills in both modes. */
+html[data-theme] .terminal-computer-input-button {
+  border-color: var(--theme-accent-border) !important;
+  background: var(--theme-accent-soft) !important;
+  color: var(--theme-accent-strong) !important;
+}
+
+html[data-theme] body[data-current-view="terminal"] .terminal-command-submit:disabled {
+  border-color: var(--terminal-border) !important;
+  background: var(--theme-surface-muted) !important;
+  color: var(--theme-text-muted) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme] .chat-delivery-status {
+  color: var(--theme-success) !important;
+}
+
+html[data-theme] :is(
+  .chat-delivery-status.confirming,
+  .chat-delivery-status.received,
+  .chat-delivery-status.responding
+) {
+  color: var(--theme-info) !important;
+}
+
+html[data-theme] :is(.chat-delivery-status.delayed, .chat-delivery-status.uncertain) {
+  color: var(--theme-warning) !important;
+}
+
+html[data-theme] :is(.chat-delivery-status.failed, .chat-delivery-status.interrupted) {
+  color: var(--theme-danger) !important;
+}
+
+html[data-theme] :is(.global-stat > span, .operations-metrics span) {
+  color: var(--theme-text-secondary) !important;
+}
+
+html[data-theme] .guide-time {
+  color: var(--theme-accent-strong) !important;
+}
+
+html[data-theme] .sync-state.connection-error small {
+  color: var(--theme-danger) !important;
+}
+
+html[data-theme] .approval-action-effect {
+  color: var(--theme-text-secondary) !important;
+}
+
+html[data-theme] .approval-action-effect b {
+  color: var(--theme-accent-strong) !important;
+}
+
+html[data-theme] #newRunBtn,
+html[data-theme] #newRunBtn :is(
+  .new-run-cta-icon,
+  .new-run-cta-copy,
+  .new-run-cta-copy b,
+  .new-run-cta-copy small,
+  .new-run-cta-copy kbd
+) {
+  color: var(--theme-on-home-action) !important;
+}
+
+html[data-theme] #newRunBtn kbd {
+  background: color-mix(in srgb, var(--theme-on-home-action) 8%, transparent) !important;
+}
+
+html[data-theme] .attention-primary-action {
+  border-color: var(--theme-accent-border) !important;
+  background: var(--theme-accent-soft) !important;
+  color: var(--theme-accent-strong) !important;
+}
+
+html[data-theme] .attention-primary-action :is(b, strong, span, small, em, i) {
+  color: inherit !important;
+}
+
+html[data-theme] body[data-current-view="active"] .memory-record.review-pending .memory-record-open {
+  color: var(--theme-accent-strong) !important;
+}
+
+html[data-theme] .version-connector i {
+  background: var(--theme-success-border) !important;
+}
+
+html[data-theme] button:disabled .conversation-send-label {
+  color: var(--theme-text-secondary) !important;
+}

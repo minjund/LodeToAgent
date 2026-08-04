@@ -5,6 +5,15 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.8 - 2026-08-04
+
+- Rebuild the light and dark palettes so terminal, tmux, drawers, graphs,
+  settings, runtime states, and mobile controls consistently follow the active
+  appearance without opposite-theme surfaces leaking through.
+- Standardize selection and semantic status colors, raise small-text contrast,
+  and add interaction-state theme auditing for hidden loading, error, history,
+  permission, update, and mobile states.
+
 ## 1.6.7 - 2026-08-04
 
 - Match result-review cards, status controls, and embedded AI command panels to

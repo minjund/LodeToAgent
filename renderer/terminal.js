@@ -6,6 +6,59 @@
   const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
   const TERMINAL_VIEW_KEY = 'loadtoagent:terminal-view:v1';
   const tmuxTargetKey = (distroName, paneId) => JSON.stringify([String(distroName || ''), String(paneId || '')]);
+  const XTERM_THEMES = Object.freeze({
+    dark: Object.freeze({
+      background: '#0a0910',
+      foreground: '#ece8f4',
+      cursor: '#aaa0ff',
+      cursorAccent: '#171620',
+      selectionBackground: '#39345a',
+      black: '#171620',
+      red: '#ff7b91',
+      green: '#4dd2a2',
+      yellow: '#f1b95f',
+      blue: '#76b7f3',
+      magenta: '#c69af4',
+      cyan: '#73c7d4',
+      white: '#d4cfda',
+      brightBlack: '#7e788a',
+      brightRed: '#ffa0ae',
+      brightGreen: '#7be0b8',
+      brightYellow: '#f5d18a',
+      brightBlue: '#9bcbfa',
+      brightMagenta: '#dcb6fa',
+      brightCyan: '#98dee5',
+      brightWhite: '#faf8fc',
+    }),
+    light: Object.freeze({
+      background: '#f3f0ea',
+      foreground: '#26221f',
+      cursor: '#6254d9',
+      cursorAccent: '#ffffff',
+      selectionBackground: '#ddd6fa',
+      black: '#24211f',
+      red: '#bc2f4a',
+      green: '#0b7658',
+      yellow: '#9a5a00',
+      blue: '#25669c',
+      magenta: '#7a4fa2',
+      cyan: '#24788c',
+      white: '#68616f',
+      brightBlack: '#6f6861',
+      brightRed: '#a42e49',
+      brightGreen: '#075f47',
+      brightYellow: '#794409',
+      brightBlue: '#254f82',
+      brightMagenta: '#643b8a',
+      brightCyan: '#1a6576',
+      brightWhite: '#24211f',
+    }),
+  });
+
+  function xtermTheme() {
+    const name = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+    return { ...XTERM_THEMES[name] };
+  }
 
   function loadSessionOrder() {
     try {
@@ -683,18 +736,14 @@
       letterSpacing: -2,
       lineHeight: state.terminalFontSize >= 17 ? 1.32 : 1.28,
       scrollback: 10_000,
-      theme: {
-        background: '#080c12',
-        foreground: '#dce6ef',
-        cursor: '#5de5ba',
-        cursorAccent: '#080c12',
-        selectionBackground: '#28475c',
-        black: '#0c1119', red: '#ff7486', green: '#5de5a5', yellow: '#f4c66a',
-        blue: '#68aef5', magenta: '#c790f5', cyan: '#60dbea', white: '#d6e0e9',
-        brightBlack: '#657286', brightRed: '#ff93a1', brightGreen: '#83efbd', brightYellow: '#f7d891',
-        brightBlue: '#90c3fa', brightMagenta: '#d9b1fa', brightCyan: '#8ae8f1', brightWhite: '#f4f7fa',
-      },
+      theme: xtermTheme(),
     };
+  }
+
+  function syncXtermTheme() {
+    for (const entry of [...state.terminals.values(), state.remoteTerminal].filter(Boolean)) {
+      entry.terminal.options.theme = xtermTheme();
+    }
   }
 
   const {
@@ -1101,5 +1150,6 @@
     syncTerminalViewControls();
     renderAll();
   });
+  window.addEventListener('loadtoagent:theme-changed', syncXtermTheme);
   init().catch(error => notice(t('terminal.error.initialization_failed', { message: errorMessage(error) }), 'error'));
 })();

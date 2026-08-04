@@ -78,6 +78,15 @@ body[data-current-view="all"] .project-task-toolbar {
   top: auto;
 }
 
+/* The home attention renderer now mounts its strip directly in this section.
+ * Keeping the section as `display: contents` turns the strip into a shrinkable
+ * flex item, so its visible result card escapes the reported section height
+ * and the following project toolbar is laid out on top of it. Restore a real
+ * container box so the complete attention card participates in document flow. */
+body[data-current-view="all"] #operationsOverview {
+  display: block;
+}
+
 #projectContextNav > .project-context-identity {
   display: none;
 }

@@ -321,6 +321,8 @@ const BUTTON_AUDIT_EXPRESSION = `(() => {
       effectiveBackground: 'rgb(' + background.r + ', ' + background.g + ', ' + background.b + ')',
       contrast: foreground ? Number(contrast(foreground, background).toFixed(2)) : 0,
       backgroundImage: style.backgroundImage,
+      borderColor: style.borderColor,
+      boxShadow: style.boxShadow,
       fontWeight: Number(style.fontWeight) || style.fontWeight,
       lineHeight: style.lineHeight,
     };
@@ -424,9 +426,31 @@ app.whenReady().then(async () => {
       }
       if (theme === 'light' && audit.contracts.firstAttention) {
         const background = audit.contracts.firstAttention.backgroundColor;
-        if (!/^rgb\(255, 248, 246\)$/.test(background)) {
-          contractFailures.push('라이트 테마의 우선 확인 카드가 밝은 전용 배경을 사용하지 않습니다.');
+        const border = audit.contracts.firstAttention.borderColor;
+        const shadow = audit.contracts.firstAttention.boxShadow;
+        if (
+          !/^rgb\(250, 247, 241\)$/.test(background)
+          || !/^rgb\(230, 189, 112\)$/.test(border)
+          || shadow === 'none'
+        ) {
+          contractFailures.push('라이트 테마의 우선 확인 카드가 중립 표면과 경고 레일을 함께 사용하지 않습니다.');
         }
+      }
+      if (
+        audit.contracts.homeAttention
+        && audit.contracts.firstAttention
+        && audit.contracts.firstAttention.top + audit.contracts.firstAttention.height
+          > audit.contracts.homeAttention.top + audit.contracts.homeAttention.height + 1.5
+      ) {
+        contractFailures.push('우선 확인 카드가 확인 결과 영역의 높이를 넘어 다음 영역과 겹칩니다.');
+      }
+      if (
+        audit.contracts.firstAttention
+        && audit.contracts.newRun
+        && audit.contracts.newRun.top
+          < audit.contracts.firstAttention.top + audit.contracts.firstAttention.height - 1.5
+      ) {
+        contractFailures.push('현재 프로젝트 작업 바가 우선 확인 카드 위를 덮습니다.');
       }
     }
     if (label === 'waiting' && audit.contracts.newRun && audit.contracts.newRun.display !== 'none' && audit.contracts.newRun.width > 0) {
