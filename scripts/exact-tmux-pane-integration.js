@@ -188,7 +188,7 @@ async function runStage(name, operation) {
 }
 
 function unique(label) {
-  return `LTA_${label}_${runId}_${Math.random().toString(16).slice(2)}`;
+  return `LTA_${label}_${runId}_${crypto.randomBytes(8).toString('hex')}`;
 }
 
 function terminalOutput(id) {
@@ -373,7 +373,7 @@ async function waitForNotRunning(id, timeoutMs = 8_000) {
 }
 
 async function acceptedCommand(id, text, label) {
-  const deliveryId = `e2e-${label}-${runId}-${Math.random().toString(16).slice(2)}`;
+  const deliveryId = `e2e-${label}-${runId}-${crypto.randomBytes(8).toString('hex')}`;
   const pending = manager.command(id, text, { deliveryId });
   assert(pending && typeof pending.then === 'function', `${label}: exact-pane command did not wait for proxy ACK`);
   const result = await abortable(pending);
@@ -385,7 +385,7 @@ async function rejectedCommand(id, text, label) {
   let rejection = null;
   try {
     await abortable(Promise.resolve(manager.command(id, text, {
-      deliveryId: `e2e-reject-${label}-${runId}-${Math.random().toString(16).slice(2)}`,
+      deliveryId: `e2e-reject-${label}-${runId}-${crypto.randomBytes(8).toString('hex')}`,
     })));
   } catch (error) {
     rejection = error;
@@ -496,7 +496,7 @@ async function closeTerminal(id, ignoreAbort = false) {
 
 async function testStableExactPane() {
   const fixture = createFixture('stable', { extraWindows: 2 });
-  const startupPrefix = `CUT${Math.random().toString(36).slice(2, 10)}`;
+  const startupPrefix = `CUT${crypto.randomBytes(6).toString('hex')}`;
   tmux(['send-keys', '-t', fixture.target, '-l',
     `for i in $(seq 1 20); do printf '${startupPrefix}_%02d\\n' "$i"; sleep 0.12; done`]);
   tmux(['send-keys', '-t', fixture.target, 'Enter']);
@@ -520,8 +520,8 @@ async function testStableExactPane() {
     `proxy resize polluted the original pane size: before=${originalSize}, after=${resizedOriginal}`);
   const sourceWidth = Number(originalSize.split('x')[0]);
   assert(Number.isSafeInteger(sourceWidth) && sourceWidth > 20, `invalid source pane width: ${originalSize}`);
-  const wrapHead = `WB${Math.random().toString(36).slice(2, 10)}`;
-  const wrapTail = `WN${Math.random().toString(36).slice(2, 10)}`;
+  const wrapHead = `WB${crypto.randomBytes(6).toString('hex')}`;
+  const wrapTail = `WN${crypto.randomBytes(6).toString('hex')}`;
   const wrapPayload = `${wrapHead}${'W'.repeat(sourceWidth - wrapHead.length)}${wrapTail}`;
   await acceptedCommand(id, `printf '\\r%s\\n' '${wrapPayload}'`, 'resize-wrap');
   assert(await waitUntil(() => terminalOutput(id).includes(wrapTail)), 'resize wrap sentinel was not forwarded');
@@ -591,8 +591,8 @@ async function testStableExactPane() {
   assert(manager.get(id)?.cols === structuralCols && manager.get(id)?.rows === structuralRows,
     'fixed-grid terminal dimensions diverged after post-layout resize');
 
-  const newWrapHead = `SB${Math.random().toString(36).slice(2, 10)}`;
-  const newWrapTail = `SN${Math.random().toString(36).slice(2, 10)}`;
+  const newWrapHead = `SB${crypto.randomBytes(6).toString('hex')}`;
+  const newWrapTail = `SN${crypto.randomBytes(6).toString('hex')}`;
   const newWrapPayload = `${newWrapHead}${'S'.repeat(structuralCols - newWrapHead.length)}${newWrapTail}`;
   await acceptedCommand(id, `printf '\\r%s\\n' '${newWrapPayload}'`, 'structural-wrap');
   assert(await waitUntil(() => terminalOutput(id).includes(newWrapTail)), 'updated-grid wrap sentinel was not forwarded');

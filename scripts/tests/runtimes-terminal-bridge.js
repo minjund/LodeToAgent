@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
@@ -4803,7 +4804,12 @@ function registerTerminalFailureTests(context) {
     assert.ok(/powershell|pwsh/i.test(spec.file));
     assert.deepStrictEqual(spec.args.slice(-3), [shim, 'resume', 'session-id']);
 
-    const batchDir = path.join(temp, 'windows-agent-batch-bin', 'node_modules', '.bin');
+    // Keep the real cmd.exe injection regression independent from environment-
+    // derived temp paths. The command under test still receives hostile argv,
+    // but every executable and fixture path used by this test is rooted in the
+    // checked-out repository.
+    const batchSandbox = path.join(root, 'artifacts', `windows-agent-batch-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+    const batchDir = path.join(batchSandbox, 'node_modules', '.bin');
     fs.mkdirSync(batchDir, { recursive: true });
     const captureFile = path.join(batchDir, 'captured-args.json');
     const injectedFile = path.join(batchDir, 'batch-injected.txt');
@@ -4842,6 +4848,7 @@ function registerTerminalFailureTests(context) {
     assert.equal(batchSpec.args.includes('x&whoami'), false);
     const commandLine = batchSpec.args.slice('/d /v:off /s /c '.length);
     assert.equal(['/d', '/v:off', '/s', '/c', commandLine].join(' '), batchSpec.args);
+    const trustedCmd = 'C:\\Windows\\System32\\cmd.exe';
     if (process.platform === 'win32') {
       // node-pty treats a string args value as an already assembled command
       // line. spawnSync below uses the identical tail verbatim, so the real
@@ -4851,7 +4858,8 @@ function registerTerminalFailureTests(context) {
         nodePtyArgsToCommandLine(batchSpec.file, batchSpec.args),
         `${nodePtyArgsToCommandLine(batchSpec.file, [])} ${batchSpec.args}`,
       );
-      const launched = spawnSync(batchSpec.file, ['/d', '/v:off', '/s', '/c', commandLine], {
+      assert.equal(path.win32.normalize(batchSpec.file).toLowerCase(), path.win32.normalize(trustedCmd).toLowerCase());
+      const launched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', commandLine], {
         cwd: batchSpec.cwd,
         env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
@@ -4867,7 +4875,7 @@ function registerTerminalFailureTests(context) {
       // delayed expansion enabled. Otherwise !NAME! can disclose environment
       // values into a prompt before the agent starts.
       fs.rmSync(captureFile, { force: true });
-      const launchedAfterDelayedExpansion = spawnSync(batchSpec.file, ['/d', '/v:on', '/v:off', '/s', '/c', commandLine], {
+      const launchedAfterDelayedExpansion = spawnSync(trustedCmd, ['/d', '/v:on', '/v:off', '/s', '/c', commandLine], {
         cwd: batchSpec.cwd,
         env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
@@ -4888,7 +4896,7 @@ function registerTerminalFailureTests(context) {
     const batCommandLine = batSpec.args.slice('/d /v:off /s /c '.length);
     assert.equal(['/d', '/v:off', '/s', '/c', batCommandLine].join(' '), batSpec.args);
     if (process.platform === 'win32') {
-      const batLaunched = spawnSync(batSpec.file, ['/d', '/v:off', '/s', '/c', batCommandLine], {
+      const batLaunched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', batCommandLine], {
         cwd: batSpec.cwd,
         env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
@@ -4929,6 +4937,7 @@ function registerTerminalFailureTests(context) {
     assert.throws(() => normalizeLaunchOptions({
       type: 'agent', provider: 'codex', args: ['resume', 'safe-id', '--', 'line one\r\nwhoami'], cwd: batchDir, sessionBackend: 'direct',
     }, 'win32'), /줄바꿈 문자/);
+    fs.rmSync(batchSandbox, { recursive: true, force: true });
 
     const options = normalizeLaunchOptions({
       type: 'agent',
