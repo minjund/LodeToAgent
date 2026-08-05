@@ -150,7 +150,7 @@ const REQUIRED_UI_IDS = [
   'drawerTerminalFocusBtn',
   'drawerTerminalReconnectBtn',
   'drawerTabSummary',
-  'drawerTabTerminal',
+  'drawerTabChat',
   'sidebarAppVersion',
   'backToProjectsBtn',
   'projectSelectionPrompt',
@@ -544,23 +544,35 @@ const TERMINAL_VIEW_CONTRACTS = [
 ];
 
 const DRAWER_TERMINAL_CONTRACTS = [
-  'const terminalTargets = !session.parentId && !subagentMode && !executionMode && isLiveSession(session)',
-  'const terminalConversation = terminalTargets.some(target => target.kind === "terminal")',
-  'if (state.drawerTab === "terminal" && !terminalConversation)',
-  'const terminalTab = terminalConversation && state.drawerTab === "terminal"',
+  'const terminalTargets = !session.parentId && !subagentMode && !executionMode',
+  'const terminalConversation = terminalTarget?.kind === "terminal"',
+  'const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {}',
+  'embeddedTerminal.connected',
+  'window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id)',
+  'const transcriptChat = conversationTab && !liveTerminalChat',
   'drawer-external-session-note',
   'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
-  'drawer.dataset.terminalChat = terminalTab ? "true" : "false"',
-  'tab.dataset.tab === "terminal" ? "drawerTerminalSurface" : "drawerContent"',
-  'window.LoadToAgentDrawerTerminal?.mount?.(session)',
+  'drawer.dataset.conversationShell = conversationTab ? "terminal" : "standard"',
+  'drawer.dataset.terminalChat = liveTerminalChat ? "true" : "false"',
+  'drawer.dataset.conversationSurface = conversationTab ? (liveTerminalChat ? "pty" : "transcript") : "standard"',
+  'tab.dataset.tab === "chat" && liveTerminalChat ? "drawerTerminalSurface" : "drawerContent"',
+  'terminalSurface.setAttribute("aria-labelledby", "drawerTabChat")',
+  'drawer-terminal-transcript',
+  'terminalStyle: conversationTab',
+  'window.LoadToAgentDrawerTerminal?.mount?.(session, { targetId: terminalTarget.id })',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
+  'loadtoagent:drawer-terminal-targets-changed',
+  "markUnavailable(session.id, requestedTargetId, 'mount-failed')",
   'mountForAgent',
   'unmountEmbedded',
   'embeddedTerminalId',
   'const generation = ++state.embeddedGeneration',
   'await window.loadtoagent.terminalReconnect(terminalId)',
+  'state.terminals.delete(session.id)',
+  'entry.terminal.dispose()',
   'state.selectedId !== key && state.embeddedTerminalId !== key',
   'window.LoadToAgentTerminal.dispatchAgentCommand',
+  'const liveDrawerMode = form?.closest?.("#drawerComposer")?.dataset.mode || ""',
   "if (terminalComposer && input) input.placeholder",
   "event.detail.deliveryState === 'rejected'",
   'drawerTerminalSurface',
@@ -983,6 +995,7 @@ const RELEASE_WORKFLOW_CONTRACTS = [
   'id-token: write',
   'npm publish --access public --tag latest',
   'Verify npm publication',
+  'npm run test:drawer-conversation',
 ];
 
 function assertIncludesAll(source, contracts, messageForContract) {
@@ -1081,6 +1094,16 @@ function registerUiContractTests(context) {
       `${app}\n${terminalIntegration}\n${html}`,
       DRAWER_TERMINAL_CONTRACTS,
       contract => `${contract} 드로어 PTY 계약이 없습니다.`,
+    );
+    const drawerSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
+    assert.equal(html.includes('id="drawerTabTerminal"'), false, '대화와 분리된 터미널 탭을 다시 만들면 안 됩니다.');
+    assert.ok(html.includes('id="drawerTabChat"'), '대화 탭이 없습니다.');
+    assert.equal(drawerSource.includes('state.drawerTab === "terminal"'), false, '별도 터미널 탭 상태 분기가 남아 있습니다.');
+    assert.equal(drawerSource.includes('tab.dataset.tab === "terminal"'), false, '별도 터미널 탭 렌더링 분기가 남아 있습니다.');
+    assert.doesNotMatch(
+      drawerSource,
+      /const terminalTargets\s*=[^;]*isLiveSession/s,
+      'PTY 연결 여부를 작업 상태값으로 제한하면 waiting/paused 전환에서 같은 PTY가 사라집니다.',
     );
     assertIncludesAll(
       app,
@@ -1226,6 +1249,17 @@ function registerUiContractTests(context) {
       /(?:^|\n)\.detail-drawer \.chat-row\.user \.chat-content\.markdown\s*\{/,
       '사용자 대화만 다시 말풍선으로 덮어쓰면 안 됩니다.',
     );
+    assert.match(
+      styles,
+      /\.detail-drawer\[data-conversation-surface="transcript"\] #drawerContent\s*\{[^}]*background-color:\s*#080c12;[^}]*font-family:\s*var\(--font-mono/s,
+      'PTY가 없는 대화에도 터미널형 기록 화면 스타일이 필요합니다.',
+    );
+    assert.match(
+      styles,
+      /\.detail-drawer\[data-conversation-shell="terminal"\] #drawerComposer \.terminal-conversation\s*\{/,
+      '대화 전송과 raw PTY 전송 모두 같은 터미널형 입력 셸을 사용해야 합니다.',
+    );
+    assert.match(styles, /html\[data-theme="light"\].*data-conversation-surface="transcript"/s, '터미널형 기록 화면의 밝은 테마 계약이 없습니다.');
     assert.match(styles, /@media\s*\(prefers-reduced-motion:\s*reduce\)/, '동작 줄이기 미디어 계약이 없습니다.');
     const terminal = rendererSource([
       'terminal-workbench.js',
@@ -1292,6 +1326,7 @@ function registerUiContractTests(context) {
     assert.ok(pkg.dependencies['@xterm/xterm']);
     assert.ok(pkg.dependencies['@xterm/addon-fit']);
     assert.equal(pkg.bin.loadtoagent, 'bin/loadtoagent.js');
+    assert.equal(pkg.scripts['test:drawer-conversation'], 'electron scripts/drawer-terminal-visual.js');
     assert.ok(pkg.build.mac.target.some(item => item.arch.includes('arm64') && item.arch.includes('x64')));
   });
 
@@ -1920,6 +1955,9 @@ function registerDocumentationContractTests(context) {
     for (const contract of RELEASE_WORKFLOW_CONTRACTS) {
       assert.ok(workflow.includes(contract), `release.yml에 ${contract} 계약이 없습니다.`);
     }
+    const desktopWorkflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'desktop-ci.yml'), 'utf8');
+    assert.ok(desktopWorkflow.includes('npm run test:drawer-conversation'), 'Desktop CI가 대화창 터미널 회귀 검사를 실행해야 합니다.');
+    assert.ok(desktopWorkflow.includes("if: runner.os == 'Windows'"), '대화창 Electron 검사는 Windows fixture에서 실행해야 합니다.');
     assert.equal(workflow.includes('continue-on-error'), false, 'npm 게시 실패를 성공으로 숨기면 안 됩니다.');
     assert.equal(workflow.includes('NODE_AUTH_TOKEN'), false, 'npm 게시는 장기 토큰 대신 OIDC Trusted Publisher를 사용해야 합니다.');
   });

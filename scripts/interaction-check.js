@@ -3160,18 +3160,22 @@ async function exerciseDrawer(win, round) {
     app.state.drawerTab = 'chat';
     app.renderDrawer();
     const third = app.loadSessionDetail('fixture-root', true);
+    const terminalSurfaceVisible = !document.querySelector('#drawerTerminalSurface').classList.contains('hidden')
+      && document.querySelector('#drawerContent').classList.contains('hidden');
+    const transcriptSurfaceVisible = document.querySelector('#drawerTerminalSurface').classList.contains('hidden')
+      && !document.querySelector('#drawerContent').classList.contains('hidden');
     const duringRefresh = {
       title: app.state.details.get('fixture-root')?.title || '',
       loading: app.state.detailLoadingIds.has('fixture-root'),
       fullScreenLoader: Boolean(document.querySelector('.drawer-loading')),
-      terminalSurfaceVisible: !document.querySelector('#drawerTerminalSurface').classList.contains('hidden')
-        && document.querySelector('#drawerContent').classList.contains('hidden'),
+      terminalConversationVisible: Boolean(document.querySelector('[data-conversation-shell="terminal"]'))
+        && (terminalSurfaceVisible || transcriptSurfaceVisible),
     };
     await third;
     return { sharedInitialRequest, duringRefresh, title: app.state.details.get('fixture-root')?.title || '', loading: app.state.detailLoadingIds.has('fixture-root') };
   })()`);
   assert(drawerRace.sharedInitialRequest && drawerRace.duringRefresh.title === '최초 상세 응답' && drawerRace.duringRefresh.loading
-    && !drawerRace.duringRefresh.fullScreenLoader && drawerRace.duringRefresh.terminalSurfaceVisible
+    && !drawerRace.duringRefresh.fullScreenLoader && drawerRace.duringRefresh.terminalConversationVisible
     && drawerRace.title === '백그라운드 최신 응답' && !drawerRace.loading,
   `상세 요청 병합과 백그라운드 갱신 상태가 올바르지 않습니다: ${JSON.stringify(drawerRace)}`);
   await waitFor(win, `window.LoadToAgentTerminal.embeddedState().agentSessionId === 'fixture-root'

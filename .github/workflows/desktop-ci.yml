@@ -37,6 +37,20 @@ jobs:
       - run: npm audit --audit-level=high
       - run: npm run test:terminal
       - run: npm run test:bridge
+      - name: Verify terminal-shaped conversation drawer
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: npm run test:drawer-conversation
+      - name: Upload drawer conversation diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Diagnostics-drawer-conversation-${{ github.run_attempt }}
+          path: |
+            artifacts/drawer-terminal-visual.log
+            artifacts/loadtoagent-drawer-*.png
+            artifacts/loadtoagent-history-empty.png
+          if-no-files-found: ignore
       - if: runner.os == 'macOS'
         run: npm run test:terminal:mac-stress
       - if: runner.os == 'macOS'

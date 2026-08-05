@@ -5,6 +5,8 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
+app.disableHardwareAcceleration();
+
 const outputDir = path.join(__dirname, '..', 'artifacts');
 const logPath = path.join(outputDir, 'drawer-terminal-visual.log');
 fs.mkdirSync(outputDir, { recursive: true });
@@ -92,45 +94,22 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root', { context: true })`);
     await waitFor(win, `(() => {
       const drawer = document.querySelector('#detailDrawer');
+      const embedded = window.LoadToAgentTerminal.embeddedState();
       return drawer?.classList.contains('open')
         && drawer.dataset.presentation === 'context'
-        && drawer.dataset.terminalChat === 'false'
+        && drawer.dataset.conversationShell === 'terminal'
+        && drawer.dataset.conversationSurface === 'pty'
+        && drawer.dataset.terminalChat === 'true'
         && document.querySelector('[data-tab="chat"]')?.getAttribute('aria-selected') === 'true'
-        && !document.querySelector('[data-tab="terminal"]')?.classList.contains('hidden')
-        && document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
-        && !document.querySelector('#drawerContent')?.classList.contains('hidden')
-        && document.querySelectorAll('#drawerContent .chat-row').length > 0
-        && !window.LoadToAgentTerminal.embeddedState().connected;
-    })()`, '실행 중 세션의 대화 탭이 PTY와 무관한 대화 기록으로 열리지 않았습니다.');
-    const defaultConversation = await win.webContents.executeJavaScript(`(() => ({
-      tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
-      chatControls: document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') || '',
-      terminalControls: document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-controls') || '',
-      structuredRows: document.querySelectorAll('#drawerContent .chat-row').length,
-      composerMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
-    }))()`);
-    assert(JSON.stringify(defaultConversation.tabs) === JSON.stringify(['요약', '대화', '터미널', '진행 과정', '사용량'])
-      && defaultConversation.chatControls === 'drawerContent'
-      && defaultConversation.terminalControls === 'drawerTerminalSurface'
-      && defaultConversation.structuredRows > 0
-      && defaultConversation.composerMode === 'conversation',
-    `실행 중 작업의 기본 대화 화면이 다른 대화창과 일치하지 않습니다: ${JSON.stringify(defaultConversation)}`);
-    const conversationOutput = path.join(outputDir, 'loadtoagent-drawer-conversation.png');
-    await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
-    win.webContents.invalidate();
-    await wait(250);
-    fs.writeFileSync(conversationOutput, (await win.webContents.capturePage()).toPNG());
-
-    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="terminal"]')?.click()`);
-    await waitFor(win, `(() => {
-      const drawer = document.querySelector('#detailDrawer');
-      const embedded = window.LoadToAgentTerminal.embeddedState();
-      return drawer?.dataset.terminalChat === 'true'
-        && document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-selected') === 'true'
-        && embedded.connected
+        && document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') === 'drawerTerminalSurface'
+        && !document.querySelector('[data-tab="terminal"]')
+        && !document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
+        && document.querySelector('#drawerContent')?.classList.contains('hidden')
+        && embedded.agentSessionId === 'fixture-root'
         && embedded.terminalId === 'terminal-main'
+        && embedded.connected
         && document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm');
-    })()`, '실행 중 세션의 같은 PTY가 별도 터미널 탭에 연결되지 않았습니다.');
+    })()`, '실행 중 세션의 대화 탭에 같은 PTY가 바로 연결되지 않았습니다.');
     await wait(500);
 
     const opened = await win.webContents.executeJavaScript(`(() => {
@@ -142,12 +121,17 @@ app.whenReady().then(async () => {
         drawerWidth: drawer.getBoundingClientRect().width,
         title: document.querySelector('#drawerTitle')?.textContent.trim() || '',
         tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+        terminalTabAbsent: !document.querySelector('[data-tab="terminal"]'),
+        conversationShell: drawer.dataset.conversationShell || '',
+        conversationSurface: drawer.dataset.conversationSurface || '',
+        chatControls: document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') || '',
         metaCount: document.querySelector('#drawerMeta')?.children.length || 0,
         terminalVisible: visible(document.querySelector('#drawerTerminalSurface')),
         transcriptHidden: document.querySelector('#drawerContent')?.classList.contains('hidden'),
         structuredRows: drawer.querySelectorAll('.chat-row').length,
         composerVisible: visible(document.querySelector('#drawerComposer')),
         composerTerminalMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
+        composerTerminalStyle: document.querySelector('#drawerComposer [data-agent-command-form]')?.classList.contains('terminal-conversation'),
         status: document.querySelector('#drawerTerminalStatus')?.textContent.trim() || '',
         hostParent: host?.parentElement?.id || '',
         projectNavLabels: [...document.querySelectorAll('#projectContextNav [data-view]')].map(node => node.textContent.trim()),
@@ -155,10 +139,14 @@ app.whenReady().then(async () => {
     })()`);
     assert(opened.drawerWidth >= 600 && opened.drawerWidth <= 680, `기존 드로어 폭이 바뀌었습니다: ${opened.drawerWidth}`);
     assert(opened.title === '화면 설명과 버튼을 쉽게 개선하기', `드로어 헤더 제목이 달라졌습니다: ${opened.title}`);
-    assert(JSON.stringify(opened.tabs) === JSON.stringify(['요약', '대화', '터미널', '진행 과정', '사용량']), `PTY 전용 탭 구성이 올바르지 않습니다: ${JSON.stringify(opened.tabs)}`);
+    assert(JSON.stringify(opened.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량'])
+      && opened.terminalTabAbsent && opened.conversationShell === 'terminal'
+      && opened.conversationSurface === 'pty' && opened.chatControls === 'drawerTerminalSurface',
+    `대화 탭의 PTY 구성이 올바르지 않습니다: ${JSON.stringify(opened)}`);
     assert(opened.metaCount > 0 && opened.terminalVisible && opened.transcriptHidden && opened.structuredRows === 0,
       `대화 본문만 PTY로 바뀌지 않았습니다: ${JSON.stringify(opened)}`);
-    assert(opened.composerVisible && opened.composerTerminalMode === 'terminal' && opened.status === 'PTY 연결됨'
+    assert(opened.composerVisible && opened.composerTerminalMode === 'terminal' && opened.composerTerminalStyle
+      && opened.status === 'PTY 연결됨'
       && opened.hostParent === 'drawerTerminalViewport', `PTY 입력·상태 연결이 올바르지 않습니다: ${JSON.stringify(opened)}`);
     assert(JSON.stringify(opened.projectNavLabels) === JSON.stringify(shellBefore.projectNavLabels), '프로젝트 내비게이션이 드로어 PTY 때문에 바뀌었습니다.');
 
@@ -224,6 +212,53 @@ app.whenReady().then(async () => {
       && document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar').dataset.tone === 'running'`,
     '답변 대기 상태가 끝난 뒤 PTY 실행 상태로 돌아오지 않았습니다.');
 
+    const statusRetention = [];
+    for (const status of ['waiting', 'paused']) {
+      await win.webContents.executeJavaScript(`(() => {
+        window.interactionTest.clearCalls();
+        window.interactionTest.updateSession('fixture-root', {
+          status: ${JSON.stringify(status)},
+          statusDetail: ${JSON.stringify(status === 'waiting' ? '내 답변을 기다리는 중' : '작업이 잠시 멈춤')},
+          runtimePresence: [{
+            kind: 'terminal', terminalId: 'terminal-main', pid: 41001,
+            label: '내 컴퓨터에서 실행하는 작업',
+          }],
+        });
+        window.interactionTest.emitSnapshot();
+      })()`);
+      await waitFor(win, `(() => {
+        const embedded = window.LoadToAgentTerminal.embeddedState();
+        const drawer = document.querySelector('#detailDrawer');
+        return window.LoadToAgentApp.selectedSession()?.status === ${JSON.stringify(status)}
+          && window.LoadToAgentApp.state.drawerTab === 'chat'
+          && drawer?.dataset.conversationSurface === 'pty'
+          && drawer?.dataset.terminalChat === 'true'
+          && embedded.agentSessionId === 'fixture-root'
+          && embedded.terminalId === 'terminal-main'
+          && embedded.connected
+          && document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')
+          && document.querySelector('#drawerComposer')?.dataset.mode === 'terminal';
+      })()`, `${status} 상태에서도 같은 PTY가 대화 탭에 유지되지 않았습니다.`);
+      const retained = await win.webContents.executeJavaScript(`(() => ({
+        status: ${JSON.stringify(status)},
+        surface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+        connected: window.LoadToAgentTerminal.embeddedState().connected,
+        sameHost: Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')),
+        destructiveCalls: window.interactionTest.getCalls().filter(call => ['terminalGet','terminalReconnect','terminalClose','terminalStop','terminalDetach'].includes(call.name)),
+      }))()`);
+      assert(retained.surface === 'pty' && retained.connected && retained.sameHost && retained.destructiveCalls.length === 0,
+        `상태 전환 중 PTY를 재생성하거나 변경했습니다: ${JSON.stringify(retained)}`);
+      statusRetention.push(retained);
+    }
+    await win.webContents.executeJavaScript(`(() => {
+      window.interactionTest.updateSession('fixture-root', { status: 'running', statusDetail: '턴 실행 중' });
+      window.interactionTest.emitSnapshot();
+    })()`);
+    await waitFor(win, `window.LoadToAgentApp.selectedSession()?.status === 'running'
+      && window.LoadToAgentTerminal.embeddedState().connected
+      && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]'))`,
+    '상태 복원 뒤 같은 PTY가 유지되지 않았습니다.');
+
     await win.webContents.executeJavaScript(`document.querySelector('[data-tab="summary"]')?.click()`);
     await waitFor(win, `window.LoadToAgentApp.state.drawerTab === 'summary'
       && document.querySelector('#drawerTerminalSurface').classList.contains('hidden')
@@ -234,17 +269,17 @@ app.whenReady().then(async () => {
       tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
       width: document.querySelector('#detailDrawer')?.getBoundingClientRect().width || 0,
       chatControls: document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') || '',
-      terminalControls: document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-controls') || '',
+      terminalTabAbsent: !document.querySelector('[data-tab="terminal"]'),
     }))()`);
     assert(unchangedAfterTab.title === opened.title && JSON.stringify(unchangedAfterTab.tabs) === JSON.stringify(opened.tabs)
       && Math.abs(unchangedAfterTab.width - opened.drawerWidth) < 1
       && unchangedAfterTab.chatControls === 'drawerContent'
-      && unchangedAfterTab.terminalControls === 'drawerTerminalSurface',
-    `탭 전환 뒤 드로어 셸 또는 대화·터미널 탭 연결이 달라졌습니다: ${JSON.stringify(unchangedAfterTab)}`);
+      && unchangedAfterTab.terminalTabAbsent,
+    `탭 전환 뒤 드로어 셸 또는 대화 탭 연결이 달라졌습니다: ${JSON.stringify(unchangedAfterTab)}`);
 
-    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="terminal"]')?.click()`);
+    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="chat"]')?.click()`);
     await waitFor(win, `window.LoadToAgentTerminal.embeddedState().connected
-      && document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')`, '터미널 탭 복귀 시 같은 xterm 호스트가 다시 연결되지 않았습니다.');
+      && document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')`, '대화 탭 복귀 시 같은 xterm 호스트가 다시 연결되지 않았습니다.');
 
     await win.webContents.executeJavaScript(`window.interactionTest.clearCalls(); document.querySelector('#closeDrawerBtn')?.click()`);
     await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')
@@ -252,6 +287,146 @@ app.whenReady().then(async () => {
       && document.querySelector('#terminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')`, '드로어를 닫은 뒤 xterm 호스트가 원래 위치로 복귀하지 않았습니다.');
     const destructiveCalls = await win.webContents.executeJavaScript(`window.interactionTest.getCalls().filter(call => ['terminalClose','terminalStop','terminalDetach'].includes(call.name))`);
     assert(destructiveCalls.length === 0, `드로어를 닫으면서 PTY 프로세스를 변경했습니다: ${JSON.stringify(destructiveCalls)}`);
+
+    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root', { context: true })`);
+    await waitFor(win, `document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'pty'
+      && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'`, 'PTY 전환 검사를 위해 루트 세션을 다시 연결하지 못했습니다.');
+    await win.webContents.executeJavaScript(`(() => {
+      window.interactionTest.clearCalls();
+      const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+      input.value = '전환 중에도 초안 유지';
+      input.dataset.terminalTransitionIdentity = 'same-focused-draft';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+      input.setSelectionRange(5, 5);
+      window.interactionTest.setSessionRuntimePresence('fixture-root', []);
+      window.interactionTest.emitSnapshot();
+      window.interactionTest.removeTerminal('terminal-main');
+      window.interactionTest.emitTerminalState('removed');
+    })()`);
+    await waitFor(win, `(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+      const form = input?.closest('[data-agent-command-form]');
+      return drawer?.dataset.conversationSurface === 'transcript'
+        && drawer.dataset.terminalChat === 'false'
+        && document.querySelector('#drawerComposer')?.dataset.mode === 'conversation'
+        && form?.dataset.agentCommandInputModeSelected === 'conversation'
+        && input?.dataset.terminalTransitionIdentity === 'same-focused-draft'
+        && input.value === '전환 중에도 초안 유지'
+        && input.selectionStart === 5 && input.selectionEnd === 5
+        && document.activeElement === input
+        && input.placeholder === 'AI에게 보낼 답변을 입력하세요'
+        && !window.LoadToAgentTerminal.embeddedState().connected;
+    })()`, '포커스된 PTY 초안을 보존한 채 안전한 대화 전송으로 강등되지 않았습니다.');
+    const removedTerminalTransition = await win.webContents.executeJavaScript(`(() => ({
+      surface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+      outerMode: document.querySelector('#drawerComposer')?.dataset.mode || '',
+      innerMode: document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandInputModeSelected || '',
+      draftPreserved: document.querySelector('#drawerComposer [data-agent-command-draft]')?.value || '',
+      focused: document.activeElement === document.querySelector('#drawerComposer [data-agent-command-draft]'),
+      noPtyEmptyVisible: !document.querySelector('#drawerTerminalEmpty:not(.hidden)')?.getClientRects().length,
+    }))()`);
+    assert(removedTerminalTransition.surface === 'transcript'
+      && removedTerminalTransition.outerMode === 'conversation'
+      && removedTerminalTransition.innerMode === 'conversation'
+      && removedTerminalTransition.draftPreserved === '전환 중에도 초안 유지'
+      && removedTerminalTransition.focused && removedTerminalTransition.noPtyEmptyVisible,
+    `PTY 종료 전환이 올바르지 않습니다: ${JSON.stringify(removedTerminalTransition)}`);
+
+    await win.webContents.executeJavaScript(`(() => {
+      window.interactionTest.addTerminal({
+        id: 'terminal-main', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업',
+        status: 'running', pid: 41001, cwd: 'D:\\fixture',
+      });
+      window.interactionTest.setSessionRuntimePresence('fixture-root', [{
+        kind: 'terminal', terminalId: 'terminal-main', pid: 41001,
+        label: '내 컴퓨터에서 실행하는 작업',
+      }]);
+      window.interactionTest.emitSnapshot();
+      window.interactionTest.emitTerminalState('created');
+    })()`);
+    await waitFor(win, `(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
+      const form = input?.closest('[data-agent-command-form]');
+      const embedded = window.LoadToAgentTerminal.embeddedState();
+      return drawer?.dataset.conversationSurface === 'pty'
+        && drawer.dataset.terminalChat === 'true'
+        && embedded.connected && embedded.terminalId === 'terminal-main'
+        && document.querySelector('#drawerComposer')?.dataset.mode === 'terminal'
+        && form?.dataset.agentCommandInputModeSelected === 'terminal'
+        && input?.dataset.terminalTransitionIdentity === 'same-focused-draft'
+        && input.value === '전환 중에도 초안 유지'
+        && input.selectionStart === 5 && input.selectionEnd === 5
+        && document.activeElement === input
+        && input.placeholder.includes('터미널');
+    })()`, '새 PTY가 생겼을 때 포커스된 초안을 보존한 채 raw 입력으로 승격되지 않았습니다.');
+    const restoredTerminalTransition = await win.webContents.executeJavaScript(`(() => ({
+      surface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+      outerMode: document.querySelector('#drawerComposer')?.dataset.mode || '',
+      innerMode: document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandInputModeSelected || '',
+      draftPreserved: document.querySelector('#drawerComposer [data-agent-command-draft]')?.value || '',
+      focused: document.activeElement === document.querySelector('#drawerComposer [data-agent-command-draft]'),
+      terminalGetCalls: window.interactionTest.getCalls().filter(call => call.name === 'terminalGet' && call.args[0] === 'terminal-main').length,
+    }))()`);
+    assert(restoredTerminalTransition.surface === 'pty'
+      && restoredTerminalTransition.outerMode === 'terminal'
+      && restoredTerminalTransition.innerMode === 'terminal'
+      && restoredTerminalTransition.draftPreserved === '전환 중에도 초안 유지'
+      && restoredTerminalTransition.focused && restoredTerminalTransition.terminalGetCalls >= 1,
+    `PTY 복원 전환이 올바르지 않습니다: ${JSON.stringify(restoredTerminalTransition)}`);
+    await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
+    await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, 'PTY 전환 검사용 드로어를 닫지 못했습니다.');
+
+    await win.webContents.executeJavaScript(`(async () => {
+      const base = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-root');
+      window.interactionTest.addSession({
+        ...base,
+        id: 'fixture-stale-terminal', externalId: 'fixture-stale-terminal-external',
+        title: '만료된 PTY 후보가 있는 작업', childIds: [], runId: '',
+        runtimePresence: [{ kind: 'terminal', terminalId: 'terminal-stale', pid: 44001, label: '만료된 터미널 후보' }],
+      });
+      window.interactionTest.addTerminal({
+        id: 'terminal-stale', type: 'powershell', title: '만료된 터미널 후보',
+        status: 'running', pid: 44001, cwd: 'D:\\fixture',
+      });
+      window.interactionTest.emitSnapshot();
+      await window.LoadToAgentTerminal.refresh();
+      window.interactionTest.configure({ failures: { terminalGet: 1 } });
+      window.interactionTest.setTerminalGetDelays({ 'terminal-stale': 180 });
+      window.interactionTest.clearCalls();
+      const staleAgent = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-stale-terminal');
+      const competingOpen = window.LoadToAgentTerminal.openForAgent(staleAgent, 'terminal-stale')
+        .then(() => 'fulfilled', () => 'rejected');
+      await new Promise(resolve => setTimeout(resolve, 12));
+      window.LoadToAgentApp.openDrawer('fixture-stale-terminal');
+      window.__drawerConcurrentTerminalResult = await competingOpen;
+    })()`);
+    await waitFor(win, `(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      return drawer?.dataset.conversationSurface === 'transcript'
+        && drawer.dataset.terminalChat === 'false'
+        && document.querySelector('#drawerComposer')?.dataset.mode === 'conversation'
+        && document.querySelector('#drawerComposer [data-agent-command-form]')?.dataset.agentCommandInputModeSelected === 'conversation'
+        && window.interactionTest.getCalls().filter(call => call.name === 'terminalGet' && call.args[0] === 'terminal-stale').length === 1
+        && !window.LoadToAgentTerminal.embeddedState().connected;
+    })()`, '만료된 PTY 연결 실패 뒤 안전한 터미널형 대화 기록으로 복귀하지 않았습니다.');
+    await wait(350);
+    const failedCandidateFallback = await win.webContents.executeJavaScript(`(() => ({
+      surface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+      transcriptVisible: Boolean(document.querySelector('.drawer-terminal-transcript')?.getClientRects().length),
+      noPtyEmptyVisible: !document.querySelector('#drawerTerminalEmpty:not(.hidden)')?.getClientRects().length,
+      terminalGetCalls: window.interactionTest.getCalls().filter(call => call.name === 'terminalGet' && call.args[0] === 'terminal-stale').length,
+      cachedBlankTerminal: Boolean(document.querySelector('[data-terminal-screen="terminal-stale"]')),
+      competingOpenResult: window.__drawerConcurrentTerminalResult || '',
+    }))()`);
+    assert(failedCandidateFallback.surface === 'transcript' && failedCandidateFallback.transcriptVisible
+      && failedCandidateFallback.noPtyEmptyVisible && failedCandidateFallback.terminalGetCalls === 1
+      && !failedCandidateFallback.cachedBlankTerminal && failedCandidateFallback.competingOpenResult === 'rejected',
+    `실패한 PTY 후보가 빈 화면 또는 재시도 루프로 남았습니다: ${JSON.stringify(failedCandidateFallback)}`);
+    await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(); window.interactionTest.clearControls()`);
+    await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, '실패 후보 검사용 드로어를 닫지 못했습니다.');
 
     await win.webContents.executeJavaScript(`(async () => {
       window.interactionTest.clearCalls();
@@ -265,7 +440,6 @@ app.whenReady().then(async () => {
       window.interactionTest.emitSnapshot();
       await window.LoadToAgentTerminal.refresh();
       window.LoadToAgentApp.openDrawer('fixture-root', { context: true });
-      document.querySelector('[data-tab="terminal"]')?.click();
     })()`);
     await waitFor(win, `window.interactionTest.getCalls().some(call => call.name === 'terminalReconnect' && call.args[0] === 'terminal-detached-drawer')
       && window.interactionTest.getCalls().some(call => call.name === 'terminalGet' && call.args[0] === 'terminal-detached-drawer')`,
@@ -285,6 +459,7 @@ app.whenReady().then(async () => {
     `초기 PTY 연결 중 닫기 또는 detached 재연결 수명주기가 올바르지 않습니다: ${JSON.stringify(detachedRace)}`);
 
     await win.webContents.executeJavaScript(`(async () => {
+      window.interactionTest.clearCalls();
       const base = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-root');
       window.interactionTest.addSession({
         ...base,
@@ -301,9 +476,13 @@ app.whenReady().then(async () => {
       const drawer = document.querySelector('#detailDrawer');
       return drawer?.classList.contains('open')
         && drawer.dataset.presentation === 'modal'
+        && drawer.dataset.conversationShell === 'terminal'
+        && drawer.dataset.conversationSurface === 'transcript'
         && drawer.dataset.terminalChat === 'false'
         && document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
         && !document.querySelector('#drawerContent')?.classList.contains('hidden')
+        && document.querySelector('.drawer-terminal-transcript')
+        && document.querySelector('.drawer-transcript-statusbar')
         && document.querySelector('.drawer-external-session-note')
         && document.querySelector('#drawerTitle')?.textContent.includes('지난 세션이 없습니다');
     })()`, '외부 Codex Desktop 세션이 PTY 없음 화면 대신 안전한 대화 화면으로 열리지 않았습니다.');
@@ -322,13 +501,20 @@ app.whenReady().then(async () => {
         mark: rect('#drawerProviderMark'),
         titleBox: rect('.drawer-title'),
         close: rect('#closeDrawerBtn'),
+        conversationShell: document.querySelector('#detailDrawer')?.dataset.conversationShell || '',
+        conversationSurface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
         terminalHidden: surface?.classList.contains('hidden'),
-        terminalTabHidden: document.querySelector('[data-tab="terminal"]')?.classList.contains('hidden'),
+        terminalTabAbsent: !document.querySelector('[data-tab="terminal"]'),
         tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+        transcriptVisible: Boolean(document.querySelector('.drawer-terminal-transcript')?.getClientRects().length),
+        transcriptStatus: document.querySelector('.drawer-transcript-statusbar')?.textContent.replace(/\\s+/g, ' ').trim() || '',
         chatRows: document.querySelectorAll('#drawerContent .chat-row').length,
         note: document.querySelector('.drawer-external-session-note')?.textContent.replace(/\\s+/g, ' ').trim() || '',
+        composerShell: document.querySelector('#drawerComposer [data-agent-command-form]')?.classList.contains('terminal-conversation'),
         composerMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
         composerPlaceholder: document.querySelector('#drawerComposer [data-agent-command-draft]')?.placeholder || '',
+        noPtyEmptyVisible: !document.querySelector('#drawerTerminalEmpty:not(.hidden)')?.getClientRects().length,
+        terminalCalls: window.interactionTest.getCalls().filter(call => ['terminalGet','terminalWrite','terminalCommand','terminalReconnect','terminalClose','terminalStop','terminalDetach'].includes(call.name)),
       };
     })()`);
     assert(!externalSession.title.includes('**') && !externalSession.titleAttribute.includes('**'),
@@ -337,12 +523,16 @@ app.whenReady().then(async () => {
       && externalSession.mark.right + 8 <= externalSession.titleBox.left
       && externalSession.titleBox.right + 8 <= externalSession.close.left,
     `긴 제목과 제공자·닫기 버튼의 헤더 배치가 겹칩니다: ${JSON.stringify(externalSession)}`);
-    assert(externalSession.terminalHidden && externalSession.terminalTabHidden
+    assert(externalSession.conversationShell === 'terminal' && externalSession.conversationSurface === 'transcript'
+      && externalSession.terminalHidden && externalSession.terminalTabAbsent && externalSession.transcriptVisible
       && JSON.stringify(externalSession.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량'])
       && externalSession.chatRows > 0
+      && externalSession.composerShell
       && externalSession.composerMode === 'conversation'
       && externalSession.composerPlaceholder === 'AI에게 보낼 답변을 입력하세요'
-      && externalSession.note.includes('Codex 앱에서 실행 중'),
+      && externalSession.note.includes('Codex 앱에서 실행 중')
+      && externalSession.noPtyEmptyVisible
+      && externalSession.terminalCalls.length === 0,
     `PTY가 없는 외부 실행 세션의 대화 대체 화면이 올바르지 않습니다: ${JSON.stringify(externalSession)}`);
 
     const externalOutput = path.join(outputDir, 'loadtoagent-drawer-external-session.png');
@@ -384,16 +574,19 @@ app.whenReady().then(async () => {
     const conversationMatrix = [];
     for (const [status, clientKind] of conversationStatuses) {
       const id = `fixture-conversation-${status}`;
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer(${JSON.stringify(id)})`);
+      await win.webContents.executeJavaScript(`window.interactionTest.clearCalls(); window.LoadToAgentApp.openDrawer(${JSON.stringify(id)})`);
       await waitFor(win, `(() => {
         const drawer = document.querySelector('#detailDrawer');
         return drawer?.classList.contains('open')
           && window.LoadToAgentApp.state.selectedId === ${JSON.stringify(id)}
           && window.LoadToAgentApp.state.drawerTab === 'chat'
           && drawer.dataset.mode === 'session'
+          && drawer.dataset.conversationShell === 'terminal'
+          && drawer.dataset.conversationSurface === 'transcript'
           && drawer.dataset.terminalChat === 'false'
           && document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
           && !document.querySelector('#drawerContent')?.classList.contains('hidden')
+          && document.querySelector('.drawer-terminal-transcript')
           && document.querySelectorAll('#drawerContent .chat-row').length > 0;
       })()`, `${status}/${clientKind} 작업이 공통 대화 화면으로 열리지 않았습니다.`);
       const metrics = await win.webContents.executeJavaScript(`(() => {
@@ -407,21 +600,70 @@ app.whenReady().then(async () => {
           clientKind: ${JSON.stringify(clientKind)},
           title: document.querySelector('#drawerTitle')?.textContent.trim() || '',
           tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+          terminalTabAbsent: !document.querySelector('[data-tab="terminal"]'),
+          conversationShell: drawer.dataset.conversationShell || '',
+          conversationSurface: drawer.dataset.conversationSurface || '',
+          transcriptVisible: Boolean(document.querySelector('.drawer-terminal-transcript')?.getClientRects().length),
           composerMode: document.querySelector('#drawerComposer')?.dataset.mode || '',
+          composerInputMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
+          composerTerminalStyle: document.querySelector('#drawerComposer [data-agent-command-form]')?.classList.contains('terminal-conversation'),
           headerGrid: getComputedStyle(document.querySelector('.drawer-head')).display === 'grid',
           headerSeparated: Boolean(mark && title && close && mark.right + 8 <= title.left && title.right + 8 <= close.left),
           noOverflow: drawer.scrollWidth <= drawer.clientWidth + 2,
+          noPtyEmptyVisible: !document.querySelector('#drawerTerminalEmpty:not(.hidden)')?.getClientRects().length,
+          terminalCalls: window.interactionTest.getCalls().filter(call => ['terminalGet','terminalWrite','terminalCommand','terminalReconnect','terminalClose','terminalStop','terminalDetach'].includes(call.name)),
         };
       })()`);
       assert(!metrics.title.includes('**')
         && JSON.stringify(metrics.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량'])
+        && metrics.terminalTabAbsent
+        && metrics.conversationShell === 'terminal'
+        && metrics.conversationSurface === 'transcript'
+        && metrics.transcriptVisible
         && metrics.composerMode === 'conversation'
-        && metrics.headerGrid && metrics.headerSeparated && metrics.noOverflow,
+        && metrics.composerInputMode === 'conversation'
+        && metrics.composerTerminalStyle
+        && metrics.headerGrid && metrics.headerSeparated && metrics.noOverflow
+        && metrics.noPtyEmptyVisible && metrics.terminalCalls.length === 0,
       `상태별 공통 대화 셸이 달라졌습니다: ${JSON.stringify(metrics)}`);
       conversationMatrix.push(metrics);
       await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
       await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, `${status} 대화창을 닫지 못했습니다.`);
     }
+
+    await win.webContents.executeJavaScript(`window.interactionTest.clearCalls(); window.LoadToAgentApp.openSubagentConversation('fixture-child')`);
+    await waitFor(win, `(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      return drawer?.classList.contains('open')
+        && drawer.dataset.mode === 'subagent'
+        && drawer.dataset.conversationShell === 'terminal'
+        && drawer.dataset.conversationSurface === 'transcript'
+        && drawer.dataset.terminalChat === 'false'
+        && document.querySelector('.drawer-terminal-transcript')
+        && document.querySelectorAll('#drawerContent .chat-row').length > 0
+        && document.querySelector('#drawerComposer')?.classList.contains('hidden');
+    })()`, '도움 AI 대화가 터미널형 기록 화면으로 열리지 않았습니다.');
+    const subagentProjection = await win.webContents.executeJavaScript(`(() => ({
+      tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+      terminalTabAbsent: !document.querySelector('[data-tab="terminal"]'),
+      transcriptVisible: Boolean(document.querySelector('.drawer-terminal-transcript')?.getClientRects().length),
+      assignmentVisible: Boolean(document.querySelector('.subagent-assignment-card')?.getClientRects().length),
+      chatRows: document.querySelectorAll('#drawerContent .chat-row').length,
+      composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden'),
+      noOverflow: document.querySelector('#detailDrawer').scrollWidth <= document.querySelector('#detailDrawer').clientWidth + 2,
+      terminalCalls: window.interactionTest.getCalls().filter(call => ['terminalGet','terminalWrite','terminalCommand','terminalReconnect','terminalClose','terminalStop','terminalDetach'].includes(call.name)),
+    }))()`);
+    assert(JSON.stringify(subagentProjection.tabs) === JSON.stringify(['작업 내용'])
+      && subagentProjection.terminalTabAbsent && subagentProjection.transcriptVisible
+      && subagentProjection.chatRows > 0 && subagentProjection.composerHidden
+      && subagentProjection.noOverflow && subagentProjection.terminalCalls.length === 0,
+    `도움 AI 터미널형 기록 화면이 올바르지 않습니다: ${JSON.stringify(subagentProjection)}`);
+    const subagentOutput = path.join(outputDir, 'loadtoagent-drawer-subagent.png');
+    win.webContents.invalidate();
+    await wait(250);
+    fs.writeFileSync(subagentOutput, (await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
+    await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, '도움 AI 대화창을 닫지 못했습니다.');
 
     await win.webContents.executeJavaScript(`(() => {
       const ended = new Set(['completed', 'cancelled', 'failed', 'idle']);
@@ -458,8 +700,13 @@ app.whenReady().then(async () => {
     await wait(250);
     fs.writeFileSync(historyOutput, (await win.webContents.capturePage()).toPNG());
 
-    log(`passed\n${JSON.stringify({ shellBefore, defaultConversation, opened, unchangedAfterTab, detachedRace, externalSession, conversationMatrix, historyEmpty }, null, 2)}\n${conversationOutput}\n${output}\n${externalOutput}\n${historyOutput}`);
-    process.stdout.write(`드로어 대화·PTY 시각·입력 검증 통과\n${JSON.stringify({ shellBefore, defaultConversation, opened, unchangedAfterTab, detachedRace, externalSession, conversationMatrix, historyEmpty }, null, 2)}\n${conversationOutput}\n${output}\n${externalOutput}\n${historyOutput}\n`);
+    const result = {
+      shellBefore, opened, statusRetention, unchangedAfterTab,
+      removedTerminalTransition, restoredTerminalTransition, failedCandidateFallback,
+      detachedRace, externalSession, conversationMatrix, subagentProjection, historyEmpty,
+    };
+    log(`passed\n${JSON.stringify(result, null, 2)}\n${output}\n${externalOutput}\n${subagentOutput}\n${historyOutput}`);
+    process.stdout.write(`드로어 대화·PTY 시각·입력 검증 통과\n${JSON.stringify(result, null, 2)}\n${output}\n${externalOutput}\n${subagentOutput}\n${historyOutput}\n`);
     app.exit(0);
   } catch (error) {
     try {
@@ -471,9 +718,24 @@ app.whenReady().then(async () => {
         },
         drawer: (() => {
           const node = document.querySelector('#detailDrawer');
-          return node ? { className: node.className, presentation: node.dataset.presentation, terminalChat: node.dataset.terminalChat } : null;
+          return node ? {
+            className: node.className,
+            presentation: node.dataset.presentation,
+            conversationShell: node.dataset.conversationShell,
+            conversationSurface: node.dataset.conversationSurface,
+            terminalChat: node.dataset.terminalChat,
+          } : null;
         })(),
         embedded: window.LoadToAgentTerminal?.embeddedState?.() || null,
+        selectedRuntimePresence: window.LoadToAgentApp?.selectedSession?.()?.runtimePresence || [],
+        selectedTerminalTargets: window.LoadToAgentTerminal?.agentTargets?.(window.LoadToAgentApp?.selectedSession?.()) || [],
+        mountableTargets: (window.LoadToAgentTerminal?.agentTargets?.(window.LoadToAgentApp?.selectedSession?.()) || []).map(target => ({
+          id: target.id,
+          kind: target.kind,
+          canMount: window.LoadToAgentDrawerTerminal?.canMount?.(window.LoadToAgentApp?.selectedSession?.(), target.id),
+        })),
+        savedTerminalTarget: window.LoadToAgentApp?.state?.agentCommandTargets?.get?.(window.LoadToAgentApp?.state?.selectedId) || '',
+        drawerTerminalState: window.LoadToAgentDrawerTerminal?.state?.() || null,
         terminalSurfaceHidden: document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden'),
         terminalStatus: document.querySelector('#drawerTerminalStatus')?.textContent || '',
         terminalMeta: document.querySelector('#drawerTerminalMeta')?.textContent || '',

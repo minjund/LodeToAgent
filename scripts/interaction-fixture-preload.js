@@ -567,6 +567,11 @@ const api = {
     record('terminalGet', [id]);
     const delay = Number(terminalGetDelays.get(id) || 0);
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    const remaining = Number(failures.get('terminalGet') || 0);
+    if (remaining > 0) {
+      failures.set('terminalGet', remaining - 1);
+      throw new Error('terminalGet fixture failure');
+    }
     return {
       ok: true,
       replay: terminalReplays.get(id) || `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n`,
@@ -666,6 +671,22 @@ const testApi = {
     session.runtimePresence = clone(presence || []);
     return true;
   },
+  updateSession: (id, patch) => {
+    const index = snapshot.sessions.findIndex(item => item.id === id);
+    if (index < 0) return null;
+    const current = snapshot.sessions[index];
+    const nextUpdatedAt = new Date(Math.max(
+      Date.now(),
+      Date.parse(current.updatedAt || 0) + 1,
+    )).toISOString();
+    snapshot.sessions[index] = {
+      ...current,
+      ...clone(patch || {}),
+      updatedAt: patch?.updatedAt || nextUpdatedAt,
+    };
+    snapshot.generatedAt = snapshot.sessions[index].updatedAt;
+    return clone(snapshot.sessions[index]);
+  },
   appendSessionMessages: (id, messages) => {
     const session = snapshot.sessions.find(item => item.id === id);
     if (!session) return false;
@@ -684,6 +705,16 @@ const testApi = {
     if (!terminal || !terminal.id || terminals.some(item => item.id === terminal.id)) return false;
     terminals.push(clone(terminal));
     return true;
+  },
+  removeTerminal: id => {
+    const before = terminals.length;
+    terminals = terminals.filter(item => item.id !== id);
+    return terminals.length !== before;
+  },
+  emitTerminalState: (change = 'updated') => {
+    const payload = { change, session: null, sessions: clone(terminals) };
+    terminalStateListeners.forEach(listener => listener(payload));
+    return terminalStateListeners.size;
   },
   clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); terminalReplays = new Map(); detailResponses = new Map(); },
   restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },

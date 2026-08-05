@@ -8,12 +8,49 @@
     target: null,
     generation: 0,
     pendingMountKey: '',
+    unavailableTargets: new Map(),
     baseStatus: { tone: 'connecting', key: 'drawer.terminal_connecting', meta: '' },
   };
 
   const element = id => document.getElementById(id);
   const surface = () => element('drawerTerminalSurface');
   const viewport = () => element('drawerTerminalViewport');
+
+  function targetIdOf(target) {
+    return String(target?.terminalId || target?.id || '');
+  }
+
+  function targetUnavailable(sessionId, targetId) {
+    return Boolean(sessionId && targetId && state.unavailableTargets.get(String(sessionId))?.has(String(targetId)));
+  }
+
+  function notifyTargetsChanged(detail = {}) {
+    window.dispatchEvent(new CustomEvent('loadtoagent:drawer-terminal-targets-changed', { detail }));
+  }
+
+  function markUnavailable(sessionId, targetId, reason = '') {
+    const safeSessionId = String(sessionId || '');
+    const safeTargetId = String(targetId || '');
+    if (!safeSessionId || !safeTargetId) return;
+    const targets = state.unavailableTargets.get(safeSessionId) || new Set();
+    const changed = !targets.has(safeTargetId);
+    targets.add(safeTargetId);
+    state.unavailableTargets.set(safeSessionId, targets);
+    if (changed) notifyTargetsChanged({ sessionId: safeSessionId, targetId: safeTargetId, available: false, reason });
+  }
+
+  function clearUnavailable(sessionId, targetId = '') {
+    const safeSessionId = String(sessionId || '');
+    const targets = state.unavailableTargets.get(safeSessionId);
+    if (!targets) return false;
+    if (!targetId) {
+      state.unavailableTargets.delete(safeSessionId);
+      return true;
+    }
+    const changed = targets.delete(String(targetId));
+    if (!targets.size) state.unavailableTargets.delete(safeSessionId);
+    return changed;
+  }
 
   function pendingPrompt() {
     return state.session
@@ -66,7 +103,7 @@
   }
 
   async function mount(session, options = {}) {
-    if (!session?.id || !viewport()?.isConnected) return;
+    if (!session?.id || !viewport()?.isConnected) return { ok: false, reason: 'invalid-mount', targets: [] };
     state.session = session;
     const requestedTargetId = options.targetId || selectedTargetId(session);
     const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
@@ -75,11 +112,11 @@
       && embedded.agentSessionId === session.id
       && (!requestedTargetId || embedded.terminalId === requestedTargetId)) {
       renderStatus();
-      return;
+      return { ok: true, reused: true, target: state.target };
     }
 
     const mountKey = `${session.id}:${requestedTargetId}`;
-    if (!options.force && state.pendingMountKey === mountKey) return;
+    if (!options.force && state.pendingMountKey === mountKey) return { ok: false, reason: 'pending', targets: [] };
     state.pendingMountKey = mountKey;
 
     const generation = ++state.generation;
@@ -92,36 +129,50 @@
         targetId: requestedTargetId,
         focus: false,
       });
-      if (generation !== state.generation || state.session?.id !== session.id) return;
+      if (generation !== state.generation || state.session?.id !== session.id) {
+        return { ok: false, reason: 'cancelled', targets: [] };
+      }
       state.target = result?.target || null;
       if (result?.ok) {
+        const connectedTargetId = targetIdOf(result.target) || requestedTargetId;
+        clearUnavailable(session.id, connectedTargetId);
         setEmpty(false);
         setStatus('connected', 'drawer.terminal_connected', targetMeta(result));
-        return;
+        notifyTargetsChanged({ sessionId: session.id, targetId: connectedTargetId, available: true, connected: true });
+        return result;
       }
       if (result?.reason === 'tmux-readonly' && state.target) {
+        markUnavailable(session.id, targetIdOf(state.target) || requestedTargetId, result.reason);
         setEmpty(true, 'drawer.terminal_tmux_target', 'drawer.terminal_tmux_help');
         setStatus('unavailable', 'drawer.terminal_tmux_target', state.target.label || '');
-        return;
+        return result;
+      }
+      if (result?.reason !== 'cancelled' && result?.reason !== 'pending') {
+        markUnavailable(session.id, targetIdOf(result?.target) || requestedTargetId, result?.reason || 'unavailable');
       }
       setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
       setStatus('unavailable', 'drawer.terminal_unavailable');
+      return result || { ok: false, reason: 'unavailable', targets: [] };
     } catch (error) {
-      if (generation !== state.generation) return;
+      if (generation !== state.generation) return { ok: false, reason: 'cancelled', targets: [] };
+      markUnavailable(session.id, requestedTargetId, 'mount-failed');
       setEmpty(true, 'drawer.terminal_failed', 'drawer.terminal_failed_help');
       setStatus('error', 'drawer.terminal_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed'));
       report('drawer-terminal-mount', error);
+      return { ok: false, reason: 'mount-failed', error, targets: [] };
     } finally {
       if (generation === state.generation) state.pendingMountKey = '';
     }
   }
 
-  function unmount() {
+  function unmount(options = {}) {
+    const resetSessionId = String(options.sessionId || state.session?.id || '');
     state.generation += 1;
     window.LoadToAgentTerminal?.unmountEmbedded?.();
     state.session = null;
     state.target = null;
     state.pendingMountKey = '';
+    if (options.resetAvailability && resetSessionId) clearUnavailable(resetSessionId);
     setEmpty(true);
     setStatus('connecting', 'drawer.terminal_connecting');
   }
@@ -144,7 +195,7 @@
     }
   });
   element('drawerComposer')?.addEventListener('submit', event => {
-    if (!state.session || !event.target.matches('[data-agent-command-input-mode-selected="terminal"]')) return;
+    if (!state.session || element('drawerComposer')?.dataset.mode !== 'terminal') return;
     setStatus('running', 'drawer.terminal_sending', state.target?.label || '');
   }, true);
   element('drawerComposer')?.addEventListener('change', event => {
@@ -158,16 +209,29 @@
     setStatus('running', 'drawer.terminal_running', state.target.label || '');
   });
   window.loadtoagent?.onTerminalState?.(payload => {
-    if (!state.session || state.target?.kind !== 'terminal' || !Array.isArray(payload?.sessions)) return;
-    const terminalId = state.target.terminalId || state.target.id;
-    const terminal = payload.sessions.find(item => item.id === terminalId);
-    if (payload.change === 'reconnected' && terminal) {
-      setTimeout(() => state.session && mount(state.session, { force: true, targetId: terminalId }), 0);
-      return;
+    if (!Array.isArray(payload?.sessions)) return;
+    const usableIds = new Set(payload.sessions
+      .filter(item => !['stopped', 'exited', 'failed'].includes(String(item?.status || '')))
+      .map(item => String(item.id || ''))
+      .filter(Boolean));
+    for (const [sessionId, targets] of state.unavailableTargets) {
+      for (const targetId of [...targets]) {
+        if (usableIds.has(targetId)) clearUnavailable(sessionId, targetId);
+      }
     }
-    if (!terminal || ['stopped', 'exited', 'failed'].includes(terminal.status)) {
-      setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');
+    if (state.session && state.target?.kind === 'terminal') {
+      const terminalId = targetIdOf(state.target);
+      const terminal = payload.sessions.find(item => item.id === terminalId);
+      if (payload.change === 'reconnected' && terminal) {
+        setTimeout(() => state.session && mount(state.session, { force: true, targetId: terminalId }), 0);
+      } else if (!terminal || ['stopped', 'exited', 'failed'].includes(terminal.status)) {
+        markUnavailable(state.session.id, terminalId, terminal?.status || 'removed');
+        setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');
+      }
     }
+    // The terminal inventory can change while the drawer is showing a safe
+    // transcript. Re-evaluate the surface even when no xterm is mounted.
+    setTimeout(() => notifyTargetsChanged({ change: payload.change || 'updated' }), 0);
   });
   window.loadtoagent?.onTerminalConnection?.(payload => {
     if (!state.session) return;
@@ -194,6 +258,8 @@
     mount,
     unmount,
     refresh: () => state.session && mount(state.session, { force: true }),
+    canMount: (session, targetId) => !targetUnavailable(session?.id, targetId),
+    resetAvailability: sessionId => clearUnavailable(sessionId),
     state: () => ({
       sessionId: state.session?.id || '',
       targetId: state.target?.id || '',

@@ -16,6 +16,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
   } = context;
   let drawerFocusToken = null;
+  let terminalRefreshQueued = false;
   const deliveryLabelKey = (phase) => ({
     sending: "control.delivery_sending",
     confirming: "control.delivery_confirming",
@@ -26,6 +27,54 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     interrupted: "control.delivery_interrupted",
     failed: "control.delivery_failed",
   })[phase] || "control.delivery_confirming";
+
+  function reconcileFocusedComposer(composer, nextHtml, sessionId) {
+    const currentForm = composer.querySelector(`[data-agent-command-form="${CSS.escape(sessionId)}"]`);
+    const currentInput = currentForm?.querySelector("[data-agent-command-draft]");
+    if (!currentForm || !currentInput || !nextHtml) return false;
+    const template = document.createElement("template");
+    template.innerHTML = nextHtml;
+    const nextForm = template.content.querySelector(`[data-agent-command-form="${CSS.escape(sessionId)}"]`);
+    const nextInput = nextForm?.querySelector("[data-agent-command-draft]");
+    if (!nextForm || !nextInput) return false;
+
+    currentForm.className = nextForm.className;
+    for (const attribute of [...currentForm.attributes]) {
+      if (attribute.name.startsWith("data-agent-") && !nextForm.hasAttribute(attribute.name)) {
+        currentForm.removeAttribute(attribute.name);
+      }
+    }
+    for (const attribute of [...nextForm.attributes]) {
+      if (attribute.name.startsWith("data-agent-")) currentForm.setAttribute(attribute.name, attribute.value);
+    }
+
+    currentInput.placeholder = nextInput.placeholder;
+    currentInput.disabled = nextInput.disabled;
+    const inputLabel = currentInput.closest(".agent-command-input");
+    const currentPicker = currentForm.querySelector(":scope > .agent-command-target");
+    const nextPicker = nextForm.querySelector(":scope > .agent-command-target");
+    currentPicker?.remove();
+    if (nextPicker && inputLabel) currentForm.insertBefore(nextPicker.cloneNode(true), inputLabel);
+    const currentHint = currentForm.querySelector(":scope > .drawer-terminal-input-hint");
+    const nextHint = nextForm.querySelector(":scope > .drawer-terminal-input-hint");
+    currentHint?.remove();
+    if (nextHint && inputLabel) inputLabel.after(nextHint.cloneNode(true));
+    const currentActions = currentForm.querySelector(":scope > .agent-command-actions");
+    const nextActions = nextForm.querySelector(":scope > .agent-command-actions");
+    if (currentActions && nextActions) currentActions.replaceChildren(...[...nextActions.childNodes].map(node => node.cloneNode(true)));
+    return true;
+  }
+
+  window.addEventListener("loadtoagent:drawer-terminal-targets-changed", event => {
+    const sessionId = String(event.detail?.sessionId || "");
+    if (sessionId && sessionId !== state.selectedId) return;
+    if (terminalRefreshQueued || state.drawerTab !== "chat" || !$("#detailDrawer")?.classList.contains("open")) return;
+    terminalRefreshQueued = true;
+    requestAnimationFrame(() => {
+      terminalRefreshQueued = false;
+      if (state.drawerTab === "chat" && $("#detailDrawer")?.classList.contains("open")) renderDrawer();
+    });
+  });
 
   function scheduleFlowConnections() {
     requestAnimationFrame(() => {
@@ -141,7 +190,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
   function closeDrawer(restoreFocus = true) {
     if (!$("#detailDrawer").classList.contains("open")) return;
-    window.LoadToAgentDrawerTerminal?.unmount?.();
+    window.LoadToAgentDrawerTerminal?.unmount?.({ resetAvailability: true, sessionId: state.selectedId });
     const presentation = state.drawerPresentation;
     const focusToken = drawerFocusToken;
     $("#detailDrawer").classList.remove("open");
@@ -186,21 +235,32 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const presentationLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : STATUS[presentationStatus] || presentationStatus;
     const subagentMode = state.drawerMode === "subagent" && Boolean(session.parentId);
     const executionMode = state.drawerMode === "execution" && Boolean(state.drawerExecutionId);
-    // A live transcript does not imply that LoadToAgent owns its PTY. Codex
-    // Desktop, for example, multiplexes tasks through one shared app-server.
-    // A terminal is an optional live surface, not a replacement for the
-    // conversation. Only expose its dedicated tab when an exact, attachable
-    // target is known; heuristic attachment could type into another task.
-    const terminalTargets = !session.parentId && !subagentMode && !executionMode && isLiveSession(session)
+    // The conversation always keeps one terminal-shaped surface. When an exact
+    // PTY target exists, mount that same terminal and scrollback in the chat
+    // tab. Otherwise render the safe conversation transcript inside the same
+    // visual shell; never guess a target that could receive another task's
+    // input. PTY availability, not the provider status, is the source of truth.
+    const conversationTab = state.drawerTab === "chat";
+    const terminalTargets = !session.parentId && !subagentMode && !executionMode
       ? (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
       : [];
-    const terminalConversation = terminalTargets.some(target => target.kind === "terminal");
-    if (state.drawerTab === "terminal" && !terminalConversation) {
-      state.drawerTab = "chat";
-      state.drawerForceLatest = true;
-    }
-    const terminalTab = terminalConversation && state.drawerTab === "terminal";
-    const externalOrigin = !terminalConversation && isLiveSession(session) ? originAppInfo(session) : null;
+    const savedTargetId = state.agentCommandTargets.get(session.id) || "";
+    const attachableTerminalTargets = terminalTargets.filter(target => target.kind === "terminal");
+    const savedTerminalTarget = attachableTerminalTargets.find(target => target.id === savedTargetId) || null;
+    const terminalTarget = [savedTerminalTarget, ...attachableTerminalTargets]
+      .filter((target, index, targets) => target && targets.indexOf(target) === index)
+      .find(target => window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id) !== false)
+      || null;
+    const terminalConversation = terminalTarget?.kind === "terminal";
+    const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const terminalId = String(terminalTarget?.terminalId || terminalTarget?.id || "");
+    const liveTerminalChat = conversationTab && terminalConversation
+      && embeddedTerminal.connected
+      && embeddedTerminal.agentSessionId === session.id
+      && embeddedTerminal.terminalId === terminalId;
+    const transcriptChat = conversationTab && !liveTerminalChat;
+    const externallyActive = ["starting", "running", "waiting", "paused"].includes(String(session.status || ""));
+    const externalOrigin = !terminalConversation && externallyActive ? originAppInfo(session) : null;
     const snapshot = snapshotSession(session.id);
     const activity = executionMode
       ? (session.executions || []).find(item => item.id === state.drawerExecutionId)
@@ -215,7 +275,9 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const detailPreviewing = detailPending && !state.details.has(state.selectedId) && Boolean(snapshot);
     const drawer = $("#detailDrawer");
     drawer.dataset.mode = executionMode ? "execution" : subagentMode ? "subagent" : "session";
-    drawer.dataset.terminalChat = terminalTab ? "true" : "false";
+    drawer.dataset.conversationShell = conversationTab ? "terminal" : "standard";
+    drawer.dataset.terminalChat = liveTerminalChat ? "true" : "false";
+    drawer.dataset.conversationSurface = conversationTab ? (liveTerminalChat ? "pty" : "transcript") : "standard";
     drawer.style.setProperty("--drawer-provider", provider.accent);
     $("#drawerProviderMark").style.setProperty("--provider", provider.accent);
     $("#drawerProviderMark").textContent = executionMode && activity?.kind === "shell" ? ">_" : provider.mark;
@@ -276,28 +338,24 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
             : ""
         }${resume}${stop}${reset}`;
     $$(".drawer-tab").forEach((tab) => {
-      const hidden = ((subagentMode || executionMode) && tab.dataset.tab !== "chat")
-        || (tab.dataset.tab === "terminal" && !terminalConversation);
+      const hidden = (subagentMode || executionMode) && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);
       const shortLabel = t({
         summary: "drawer.tab_summary_short",
         chat: "drawer.tab_chat_short",
-        terminal: "drawer.tab_terminal_short",
         lifecycle: "drawer.tab_progress_short",
         tokens: "drawer.tab_usage_short",
       }[tab.dataset.tab]);
       const fullLabel = tab.dataset.tab === "chat"
         ? executionMode ? t("drawer.execution_process") : subagentMode ? t("drawer.work_content") : t("ui.conversation")
-        : tab.dataset.tab === "terminal"
-          ? t("drawer.terminal_viewport")
-          : t({
-              summary: "management.summary",
-              lifecycle: "ui.progress",
-              tokens: "ui.usage",
-            }[tab.dataset.tab]);
+        : t({
+            summary: "management.summary",
+            lifecycle: "ui.progress",
+            tokens: "ui.usage",
+          }[tab.dataset.tab]);
       tab.textContent = executionMode || subagentMode ? fullLabel : shortLabel;
       tab.setAttribute("aria-label", fullLabel);
-      tab.setAttribute("aria-controls", tab.dataset.tab === "terminal" ? "drawerTerminalSurface" : "drawerContent");
+      tab.setAttribute("aria-controls", tab.dataset.tab === "chat" && liveTerminalChat ? "drawerTerminalSurface" : "drawerContent");
       const active = tab.dataset.tab === state.drawerTab;
       tab.classList.toggle("active", active);
       tab.setAttribute("aria-selected", active ? "true" : "false");
@@ -306,14 +364,14 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const activeTab = $(`.drawer-tab[data-tab="${state.drawerTab}"]`);
     const content = $("#drawerContent");
     const terminalSurface = $("#drawerTerminalSurface");
-    content.classList.toggle("hidden", terminalTab);
-    terminalSurface.classList.toggle("hidden", !terminalTab);
-    terminalSurface.setAttribute("aria-hidden", terminalTab ? "false" : "true");
-    if (!terminalTab) window.LoadToAgentDrawerTerminal?.unmount?.();
-    if (terminalTab) {
+    content.classList.toggle("hidden", liveTerminalChat);
+    terminalSurface.classList.toggle("hidden", !liveTerminalChat);
+    terminalSurface.setAttribute("aria-hidden", liveTerminalChat ? "false" : "true");
+    if (!conversationTab || !terminalConversation) window.LoadToAgentDrawerTerminal?.unmount?.();
+    if (liveTerminalChat) {
       content.removeAttribute("aria-label");
       content.removeAttribute("aria-labelledby");
-      terminalSurface.setAttribute("aria-labelledby", "drawerTabTerminal");
+      terminalSurface.setAttribute("aria-labelledby", "drawerTabChat");
     } else if (subagentMode && state.drawerPresentation === "context") {
       content.removeAttribute("aria-labelledby");
       content.setAttribute("aria-label", t("control.subagent_conversation"));
@@ -331,7 +389,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     motionState.drawerRenderKey = renderKey;
     motionState.drawerTab = state.drawerTab;
     const detailError = state.detailErrors.get(state.selectedId);
-    let nextContentHtml = terminalTab
+    let nextContentHtml = liveTerminalChat
       ? ""
       : detailLoading
       ? `<div class="drawer-loading"><span></span><b>${esc(t("drawer.loading_history"))}</b><small>${esc(t("drawer.loading_history_help"))}</small></div>`
@@ -352,32 +410,54 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
             : state.drawerTab === "lifecycle"
               ? lifecycleHtml(session)
               : tokensHtml(session);
-    if (!terminalTab && state.drawerTab === "chat" && externalOrigin && !detailLoading && !detailError) {
+    if (transcriptChat && externalOrigin && !detailLoading && !detailError) {
       nextContentHtml = `<aside class="drawer-external-session-note" role="status">
         <span aria-hidden="true">↗</span><div><b>${esc(t("drawer.external_session_running", { provider: externalOrigin.provider }))}</b>
         <small>${esc(t("drawer.external_session_running_help"))}</small></div>
       </aside>${nextContentHtml}`;
     }
-    if (!terminalTab && detailPreviewing && !detailError) {
+    if (!liveTerminalChat && detailPreviewing && !detailError) {
       nextContentHtml = `<div class="drawer-history-refreshing" role="status">
         <span aria-hidden="true"></span><small>${esc(t("drawer.loading_history_inline"))}</small>
       </div>${nextContentHtml}`;
+    }
+    if (transcriptChat) {
+      const transcriptTone = ["starting", "running"].includes(presentationStatus)
+        ? "connected"
+        : ["waiting", "paused"].includes(presentationStatus)
+          ? "attention"
+          : presentationStatus === "failed"
+            ? "error"
+            : presentationStatus === "cancelled"
+              ? "unavailable"
+              : "history";
+      const transcriptMeta = externalOrigin?.provider
+        ? `${presentationLabel} · ${externalOrigin.provider}`
+        : presentationLabel;
+      nextContentHtml = `<section class="drawer-terminal-transcript" data-transcript-session="${esc(session.id)}">
+        <header class="drawer-terminal-statusbar drawer-transcript-statusbar" data-tone="${esc(transcriptTone)}">
+          <span class="drawer-terminal-connection"><i aria-hidden="true"></i><span class="drawer-terminal-prompt" aria-hidden="true">›_</span>
+          <b>${esc(t("drawer.conversation"))}</b><small>${esc(transcriptMeta)}</small></span>
+        </header>
+        <div class="drawer-terminal-transcript-body">${nextContentHtml}</div>
+      </section>`;
     }
     if (motionState.drawerContentHtml !== nextContentHtml) {
       content.innerHTML = nextContentHtml;
       motionState.drawerContentHtml = nextContentHtml;
     }
     const composer = $("#drawerComposer");
-    composer.dataset.mode = terminalTab ? "terminal" : "conversation";
+    composer.dataset.mode = liveTerminalChat ? "terminal" : "conversation";
     const showComposer = !session.parentId
       && !executionMode
-      && (state.drawerTab === "chat" || terminalTab)
+      && conversationTab
       && typeof agentCommandComposer === "function"
-      && (terminalTab || (!detailLoading && !detailError));
+      && (liveTerminalChat || (!detailLoading && !detailError));
     composer.classList.toggle("hidden", !showComposer);
     const nextComposerHtml = showComposer ? agentCommandComposer(session, {
       conversation: true,
-      terminal: terminalTab,
+      terminal: liveTerminalChat,
+      terminalStyle: conversationTab,
       delivery,
       deliveryLabel: delivery ? t(deliveryLabelKey(delivery.phase)) : "",
     }) : "";
@@ -388,7 +468,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     // composer would destroy the focused textarea and its IME/caret state.
     // Keep that exact node alive until focus leaves it; the delegated input
     // handler already mirrors the current draft into state.
-    if (!focusedDraft && motionState.drawerComposerHtml !== nextComposerHtml) {
+    const currentInputMode = composer.querySelector("[data-agent-command-form]")?.dataset.agentCommandInputModeSelected || "";
+    const nextInputMode = liveTerminalChat ? "terminal" : "conversation";
+    if (focusedDraft && currentInputMode !== nextInputMode && reconcileFocusedComposer(composer, nextComposerHtml, session.id)) {
+      motionState.drawerComposerHtml = nextComposerHtml;
+    } else if (!focusedDraft && motionState.drawerComposerHtml !== nextComposerHtml) {
       composer.innerHTML = nextComposerHtml;
       motionState.drawerComposerHtml = nextComposerHtml;
     } else if (!showComposer && composer.innerHTML) {
@@ -414,13 +498,13 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       if (interruptIcon) interruptIcon.textContent = interrupting ? "…" : "";
       if (interruptVisibleLabel) interruptVisibleLabel.textContent = t(interrupting ? "agent.stopping_short" : "agent.stop_short");
     }
-    if (terminalTab) window.LoadToAgentDrawerTerminal?.mount?.(session);
+    if (conversationTab && terminalConversation) window.LoadToAgentDrawerTerminal?.mount?.(session, { targetId: terminalTarget.id });
     restoreDisclosureStates(content);
     content.classList.toggle("motion-content-in", shouldAnimateContent && !motionPreference.matches);
     clearTimeout(motionState.drawerContentTimer);
     if (shouldAnimateContent)
       motionState.drawerContentTimer = setTimeout(() => content.classList.remove("motion-content-in"), motionPreference.matches ? 0 : 520);
-    if (!detailLoading && !terminalTab) {
+    if (!detailLoading && !liveTerminalChat) {
       if (tabChanged) {
         content.scrollTop = 0;
         state.drawerForceLatest = false;

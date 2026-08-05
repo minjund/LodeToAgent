@@ -99,11 +99,22 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     let entry = state.terminals.get(session.id);
     if (!entry) {
       entry = createXtermHost(session.id, false);
+      entry.ready = (async () => {
+        const detail = await window.loadtoagent.terminalGet(session.id);
+        if (detail && detail.replay) entry.terminal.write(detail.replay);
+        return entry;
+      })().catch(error => {
+        // Every caller awaiting this entry must observe the same initialization
+        // failure. Remove it only when it is still the entry registered for the
+        // session, so no caller can mistake an unverified blank xterm for a PTY.
+        if (state.terminals.get(session.id) === entry) state.terminals.delete(session.id);
+        entry.terminal.dispose();
+        entry.host.remove();
+        throw error;
+      });
       state.terminals.set(session.id, entry);
-      const detail = await window.loadtoagent.terminalGet(session.id);
-      if (detail && detail.replay) entry.terminal.write(detail.replay);
     }
-    return entry;
+    return entry.ready ? await entry.ready : entry;
   }
 
   function ensureRemoteTerminal() {
