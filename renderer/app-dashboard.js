@@ -763,11 +763,15 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`;
   }
 
-  function installationTypeLabel(value, version = "—") {
+  function installationTypeLabel(value, version = "—", targetInstallType = value, currentVersion = "—") {
+    if (["source", "npm"].includes(value) && targetInstallType === "desktop") {
+      return window.LoadToAgentI18n.t("ui.development_updates_installed_app", { version: currentVersion });
+    }
     const labels = {
       desktop: window.LoadToAgentI18n.t("ui.desktop_installer", { version }),
       npm: window.LoadToAgentI18n.t("ui.global_npm_installation"),
       source: window.LoadToAgentI18n.t("ui.local_development_build"),
+      portable: window.LoadToAgentI18n.t("ui.portable_build"),
     };
     return labels[value] || window.LoadToAgentI18n.t("ui.checking_installation_type");
   }
@@ -804,7 +808,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       ],
       downloaded: [
         "✓", window.LoadToAgentI18n.t("ui.ready_to_install"), window.LoadToAgentI18n.t("ui.the_update_file_is_ready"),
-        window.LoadToAgentI18n.t("settings.update.auto_install_restart"),
+        update && update.installMode === "automatic"
+          ? window.LoadToAgentI18n.t("settings.update.auto_install_restart")
+          : window.LoadToAgentI18n.t("ui.open_the_installer_and_follow_its_instructions_to_finish_updating"),
       ],
       error: [
         "!", window.LoadToAgentI18n.t("ui.check_failed"), window.LoadToAgentI18n.t("ui.could_not_check_for_updates"),
@@ -824,8 +830,10 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const available = ["available", "downloading", "downloaded"].includes(update.status);
     const downloading = update.status === "downloading";
     const downloaded = update.status === "downloaded";
-    const current = update.currentVersion || state.versions.app || "";
-    $("#sidebarAppVersion").textContent = current || "—";
+    const current = update.currentVersionKnown === false
+      ? window.LoadToAgentI18n.t("ui.version_unknown")
+      : update.currentVersion || state.versions.app || "";
+    $("#sidebarAppVersion").textContent = state.versions.app || current || "—";
     $("#updatePanel").dataset.updateStatus = update.status || "idle";
     $("#currentVersion").textContent = current || "—";
     $("#latestVersion").textContent = update.latestVersion || window.LoadToAgentI18n.t("ui.not_checked");
@@ -843,7 +851,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
             ? t("update.comparison_checking")
             : t("update.comparison_unchecked");
     }
-    $("#installationType").textContent = installationTypeLabel(update.installType, update.latestVersion || "—");
+    $("#installationType").textContent = installationTypeLabel(
+      update.installType,
+      update.latestVersion || "—",
+      update.targetInstallType,
+      current || "—",
+    );
     $("#releasePublishedAt").textContent = update.publishedAt
       ? window.LoadToAgentI18n.t("update.published", {
           version: update.latestVersion || "—",
@@ -860,14 +873,18 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#updateStateLabel").textContent = label;
     $("#updateStateTitle").textContent = title;
     $("#updateStateText").textContent = text;
-    $("#checkUpdateBtn").disabled = update.status === "checking" || downloading;
+    $("#checkUpdateBtn").disabled = update.status === "checking" || downloading || update.blocked === true;
     $("#checkUpdateBtn").classList.toggle("hidden", available);
     $("#checkUpdateBtn").textContent =
       update.status === "checking" ? window.LoadToAgentI18n.t("ui.checking") : window.LoadToAgentI18n.t("settings.update.check");
     const install = $("#installUpdateBtn");
     install.classList.toggle("hidden", !(available && (update.asset || downloaded)));
     install.disabled = downloading;
-    const downloadLabel = window.LoadToAgentI18n.t("settings.update.download", { version: update.latestVersion || "—" });
+    const downloadLabel = update.installMode === "automatic"
+      ? window.LoadToAgentI18n.t("settings.update.download", { version: update.latestVersion || "—" })
+      : downloaded
+        ? window.LoadToAgentI18n.t("ui.open_installer")
+        : window.LoadToAgentI18n.t("settings.update.download_manual", { version: update.latestVersion || "—" });
     install.textContent = downloading
       ? window.LoadToAgentI18n.t("ui.downloading_2")
       : downloadLabel;
@@ -882,7 +899,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const error = $("#updateError");
     error.classList.toggle("hidden", !update.error);
     error.textContent = update.error
-      ? window.LoadToAgentI18n.errorText(update.error, "ui.could_not_check_for_updates")
+      ? update.blocked === true && update.currentVersionKnown === false
+        ? window.LoadToAgentI18n.t("settings.update.installed_version_unavailable")
+        : window.LoadToAgentI18n.errorText(update.error, "ui.could_not_check_for_updates")
       : "";
     const notes = $("#releaseNotes");
     notes.classList.toggle("hidden", !update.latestVersion);

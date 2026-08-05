@@ -32,8 +32,9 @@ function Write-UpdateLog([string]$Message) {
 
 function Add-LaunchCandidate([System.Collections.Generic.List[string]]$Candidates, [string]$Candidate) {
   if ([string]::IsNullOrWhiteSpace($Candidate)) { return }
-  $normalized = $Candidate.Trim().Trim('"')
+  $normalized = $Candidate.Trim()
   if ($normalized.EndsWith(',0')) { $normalized = $normalized.Substring(0, $normalized.Length - 2) }
+  $normalized = $normalized.Trim().Trim('"')
   if ((Test-Path -LiteralPath $normalized -PathType Leaf) -and -not $Candidates.Contains($normalized)) {
     $Candidates.Add($normalized)
   }
@@ -145,8 +146,11 @@ function Find-InstalledApp([string]$OriginalPath, [string]$Version) {
 }
 
 try {
-  ('helperPid=' + $PID) | Set-Content -LiteralPath $ReadyPath -Encoding UTF8
+  $readyTemporary = $ReadyPath + '.' + $PID + '.tmp'
+  @{ helperPid = $PID; token = $RendererReadyToken } | ConvertTo-Json -Compress | Set-Content -LiteralPath $readyTemporary -Encoding UTF8
+  Move-Item -LiteralPath $readyTemporary -Destination $ReadyPath -Force
 } catch {
+  Remove-Item -LiteralPath $readyTemporary -Force -ErrorAction SilentlyContinue
   Write-UpdateLog ('readySignalError=' + $_.Exception.Message)
   exit 41
 }
@@ -294,6 +298,10 @@ try {
   $helperProcess = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $helperArguments -WindowStyle Hidden -PassThru
   for ($attempt = 0; $attempt -lt 100; $attempt++) {
     if (Test-Path -LiteralPath $ReadyPath -PathType Leaf) {
+      $readySignal = Get-Content -LiteralPath $ReadyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+      if ([int]$readySignal.helperPid -ne $helperProcess.Id -or [string]$readySignal.token -ne $RendererReadyToken) {
+        throw '업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.'
+      }
       Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
       exit 0
     }
@@ -306,7 +314,11 @@ try {
   Stop-Process -Id $helperProcess.Id -Force -ErrorAction SilentlyContinue
   throw '업데이트 설치 도우미가 10초 안에 준비되지 않았습니다.'
 } catch {
+  if ($null -ne $helperProcess -and -not $helperProcess.HasExited) {
+    Stop-Process -Id $helperProcess.Id -Force -ErrorAction SilentlyContinue
+  }
   Write-BootstrapLog ('bootstrapError=' + $_.Exception.Message)
+  Remove-Item -LiteralPath $ReadyPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
   exit 42
 }
@@ -322,6 +334,140 @@ function macAppBundlePath(executablePath) {
   const normalized = path.posix.normalize(String(executablePath || '').replace(/\\/g, '/'));
   const match = normalized.match(/^((?:\/|[A-Za-z]:\/).+?\.app)\/Contents\/MacOS\/[^/]+$/i);
   return match ? match[1] : '';
+}
+
+function resolveInstalledDesktopApp(options = {}) {
+  const platform = String(options.platform || process.platform);
+  const installType = String(options.installType || '');
+  const currentAppPath = String(options.appPath || '');
+  const fileSystem = options.fileSystem || fs;
+  const environment = options.environment || process.env;
+  const homeDir = String(options.homeDir || environment.HOME || environment.USERPROFILE || '');
+  const candidates = [];
+  const addCandidate = candidate => {
+    const value = String(candidate || '').trim();
+    if (value && !candidates.includes(value)) candidates.push(value);
+  };
+
+  if (installType === 'desktop') addCandidate(currentAppPath);
+  if (['source', 'npm'].includes(installType)) {
+    for (const candidate of Array.isArray(options.candidates) ? options.candidates : []) addCandidate(candidate);
+    if (platform === 'win32') {
+      if (environment.LOCALAPPDATA) {
+        addCandidate(path.join(environment.LOCALAPPDATA, 'Programs', 'LoadToAgent', 'LoadToAgent.exe'));
+      }
+    } else if (platform === 'darwin') {
+      addCandidate('/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
+      if (homeDir) addCandidate(path.join(homeDir, 'Applications', 'LoadToAgent.app', 'Contents', 'MacOS', 'LoadToAgent'));
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (!fileSystem.existsSync(candidate)) continue;
+      if (typeof fileSystem.statSync === 'function' && !fileSystem.statSync(candidate).isFile()) continue;
+      return path.resolve(candidate);
+    } catch (_unreadableCandidate) {}
+  }
+  return '';
+}
+
+async function windowsInstalledDesktopAppCandidates(options = {}) {
+  const environment = options.environment || process.env;
+  const execFile = options.execFile || execFileProcess;
+  const script = [
+    '$paths = [System.Collections.Generic.List[string]]::new()',
+    'function Add-Candidate([string]$Candidate) {',
+    '  if ([string]::IsNullOrWhiteSpace($Candidate)) { return }',
+    '  $value = $Candidate.Trim()',
+    "  if ($value.EndsWith(',0')) { $value = $value.Substring(0, $value.Length - 2) }",
+    "  $value = $value.Trim().Trim('\"')",
+    '  if (-not $paths.Contains($value)) { $paths.Add($value) }',
+    '}',
+    'foreach ($root in @(',
+    "  'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+    "  'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+    "  'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'",
+    ')) {',
+    '  Get-ItemProperty $root -ErrorAction SilentlyContinue |',
+    "    Where-Object { [string]$_.DisplayName -like 'LoadToAgent*' } |",
+    '    ForEach-Object {',
+    '      Add-Candidate ([string]$_.DisplayIcon)',
+    '      if (-not [string]::IsNullOrWhiteSpace([string]$_.InstallLocation)) {',
+    "        Add-Candidate (Join-Path ([string]$_.InstallLocation) 'LoadToAgent.exe')",
+    '      }',
+    "      if ([string]$_.UninstallString -match '^\"?(.+?\\\\)Uninstall LoadToAgent\\.exe') {",
+    "        Add-Candidate (Join-Path $Matches[1] 'LoadToAgent.exe')",
+    '      }',
+    '    }',
+    '}',
+    '$paths | ForEach-Object { [Console]::Out.WriteLine($_) }',
+  ].join('\n');
+  const result = await execFile(windowsPowerShell(environment), [
+    '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script,
+  ], {
+    windowsHide: true,
+    timeout: 10_000,
+    maxBuffer: 256 * 1024,
+    env: { ...process.env, ...environment },
+  });
+  return String(result && result.stdout || '').split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+}
+
+async function findInstalledDesktopApp(options = {}) {
+  const platform = String(options.platform || process.platform);
+  const installType = String(options.installType || '');
+  let candidates = Array.isArray(options.candidates) ? [...options.candidates] : [];
+  if (platform === 'win32' && ['source', 'npm'].includes(installType)) {
+    try {
+      candidates = [
+        ...await windowsInstalledDesktopAppCandidates(options),
+        ...candidates,
+      ];
+    } catch (_registryUnavailable) {}
+  }
+  return resolveInstalledDesktopApp({ ...options, platform, installType, candidates });
+}
+
+function normalizedExecutableVersion(value) {
+  const match = String(value || '').trim().match(/(?:^|[^0-9])(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)(?:[^0-9]|$)/);
+  return match ? match[1] : '';
+}
+
+async function readDesktopAppVersion(options = {}) {
+  const platform = String(options.platform || process.platform);
+  const appPath = String(options.appPath || '');
+  if (!appPath) return '';
+  const execFile = options.execFile || execFileProcess;
+  if (platform === 'win32') {
+    const environment = options.environment || process.env;
+    const script = [
+      '$info = (Get-Item -LiteralPath $env:LOADTOAGENT_VERSION_PATH -ErrorAction Stop).VersionInfo',
+      '$version = @($info.ProductVersion, $info.FileVersion) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 1',
+      '[Console]::Out.Write([string]$version)',
+    ].join('; ');
+    const result = await execFile(windowsPowerShell(environment), [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command', script,
+    ], {
+      windowsHide: true,
+      timeout: 10_000,
+      maxBuffer: 64 * 1024,
+      env: { ...process.env, ...environment, LOADTOAGENT_VERSION_PATH: appPath },
+    });
+    return normalizedExecutableVersion(result && result.stdout);
+  }
+  if (platform === 'darwin') {
+    const appBundle = macAppBundlePath(appPath);
+    if (!appBundle) return '';
+    const result = await execFile('/usr/libexec/PlistBuddy', [
+      '-c', 'Print :CFBundleShortVersionString', path.join(appBundle, 'Contents', 'Info.plist'),
+    ], { timeout: 10_000, maxBuffer: 64 * 1024 });
+    return normalizedExecutableVersion(result && result.stdout);
+  }
+  return '';
 }
 
 function automaticInstallPlatform({ platform, installType, installerPath, downloadsDir, appPath }) {
@@ -363,13 +509,55 @@ function waitForProcessSpawn(child, timeoutMs = 5000) {
   });
 }
 
+async function terminateWindowsUpdateProcesses(pids, options = {}) {
+  const targets = [...new Set((Array.isArray(pids) ? pids : [pids])
+    .map(Number)
+    .filter(pid => Number.isSafeInteger(pid) && pid > 0 && pid !== process.pid))];
+  const terminateTree = typeof options.killProcessTree === 'function'
+    ? options.killProcessTree
+    : pid => execFileProcess(
+      path.join(
+        String(options.environment?.SystemRoot || options.environment?.WINDIR || process.env.SystemRoot || process.env.WINDIR || 'C:\\Windows'),
+        'System32',
+        'taskkill.exe',
+      ),
+      ['/PID', String(pid), '/T', '/F'],
+      { windowsHide: true, timeout: 10_000, maxBuffer: 64 * 1024 },
+    );
+  for (const pid of targets) {
+    try {
+      await terminateTree(pid);
+    } catch (_treeTerminationError) {
+      try { (options.killProcess || process.kill)(pid, 'SIGTERM'); } catch (_alreadyExited) {}
+    }
+  }
+}
+
+async function readUpdateReadySignal(readyPath, expected = {}) {
+  let value;
+  try {
+    const raw = await fs.promises.readFile(readyPath, 'utf8');
+    value = JSON.parse(raw.replace(/^\uFEFF/, '').trim());
+  } catch (error) {
+    if (error && error.code === 'ENOENT') throw error;
+    throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
+  }
+  if (value.token !== expected.token || (expected.pid != null && Number(value.helperPid) !== Number(expected.pid))) {
+    throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
+  }
+  if (!Number.isSafeInteger(Number(value.helperPid)) || Number(value.helperPid) <= 0) {
+    throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
+  }
+  return value;
+}
+
 function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000, expected = null) {
   if (!readyPath || !child || typeof child.once !== 'function') {
     return Promise.reject(new Error('업데이트 설치 도우미의 준비 상태를 확인하지 못했습니다.'));
   }
   return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = error => {
+    const finish = (error, value) => {
       if (settled) return;
       settled = true;
       clearInterval(poll);
@@ -379,7 +567,7 @@ function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000, expected =
         child.removeListener('exit', onExit);
       }
       if (error) reject(error);
-      else resolve();
+      else resolve(value);
     };
     const onError = error => finish(error);
     const onExit = code => {
@@ -392,19 +580,15 @@ function waitForUpdateHelperReady(readyPath, child, timeoutMs = 5000, expected =
         return;
       }
       const check = expected
-        ? fs.promises.readFile(readyPath, 'utf8').then(raw => {
-          let value;
-          try { value = JSON.parse(raw); } catch (_invalidReadyJson) { throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.'); }
-          if (value.token !== expected.token || Number(value.helperPid) !== Number(expected.pid)) {
-            throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
-          }
+        ? readUpdateReadySignal(readyPath, expected).then(value => {
           if (child.exitCode != null || child.signalCode != null) {
             throw new Error('업데이트 설치 도우미가 준비 신호 직후 종료되었습니다.');
           }
+          return value;
         })
         : fs.promises.access(readyPath, fs.constants.F_OK);
       check
-        .then(() => finish())
+        .then(value => finish(null, value))
         .catch(error => {
           if (error && error.code !== 'ENOENT') finish(error);
         });
@@ -545,10 +729,16 @@ async function launchDownloadedUpdate(options = {}) {
     try {
       await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
       if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
-      await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000, {
+      const readySignal = await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000, {
         pid: child.pid,
         token: rendererReadyToken,
       });
+      if (typeof options.beforeAutomaticInstall === 'function') {
+        await options.beforeAutomaticInstall({
+          platform: 'darwin',
+          helperPid: Number(readySignal && readySignal.helperPid || child.pid),
+        });
+      }
     } catch (error) {
       try { if (typeof child.kill === 'function') child.kill(); } catch (_killError) {}
       await fs.promises.rm(readyPath, { force: true }).catch(cleanupError => {
@@ -574,11 +764,11 @@ async function launchDownloadedUpdate(options = {}) {
     };
   }
 
-  const helperPath = path.join(downloadsDir, 'install-update.ps1');
-  const bootstrapPath = path.join(downloadsDir, 'install-update-bootstrap.ps1');
-  const logPath = path.join(downloadsDir, 'install-update.log');
-  const readyPath = path.join(downloadsDir, 'install-update.ready');
   const rendererReadyToken = crypto.randomBytes(24).toString('hex');
+  const helperPath = path.join(downloadsDir, `install-update-${rendererReadyToken}.ps1`);
+  const bootstrapPath = path.join(downloadsDir, `install-update-bootstrap-${rendererReadyToken}.ps1`);
+  const logPath = path.join(downloadsDir, 'install-update.log');
+  const readyPath = path.join(downloadsDir, `install-update-ready-${rendererReadyToken}.json`);
   const rendererReadyPath = path.join(downloadsDir, `install-renderer-ready-${rendererReadyToken}.json`);
   await fs.promises.rm(readyPath, { force: true });
   await fs.promises.rm(rendererReadyPath, { force: true });
@@ -605,12 +795,41 @@ async function launchDownloadedUpdate(options = {}) {
     windowsHide: true,
     stdio: 'ignore',
   });
-  await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
-  if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
-  const waitForReady = options.waitForReady || waitForUpdateHelperReady;
-  await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000);
-  await fs.promises.rm(readyPath, { force: true });
-  child.unref();
+  let readySignal = null;
+  try {
+    await waitForProcessSpawn(child, Number(options.spawnTimeoutMs) || 5000);
+    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) throw new Error('업데이트 설치 프로그램을 시작하지 못했습니다.');
+    const waitForReady = options.waitForReady || waitForUpdateHelperReady;
+    readySignal = await waitForReady(readyPath, child, Number(options.readyTimeoutMs) || 5000);
+    if (!readySignal || typeof readySignal !== 'object') {
+      readySignal = await readUpdateReadySignal(readyPath, { token: rendererReadyToken });
+    } else if (readySignal.token !== rendererReadyToken || !Number.isSafeInteger(Number(readySignal.helperPid)) || Number(readySignal.helperPid) <= 0) {
+      throw new Error('업데이트 설치 도우미의 준비 신호가 올바르지 않습니다.');
+    }
+    if (typeof options.beforeAutomaticInstall === 'function') {
+      await options.beforeAutomaticInstall({
+        platform: 'win32',
+        helperPid: Number(readySignal && readySignal.helperPid || 0),
+      });
+    }
+    await fs.promises.rm(readyPath, { force: true }).catch(cleanupError => {
+      reportRecoverableError('windows-update-helper-ready-remove', cleanupError);
+    });
+    child.unref();
+  } catch (error) {
+    if (!readySignal) {
+      try { readySignal = await readUpdateReadySignal(readyPath, { token: rendererReadyToken }); } catch (_missingReadySignal) {}
+    }
+    const helperPid = Number(readySignal && readySignal.helperPid || 0);
+    await terminateWindowsUpdateProcesses([helperPid, helperPid > 0 ? 0 : child && child.pid], options);
+    await Promise.all([
+      fs.promises.rm(readyPath, { force: true }),
+      fs.promises.rm(rendererReadyPath, { force: true }),
+      fs.promises.rm(helperPath, { force: true }),
+      fs.promises.rm(bootstrapPath, { force: true }),
+    ]).catch(cleanupError => reportRecoverableError('windows-update-failed-cleanup', cleanupError));
+    throw error;
+  }
   return {
     mode: 'automatic',
     helperPath,
@@ -628,9 +847,12 @@ module.exports = {
   WINDOWS_UPDATE_HELPER,
   automaticInstallPlatform,
   canInstallSilently,
+  findInstalledDesktopApp,
   isWithinDirectory,
   launchDownloadedUpdate,
   macAppBundlePath,
+  readDesktopAppVersion,
+  resolveInstalledDesktopApp,
   waitForProcessSpawn,
   waitForUpdateHelperReady,
   verifyDownloadedInstaller,

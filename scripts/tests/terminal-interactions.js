@@ -48,6 +48,7 @@ function createWorkbench(root, options = {}) {
     window: {
       LoadToAgentI18n: { t: key => key },
       loadtoagent: {
+        terminalList: options.terminalList || (async () => []),
         terminalCommand: async (id, text, deliveryOptions) => {
           terminalCalls.push([id, text, deliveryOptions]);
           return options.terminalCommandResult || { ok: true };
@@ -74,6 +75,11 @@ function createWorkbench(root, options = {}) {
       readOnly: true,
     },
     captureGeneration: 0,
+    terminalSessionRevision: 0,
+    terminalListRequestGeneration: 0,
+    sessionOrder: [],
+    sessionRenderKey: '',
+    active: false,
     platform: { label: 'Test computer' },
   };
   const workbench = sandbox.window.LoadToAgentTerminalWorkbench({
@@ -108,6 +114,24 @@ function createWorkbench(root, options = {}) {
 
 function registerTerminalInteractionTests(context) {
   const { test, root } = context;
+
+  test('늦은 터미널 목록 응답이 더 최신 state 이벤트를 덮어쓰지 않는다', async () => {
+    let resolveList;
+    const pendingList = new Promise(resolve => { resolveList = resolve; });
+    const { state, workbench } = createWorkbench(root, {
+      terminalList: () => pendingList,
+    });
+    const staleRefresh = workbench.refreshSessions();
+    await Promise.resolve();
+    await workbench.refreshSessions({
+      change: 'created',
+      sessions: [{ id: 'terminal:new', type: 'agent', status: 'running', title: '새 PTY' }],
+    });
+    resolveList([{ id: 'terminal:old', type: 'agent', status: 'running', title: '옛 PTY' }]);
+    await staleRefresh;
+
+    assert.deepStrictEqual(state.sessions.map(session => session.id), ['terminal:new']);
+  });
 
   test('질문 모드는 일반 셸에 질문을 명령으로 보내지 않는다', async () => {
     const session = {

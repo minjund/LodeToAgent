@@ -92,14 +92,45 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root', { context: true })`);
     await waitFor(win, `(() => {
       const drawer = document.querySelector('#detailDrawer');
-      const embedded = window.LoadToAgentTerminal.embeddedState();
       return drawer?.classList.contains('open')
         && drawer.dataset.presentation === 'context'
-        && drawer.dataset.terminalChat === 'true'
+        && drawer.dataset.terminalChat === 'false'
+        && document.querySelector('[data-tab="chat"]')?.getAttribute('aria-selected') === 'true'
+        && !document.querySelector('[data-tab="terminal"]')?.classList.contains('hidden')
+        && document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
+        && !document.querySelector('#drawerContent')?.classList.contains('hidden')
+        && document.querySelectorAll('#drawerContent .chat-row').length > 0
+        && !window.LoadToAgentTerminal.embeddedState().connected;
+    })()`, '실행 중 세션의 대화 탭이 PTY와 무관한 대화 기록으로 열리지 않았습니다.');
+    const defaultConversation = await win.webContents.executeJavaScript(`(() => ({
+      tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+      chatControls: document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') || '',
+      terminalControls: document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-controls') || '',
+      structuredRows: document.querySelectorAll('#drawerContent .chat-row').length,
+      composerMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
+    }))()`);
+    assert(JSON.stringify(defaultConversation.tabs) === JSON.stringify(['요약', '대화', '터미널', '진행 과정', '사용량'])
+      && defaultConversation.chatControls === 'drawerContent'
+      && defaultConversation.terminalControls === 'drawerTerminalSurface'
+      && defaultConversation.structuredRows > 0
+      && defaultConversation.composerMode === 'conversation',
+    `실행 중 작업의 기본 대화 화면이 다른 대화창과 일치하지 않습니다: ${JSON.stringify(defaultConversation)}`);
+    const conversationOutput = path.join(outputDir, 'loadtoagent-drawer-conversation.png');
+    await win.webContents.executeJavaScript('document.fonts.ready.then(() => true)');
+    win.webContents.invalidate();
+    await wait(250);
+    fs.writeFileSync(conversationOutput, (await win.webContents.capturePage()).toPNG());
+
+    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="terminal"]')?.click()`);
+    await waitFor(win, `(() => {
+      const drawer = document.querySelector('#detailDrawer');
+      const embedded = window.LoadToAgentTerminal.embeddedState();
+      return drawer?.dataset.terminalChat === 'true'
+        && document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-selected') === 'true'
         && embedded.connected
         && embedded.terminalId === 'terminal-main'
         && document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm');
-    })()`, '실행 중 세션의 같은 PTY가 대화 탭에 연결되지 않았습니다.');
+    })()`, '실행 중 세션의 같은 PTY가 별도 터미널 탭에 연결되지 않았습니다.');
     await wait(500);
 
     const opened = await win.webContents.executeJavaScript(`(() => {
@@ -124,7 +155,7 @@ app.whenReady().then(async () => {
     })()`);
     assert(opened.drawerWidth >= 600 && opened.drawerWidth <= 680, `기존 드로어 폭이 바뀌었습니다: ${opened.drawerWidth}`);
     assert(opened.title === '화면 설명과 버튼을 쉽게 개선하기', `드로어 헤더 제목이 달라졌습니다: ${opened.title}`);
-    assert(JSON.stringify(opened.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량']), `기존 탭 구성이 달라졌습니다: ${JSON.stringify(opened.tabs)}`);
+    assert(JSON.stringify(opened.tabs) === JSON.stringify(['요약', '대화', '터미널', '진행 과정', '사용량']), `PTY 전용 탭 구성이 올바르지 않습니다: ${JSON.stringify(opened.tabs)}`);
     assert(opened.metaCount > 0 && opened.terminalVisible && opened.transcriptHidden && opened.structuredRows === 0,
       `대화 본문만 PTY로 바뀌지 않았습니다: ${JSON.stringify(opened)}`);
     assert(opened.composerVisible && opened.composerTerminalMode === 'terminal' && opened.status === 'PTY 연결됨'
@@ -203,15 +234,17 @@ app.whenReady().then(async () => {
       tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
       width: document.querySelector('#detailDrawer')?.getBoundingClientRect().width || 0,
       chatControls: document.querySelector('[data-tab="chat"]')?.getAttribute('aria-controls') || '',
+      terminalControls: document.querySelector('[data-tab="terminal"]')?.getAttribute('aria-controls') || '',
     }))()`);
     assert(unchangedAfterTab.title === opened.title && JSON.stringify(unchangedAfterTab.tabs) === JSON.stringify(opened.tabs)
       && Math.abs(unchangedAfterTab.width - opened.drawerWidth) < 1
-      && unchangedAfterTab.chatControls === 'drawerTerminalSurface',
-    `탭 전환 뒤 드로어 셸 또는 대화 탭 연결이 달라졌습니다: ${JSON.stringify(unchangedAfterTab)}`);
+      && unchangedAfterTab.chatControls === 'drawerContent'
+      && unchangedAfterTab.terminalControls === 'drawerTerminalSurface',
+    `탭 전환 뒤 드로어 셸 또는 대화·터미널 탭 연결이 달라졌습니다: ${JSON.stringify(unchangedAfterTab)}`);
 
-    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="chat"]')?.click()`);
+    await win.webContents.executeJavaScript(`document.querySelector('[data-tab="terminal"]')?.click()`);
     await waitFor(win, `window.LoadToAgentTerminal.embeddedState().connected
-      && document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')`, '대화 탭 복귀 시 같은 xterm 호스트가 다시 연결되지 않았습니다.');
+      && document.querySelector('#drawerTerminalViewport > .terminal-screen[data-drawer-visual-identity="same-xterm-host"]')`, '터미널 탭 복귀 시 같은 xterm 호스트가 다시 연결되지 않았습니다.');
 
     await win.webContents.executeJavaScript(`window.interactionTest.clearCalls(); document.querySelector('#closeDrawerBtn')?.click()`);
     await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')
@@ -232,6 +265,7 @@ app.whenReady().then(async () => {
       window.interactionTest.emitSnapshot();
       await window.LoadToAgentTerminal.refresh();
       window.LoadToAgentApp.openDrawer('fixture-root', { context: true });
+      document.querySelector('[data-tab="terminal"]')?.click();
     })()`);
     await waitFor(win, `window.interactionTest.getCalls().some(call => call.name === 'terminalReconnect' && call.args[0] === 'terminal-detached-drawer')
       && window.interactionTest.getCalls().some(call => call.name === 'terminalGet' && call.args[0] === 'terminal-detached-drawer')`,
@@ -289,6 +323,8 @@ app.whenReady().then(async () => {
         titleBox: rect('.drawer-title'),
         close: rect('#closeDrawerBtn'),
         terminalHidden: surface?.classList.contains('hidden'),
+        terminalTabHidden: document.querySelector('[data-tab="terminal"]')?.classList.contains('hidden'),
+        tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
         chatRows: document.querySelectorAll('#drawerContent .chat-row').length,
         note: document.querySelector('.drawer-external-session-note')?.textContent.replace(/\\s+/g, ' ').trim() || '',
         composerMode: document.querySelector('#drawerComposer [data-agent-command-input-mode-selected]')?.dataset.agentCommandInputModeSelected || '',
@@ -301,7 +337,9 @@ app.whenReady().then(async () => {
       && externalSession.mark.right + 8 <= externalSession.titleBox.left
       && externalSession.titleBox.right + 8 <= externalSession.close.left,
     `긴 제목과 제공자·닫기 버튼의 헤더 배치가 겹칩니다: ${JSON.stringify(externalSession)}`);
-    assert(externalSession.terminalHidden && externalSession.chatRows > 0
+    assert(externalSession.terminalHidden && externalSession.terminalTabHidden
+      && JSON.stringify(externalSession.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량'])
+      && externalSession.chatRows > 0
       && externalSession.composerMode === 'conversation'
       && externalSession.composerPlaceholder === 'AI에게 보낼 답변을 입력하세요'
       && externalSession.note.includes('Codex 앱에서 실행 중'),
@@ -313,6 +351,77 @@ app.whenReady().then(async () => {
     fs.writeFileSync(externalOutput, (await win.webContents.capturePage()).toPNG());
     await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
     await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, '외부 세션 드로어를 닫지 못했습니다.');
+
+    const conversationStatuses = [
+      ['starting', 'claude-cli'],
+      ['waiting', 'codex-ide'],
+      ['paused', 'external-cli'],
+      ['idle', 'claude-desktop'],
+      ['completed', 'codex-cli'],
+      ['failed', 'loadtoagent-bridge'],
+      ['cancelled', 'codex-desktop'],
+    ];
+    await win.webContents.executeJavaScript(`(() => {
+      const base = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-root');
+      for (const [status, clientKind] of ${JSON.stringify(conversationStatuses)}) {
+        window.interactionTest.addSession({
+          ...base,
+          id: 'fixture-conversation-' + status,
+          externalId: 'fixture-conversation-external-' + status,
+          title: '**' + status + ' 대화** 모든 작업에서 같은 화면',
+          status,
+          statusDetail: status + ' 상태',
+          clientKind,
+          runId: '',
+          runtimePresence: [],
+          childIds: [],
+          parentId: null,
+        });
+      }
+      window.interactionTest.emitSnapshot();
+      return true;
+    })()`);
+    const conversationMatrix = [];
+    for (const [status, clientKind] of conversationStatuses) {
+      const id = `fixture-conversation-${status}`;
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer(${JSON.stringify(id)})`);
+      await waitFor(win, `(() => {
+        const drawer = document.querySelector('#detailDrawer');
+        return drawer?.classList.contains('open')
+          && window.LoadToAgentApp.state.selectedId === ${JSON.stringify(id)}
+          && window.LoadToAgentApp.state.drawerTab === 'chat'
+          && drawer.dataset.mode === 'session'
+          && drawer.dataset.terminalChat === 'false'
+          && document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
+          && !document.querySelector('#drawerContent')?.classList.contains('hidden')
+          && document.querySelectorAll('#drawerContent .chat-row').length > 0;
+      })()`, `${status}/${clientKind} 작업이 공통 대화 화면으로 열리지 않았습니다.`);
+      const metrics = await win.webContents.executeJavaScript(`(() => {
+        const rect = selector => document.querySelector(selector)?.getBoundingClientRect() || null;
+        const drawer = document.querySelector('#detailDrawer');
+        const mark = rect('#drawerProviderMark');
+        const title = rect('.drawer-title');
+        const close = rect('#closeDrawerBtn');
+        return {
+          status: ${JSON.stringify(status)},
+          clientKind: ${JSON.stringify(clientKind)},
+          title: document.querySelector('#drawerTitle')?.textContent.trim() || '',
+          tabs: [...document.querySelectorAll('.drawer-tab:not(.hidden)')].map(node => node.textContent.trim()),
+          composerMode: document.querySelector('#drawerComposer')?.dataset.mode || '',
+          headerGrid: getComputedStyle(document.querySelector('.drawer-head')).display === 'grid',
+          headerSeparated: Boolean(mark && title && close && mark.right + 8 <= title.left && title.right + 8 <= close.left),
+          noOverflow: drawer.scrollWidth <= drawer.clientWidth + 2,
+        };
+      })()`);
+      assert(!metrics.title.includes('**')
+        && JSON.stringify(metrics.tabs) === JSON.stringify(['요약', '대화', '진행 과정', '사용량'])
+        && metrics.composerMode === 'conversation'
+        && metrics.headerGrid && metrics.headerSeparated && metrics.noOverflow,
+      `상태별 공통 대화 셸이 달라졌습니다: ${JSON.stringify(metrics)}`);
+      conversationMatrix.push(metrics);
+      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
+      await waitFor(win, `!document.querySelector('#detailDrawer').classList.contains('open')`, `${status} 대화창을 닫지 못했습니다.`);
+    }
 
     await win.webContents.executeJavaScript(`(() => {
       const ended = new Set(['completed', 'cancelled', 'failed', 'idle']);
@@ -349,8 +458,8 @@ app.whenReady().then(async () => {
     await wait(250);
     fs.writeFileSync(historyOutput, (await win.webContents.capturePage()).toPNG());
 
-    log(`passed\n${JSON.stringify({ shellBefore, opened, unchangedAfterTab, detachedRace, externalSession, historyEmpty }, null, 2)}\n${output}\n${externalOutput}\n${historyOutput}`);
-    process.stdout.write(`드로어 PTY 시각·입력 검증 통과\n${JSON.stringify({ shellBefore, opened, unchangedAfterTab, detachedRace, externalSession, historyEmpty }, null, 2)}\n${output}\n${externalOutput}\n${historyOutput}\n`);
+    log(`passed\n${JSON.stringify({ shellBefore, defaultConversation, opened, unchangedAfterTab, detachedRace, externalSession, conversationMatrix, historyEmpty }, null, 2)}\n${conversationOutput}\n${output}\n${externalOutput}\n${historyOutput}`);
+    process.stdout.write(`드로어 대화·PTY 시각·입력 검증 통과\n${JSON.stringify({ shellBefore, defaultConversation, opened, unchangedAfterTab, detachedRace, externalSession, conversationMatrix, historyEmpty }, null, 2)}\n${conversationOutput}\n${output}\n${externalOutput}\n${historyOutput}\n`);
     app.exit(0);
   } catch (error) {
     try {

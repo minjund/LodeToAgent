@@ -11,8 +11,11 @@ const { providerList, normalizeProvider, modelContextWindow } = require('../../s
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
 const {
   canInstallSilently,
+  findInstalledDesktopApp,
   launchDownloadedUpdate,
   macAppBundlePath,
+  readDesktopAppVersion,
+  resolveInstalledDesktopApp,
   verifyDownloadedInstaller,
   waitForUpdateHelperReady,
   WINDOWS_UPDATE_BOOTSTRAP,
@@ -107,6 +110,42 @@ function registerCliAndUpdateTests(context) {
     assert.equal(packagedSpec.executable, '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
     assert.deepStrictEqual(packagedSpec.args, []);
     assert.equal('ELECTRON_RUN_AS_NODE' in packagedSpec.env, false);
+  });
+
+  test('개발 실행판은 설치된 데스크톱 앱과 실제 설치 버전을 업데이트 대상으로 찾는다', async () => {
+    const localAppData = path.join(temp, 'local-app-data');
+    const installed = path.join(localAppData, 'Programs', 'LoadToAgent', 'LoadToAgent.exe');
+    fs.mkdirSync(path.dirname(installed), { recursive: true });
+    fs.writeFileSync(installed, 'fixture executable', 'utf8');
+
+    assert.equal(resolveInstalledDesktopApp({
+      platform: 'win32', installType: 'source', appPath: path.join(temp, 'electron.exe'),
+      environment: { LOCALAPPDATA: localAppData },
+    }), path.resolve(installed));
+    assert.equal(resolveInstalledDesktopApp({
+      platform: 'win32', installType: 'portable', appPath: installed,
+      environment: { LOCALAPPDATA: localAppData },
+    }), '');
+    assert.equal(resolveInstalledDesktopApp({
+      platform: 'win32', installType: 'desktop', appPath: installed,
+      environment: {},
+    }), path.resolve(installed));
+    assert.equal(await readDesktopAppVersion({
+      platform: 'win32', appPath: installed, environment: { SystemRoot: 'C:\\Windows' },
+      execFile: async (_command, _args, options) => {
+        assert.equal(options.env.LOADTOAGENT_VERSION_PATH, installed);
+        return { stdout: '1.6.6.0' };
+      },
+    }), '1.6.6');
+
+    const customInstalled = path.join(temp, 'custom-install', 'LoadToAgent.exe');
+    fs.mkdirSync(path.dirname(customInstalled), { recursive: true });
+    fs.writeFileSync(customInstalled, 'custom fixture executable', 'utf8');
+    assert.equal(await findInstalledDesktopApp({
+      platform: 'win32', installType: 'source', appPath: path.join(temp, 'electron.exe'),
+      environment: { LOCALAPPDATA: localAppData, SystemRoot: 'C:\\Windows' },
+      execFile: async () => ({ stdout: `${customInstalled}\r\n` }),
+    }), path.resolve(customInstalled));
   });
 
   test('macOS 실행 경로는 활성 PATH와 nvm 기본 버전 하나만 우선한다', () => {
@@ -279,9 +318,23 @@ function registerCliAndUpdateTests(context) {
       tag_name: 'v3.1.0', draft: false, prerelease: false, published_at: '2026-07-16T00:00:00Z', body: 'fixture notes',
       html_url: 'https://github.com/minjund/LodeToAgent/releases/tag/v3.1.0', assets: [asset],
     };
+    let blockedFetchCalled = false;
+    const blockedManager = new UpdateManager({
+      currentVersion: '9.0.0', currentVersionKnown: false, blockedReason: 'fixture installed version unavailable',
+      platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      fetch: async () => { blockedFetchCalled = true; throw new Error('must not fetch'); },
+    });
+    const blockedState = await blockedManager.check();
+    assert.equal(blockedState.status, 'error');
+    assert.equal(blockedState.currentVersionKnown, false);
+    assert.equal(blockedState.blocked, true);
+    assert.equal(blockedState.error, 'fixture installed version unavailable');
+    assert.equal(blockedFetchCalled, false);
+    await assert.rejects(blockedManager.download(), /fixture installed version unavailable/);
     const opened = [];
     const manager = new UpdateManager({
       currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      installMode: 'automatic',
       fetch: async url => String(url).includes('/releases/latest')
         ? new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json' } })
         : new Response(payload, { status: 200, headers: { 'content-length': String(payload.length) } }),
@@ -292,6 +345,7 @@ function registerCliAndUpdateTests(context) {
     assert.equal(available.status, 'available');
     assert.equal(available.latestVersion, '3.1.0');
     assert.equal(available.asset.name, asset.name);
+    assert.equal(available.installMode, 'automatic');
     const malformedSizeManager = new UpdateManager({
       currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
       fetch: async () => new Response(JSON.stringify({ ...release, assets: [{ ...asset, size: 'Infinity' }] }), { status: 200 }),
@@ -314,6 +368,7 @@ function registerCliAndUpdateTests(context) {
 
     let spawnCall = null;
     let unrefCalled = false;
+    let beforeAutomaticInstall = null;
     const verifiedInstallers = [];
     const verifyInstaller = async options => { verifiedInstallers.push(options); };
     const automatic = await launchDownloadedUpdate({
@@ -324,8 +379,12 @@ function registerCliAndUpdateTests(context) {
       allowUnsignedWindowsUpdates: true,
       verifyInstaller,
       waitForReady: async readyPath => {
-        assert.equal(path.basename(readyPath), 'install-update.ready');
+        const tokenIndex = spawnCall.args.indexOf('-RendererReadyToken');
+        const token = spawnCall.args[tokenIndex + 1];
+        assert.equal(path.basename(readyPath), `install-update-ready-${token}.json`);
+        return { helperPid: 2468, token };
       },
+      beforeAutomaticInstall: async context => { beforeAutomaticInstall = context; },
       spawn: (command, args, options) => {
         spawnCall = { command, args, options };
         const child = new EventEmitter();
@@ -337,6 +396,7 @@ function registerCliAndUpdateTests(context) {
     });
     assert.equal(automatic.mode, 'automatic');
     assert.equal(unrefCalled, true);
+    assert.deepStrictEqual(beforeAutomaticInstall, { platform: 'win32', helperPid: 2468 });
     assert.equal(verifiedInstallers[0].installerPath, downloaded.downloadedPath);
     assert.equal(verifiedInstallers[0].allowUnsignedWindowsUpdates, true);
     assert.equal(spawnCall.command, path.join('C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'));
@@ -357,13 +417,17 @@ function registerCliAndUpdateTests(context) {
     assert.match(automatic.rendererReadyToken, /^[0-9a-f]{48}$/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Start-Process -FilePath \(Join-Path \$PSHOME 'powershell\.exe'\)/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Test-Path -LiteralPath \$ReadyPath/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /\$readySignal\.helperPid -ne \$helperProcess\.Id/);
+    assert.match(WINDOWS_UPDATE_BOOTSTRAP, /Stop-Process -Id \$helperProcess\.Id -Force/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyPath'/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /'-RendererReadyToken'/);
     assert.match(WINDOWS_UPDATE_BOOTSTRAP, /bootstrapError=/);
     assert.deepStrictEqual([...fs.readFileSync(automatic.helperPath).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
     assert.deepStrictEqual([...fs.readFileSync(automatic.bootstrapPath).subarray(0, 3)], [0xef, 0xbb, 0xbf]);
     const helperSource = fs.readFileSync(automatic.helperPath, 'utf8');
-    assert.match(helperSource, /Set-Content -LiteralPath \$ReadyPath/);
+    assert.match(helperSource, /Set-Content -LiteralPath \$readyTemporary/);
+    assert.match(helperSource, /Move-Item -LiteralPath \$readyTemporary -Destination \$ReadyPath -Force/);
+    assert.match(helperSource, /helperPid = \$PID; token = \$RendererReadyToken/);
     assert.match(helperSource, /helperStarted=true;parentPid=/);
     assert.match(helperSource, /Stop-AppProcesses \$AppPath 'stoppingOrphanProcess'/);
     assert.match(helperSource, /ArgumentList '\/S'/);
@@ -414,14 +478,15 @@ function registerCliAndUpdateTests(context) {
     const authenticatedReady = path.join(downloadDir, `helper-ready-${authenticatedToken}.json`);
     const authenticatedChild = new EventEmitter();
     authenticatedChild.pid = 7_654;
-    setTimeout(() => fs.writeFileSync(authenticatedReady, JSON.stringify({
+    setTimeout(() => fs.writeFileSync(authenticatedReady, `\uFEFF${JSON.stringify({
       helperPid: authenticatedChild.pid,
       token: authenticatedToken,
-    }), 'utf8'), 20);
-    await waitForUpdateHelperReady(authenticatedReady, authenticatedChild, 500, {
+    })}`, 'utf8'), 20);
+    const authenticatedSignal = await waitForUpdateHelperReady(authenticatedReady, authenticatedChild, 500, {
       pid: authenticatedChild.pid,
       token: authenticatedToken,
     });
+    assert.deepStrictEqual(authenticatedSignal, { helperPid: authenticatedChild.pid, token: authenticatedToken });
     fs.rmSync(authenticatedReady, { force: true });
     const mismatchedReady = path.join(downloadDir, `helper-ready-mismatch-${authenticatedToken}.json`);
     fs.writeFileSync(mismatchedReady, JSON.stringify({ helperPid: 1, token: authenticatedToken }), 'utf8');
@@ -437,6 +502,44 @@ function registerCliAndUpdateTests(context) {
     const exitedWait = waitForUpdateHelperReady(path.join(downloadDir, 'never-ready'), exitedChild, 500);
     setImmediate(() => exitedChild.emit('exit', 41));
     await assert.rejects(exitedWait, /준비되기 전에 종료.*41/);
+    const killedHelpers = [];
+    let failedReadyToken = '';
+    await assert.rejects(launchDownloadedUpdate({
+      platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
+      installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+      expectedVersion: '3.1.0', environment: { SystemRoot: 'C:\\Windows' }, verifyInstaller,
+      waitForReady: async () => ({ helperPid: 3579, token: failedReadyToken }),
+      beforeAutomaticInstall: async () => { throw new Error('fixture terminal shutdown failure'); },
+      killProcessTree: async pid => { killedHelpers.push(pid); },
+      spawn: (_command, args) => {
+        failedReadyToken = args[args.indexOf('-RendererReadyToken') + 1];
+        const child = new EventEmitter();
+        child.pid = 3580;
+        child.kill = () => {};
+        child.unref = () => {};
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+    }), /fixture terminal shutdown failure/);
+    assert.deepStrictEqual(killedHelpers, [3579]);
+    assert.equal(fs.existsSync(path.join(downloadDir, `install-update-${failedReadyToken}.ps1`)), false);
+    assert.equal(fs.existsSync(path.join(downloadDir, `install-update-bootstrap-${failedReadyToken}.ps1`)), false);
+    const killedBootstrapTrees = [];
+    await assert.rejects(launchDownloadedUpdate({
+      platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
+      installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+      expectedVersion: '3.1.0', environment: { SystemRoot: 'C:\\Windows' }, verifyInstaller,
+      waitForReady: async () => { throw new Error('fixture helper readiness timeout'); },
+      killProcessTree: async pid => { killedBootstrapTrees.push(pid); },
+      spawn: () => {
+        const child = new EventEmitter();
+        child.pid = 3581;
+        child.unref = () => {};
+        setImmediate(() => child.emit('spawn'));
+        return child;
+      },
+    }), /fixture helper readiness timeout/);
+    assert.deepStrictEqual(killedBootstrapTrees, [3581]);
     assert.equal(canInstallSilently({
       platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
     }), false);
@@ -625,6 +728,26 @@ function registerCliAndUpdateTests(context) {
 
   test('macOS 업데이트 헬퍼가 앱을 교체하고 실패하면 원본을 복구해 재실행한다', async () => {
     const noProcessGroup = () => { throw Object.assign(new Error('missing fixture process group'), { code: 'ESRCH' }); };
+    const macFixtureFileSystem = new Proxy(fs.promises, {
+      get(target, property) {
+        if (property === 'rename') {
+          return async (source, destination) => {
+            for (let attempt = 0; ; attempt += 1) {
+              try {
+                return await fs.promises.rename(source, destination);
+              } catch (error) {
+                if (process.platform !== 'win32'
+                  || !['EACCES', 'EPERM'].includes(error?.code)
+                  || attempt >= 4) throw error;
+                await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)));
+              }
+            }
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
     const parsedToken = '9'.repeat(48);
     const parsedReadyPath = macHelperReadyPath(temp, parsedToken);
     const parsedRendererReadyPath = path.join(temp, `install-renderer-ready-${parsedToken}.json`);
@@ -685,7 +808,7 @@ function registerCliAndUpdateTests(context) {
       fs.mkdirSync(mountPath, { recursive: true });
       fs.writeFileSync(path.join(targetApp, 'Contents', 'version.txt'), 'old', 'utf8');
       fs.writeFileSync(dmgPath, 'fixture dmg', 'utf8');
-      return { root, targetApp, mountPath, dmgPath, logPath };
+      return { root, targetApp, mountPath, dmgPath, logPath, fileSystem: macFixtureFileSystem };
     }
 
     function fixtureRunner(fixture, options = {}) {
@@ -973,7 +1096,7 @@ function registerCliAndUpdateTests(context) {
       '.LoadToAgent.app.backup-cleanup-warning',
     );
     let backupRemoveCalls = 0;
-    const cleanupFileSystem = new Proxy(fs.promises, {
+    const cleanupFileSystem = new Proxy(macFixtureFileSystem, {
       get(target, property) {
         if (property === 'rm') {
           return async (targetPath, options) => {
@@ -981,19 +1104,7 @@ function registerCliAndUpdateTests(context) {
               backupRemoveCalls += 1;
               if (backupRemoveCalls === 2) throw new Error('fixture backup cleanup denied');
             }
-            return fs.promises.rm(targetPath, options);
-          };
-        }
-        if (property === 'rename') {
-          return async (source, destination) => {
-            for (let attempt = 0; ; attempt += 1) {
-              try {
-                return await fs.promises.rename(source, destination);
-              } catch (error) {
-                if (!['EACCES', 'EPERM'].includes(error?.code) || attempt >= 4) throw error;
-                await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)));
-              }
-            }
+            return target.rm(targetPath, options);
           };
         }
         const value = Reflect.get(target, property);
@@ -1124,14 +1235,14 @@ function registerCliAndUpdateTests(context) {
       'Applications',
       '.LoadToAgent.app.backup-restore-rename-failure',
     );
-    const restoreFailureFileSystem = new Proxy(fs.promises, {
+    const restoreFailureFileSystem = new Proxy(restoreFailure.fileSystem, {
       get(target, property) {
         if (property === 'rename') {
           return async (source, destination) => {
             if (source === restoreFailureBackup && destination === restoreFailure.targetApp) {
               throw new Error('fixture backup restore rename denied');
             }
-            return fs.promises.rename(source, destination);
+            return target.rename(source, destination);
           };
         }
         const value = Reflect.get(target, property);

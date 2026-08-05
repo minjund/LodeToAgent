@@ -1797,6 +1797,8 @@ async function exerciseDashboardControls(win, round) {
     helperNodes: document.querySelectorAll('[data-control-session="fixture-root"] .helper-node').length,
     executionNodes: document.querySelectorAll('[data-control-session="fixture-root"] .execution-node').length,
     completedNodes: document.querySelectorAll('[data-control-session="fixture-root"] .completed-list .control-room-node').length,
+    runningChildInActiveColumn: Boolean(document.querySelector('[data-control-session="fixture-root"] .activity-column [data-open-subagent-chat="fixture-child"]')),
+    runningChildInCompletedColumn: Boolean(document.querySelector('[data-control-session="fixture-root"] .completed-column [data-open-subagent-chat="fixture-child"]')),
     mainLeakedIntoWorkColumns: Boolean(document.querySelector('.activity-column .control-room-main, .activity-column .direct-work, .completed-column .control-room-main, .completed-column .direct-work')),
     invalidRunningUnits: [...document.querySelectorAll('.activity-column .control-room-node:not(.overflow-node)')]
       .filter(node => !node.matches('.helper-node, .execution-node')).length,
@@ -1828,6 +1830,7 @@ async function exerciseDashboardControls(win, round) {
     ))
     && controlRoom.mains === controlRoom.rooms && controlRoom.helperNodes >= 3
     && controlRoom.executionNodes >= 3 && controlRoom.completedNodes >= 3 && controlRoom.legends === 0
+    && controlRoom.runningChildInActiveColumn && !controlRoom.runningChildInCompletedColumn
     && !controlRoom.mainLeakedIntoWorkColumns && controlRoom.invalidRunningUnits === 0
     && controlRoom.invalidCompletedUnits === 0 && controlRoom.emptyRunningColumns >= 1
     && controlRoom.mainOwnerLabelsHidden && controlRoom.executionTypeLabels.some(label => label.startsWith('컴퓨터 작업'))

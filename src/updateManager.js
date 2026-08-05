@@ -201,6 +201,10 @@ class UpdateManager extends EventEmitter {
     this.platform = String(options.platform || process.platform);
     this.arch = String(options.arch || process.arch);
     this.installType = String(options.installType || 'desktop');
+    this.targetInstallType = String(options.targetInstallType || this.installType);
+    this.installMode = options.installMode === 'automatic' ? 'automatic' : 'manual';
+    this.currentVersionKnown = options.currentVersionKnown !== false;
+    this.blockedReason = String(options.blockedReason || '');
     this.fetch = options.fetch;
     this.shell = options.shell;
     this.verifyInstaller = options.verifyInstaller;
@@ -214,8 +218,12 @@ class UpdateManager extends EventEmitter {
     this.checkPromise = null;
     this.downloadPromise = null;
     this.state = {
-      status: this.platform === 'darwin' || this.platform === 'win32' ? 'idle' : 'unsupported',
+      status: this.blockedReason
+        ? 'error'
+        : (this.platform === 'darwin' || this.platform === 'win32' ? 'idle' : 'unsupported'),
       currentVersion: this.currentVersion,
+      currentVersionKnown: this.currentVersionKnown,
+      blocked: Boolean(this.blockedReason),
       latestVersion: '',
       tag: '',
       releaseUrl: RELEASE_PAGE,
@@ -227,10 +235,12 @@ class UpdateManager extends EventEmitter {
       totalBytes: 0,
       downloadedPath: '',
       checkedAt: '',
-      error: '',
+      error: this.blockedReason,
       platform: this.platform,
       arch: this.arch,
       installType: this.installType,
+      targetInstallType: this.targetInstallType,
+      installMode: this.installMode,
     };
   }
 
@@ -247,6 +257,7 @@ class UpdateManager extends EventEmitter {
 
   async check() {
     if (this.checkPromise) return this.checkPromise;
+    if (this.blockedReason) return this.getState();
     if (this.state.status === 'unsupported') return this.getState();
     this.checkPromise = this.performCheck().finally(() => { this.checkPromise = null; });
     return this.checkPromise;
@@ -312,6 +323,7 @@ class UpdateManager extends EventEmitter {
 
   async download() {
     if (this.downloadPromise) return this.downloadPromise;
+    if (this.blockedReason) throw new Error(this.blockedReason);
     if (this.state.status === 'downloaded' && this.state.downloadedPath && fs.existsSync(this.state.downloadedPath)) return this.getState();
     if (!this.state.asset || !trustedDownloadUrl(this.state.asset.url)) throw new Error('받을 설치 파일이 없습니다.');
     if (!hasTrustedDigest(this.state.asset)) throw new Error('원본 여부를 확인할 수 없는 설치 파일은 받을 수 없습니다.');

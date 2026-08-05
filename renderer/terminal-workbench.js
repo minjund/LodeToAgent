@@ -560,8 +560,18 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   }
 
   async function refreshSessions(payload = null) {
-    const nextSessions = payload && Array.isArray(payload.sessions) ? payload.sessions : await window.loadtoagent.terminalList();
+    if (!Number.isSafeInteger(state.terminalSessionRevision)) state.terminalSessionRevision = 0;
+    if (!Number.isSafeInteger(state.terminalListRequestGeneration)) state.terminalListRequestGeneration = 0;
+    const payloadSessions = payload && Array.isArray(payload.sessions) ? payload.sessions : null;
+    const requestGeneration = payloadSessions ? 0 : ++state.terminalListRequestGeneration;
+    const revision = state.terminalSessionRevision;
+    const nextSessions = payloadSessions || await window.loadtoagent.terminalList();
+    // IPC state events are authoritative. A list request started before one of
+    // those events (or before a newer list request) must not restore stale rows.
+    if (!payloadSessions && (revision !== state.terminalSessionRevision
+      || requestGeneration !== state.terminalListRequestGeneration)) return false;
     state.sessions = Array.isArray(nextSessions) ? nextSessions : [];
+    state.terminalSessionRevision += 1;
     const activeIds = new Set(state.sessions.map(session => session.id));
     const rehydratedIds = new Set(payload?.change === 'reconnected' ? activeIds : []);
     for (const [id, entry] of state.terminals) {
@@ -574,6 +584,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (state.selectedId && !state.sessions.some(item => item.id === state.selectedId)) state.selectedId = null;
     renderAll();
     if (state.active) await showSelection();
+    return true;
   }
 
   async function createTerminal(type) {

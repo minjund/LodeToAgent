@@ -395,6 +395,25 @@ class AgentRunner extends EventEmitter {
     return [...this.active.values()].map(item => ({ runId: item.id, provider: item.provider, pid: item.child.pid, externalId: item.state.externalId }));
   }
 
+  prepareForUpdate(confirmedRuns = []) {
+    if (this.disposing) throw new Error(DISPOSING_ERROR);
+    const confirmedIds = new Set((Array.isArray(confirmedRuns) ? confirmedRuns : [])
+      .map(run => String(run && (run.runId || run.id) || ''))
+      .filter(Boolean));
+    const active = this.listActive();
+    if (active.some(run => !confirmedIds.has(run.runId))) {
+      throw new Error('업데이트 준비 중 새 직접 실행 작업이 시작되었습니다. 상태를 확인한 뒤 다시 시도해 주세요.');
+    }
+    this.disposing = true;
+    return { active: active.length };
+  }
+
+  resumeAfterUpdateFailure() {
+    if (this.disposePromise) return false;
+    this.disposing = false;
+    return true;
+  }
+
   start(raw = {}) {
     if (this.disposing) return { ok: false, error: DISPOSING_ERROR };
     const provider = normalizeProvider(raw.provider);

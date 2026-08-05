@@ -150,6 +150,7 @@ const REQUIRED_UI_IDS = [
   'drawerTerminalFocusBtn',
   'drawerTerminalReconnectBtn',
   'drawerTabSummary',
+  'drawerTabTerminal',
   'sidebarAppVersion',
   'backToProjectsBtn',
   'projectSelectionPrompt',
@@ -545,10 +546,12 @@ const TERMINAL_VIEW_CONTRACTS = [
 const DRAWER_TERMINAL_CONTRACTS = [
   'const terminalTargets = !session.parentId && !subagentMode && !executionMode && isLiveSession(session)',
   'const terminalConversation = terminalTargets.some(target => target.kind === "terminal")',
-  'const terminalChat = terminalConversation && state.drawerTab === "chat"',
+  'if (state.drawerTab === "terminal" && !terminalConversation)',
+  'const terminalTab = terminalConversation && state.drawerTab === "terminal"',
   'drawer-external-session-note',
   'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
-  'drawer.dataset.terminalChat = terminalChat ? "true" : "false"',
+  'drawer.dataset.terminalChat = terminalTab ? "true" : "false"',
+  'tab.dataset.tab === "terminal" ? "drawerTerminalSurface" : "drawerContent"',
   'window.LoadToAgentDrawerTerminal?.mount?.(session)',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
   'mountForAgent',
@@ -880,6 +883,14 @@ const MAIN_PROCESS_CONTRACTS = [
   "updateRelaunchReady",
   "let updateInstallPromise = null",
   "function performDownloadedUpdateInstall",
+  "async function updateInstallPlan",
+  "findInstalledDesktopApp",
+  "readDesktopAppVersion",
+  "currentVersionKnown: updateCurrentVersionKnown",
+  "blockedReason: updateBlockedReason",
+  "installed-app-version",
+  "async function confirmActiveTerminalUpdate",
+  "installCanceled",
   "did-start-loading",
 ];
 
@@ -1759,6 +1770,8 @@ function registerUiContractTests(context) {
     assert.equal(settings.includes('settings-meta-grid'), false, '설정과 무관한 설치 진단 정보가 다시 노출되면 안 됩니다.');
     assert.equal(settings.includes('settings-emblem'), false, '설정 제목에 의미 없는 장식이 다시 추가되면 안 됩니다.');
     assert.equal(dashboard.includes('provider-visibility-name"><b>${esc(provider.label)}</b><small>'), false, 'AI 표시 설정에 제공사 부가 정보가 다시 노출되면 안 됩니다.');
+    assert.ok(dashboard.includes('update.installMode === "automatic"'), '업데이트 안내가 자동 설치와 수동 설치를 구분해야 합니다.');
+    assert.ok(dashboard.includes('ui.open_the_installer_and_follow_its_instructions_to_finish_updating'), '수동 업데이트에는 설치 파일 안내가 표시되어야 합니다.');
     assert.ok(
       themeStyles.includes('body[data-current-view="settings"] .topbar')
         && themeStyles.includes('body[data-current-view="settings"] #projectContextNav')
