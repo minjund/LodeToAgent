@@ -5,6 +5,19 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.11 - 2026-08-05
+
+- Restore every task's Conversation tab as a terminal-shaped surface: exact
+  PTYs reuse the same xterm and scrollback, while external and ended tasks use
+  a safe terminal-styled transcript instead of a false empty-PTY screen.
+- Keep exact PTYs attached across waiting and paused transitions, recover
+  safely across PTY creation, expiry, concurrent attachment, and connection
+  failures without losing a focused draft, and remove the redundant Terminal
+  tab.
+- Gate desktop and release builds with focused Electron coverage for terminal
+  conversation rendering, PTY lifecycle transitions, fallback behavior, and
+  input continuity.
+
 ## 1.6.10 - 2026-08-05
 
 - Keep every task drawer on structured conversation by default, exposing an
