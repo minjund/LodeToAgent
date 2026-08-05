@@ -836,7 +836,39 @@ async function testHighOutputAvailability() {
     highOutputTrackerSummary('proxy-onData', wireTracker, { blockCount, burstBytes, expectedHash }),
     highOutputTrackerSummary('manager', managerTracker, { blockCount, burstBytes, expectedHash }),
   ];
-  const burstCommand = `python3 -c 'import sys,hashlib;out=sys.stdout.buffer;out.write(b"\\n${startMarker}\\n");d=b"".join((("B%06d:"%i).encode()+bytes([65+i%26])*${bodyLength}+b"\\n") for i in range(${blockCount}));n=out.write(d);h=hashlib.sha256(d).hexdigest().encode();out.write(b"${tailMarker}:"+str(n).encode()+b":"+h+b"\\n");out.flush()'`;
+  const startMarkerHex = Buffer.from(startMarker, 'ascii').toString('hex');
+  const tailMarkerHex = Buffer.from(tailMarker, 'ascii').toString('hex');
+  // Byte-integrity belongs to the proxy under test, not the host tty's output
+  // post-processing. Darwin can duplicate the CR half of ONLCR when its PTY
+  // output queue fills during a large write, so emit the fixture with OPOST
+  // disabled and restore the original flags only after every byte drains.
+  const producerLines = [
+    'import os,termios,hashlib',
+    'fd=1',
+    'old=termios.tcgetattr(fd)',
+    'raw=old.copy()',
+    'raw[1] &= ~termios.OPOST',
+    `start=bytes.fromhex("${startMarkerHex}")`,
+    `tail=bytes.fromhex("${tailMarkerHex}")`,
+    `d=b"".join((("B%06d:"%i).encode()+bytes([65+i%26])*${bodyLength}+b"\\n") for i in range(${blockCount}))`,
+    'def write_all(value):',
+    '    view=memoryview(value)',
+    '    while len(view) > 0:',
+    '        count=os.write(fd,view)',
+    '        if count <= 0:',
+    '            raise RuntimeError("PTY output write made no progress")',
+    '        view=view[count:]',
+    'termios.tcsetattr(fd,termios.TCSADRAIN,raw)',
+    'try:',
+    '    write_all(b"\\n"+start+b"\\n")',
+    '    write_all(d)',
+    '    digest=hashlib.sha256(d).hexdigest().encode()',
+    '    write_all(tail+b":"+str(len(d)).encode()+b":"+digest+b"\\n")',
+    '    termios.tcdrain(fd)',
+    'finally:',
+    '    termios.tcsetattr(fd,termios.TCSADRAIN,old)',
+  ];
+  const burstCommand = `python3 -c 'exec(${JSON.stringify(producerLines.join('\n'))})'`;
   try {
     tmux(['pipe-pane', '-O', '-t', fixture.target, `cat > '${sourcePath}'`]);
     sourcePipeOpen = true;
