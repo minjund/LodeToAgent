@@ -523,11 +523,10 @@
     <div class="drawer-tabs" role="tablist" aria-orientation="horizontal">
       <button id="drawerTabSummary" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="summary" aria-label="관리 요약">요약</button>
       <button id="drawerTabChat" class="drawer-tab active" type="button" role="tab" aria-selected="true" aria-controls="drawerContent" tabindex="0" data-tab="chat" aria-label="대화 내용">대화</button>
-      <button id="drawerTabTerminal" class="drawer-tab hidden" type="button" role="tab" aria-selected="false" aria-controls="drawerTerminalSurface" tabindex="-1" data-tab="terminal" aria-label="현재 작업의 PTY 터미널">터미널</button>
       <button id="drawerTabLifecycle" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle" aria-label="진행 과정">진행 과정</button>
       <button id="drawerTabTokens" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens" aria-label="사용량">사용량</button>
     </div>
-    <section id="drawerTerminalSurface" class="drawer-terminal-surface hidden" role="tabpanel" aria-labelledby="drawerTabTerminal" aria-hidden="true">
+    <section id="drawerTerminalSurface" class="drawer-terminal-surface hidden" role="tabpanel" aria-labelledby="drawerTabChat" aria-hidden="true">
       <header class="drawer-terminal-statusbar" data-tone="connecting">
         <span class="drawer-terminal-connection"><i aria-hidden="true"></i><b id="drawerTerminalStatus" data-i18n="drawer.terminal_connecting">PTY 연결 중</b><small id="drawerTerminalMeta"></small></span>
         <span class="drawer-terminal-tools">

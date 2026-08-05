@@ -62,6 +62,7 @@
     "test:terminal:mac-stress": "node scripts/mac-terminal-stress-check.js",
     "test:terminal-restart": "node scripts/terminal-restart-persistence-check.js",
     "test:bridge": "electron scripts/bridge-integration-test.js",
+    "test:drawer-conversation": "electron scripts/drawer-terminal-visual.js",
     "test:tmux": "node scripts/tmux-integration-test.js",
     "test:visual": "electron scripts/visual-check.js",
     "test:responsive": "electron scripts/responsive-check.js",

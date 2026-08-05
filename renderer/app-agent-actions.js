@@ -239,7 +239,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           targets: agentCommandTargets(session),
           available: true,
         };
-    const { route, targetSession, targets, available: routeAvailable } = routeContext;
+    const { route, targetSession, targets: routeTargets, available: routeAvailable } = routeContext;
+    // Raw xterm input must never keep a tmux target selected while the drawer
+    // is showing a different attached PTY. Transcript mode may still use all
+    // safe conversation transports.
+    const targets = options.terminal
+      ? routeTargets.filter(target => target.kind === "terminal")
+      : routeTargets;
     const mode = routingEnabled && !routeAvailable ? "ended" : agentControlMode(targetSession, targets);
     const inputMode = options.terminal ? "terminal" : options.conversation ? "conversation" : "terminal";
     const relayed = routingEnabled && route === "parent" && routeAvailable;
@@ -363,7 +369,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         : actions;
       const showDraftCount = draft.length >= 7200;
       return `<div class="conversation-composer-shell mode-conversation">
-        <form class="agent-command-panel ${availabilityClass} control-${mode} conversation-composer ${options.terminal ? "terminal-conversation" : ""}"
+        <form class="agent-command-panel ${availabilityClass} control-${mode} conversation-composer ${options.terminal || options.terminalStyle ? "terminal-conversation" : ""}"
           data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}"
           data-agent-command-input-mode-selected="${esc(inputMode)}" data-agent-command-routing="conversation"
           data-agent-command-provider="${esc(session.provider)}" data-agent-send-available="${sendAvailable ? "true" : "false"}">
@@ -502,7 +508,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const session = snapshotSession(sessionId);
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
     const drawerSubmission = form?.dataset.agentCommandRouting === "conversation";
-    const inputMode = drawerSubmission ? form?.dataset.agentCommandInputModeSelected || "conversation" : "terminal";
+    const liveDrawerMode = form?.closest?.("#drawerComposer")?.dataset.mode || "";
+    const inputMode = drawerSubmission
+      ? ["terminal", "conversation"].includes(liveDrawerMode)
+        ? liveDrawerMode
+        : form?.dataset.agentCommandInputModeSelected || "conversation"
+      : "terminal";
     let conversationSubmission = drawerSubmission && inputMode === "conversation";
     const routingEnabled = drawerSubmission && Boolean(session.parentId);
     const requestedRoute = routingEnabled ? form?.dataset.agentCommandRouteSelected || selectedAgentCommandRoute(session) : "direct";

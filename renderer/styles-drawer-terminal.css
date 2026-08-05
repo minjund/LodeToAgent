@@ -127,6 +127,442 @@
   background-size: 24px 24px;
 }
 
+/*
+ * Sessions without an attachable raw PTY still use the same terminal-shaped
+ * conversation surface. The transcript remains honest HTML (and keeps its
+ * safe conversation transport), while the visual language no longer jumps
+ * back to card bubbles when a PTY is external, paused, or already finished.
+ */
+.detail-drawer[data-conversation-surface="transcript"] #drawerContent {
+  padding: 0;
+  scroll-padding-top: 48px;
+  background-color: #080c12;
+  background-image:
+    linear-gradient(rgba(107, 145, 158, .018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(107, 145, 158, .018) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: #b7c6cf;
+  font-family: var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.drawer-terminal-transcript {
+  min-height: 100%;
+}
+
+.drawer-transcript-statusbar {
+  position: sticky;
+  top: 0;
+}
+
+.drawer-terminal-prompt {
+  flex: 0 0 auto;
+  color: #62d9b4;
+  font: 800 12px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.drawer-terminal-transcript-body {
+  padding: 16px 18px 28px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  margin: 0 0 13px;
+  padding: 6px 2px 8px;
+  border: 0;
+  border-bottom: 1px solid rgba(113, 155, 176, .16);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter :is(span, b, small, strong) {
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter > div:first-child {
+  min-width: 0;
+  display: flex;
+  grid-column: 1;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter :is(span, b, small) {
+  font-size: 10.5px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter b {
+  flex: 0 0 auto;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter small {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  color: #607583;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-track {
+  grid-column: 1;
+  height: 2px;
+  border-radius: 0;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .conversation-context-meter strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-size: 10.5px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-history-head {
+  position: static;
+  margin: 0;
+  padding: 8px 2px 10px;
+  border-bottom-color: rgba(113, 155, 176, .18);
+  background: transparent;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-history-head :is(span, button) {
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-history-head button {
+  height: 26px;
+  border-color: rgba(113, 155, 176, .18);
+  border-radius: 4px;
+  background: rgba(12, 21, 30, .76);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-list {
+  gap: 0;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-turn {
+  gap: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(113, 155, 176, .1);
+  background: transparent;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-row,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user {
+  grid-template-columns: 25px minmax(0, 1fr);
+  gap: 7px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-avatar,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-avatar {
+  width: 23px;
+  height: 23px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #62d9b4;
+  font: 750 9px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-avatar {
+  color: #7ecbf2;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-bubble,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.is-optimistic .chat-bubble {
+  min-width: 0;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head {
+  min-height: 23px;
+  margin: 0;
+  padding: 3px 0 4px;
+  border: 0;
+  color: #78909f;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head b,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head b {
+  color: #8fb9ab;
+  font: 700 11px/1.35 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head b {
+  color: #8ccce8;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head > span,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head > span {
+  color: #708896;
+  font: 500 10px/1.35 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-content.markdown,
+.detail-drawer[data-conversation-surface="transcript"] .chat-content.empty,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-content {
+  padding: 0 0 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #c5d1d8;
+  font: 500 12.5px/1.62 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+  box-shadow: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-content {
+  color: #dce8ed;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-answer-kind {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #68b89f;
+  font: 600 9px/1.35 var(--font-mono, "Cascadia Mono", Consolas, monospace) !important;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-answer-kind.is-live {
+  padding-left: 12px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head > .chat-answer-kind {
+  color: #68b89f;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-answer-kind.is-live::before {
+  left: 1px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-content.markdown :is(code, pre),
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.tool pre {
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-content.markdown pre,
+.detail-drawer[data-conversation-surface="transcript"] .chat-row.tool pre {
+  border-color: rgba(113, 155, 176, .16);
+  border-radius: 4px;
+  background: rgba(5, 9, 14, .7);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-prompt-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top-color: rgba(113, 155, 176, .1);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-prompt-actions button,
+.detail-drawer[data-conversation-surface="transcript"] .chat-earlier-history button {
+  min-height: 28px;
+  padding-inline: 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] :is(.chat-earlier-history, .chat-truncated) {
+  margin: 0 0 8px;
+  padding: 7px 2px;
+  border: 0;
+  border-bottom: 1px solid rgba(113, 155, 176, .14);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .chat-earlier-history small {
+  font-size: 10.5px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] :is(.drawer-external-session-note, .drawer-history-refreshing) {
+  margin: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid rgba(113, 155, 176, .18);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .empty-state {
+  border-color: rgba(113, 155, 176, .14);
+  border-radius: 4px;
+  background: rgba(10, 17, 25, .54);
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] :is(
+  .structured-json,
+  .memory-candidates,
+  .chat-roadmap,
+  .chat-activities,
+  .subagent-call-event,
+  .subagent-assignment-card,
+  .subagent-work-source
+) {
+  border: 1px solid rgba(113, 155, 176, .14);
+  border-left: 2px solid rgba(98, 217, 180, .48);
+  border-radius: 4px;
+  background: rgba(7, 12, 18, .56);
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] :is(
+  .structured-json,
+  .memory-candidates,
+  .chat-roadmap,
+  .chat-activities,
+  .subagent-call-event,
+  .subagent-assignment-card,
+  .subagent-work-source
+) :is(b, span, small, p, pre, code, button, summary) {
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-assignment-card {
+  grid-template-columns: 25px minmax(0, 1fr);
+  padding: 10px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-assignment-card > span {
+  width: 23px;
+  height: 23px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-assignment-card aside {
+  border-radius: 3px;
+  background: rgba(4, 8, 12, .42);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-work-source {
+  padding: 8px 10px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-moment {
+  width: 100%;
+  margin-left: 0;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-anchor {
+  grid-template-columns: 25px minmax(0, 1fr);
+  gap: 7px;
+  margin: 4px 0 0;
+  padding: 6px 0 6px 8px;
+  border: 0;
+  border-left: 1px solid rgba(98, 217, 180, .34);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-anchor > span {
+  width: 23px;
+  height: 23px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #62d9b4;
+  font: 750 9px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-anchor small {
+  margin-bottom: 2px;
+  font: 650 10px/1.4 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-anchor blockquote {
+  color: #b7c6cf;
+  font: 500 12px/1.55 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-connector,
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-moment.is-inline .subagent-call-connector {
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-left: 8px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-connector i,
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-moment.is-inline .subagent-call-connector i {
+  left: 11px;
+  width: 1px;
+  background: rgba(98, 217, 180, .3);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-connector b {
+  width: 23px;
+  height: 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #62d9b4;
+  font: 700 9px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-event {
+  grid-template-columns: 25px minmax(0, 1fr) auto;
+  gap: 7px;
+  padding: 7px 0 7px 8px;
+  border: 0;
+  border-left: 2px solid rgba(98, 217, 180, .48);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] button.subagent-call-event:hover,
+.detail-drawer[data-conversation-surface="transcript"] button.subagent-call-event:focus-visible {
+  border-color: rgba(98, 217, 180, .68);
+  background: rgba(98, 217, 180, .04);
+  transform: none;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-icon {
+  width: 23px;
+  height: 23px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  font-size: 12px;
+}
+
+.detail-drawer[data-conversation-surface="transcript"] .subagent-call-copy .subagent-call-timing {
+  margin-bottom: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 10px;
+}
+
 #drawerTerminalViewport > .terminal-screen {
   position: absolute;
   z-index: 1;
@@ -173,14 +609,14 @@
   line-height: 1.55;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer {
   padding: 8px 12px 12px;
   border-top-color: rgba(109, 153, 173, .24);
   background: #081019;
   box-shadow: 0 -12px 30px rgba(0, 0, 0, .24);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
@@ -192,21 +628,21 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation:focus-within {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation:focus-within {
   border-color: rgba(98, 218, 180, .58);
   box-shadow: 0 0 0 3px rgba(82, 198, 163, .08), 0 8px 24px rgba(0, 0, 0, .2);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer[data-tone="attention"] .terminal-conversation {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer[data-tone="attention"] .terminal-conversation {
   border-color: rgba(241, 178, 78, .6);
   box-shadow: 0 0 0 3px rgba(241, 178, 78, .08), 0 8px 24px rgba(0, 0, 0, .2);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation > header {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation > header {
   display: none;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-target {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
@@ -216,7 +652,7 @@
   font: 600 10px/1.2 var(--font-mono, "Cascadia Mono", Consolas, monospace);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target select {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-target select {
   min-width: 0;
   height: 28px;
   border: 1px solid rgba(128, 157, 174, .22);
@@ -226,7 +662,7 @@
   font: 500 10px/1 var(--font-mono, "Cascadia Mono", Consolas, monospace);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input {
   position: relative;
   display: block;
   min-width: 0;
@@ -235,7 +671,7 @@
   background: transparent;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input::before {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input::before {
   position: absolute;
   z-index: 1;
   top: 15px;
@@ -246,7 +682,7 @@
   pointer-events: none;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input textarea {
   width: 100%;
   min-height: 52px;
   max-height: 128px;
@@ -260,13 +696,13 @@
   font: 500 13px/1.55 var(--font-mono, "Cascadia Mono", Consolas, monospace);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea:focus {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input textarea:focus {
   border: 0;
   outline: none;
   box-shadow: none;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea::placeholder {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input textarea::placeholder {
   color: #657884;
 }
 
@@ -280,13 +716,13 @@
   font: 500 9px/1.25 var(--font-mono, "Cascadia Mono", Consolas, monospace);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-actions {
   min-height: 42px;
   padding: 2px 7px 7px 10px;
   border-radius: 0 0 12px 12px;
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"] {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"] {
   min-width: 72px;
   height: 36px;
   min-height: 36px;
@@ -296,18 +732,19 @@
   font-family: var(--font-mono, "Cascadia Mono", Consolas, monospace);
 }
 
-.detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"]:hover:not(:disabled) {
+.detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-actions button[type="submit"]:hover:not(:disabled) {
   background: #1b5a4c;
   color: #dcfff3;
 }
 
 html[data-theme="light"] .drawer-terminal-surface,
-html[data-theme="light"] .drawer-terminal-viewport {
+html[data-theme="light"] .drawer-terminal-viewport,
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] #drawerContent {
   background-color: #f3f0ea;
 }
 
 html[data-theme="light"] .drawer-terminal-statusbar,
-html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer {
+html[data-theme="light"] .detail-drawer[data-conversation-shell="terminal"] #drawerComposer {
   background: #eeeae3;
 }
 
@@ -325,14 +762,94 @@ html[data-theme="light"] .drawer-terminal-input-hint {
 }
 
 html[data-theme="light"] .drawer-terminal-tools button,
-html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation,
-html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-target select {
+html[data-theme="light"] .detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation,
+html[data-theme="light"] .detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-target select {
   background: #f8f5f0;
   color: #4d4843;
 }
 
-html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation .agent-command-input textarea {
+html[data-theme="light"] .detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation .agent-command-input textarea {
   color: #28241f;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .drawer-terminal-transcript-body {
+  color: #433f3a;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .empty-state {
+  border-color: rgba(72, 67, 61, .16);
+  background: rgba(248, 245, 240, .82);
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] :is(.conversation-context-meter, .drawer-external-session-note, .drawer-history-refreshing) {
+  border-bottom-color: rgba(72, 67, 61, .16);
+  background: transparent;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-turn {
+  border-bottom-color: rgba(72, 67, 61, .11);
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-content.markdown,
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-content.empty,
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-content {
+  color: #342f2a;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head b {
+  color: #356452;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head b {
+  color: #27647d;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head > span,
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-row.user .chat-bubble-head > span {
+  color: #625b54;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-bubble-head > .chat-answer-kind {
+  color: #356452;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .chat-history-head button {
+  border-color: rgba(72, 67, 61, .18);
+  background: #f8f5f0;
+  color: #4d4843;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] :is(
+  .structured-json,
+  .memory-candidates,
+  .chat-roadmap,
+  .chat-activities,
+  .subagent-call-event,
+  .subagent-assignment-card,
+  .subagent-work-source
+) {
+  border-color: rgba(72, 67, 61, .16);
+  border-left-color: rgba(23, 106, 84, .48);
+  background: rgba(248, 245, 240, .66);
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] :is(.chat-earlier-history, .chat-truncated) {
+  border-bottom-color: rgba(72, 67, 61, .14);
+  background: transparent;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] :is(.subagent-call-anchor, .subagent-call-event) {
+  border-color: rgba(23, 106, 84, .42);
+  background: transparent;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] .subagent-call-anchor blockquote {
+  color: #433f3a;
+}
+
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] button.subagent-call-event:hover,
+html[data-theme="light"] .detail-drawer[data-conversation-surface="transcript"] button.subagent-call-event:focus-visible {
+  background: rgba(23, 106, 84, .05);
 }
 
 @media (max-width: 620px) {
@@ -349,7 +866,7 @@ html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerCompos
     padding: 8px;
   }
 
-  .detail-drawer[data-terminal-chat="true"] #drawerComposer {
+  .detail-drawer[data-conversation-shell="terminal"] #drawerComposer {
     padding: 7px 9px calc(9px + env(safe-area-inset-bottom));
   }
 
@@ -360,11 +877,27 @@ html[data-theme="light"] .detail-drawer[data-terminal-chat="true"] #drawerCompos
   .drawer-terminal-input-hint {
     justify-content: flex-end;
   }
+
+  .detail-drawer[data-conversation-surface="transcript"] .drawer-terminal-transcript-body {
+    padding: 13px 12px 24px;
+  }
+
+  .detail-drawer[data-conversation-surface="transcript"]:has([data-prompt-expanded="true"]) .drawer-transcript-statusbar {
+    display: none;
+  }
+
+  .detail-drawer[data-conversation-surface="transcript"]:has([data-prompt-expanded="true"]) .drawer-terminal-transcript-body {
+    padding: 0;
+  }
+
+  .detail-drawer[data-conversation-surface="transcript"]:has([data-prompt-expanded="true"]) .chat-row.user .chat-bubble {
+    padding: 16px 16px 28px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .drawer-terminal-statusbar,
-  .detail-drawer[data-terminal-chat="true"] #drawerComposer .terminal-conversation {
+  .detail-drawer[data-conversation-shell="terminal"] #drawerComposer .terminal-conversation {
     transition: none;
   }
 }
