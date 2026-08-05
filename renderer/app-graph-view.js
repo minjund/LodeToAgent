@@ -371,6 +371,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return sortGraphNodes(found);
   }
 
+  function isOngoingSubagent(session) {
+    return Boolean(session && ["starting", "running", "paused", "waiting"].includes(session.status));
+  }
+
+  function isCompletedSubagent(session) {
+    if (!session || isOngoingSubagent(session)) return false;
+    return ["completed", "cancelled", "failed"].includes(session.status) || session.completionObserved;
+  }
+
   const sessionNeedsReview = session => typeof context.needsManagementInbox === "function"
     ? context.needsManagementInbox(session)
     : typeof context.needsManagementReview === "function"
@@ -636,8 +645,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const attentionCount = reviewSessionIds.size;
     const hasAttention = attentionCount > 0;
     const executionItems = actors.flatMap(owner => (owner.executions || []).map(activity => ({ activity, owner })));
-    const activeChildren = descendants.filter(child => ["starting", "running", "paused", "waiting"].includes(child.status) && !child.completionObserved);
-    const completedChildren = descendants.filter(child => ["completed", "cancelled", "failed"].includes(child.status) || child.completionObserved);
+    const activeChildren = descendants.filter(isOngoingSubagent);
+    const completedChildren = descendants.filter(isCompletedSubagent);
     const activeExecutions = executionItems.filter(item => item.activity.status === "running");
     const completedExecutions = executionItems
       .filter(item => item.activity.status !== "running")
@@ -842,7 +851,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const checkpoints = Array.isArray(progress.checkpoints) ? progress.checkpoints.filter(Boolean) : [];
     const executions = Array.isArray(session.executions) ? session.executions.filter(Boolean) : [];
     const activeChildren = children.filter(isLiveSession);
-    const finishedChildren = children.filter(child => ["completed", "failed", "cancelled"].includes(child.status) || child.completionObserved);
+    const finishedChildren = children.filter(isCompletedSubagent);
     const activeExecutions = executions.filter(item => item.status === "running");
     const finishedExecutions = executions.filter(item => ["completed", "failed", "cancelled"].includes(item.status));
     const completedSteps = Math.max(0, Number(progress.completedSteps || 0));
@@ -966,7 +975,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   function splitSubagents(children) {
     return children.reduce(
       (out, session) => {
-        if (session.status === "completed" || session.completionObserved) out.completed.push(session);
+        if (isCompletedSubagent(session)) out.completed.push(session);
         else out.ongoing.push(session);
         return out;
       },

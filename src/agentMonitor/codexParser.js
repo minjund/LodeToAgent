@@ -150,6 +150,8 @@ function createCodexParser(dependencies) {
       state.activeTurn = true;
       state.lastTurnCompleted = false;
       state.latestDelegationNarration = '';
+      session.completedAt = null;
+      session.completionObserved = false;
       addLifecycle(session, {
         id: payload.turn_id,
         type: 'turn-start',

@@ -516,6 +516,18 @@ function registerCodexParserTests(context) {
     ]));
     assert.notEqual(answered.status, 'waiting');
 
+    const restartedSubagent = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-restarted-subagent.jsonl'), [
+      { timestamp: '2026-07-14T03:15:00Z', type: 'session_meta', payload: { id: 'restarted-subagent', cwd: 'D:\\repo', source: { subagent: { thread_spawn: { parent_thread_id: 'parent', depth: 1, agent_path: '/root/restarted' } } } } },
+      { timestamp: '2026-07-14T03:15:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'first-turn' } },
+      { timestamp: '2026-07-14T03:15:02Z', type: 'event_msg', payload: { type: 'user_message', message: '첫 작업을 확인해줘' } },
+      { timestamp: '2026-07-14T03:15:03Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'first-turn', completed_at: '2026-07-14T03:15:03Z', last_agent_message: '첫 작업 완료' } },
+      { timestamp: '2026-07-14T03:15:04Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'second-turn' } },
+      { timestamp: '2026-07-14T03:15:05Z', type: 'event_msg', payload: { type: 'user_message', message: '다음 작업을 계속해줘' } },
+    ]));
+    assert.equal(restartedSubagent.status, 'running');
+    assert.equal(restartedSubagent.completionObserved, false);
+    assert.equal(restartedSubagent.completedAt, null);
+
     const structured = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-input-tool.jsonl'), [
       { timestamp: '2026-07-14T03:20:00Z', type: 'session_meta', payload: { id: 'input-tool', cwd: 'D:\\repo' } },
       { timestamp: '2026-07-14T03:20:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'input-turn' } },

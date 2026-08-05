@@ -360,11 +360,15 @@ class TerminalHostClient extends EventEmitter {
     this.connected = false;
     this.disposed = false;
     this.sessions = [];
+    this.sessionsRevision = 0;
+    this.listRequestGeneration = 0;
     this.sequence = 0;
     this.pending = new Map();
     this.handshake = null;
     this.connectPromise = null;
     this.connectGeneration = 0;
+    this.discovery = null;
+    this.updateShutdown = false;
   }
 
   connect() {
@@ -416,6 +420,7 @@ class TerminalHostClient extends EventEmitter {
 
   connectExisting() {
     const discovery = readHostDiscovery(this.discoveryFile, fs, this.expectedRuntime);
+    this.discovery = discovery;
     return new Promise((resolve, reject) => {
       const socket = net.createConnection(discovery.endpoint);
       const timer = setTimeout(() => {
@@ -457,6 +462,7 @@ class TerminalHostClient extends EventEmitter {
       try { message = JSON.parse(line); } catch { continue; }
       if (message.type === 'ready') {
         this.sessions = Array.isArray(message.sessions) ? message.sessions : [];
+        this.sessionsRevision += 1;
         this.connected = true;
         if (this.handshake) this.handshake.resolve();
       } else if (message.type === 'response') {
@@ -475,7 +481,10 @@ class TerminalHostClient extends EventEmitter {
       } else if (message.type === 'event' && message.event === 'data') {
         this.emit('data', message.payload);
       } else if (message.type === 'event' && message.event === 'state') {
-        if (Array.isArray(message.payload?.sessions)) this.sessions = message.payload.sessions;
+        if (Array.isArray(message.payload?.sessions)) {
+          this.sessions = message.payload.sessions;
+          this.sessionsRevision += 1;
+        }
         this.emit('state', message.payload);
       }
     }
@@ -529,17 +538,112 @@ class TerminalHostClient extends EventEmitter {
   }
 
   list() { return this.sessions.map(session => ({ ...session })); }
+  async listFresh() {
+    const generation = ++this.listRequestGeneration;
+    const revision = this.sessionsRevision;
+    const sessions = await this.request('list');
+    if (!Array.isArray(sessions)) throw new Error('명령창 작업 상태를 새로 확인하지 못했습니다.');
+    // A state event or a newer list request may have landed while this request
+    // was in flight. Never let its older snapshot erase the newer registry.
+    if (revision !== this.sessionsRevision || generation !== this.listRequestGeneration) return this.list();
+    this.sessions = sessions;
+    this.sessionsRevision += 1;
+    return this.list();
+  }
   get(id, includeReplay = true) { return this.request('get', id, includeReplay); }
-  create(options) { return this.request('create', options); }
+  create(options) {
+    if (this.updateShutdown) throw new Error('업데이트를 준비하는 동안 새 명령창 작업을 시작할 수 없습니다.');
+    return this.request('create', options);
+  }
   write(id, data) { return this.request('write', id, data); }
   command(id, command, options) { return this.request('command', id, command, options || {}); }
   resize(id, cols, rows) { return this.request('resize', id, cols, rows); }
   signal(id, signal) { return this.request('signal', id, signal); }
-  restart(id) { return this.request('restart', id); }
-  reconnect(id) { return this.request('reconnect', id); }
+  restart(id) {
+    if (this.updateShutdown) throw new Error('업데이트를 준비하는 동안 명령창 작업을 다시 시작할 수 없습니다.');
+    return this.request('restart', id);
+  }
+  reconnect(id) {
+    if (this.updateShutdown) throw new Error('업데이트를 준비하는 동안 명령창 작업을 다시 연결할 수 없습니다.');
+    return this.request('reconnect', id);
+  }
   detach(id) { return this.request('detach', id); }
   stop(id) { return this.request('stop', id); }
   close(id) { return this.request('close', id); }
+
+  async shutdownForUpdate(sessions = null, timeoutMs = 8_000) {
+    this.updateShutdown = true;
+    try {
+      const confirmed = Array.isArray(sessions) ? sessions : null;
+      const current = await this.listFresh();
+      if (confirmed) {
+        const confirmedIds = new Set(confirmed
+          .filter(session => session && ['running', 'starting'].includes(session.status))
+          .map(session => session.id));
+        const unconfirmed = current.find(session => session
+          && ['running', 'starting'].includes(session.status)
+          && !confirmedIds.has(session.id));
+        if (unconfirmed) throw new Error('업데이트 준비 중 새 명령창 작업이 시작되었습니다. 상태를 확인한 뒤 다시 시도해 주세요.');
+      }
+      const active = current
+        .filter(session => session && ['running', 'starting'].includes(session.status))
+        .sort((left, right) => Number(left.backend !== 'managed-tmux') - Number(right.backend !== 'managed-tmux'));
+      for (const session of active) {
+        let lastError = null;
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          try {
+            if (session.backend === 'managed-tmux') await this.detach(session.id);
+            else await this.stop(session.id);
+            lastError = null;
+            break;
+          } catch (error) {
+            lastError = error;
+            try {
+              const latest = await this.listFresh();
+              const remaining = latest.find(candidate => candidate.id === session.id
+                && ['running', 'starting'].includes(candidate.status));
+              if (!remaining) {
+                lastError = null;
+                break;
+              }
+            } catch (_statusCheckError) {
+              // Retry the original transition; never assume work stopped when status cannot be refreshed.
+            }
+          }
+        }
+        if (lastError) throw lastError;
+      }
+      const remaining = (await this.listFresh()).filter(session => session
+        && ['running', 'starting'].includes(session.status));
+      if (remaining.length) throw new Error('업데이트 전에 모든 명령창 작업을 안전하게 정리하지 못했습니다.');
+      const discovery = this.discovery || readHostDiscovery(this.discoveryFile, fs, this.expectedRuntime);
+      const pid = Number(discovery.pid);
+      if (!this.connected || !this.socket || this.socket.destroyed) {
+        throw new Error('업데이트 전에 명령창 연결 프로그램을 종료하지 못했습니다.');
+      }
+      this.disposed = true;
+      this.connectGeneration += 1;
+      sendFrame(this.socket, { type: 'control', operation: 'shutdown-if-idle' });
+      this.socket.end();
+      const deadline = Date.now() + Math.max(1_000, Number(timeoutMs) || 8_000);
+      while (processExists(pid)) {
+        if (Date.now() >= deadline) {
+          throw new Error('업데이트 전에 명령창 연결 프로그램이 완전히 종료되지 않았습니다.');
+        }
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return { ok: true, stopped: active.length };
+    } catch (error) {
+      this.updateShutdown = false;
+      throw error;
+    }
+  }
+
+  recoverAfterUpdateFailure() {
+    this.updateShutdown = false;
+    this.disposed = false;
+    return this.connect();
+  }
 
   dispose({ shutdownIfIdle = false } = {}) {
     this.disposed = true;

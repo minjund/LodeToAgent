@@ -15,7 +15,12 @@ const { TerminalHostClient, launchTerminalHost, resolveTerminalHostExecutable } 
 const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
 const { UpdateManager } = require('./src/updateManager');
-const { launchDownloadedUpdate, verifyDownloadedInstaller } = require('./src/updateInstaller');
+const {
+  findInstalledDesktopApp,
+  launchDownloadedUpdate,
+  readDesktopAppVersion,
+  verifyDownloadedInstaller,
+} = require('./src/updateInstaller');
 const {
   READY_PATH_ENV,
   READY_TOKEN_ENV,
@@ -89,6 +94,11 @@ const MAIN_COPY = {
     terminalHostReconnecting: '명령창 연결을 자동으로 복구하는 중입니다.',
     terminalHostReconnected: '명령창 연결을 복구했습니다.',
     terminalHostReconnectFailed: '명령창 연결을 복구하지 못했습니다. 명령창을 다시 열어 주세요.',
+    updateActiveTitle: '실행 중인 작업을 중단하고 업데이트할까요?',
+    updateActiveMessage: '실행 중인 명령창 {terminalCount}개와 직접 실행 작업 {runCount}개가 있습니다.',
+    updateActiveDetail: '업데이트를 계속하면 LoadToAgent와 명령창 연결 프로그램을 완전히 종료한 뒤 새 버전을 설치하고 다시 시작합니다. 관리형 명령창 작업은 분리해 유지하지만, 직접 실행 중인 작업은 중단되며 필요하면 업데이트 후 다시 시작해야 합니다.',
+    updateLater: '나중에',
+    updateNow: '업데이트하고 다시 시작',
   },
   en: {
     trayTooltip: 'LoadToAgent · {count} background tasks',
@@ -102,6 +112,11 @@ const MAIN_COPY = {
     terminalHostReconnecting: 'Restoring the terminal connection automatically.',
     terminalHostReconnected: 'Terminal connection restored.',
     terminalHostReconnectFailed: 'Could not restore the terminal connection: {reason}',
+    updateActiveTitle: 'Interrupt running work and update?',
+    updateActiveMessage: '{terminalCount} terminal tasks and {runCount} direct runs are still active.',
+    updateActiveDetail: 'Continuing will fully close LoadToAgent and its terminal host, install the new version, and restart the app. Managed terminal work is detached and kept running, but direct work is stopped and may need to be restarted after the update.',
+    updateLater: 'Later',
+    updateNow: 'Update and restart',
   },
   'zh-CN': {
     trayTooltip: 'LoadToAgent · {count} 个后台任务',
@@ -115,6 +130,11 @@ const MAIN_COPY = {
     terminalHostReconnecting: '正在自动恢复终端连接。',
     terminalHostReconnected: '终端连接已恢复。',
     terminalHostReconnectFailed: '无法恢复终端连接：{reason}',
+    updateActiveTitle: '中断正在运行的任务并更新吗？',
+    updateActiveMessage: '仍有 {terminalCount} 个终端任务和 {runCount} 个直接运行任务。',
+    updateActiveDetail: '继续后将完全关闭 LoadToAgent 及终端连接程序，安装新版本并重新启动。受管理的终端任务会分离并继续运行，但直接运行的任务会停止，更新后可能需要重新启动。',
+    updateLater: '稍后',
+    updateNow: '更新并重新启动',
   },
 };
 let lastSnapshot = {
@@ -544,6 +564,56 @@ function installationType() {
   return fs.existsSync(path.join(__dirname, '.git')) ? 'source' : 'npm';
 }
 
+function currentInstallType() {
+  return process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : installationType();
+}
+
+async function updateInstallPlan() {
+  const sourceInstallType = currentInstallType();
+  const desktopAppPath = await findInstalledDesktopApp({
+    platform: process.platform,
+    installType: sourceInstallType,
+    appPath: process.execPath,
+  });
+  const automatic = Boolean(desktopAppPath) && (process.platform === 'win32' || process.platform === 'darwin');
+  return {
+    sourceInstallType,
+    installType: automatic ? 'desktop' : sourceInstallType,
+    installMode: automatic ? 'automatic' : 'manual',
+    appPath: automatic ? desktopAppPath : process.execPath,
+  };
+}
+
+async function updateWorkloadImpact() {
+  let sessions = [];
+  if (terminalManager instanceof TerminalHostClient) sessions = await terminalManager.listFresh();
+  else if (terminalManager && typeof terminalManager.list === 'function') sessions = terminalManager.list();
+  return {
+    terminalSessions: sessions.filter(session => session.status === 'running' || session.status === 'starting'),
+    agentRuns: backgroundAgentRuns(),
+  };
+}
+
+async function confirmActiveTerminalUpdate(impact) {
+  const terminalCount = impact.terminalSessions.length;
+  const runCount = impact.agentRuns.length;
+  if (!terminalCount && !runCount) return true;
+  const options = {
+    type: 'warning',
+    title: mainText('updateActiveTitle'),
+    message: mainText('updateActiveMessage', { terminalCount, runCount }),
+    detail: mainText('updateActiveDetail'),
+    buttons: [mainText('updateLater'), mainText('updateNow')],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+  const result = mainWindow && !mainWindow.isDestroyed()
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 1;
+}
+
 async function connectTerminalForStartup(timeoutMs = 4_000) {
   const connection = terminalManager.connect();
   let timedOut = false;
@@ -577,21 +647,56 @@ async function connectTerminalForStartup(timeoutMs = 4_000) {
 async function performDownloadedUpdateInstall() {
   if (!updateManager) throw new Error('업데이트 기능이 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요.');
   const downloaded = await updateManager.download();
-  const outcome = await launchDownloadedUpdate({
+  const installPlan = await updateInstallPlan();
+  const launchOptions = {
     platform: process.platform,
-    installType: process.env.PORTABLE_EXECUTABLE_FILE ? 'portable' : installationType(),
+    installType: installPlan.installType,
     installerPath: downloaded.downloadedPath,
     downloadsDir: path.join(app.getPath('userData'), 'updates'),
-    appPath: process.execPath,
+    appPath: installPlan.appPath,
     expectedVersion: downloaded.latestVersion,
     parentPid: process.pid,
     shell,
     allowUnsignedWindowsUpdates: ALLOW_UNSIGNED_WINDOWS_UPDATES,
     allowUnsignedMacUpdates: ALLOW_UNSIGNED_MAC_UPDATES,
-  });
+  };
+  let terminalShutdownAttempted = false;
+  let agentRunnerPrepared = false;
+  if (installPlan.installMode === 'automatic') {
+    const impact = await updateWorkloadImpact();
+    if (!await confirmActiveTerminalUpdate(impact)) {
+      return { ...updateManager.getState(), installMode: 'automatic', installCanceled: true };
+    }
+    launchOptions.beforeAutomaticInstall = async () => {
+      if (runner) {
+        runner.prepareForUpdate(impact.agentRuns);
+        agentRunnerPrepared = true;
+      }
+      terminalShutdownAttempted = true;
+      if (terminalManager instanceof TerminalHostClient) {
+        await terminalManager.shutdownForUpdate(impact.terminalSessions);
+      } else if (terminalManager) {
+        terminalManager.dispose({ preserveSessions: true });
+      }
+    };
+  }
+  let outcome;
+  try {
+    outcome = await launchDownloadedUpdate(launchOptions);
+  } catch (error) {
+    if (agentRunnerPrepared && runner) runner.resumeAfterUpdateFailure();
+    if (terminalShutdownAttempted && terminalManager instanceof TerminalHostClient) {
+      terminalManager.recoverAfterUpdateFailure()
+        .catch(reconnectError => reportRecoverableError('update-terminal-host-recover', reconnectError));
+    }
+    throw error;
+  }
   if (outcome.mode === 'automatic') {
     isQuitting = true;
     setImmediate(() => app.quit());
+  } else if (terminalShutdownAttempted && terminalManager instanceof TerminalHostClient) {
+    terminalManager.recoverAfterUpdateFailure()
+      .catch(error => reportRecoverableError('update-terminal-host-recover', error));
   }
   return { ...updateManager.getState(), installMode: outcome.mode };
 }
@@ -599,7 +704,7 @@ async function performDownloadedUpdateInstall() {
 function installDownloadedUpdate() {
   if (updateInstallPromise) return updateInstallPromise;
   updateInstallPromise = performDownloadedUpdateInstall().then(result => {
-    if (result.installMode !== 'automatic') updateInstallPromise = null;
+    if (result.installMode !== 'automatic' || result.installCanceled) updateInstallPromise = null;
     return result;
   }, error => {
     updateInstallPromise = null;
@@ -629,11 +734,33 @@ async function setupRuntime() {
         bridgeHome,
       }),
     });
+  const installPlan = await updateInstallPlan();
+  let updateCurrentVersion = app.getVersion();
+  let updateCurrentVersionKnown = true;
+  let updateBlockedReason = '';
+  if (installPlan.installMode === 'automatic' && ['source', 'npm'].includes(installPlan.sourceInstallType)) {
+    try {
+      const installedVersion = await readDesktopAppVersion({
+        platform: process.platform,
+        appPath: installPlan.appPath,
+      });
+      if (installedVersion) updateCurrentVersion = installedVersion;
+      else throw new Error('설치된 데스크톱 앱의 버전을 확인하지 못했습니다.');
+    } catch (error) {
+      updateCurrentVersionKnown = false;
+      updateBlockedReason = '설치된 데스크톱 앱의 버전을 확인할 수 없어 안전하게 업데이트할 수 없습니다.';
+      reportRecoverableError('installed-app-version', error);
+    }
+  }
   updateManager = new UpdateManager({
-    currentVersion: app.getVersion(),
+    currentVersion: updateCurrentVersion,
     platform: process.platform,
     arch: process.arch,
-    installType: installationType(),
+    installType: installPlan.sourceInstallType,
+    targetInstallType: installPlan.installType,
+    installMode: installPlan.installMode,
+    currentVersionKnown: updateCurrentVersionKnown,
+    blockedReason: updateBlockedReason,
     fetch: (...args) => net.fetch(...args),
     shell,
     downloadsDir: path.join(app.getPath('userData'), 'updates'),

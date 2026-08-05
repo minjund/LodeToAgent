@@ -359,6 +359,43 @@ function registerTerminalAgentActionTests(context) {
     ]);
   });
 
+  test('터미널 목록보다 브리지 presence가 먼저 도착해도 같은 PTY를 찾는다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    const sandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      state: {
+        snapshot: null,
+        sessions: [],
+        suppressedTmuxTargets: new Set(),
+      },
+      terminalTypeLabel: () => 'Codex',
+    });
+    const targets = actions.agentTargets({
+      id: 'codex:bridge-race',
+      provider: 'codex',
+      runtimePresence: [{
+        kind: 'bridge',
+        terminalId: 'terminal:bridge-race',
+        pid: 42420,
+        runtime: 'codex',
+        label: 'LoadToAgent AI 명령창',
+      }],
+    });
+
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(targets)), [{
+      id: 'terminal:bridge-race',
+      kind: 'terminal',
+      label: 'LoadToAgent AI 명령창',
+      detail: 'Codex · session.program_pid',
+      terminalId: 'terminal:bridge-race',
+    }]);
+  });
+
   test('분리된 관리 터미널이 있으면 히스토리 세션도 직접 전송 경로를 쓴다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
     const sandbox = {

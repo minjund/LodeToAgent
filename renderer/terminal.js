@@ -85,6 +85,8 @@
 
   const state = {
     sessions: [],
+    terminalSessionRevision: 0,
+    terminalListRequestGeneration: 0,
     selectedId: null,
     selectedTmux: null,
     snapshot: null,
@@ -1223,9 +1225,8 @@
         bindEvents();
         state.eventsBound = true;
       }
-      const [bootstrap, sessions, environments] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), window.loadtoagent.terminalList(), window.loadtoagent.wslDistros()]);
+      const [bootstrap, , environments] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), refreshSessions(), window.loadtoagent.wslDistros()]);
       state.platform = bootstrap.platform || state.platform;
-      state.sessions = Array.isArray(sessions) ? sessions : [];
       state.wslDistros = Array.isArray(environments) ? environments : [];
       state.initialized = true;
       configurePlatform();

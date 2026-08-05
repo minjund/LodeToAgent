@@ -84,7 +84,7 @@ const rootSession = {
 const childSession = {
   ...rootSession, id: 'fixture-child', externalId: 'fixture-child-external', provider: 'gpt', model: 'GPT',
   title: '처음 보는 사람도 화면의 작업 흐름을 바로 이해하는지 확인', parentId: 'fixture-root', childIds: ['fixture-grandchild'], agentName: '화면 확인 AI', agentRole: 'tester',
-  statusDetail: '첫 화면과 대화 입력 방법을 확인하는 중',
+  statusDetail: '첫 화면과 대화 입력 방법을 확인하는 중', completionObserved: true, completedAt: twoHoursAgo,
   responseIntent: { category: 'none', required: false, optional: false },
   messages: [
     { id: 'm-user', role: 'user', text: '상호작용 테스트를 진행해줘', timestamp: now },
@@ -414,7 +414,7 @@ const availableUpdate = {
   status: 'available', currentVersion: '1.5.1', latestVersion: '1.5.2', tag: 'v1.5.2',
   releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.5.2', publishedAt: now,
   notes: '설정 화면과 업데이트 흐름 상호작용 검증', progress: 0, downloadedBytes: 0, totalBytes: 8_192,
-  downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop',
+  downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop', targetInstallType: 'desktop', installMode: 'automatic',
   asset: { name: 'LoadToAgent-Setup-1.5.2.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.5.2/LoadToAgent-Setup-1.5.2.exe', digest: '' },
 };
 

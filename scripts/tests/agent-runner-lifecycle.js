@@ -94,6 +94,11 @@ function registerAgentRunnerLifecycleTests(context) {
     const controlled = runFixture(runsDir, 'controlled-run', 6_001);
     runner.active.set(controlled.id, controlled);
 
+    assert.throws(() => runner.prepareForUpdate([]), /새 직접 실행 작업/);
+    assert.deepStrictEqual(runner.prepareForUpdate([{ runId: controlled.id }]), { active: 1 });
+    assert.match(runner.start({}).error, /종료 중/);
+    assert.equal(runner.resumeAfterUpdateFailure(), true);
+
     assert.deepStrictEqual(await runner.pause(controlled.id), { ok: true, status: 'paused' });
     assert.deepStrictEqual(await runner.resume(controlled.id), { ok: true, status: 'running' });
     assert.deepStrictEqual(runner.stop(controlled.id), { ok: true });

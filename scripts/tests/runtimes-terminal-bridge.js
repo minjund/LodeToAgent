@@ -1904,6 +1904,86 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(client.list()[0].id, 'terminal:active');
   });
 
+  test('늦은 호스트 list 응답과 역순 list 요청이 최신 세션 상태를 지우지 않는다', async () => {
+    const client = new TerminalHostClient({ discoveryFile: path.join(temp, 'unused-list-race-host.json') });
+    const frames = [];
+    const socket = {
+      destroyed: false,
+      write: value => { frames.push(JSON.parse(String(value).trim())); return true; },
+    };
+    client.connected = true;
+    client.socket = socket;
+    const staleList = client.listFresh();
+    const requestId = frames[0].requestId;
+    client.consume(Buffer.from([
+      JSON.stringify({
+        type: 'response', requestId, ok: true,
+        result: [{ id: 'terminal:list-old', status: 'running' }],
+      }),
+      JSON.stringify({
+        type: 'event', event: 'state',
+        payload: { sessions: [{ id: 'terminal:event-new', status: 'running' }] },
+      }),
+      '',
+    ].join('\n')), socket);
+
+    assert.deepStrictEqual((await staleList).map(session => session.id), ['terminal:event-new']);
+    assert.deepStrictEqual(client.list().map(session => session.id), ['terminal:event-new']);
+
+    const resolvers = [];
+    client.request = () => new Promise(resolve => { resolvers.push(resolve); });
+    const olderRequest = client.listFresh();
+    const newerRequest = client.listFresh();
+    resolvers[1]([{ id: 'terminal:list-newest', status: 'running' }]);
+    await newerRequest;
+    resolvers[0]([{ id: 'terminal:list-older', status: 'running' }]);
+    await olderRequest;
+
+    assert.deepStrictEqual(client.list().map(session => session.id), ['terminal:list-newest']);
+  });
+
+  test('업데이트 종료는 최신 호스트 상태를 확인하고 관리형 작업은 분리하며 직접 작업은 중지한다', async () => {
+    const client = new TerminalHostClient({ discoveryFile: path.join(temp, 'unused-update-host.json') });
+    const sessions = [
+      { id: 'managed', status: 'running', backend: 'managed-tmux' },
+      { id: 'direct', status: 'starting', backend: 'direct' },
+      { id: 'finished', status: 'exited', backend: 'direct' },
+    ];
+    const calls = [];
+    const frames = [];
+    client.connected = true;
+    client.discovery = { pid: 2_147_483_646 };
+    client.socket = {
+      destroyed: false,
+      write: value => { frames.push(JSON.parse(String(value).trim())); return true; },
+      end() { this.destroyed = true; },
+    };
+    client.request = async (operation, ...args) => {
+      calls.push([operation, ...args]);
+      if (operation === 'list') return sessions;
+      if (operation === 'detach' || operation === 'stop') {
+        const session = sessions.find(candidate => candidate.id === args[0]);
+        if (session) session.status = operation === 'detach' ? 'detached' : 'stopped';
+      }
+      return { ok: true };
+    };
+
+    const fresh = await client.listFresh();
+    await assert.rejects(
+      client.shutdownForUpdate(fresh.filter(session => session.id !== 'managed'), 1_000),
+      /새 명령창 작업이 시작/,
+    );
+    calls.length = 0;
+    const result = await client.shutdownForUpdate(fresh, 1_000);
+
+    assert.deepStrictEqual(calls, [['list'], ['detach', 'managed'], ['stop', 'direct'], ['list']]);
+    assert.deepStrictEqual(frames, [{ type: 'control', operation: 'shutdown-if-idle' }]);
+    assert.equal(result.stopped, 2);
+    assert.equal(client.disposed, true);
+    assert.equal(client.socket.destroyed, true);
+    assert.throws(() => client.create({}), /업데이트를 준비하는 동안/);
+  });
+
   test('마지막 클라이언트가 떠난 빈 터미널 호스트는 유예 뒤 스스로 종료한다', async () => {
     class EmptyManager extends EventEmitter {
       list() { return []; }

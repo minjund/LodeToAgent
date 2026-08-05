@@ -133,9 +133,10 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       });
     }
     // The control-room composer is available before the terminal workbench has
-    // necessarily loaded its own session list. Runtime presence already carries
-    // the stable terminal id, so keep direct participation available from home.
-    for (const item of presence.filter(entry => entry.kind === 'terminal' && entry.terminalId && !blockedTerminalIds.has(entry.terminalId)
+    // necessarily loaded its own session list. Both terminal and bridge runtime
+    // presence carry the stable terminal id, so keep direct participation
+    // available during either snapshot/registry arrival order.
+    for (const item of presence.filter(entry => ['terminal', 'bridge'].includes(entry.kind) && entry.terminalId && !blockedTerminalIds.has(entry.terminalId)
       && (!agentSession.parentId || state.sessions.some(terminal => terminal.id === entry.terminalId && terminal.type !== 'agent')))) {
       if (targets.some(target => target.id === item.terminalId)) continue;
       const runtime = String(item.runtime || item.shell || '이 컴퓨터에서 실행하는 작업');
