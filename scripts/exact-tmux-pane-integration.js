@@ -559,7 +559,10 @@ async function testStableExactPane() {
   const vtMarker = unique('RAW_VT');
   await acceptedCommand(
     id,
-    `printf '\\033[38;5;196m${vtMarker}\\033[0m\\033[?1h\\033[?2004h\\n'`,
+    // Verify both bracketed-paste transitions in the output stream, then leave
+    // the fixture disabled. Legacy macOS Bash 3.2 cannot consume a later
+    // paste-buffer command while tmux still believes bracketed paste is on.
+    `printf '\\033[38;5;196m${vtMarker}\\033[0m\\033[?1h\\033[?2004h\\033[?2004l\\n'`,
     'raw-vt',
   );
   const vtColor = `\x1b[38;5;196m${vtMarker}\x1b[0m`;
@@ -567,8 +570,11 @@ async function testStableExactPane() {
     const live = String(outputByTerminal.get(id) || '');
     const replay = String(manager.get(id, true)?.replay || '');
     return live.includes(vtColor) && live.includes('\x1b[?1h')
-      && live.includes('\x1b[?2004h') && replay.includes(vtMarker);
+      && live.includes('\x1b[?2004h\x1b[?2004l') && replay.includes(vtMarker);
   }), 'raw VT bytes were not forwarded live and retained in replay');
+  const restoredBracketFlag = paneFormat(fixture.target, '#{bracket_paste_flag}');
+  assert(restoredBracketFlag === '' || restoredBracketFlag === '0',
+    `raw VT fixture left bracketed paste enabled: ${restoredBracketFlag}`);
 
   tmux(['swap-pane', '-d', '-s', fixture.target, '-t', fixture.sibling]);
   tmux(['move-pane', '-d', '-s', fixture.extras[0].pane, '-t', fixture.target]);
