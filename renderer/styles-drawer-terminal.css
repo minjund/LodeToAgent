@@ -128,10 +128,10 @@
 }
 
 /*
- * Sessions without an attachable raw PTY still use the same terminal-shaped
- * conversation surface. The transcript remains honest HTML (and keeps its
- * safe conversation transport), while the visual language no longer jumps
- * back to card bubbles when a PTY is external, paused, or already finished.
+ * Parent-controlled subagents and execution details remain read-only HTML.
+ * Standalone conversation tabs never use this transcript styling as a PTY
+ * fallback; they mount the app-owned xterm surface above or show its explicit
+ * connection error.
  */
 .detail-drawer[data-conversation-surface="transcript"] #drawerContent {
   padding: 0;
@@ -568,6 +568,10 @@
   z-index: 1;
   inset: 0;
   overflow: hidden;
+}
+
+#drawerTerminalViewport > .terminal-screen[data-fixed-grid="true"] {
+  overflow: auto;
 }
 
 #drawerTerminalViewport > .terminal-screen .xterm {

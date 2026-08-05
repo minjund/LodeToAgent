@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { processSessionExternalId } = require('./processMonitor');
 
 const FIELD_SEPARATOR = '|~|';
 const DEFAULT_SCAN_TTL_MS = 5_000;
@@ -63,6 +65,39 @@ function parseProcessLine(value) {
   };
 }
 
+function parseArgvProcess(parts, now) {
+  if (parts.length < 6 || !/^\d+$/u.test(parts[1]) || !/^\d+$/u.test(parts[2])) return null;
+  const elapsed = parseElapsedSeconds(parts[3]);
+  const encoded = String(parts[5] || '');
+  if (!Number.isFinite(elapsed) || encoded.length > 512 * 1024
+    || (encoded && !/^[A-Za-z0-9+/]*={0,2}$/u.test(encoded))) return null;
+  try {
+    const raw = encoded ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
+    if (encoded && raw.toString('base64') !== encoded) return null;
+    if (raw.length && raw[raw.length - 1] !== 0) return null;
+    const argvText = raw.length ? raw.subarray(0, -1).toString('utf8') : '';
+    if (argvText.includes('\ufffd')) return null;
+    // Remove only /proc's terminal NUL. Internal empty argv entries are
+    // semantically real and must not shift a later --resume into first place.
+    const argv = raw.length ? argvText.split('\0') : [];
+    return {
+      pid: Number(parts[1]),
+      parentPid: Number(parts[2]),
+      elapsedSeconds: elapsed,
+      command: parts[4],
+      args: argv.length ? argv.join(' ') : parts[4],
+      argv,
+      argvHash: raw.length ? crypto.createHash('sha256').update(raw).digest('hex') : '',
+      startTimeTicks: /^\d+$/u.test(parts[6] || '') ? parts[6] : '',
+      processGroupId: /^\d+$/u.test(parts[7] || '') ? Number(parts[7]) : 0,
+      terminalForegroundGroupId: /^-?\d+$/u.test(parts[8] || '') ? Number(parts[8]) : 0,
+      startedAt: new Date(now - elapsed * 1000).toISOString(),
+    };
+  } catch (_invalidArgv) {
+    return null;
+  }
+}
+
 function parseTmuxProbe(value, distro, now = Date.now(), kind = 'wsl') {
   const output = decodeCommandOutput(value);
   const meta = { linuxHome: '', tmuxVersion: '' };
@@ -95,6 +130,9 @@ function parseTmuxProbe(value, distro, now = Date.now(), kind = 'wsl') {
         dead: parts[16] === '1',
         title: parts[17] || '',
       });
+    } else if (parts[0] === 'A') {
+      const processInfo = parseArgvProcess(parts, now);
+      if (processInfo) processes.push(processInfo);
     } else if (parts[0] === 'R') {
       const processInfo = parseProcessLine(parts.slice(1).join(FIELD_SEPARATOR));
       if (processInfo) {
@@ -141,11 +179,46 @@ function selectAgentProcess(pane, processes) {
     .map(item => ({ ...item, provider: providerFromProcess(item) }))
     .filter(item => item.provider);
   if (!detected.length) return null;
-  return detected.sort((a, b) => {
+  const providers = [...new Set(detected.map(item => item.provider))];
+  const selected = detected.sort((a, b) => {
     const binaryA = a.command === a.provider ? 1 : 0;
     const binaryB = b.command === b.provider ? 1 : 0;
     return binaryB - binaryA || b.pid - a.pid;
   })[0];
+  const byPid = new Map(candidates.map(item => [Number(item.pid), item]));
+  const lineage = [];
+  const seen = new Set();
+  let cursor = selected;
+  while (cursor && !seen.has(Number(cursor.pid))) {
+    seen.add(Number(cursor.pid));
+    lineage.push({ ...cursor, provider: providerFromProcess(cursor) });
+    if (Number(cursor.pid) === Number(pane.pid)) break;
+    cursor = byPid.get(Number(cursor.parentPid)) || null;
+  }
+  const lineagePids = new Set(lineage.map(item => Number(item.pid)));
+  const independentProviderBranch = detected.some(item => !lineagePids.has(Number(item.pid)));
+  // An identity may be supplied by an executable wrapper above the selected
+  // provider binary, but never by an independent descendant/sibling branch.
+  const identityCarriers = lineage
+    .filter(item => item.provider === selected.provider && Array.isArray(item.argv) && item.argv.length)
+    .map(item => ({ ...item, externalId: processSessionExternalId(item, item.provider) }))
+    .filter(item => item.externalId);
+  const externalIds = [...new Set(identityCarriers.map(item => item.externalId))];
+  const identityCarrier = externalIds.length === 1
+    ? identityCarriers.find(item => item.externalId === externalIds[0]) || null
+    : null;
+  const identityAmbiguous = providers.length !== 1 || independentProviderBranch || externalIds.length > 1;
+  return {
+    ...selected,
+    externalId: !identityAmbiguous && identityCarrier ? identityCarrier.externalId : '',
+    identityPid: !identityAmbiguous && identityCarrier ? identityCarrier.pid : 0,
+    identityArgvHash: !identityAmbiguous && identityCarrier ? identityCarrier.argvHash || '' : '',
+    identityStartTimeTicks: !identityAmbiguous && identityCarrier ? identityCarrier.startTimeTicks || '' : '',
+    identityProcessGroupId: !identityAmbiguous && identityCarrier ? Number(identityCarrier.processGroupId || 0) : 0,
+    identityTerminalForegroundGroupId: !identityAmbiguous && identityCarrier
+      ? Number(identityCarrier.terminalForegroundGroupId || 0) : 0,
+    identityAmbiguous,
+  };
 }
 
 function buildDistroTopology(probe) {
@@ -178,6 +251,7 @@ function buildDistroTopology(probe) {
       session.windows.push(window);
     }
     const agentProcess = selectAgentProcess(rawPane, probe.processes);
+    const agentCommandLine = String(agentProcess?.args || '');
     window.panes.push({
       id: `${window.id}:pane:${rawPane.paneNativeId}`,
       nativeId: rawPane.paneNativeId,
@@ -193,7 +267,20 @@ function buildDistroTopology(probe) {
         pid: agentProcess.pid,
         parentPid: agentProcess.parentPid,
         command: agentProcess.command,
-        args: String(agentProcess.args || '').slice(0, 500),
+        args: agentCommandLine.slice(0, 500),
+        // selectAgentProcess only grants this from exact /proc argv. Never
+        // revive identity by reparsing flattened ps display text here.
+        externalId: agentProcess.identityAmbiguous ? '' : agentProcess.externalId,
+        identityPid: agentProcess.identityPid || 0,
+        identityArgvHash: agentProcess.identityArgvHash || '',
+        identityStartTimeTicks: agentProcess.identityStartTimeTicks || '',
+        identityProcessGroupId: Number(agentProcess.identityProcessGroupId || 0),
+        identityTerminalForegroundGroupId: Number(agentProcess.identityTerminalForegroundGroupId || 0),
+        argvHash: agentProcess.argvHash || '',
+        startTimeTicks: agentProcess.startTimeTicks || '',
+        processGroupId: Number(agentProcess.processGroupId || 0),
+        terminalForegroundGroupId: Number(agentProcess.terminalForegroundGroupId || 0),
+        identityAmbiguous: Boolean(agentProcess.identityAmbiguous),
         startedAt: agentProcess.startedAt,
       } : null,
       agent: null,
@@ -255,9 +342,53 @@ function linkScore(session, pane, distro, processInfo, now = Date.now()) {
   return score;
 }
 
+function paneProcessExternalId(pane) {
+  const processInfo = pane?.agentProcess;
+  if (processInfo?.identityAmbiguous) return '';
+  const observed = String(processInfo?.externalId || '').trim();
+  if (observed) return observed;
+  // Synthetic/tests and older cached topology may carry the exact argv but
+  // not the derived id. Exact argv boundaries are safe to re-evaluate; a
+  // flattened display string remains intentionally non-authoritative.
+  return Array.isArray(processInfo?.argv) && processInfo.argv.length
+    ? processSessionExternalId(processInfo, processInfo.provider)
+    : '';
+}
+
 function linkAgentSessions(snapshot, agentSessions, now = Date.now()) {
   const result = structuredClone(snapshot);
   const usedSessionIds = new Set();
+  const processIdentityCounts = new Map();
+  for (const distro of result.distros || []) {
+    if (distro.stale) continue;
+    for (const tmuxSession of distro.sessions || []) {
+      for (const window of tmuxSession.windows || []) {
+        for (const pane of window.panes || []) {
+          const externalId = pane.dead ? '' : paneProcessExternalId(pane);
+          const provider = String(pane.agentProcess?.provider || '');
+          if (!provider || !externalId) continue;
+          const key = `${provider}\u0000${externalId}`;
+          processIdentityCounts.set(key, (processIdentityCounts.get(key) || 0) + 1);
+        }
+      }
+    }
+  }
+  const exactSessionByIdentity = new Map();
+  const reservedSessionIds = new Set();
+  for (const [key, count] of processIdentityCounts) {
+    if (count !== 1) continue;
+    const separator = key.indexOf('\u0000');
+    const provider = key.slice(0, separator);
+    const externalId = key.slice(separator + 1);
+    const matches = (agentSessions || []).filter(session => (
+      session.provider === provider
+      && (String(session.externalId || '').trim() === externalId
+        || String(session.id || '') === `${provider}:${externalId}`)
+    ));
+    if (matches.length !== 1) continue;
+    exactSessionByIdentity.set(key, matches[0]);
+    reservedSessionIds.add(matches[0].id);
+  }
   let paneCount = 0;
   let aiPaneCount = 0;
   let linkedCount = 0;
@@ -271,13 +402,22 @@ function linkAgentSessions(snapshot, agentSessions, now = Date.now()) {
         for (const pane of window.panes || []) {
           paneCount += 1;
           if (!pane.agentProcess) continue;
-          if (!pane.dead) aiPaneCount += 1;
-          const ranked = pane.dead ? [] : (agentSessions || [])
-            .filter(session => !usedSessionIds.has(session.id))
+          const livePane = !distro.stale && !pane.dead;
+          if (livePane) aiPaneCount += 1;
+          const processExternalId = livePane ? paneProcessExternalId(pane) : '';
+          const processIdentityKey = `${pane.agentProcess.provider}\u0000${processExternalId}`;
+          // provider/cwd/time scoring is useful for read-only grouping, but it
+          // cannot authorize writable routing. Only a unique session id from
+          // the actual pane process may become an exact tmux input target.
+          const exactSession = processExternalId ? exactSessionByIdentity.get(processIdentityKey) : null;
+          const explicit = exactSession && !usedSessionIds.has(exactSession.id) ? exactSession : null;
+          const ranked = !livePane || processExternalId ? [] : (agentSessions || [])
+            .filter(session => !usedSessionIds.has(session.id) && !reservedSessionIds.has(session.id))
             .map(session => ({ session, score: linkScore(session, pane, distro, pane.agentProcess, now) }))
             .filter(item => item.score >= 1_000)
             .sort((a, b) => b.score - a.score);
-          const linked = ranked[0] && ranked[0].session;
+          const linked = explicit || (ranked[0] && ranked[0].session);
+          const linkAuthority = explicit ? 'explicit-session-id' : (linked ? 'heuristic-display' : '');
           if (linked) {
             usedSessionIds.add(linked.id);
             linkedCount += 1;
@@ -287,18 +427,31 @@ function linkAgentSessions(snapshot, agentSessions, now = Date.now()) {
             pid: pane.agentProcess.pid,
             command: pane.agentProcess.command,
             args: pane.agentProcess.args,
+            externalId: processExternalId,
+            identityPid: pane.agentProcess.identityPid,
+            identityArgvHash: pane.agentProcess.identityArgvHash,
+            identityStartTimeTicks: pane.agentProcess.identityStartTimeTicks,
+            identityProcessGroupId: pane.agentProcess.identityProcessGroupId,
+            identityTerminalForegroundGroupId: pane.agentProcess.identityTerminalForegroundGroupId,
+            argvHash: pane.agentProcess.argvHash,
+            startTimeTicks: pane.agentProcess.startTimeTicks,
+            processGroupId: pane.agentProcess.processGroupId,
+            terminalForegroundGroupId: pane.agentProcess.terminalForegroundGroupId,
             startedAt: pane.agentProcess.startedAt,
             linkedSessionId: linked && linked.id || null,
+            linkAuthority,
             title: linked && linked.title || `${pane.agentProcess.provider} 여러 명령창 작업`,
             model: linked && linked.model || '',
-            status: pane.dead ? 'failed' : 'running',
-            statusDetail: linked && linked.statusDetail || `${pane.command || pane.agentProcess.command} 프로그램 실행 중`,
+            status: livePane ? 'running' : 'failed',
+            statusDetail: linked && linked.statusDetail || (distro.stale
+              ? '최근 명령창 상태를 확인하지 못함'
+              : `${pane.command || pane.agentProcess.command} 프로그램 실행 중`),
             updatedAt: linked && linked.updatedAt || new Date(now).toISOString(),
             context: linked && linked.context || { used: 0, window: 0, percent: 0, source: 'unknown' },
             usage: linked && linked.usage || { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0 },
             childIds: linked && linked.childIds || [],
             agentName: linked && linked.agentName || '',
-            linkScore: ranked[0] && Math.round(ranked[0].score) || 0,
+            linkScore: explicit ? 'explicit-session-id' : (ranked[0] && Math.round(ranked[0].score) || 0),
           };
         }
       }
@@ -350,20 +503,41 @@ class TmuxMonitor {
   }
 
   probeDistro(distro) {
+    // Linux /proc preserves argv boundaries, unlike ps's display string. Keep
+    // that identity-bearing data only for possible provider processes; all
+    // other rows still carry PID/parent metadata for ancestry traversal.
+    const procProcess = [
+      'ps -eo pid=,ppid=,etimes=,comm= 2>/dev/null | while read -r PROC_PID PROC_PARENT PROC_AGE PROC_COMMAND; do',
+      'case "$PROC_PID" in ""|*[!0-9]*) continue ;; esac;',
+      'PROC_ARGV="";',
+      'PROC_START=""; PROC_PGRP=""; PROC_TPGID="";',
+      'if [ -r "/proc/$PROC_PID/stat" ]; then PROC_STAT="$(cat "/proc/$PROC_PID/stat" 2>/dev/null || true)"; PROC_TAIL="${PROC_STAT##*) }"; set -- $PROC_TAIL; PROC_PGRP="$3"; PROC_TPGID="$6"; PROC_START="${20}"; fi;',
+      'case "$PROC_COMMAND" in claude|codex*|gemini*|grok*|node|nodejs) PROC_ARGV="$(base64 -w 0 < "/proc/$PROC_PID/cmdline" 2>/dev/null || true)" ;; esac;',
+      'printf "A|~|%s|~|%s|~|%s|~|%s|~|%s|~|%s|~|%s|~|%s\\n" "$PROC_PID" "$PROC_PARENT" "$PROC_AGE" "$PROC_COMMAND" "$PROC_ARGV" "$PROC_START" "$PROC_PGRP" "$PROC_TPGID";',
+      'done',
+    ].join(' ');
     const common = [
       'printf "M|~|%s|~|" "$HOME"',
       "tmux -V 2>/dev/null | tr ' ' '_' || true",
       'if command -v tmux >/dev/null 2>&1; then tmux list-panes -a -F "P|~|#{session_id}|~|#{session_name}|~|#{session_created}|~|#{session_attached}|~|#{session_windows}|~|#{window_id}|~|#{window_index}|~|#{window_name}|~|#{window_active}|~|#{pane_id}|~|#{pane_index}|~|#{pane_pid}|~|#{pane_current_command}|~|#{pane_current_path}|~|#{pane_active}|~|#{pane_dead}|~|#{pane_title}" 2>/dev/null || true; fi',
     ];
     const history = [
-      'ps -eo pid=,ppid=,etimes=,comm=,args= 2>/dev/null | sed "s/^/R|~|/"',
-      'find "$HOME/.claude/projects" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|claude|~|%s|~|%s|~|%s\\n" "\\$MT" "\\$SZ" "\\$FILE"; done',
-      'find "$HOME/.codex/sessions" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|codex|~|%s|~|%s|~|%s\\n" "\\$MT" "\\$SZ" "\\$FILE"; done',
-      'find "$HOME/.gemini/tmp" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|gemini|~|%s|~|%s|~|%s\\n" "\\$MT" "\\$SZ" "\\$FILE"; done',
-      'find "$HOME/.grok/sessions" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|grok|~|%s|~|%s|~|%s\\n" "\\$MT" "\\$SZ" "\\$FILE"; done',
+      procProcess,
+      'find "$HOME/.claude/projects" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|claude|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
+      'find "$HOME/.codex/sessions" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|codex|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
+      'find "$HOME/.gemini/tmp" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|gemini|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
+      'find "$HOME/.grok/sessions" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|grok|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
     ];
-    const localProcess = 'ps -axo pid=,ppid=,etime=,comm=,args= 2>/dev/null | sed "s/^/R|~|/"';
-    const command = [...common, ...(this.platform === 'win32' ? history : [localProcess])].join('; ');
+    const localProcess = this.platform === 'linux'
+      ? procProcess
+      : 'ps -axo pid=,ppid=,etime=,comm=,args= 2>/dev/null | sed "s/^/R|~|/"';
+    const rawCommand = [...common, ...(this.platform === 'win32' ? history : [localProcess])].join('; ');
+    // wsl.exe may route the final argument through an extra command-line
+    // parser. Encoding the probe prevents that layer from expanding $HOME,
+    // loop variables, command substitutions, or proc paths before sh runs it.
+    const command = this.platform === 'win32'
+      ? `printf '%s' '${Buffer.from(rawCommand, 'utf8').toString('base64')}' | base64 -d | sh`
+      : rawCommand;
     const file = this.platform === 'win32' ? 'wsl.exe' : (process.env.SHELL || '/bin/sh');
     const args = this.platform === 'win32' ? ['-d', distro, '--', 'sh', '-lc', command] : ['-lc', command];
     const output = this.execFileSync(file, args, {

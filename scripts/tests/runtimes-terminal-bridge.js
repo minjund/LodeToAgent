@@ -1,20 +1,32 @@
 'use strict';
 
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
+const { spawnSync } = require('child_process');
 const { parseArguments } = require('../../bin/loadtoagent');
 const { parseGeneric, buildSummary } = require('../../src/agentMonitor');
 const { AgentRunner, commandSpec, handleClaude } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
 const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, bridgeLinkScore, applyRuntimePresence } = require('../../src/processMonitor');
-const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell } = require('../../src/terminalManager');
-const { TerminalHostServer, TerminalHostClient, resolveTerminalHostExecutable } = require('../../src/terminalHost');
+const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell, killPtyTree } = require('../../src/terminalManager');
+const {
+  TerminalHostServer,
+  TerminalHostClient,
+  TERMINAL_HOST_PROTOCOL,
+  acquireTerminalHostProcessLock,
+  terminalHostLockEndpoint,
+  terminateHostProcess,
+  resolveTerminalHostExecutable,
+} = require('../../src/terminalHost');
 const { TmuxController, safeName, safeTarget } = require('../../src/tmuxController');
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../../src/tmuxMonitor');
+const { ManagedTmuxRuntime } = require('../../src/managedTmuxRuntime');
+const { parseLaunchPayload } = require('../../src/tmuxControlProxy');
 
 async function waitUntil(predicate, timeoutMs = 2_000, intervalMs = 10) {
   const deadline = Date.now() + timeoutMs;
@@ -26,20 +38,47 @@ function registerTmuxAndProcessTests(context) {
   const { test } = context;
   test('WSL tmux 패널의 PID 계보에서 AI 프로세스를 식별한다', () => {
     const sep = '|~|';
+    const argvRow = (pid, parentPid, age, command, argv) => [
+      'A', String(pid), String(parentPid), String(age), command,
+      Buffer.from(`${argv.join('\0')}\0`, 'utf8').toString('base64'),
+    ].join(sep);
     const probe = parseTmuxProbe([
       ['M', '/home/dev', 'tmux_3.2a'].join(sep),
       ['P', '$1', 'work', '1784000000', '1', '1', '@1', '0', 'main', '1', '%1', '0', '100', 'node', '/mnt/d/repo', '1', '0', 'dev'].join(sep),
       `R${sep}100 1 120 bash -bash`,
-      `R${sep}110 100 119 node node /home/dev/.local/bin/codex --json`,
+      argvRow(110, 100, 119, 'node', ['node', '/home/dev/.local/bin/codex', 'resume', '--', 'session-111']),
       `R${sep}111 110 118 codex /opt/codex`,
+      ['A', '190', '100', '117', 'codex', '%%%'].join(sep),
+      ['A', '191', '100', '116', 'codex', 'YQ'].join(sep),
+      ['A', '192', '100', '115', 'codex', Buffer.from('codex\0resume\0unterminated', 'utf8').toString('base64')].join(sep),
       ['F', 'codex', '1784000000.123', '2048', '/home/dev/.codex/sessions/test.jsonl'].join(sep),
     ].join('\n'), 'Ubuntu-22.04', 1784000120000);
     const topology = buildDistroTopology(probe);
     const pane = topology.sessions[0].windows[0].panes[0];
     assert.equal(pane.agentProcess.provider, 'codex');
     assert.equal(pane.agentProcess.pid, 111);
+    assert.equal(pane.agentProcess.externalId, 'session-111');
+    const ambiguousProbe = parseTmuxProbe([
+      ['M', '/home/dev', 'tmux_3.2a'].join(sep),
+      ['P', '$2', 'ambiguous', '1784000000', '1', '1', '@2', '0', 'main', '1', '%2', '0', '200', 'node', '/mnt/d/repo', '1', '0', 'dev'].join(sep),
+      argvRow(210, 200, 119, 'node', ['node', '/home/dev/.local/bin/codex', 'resume', 'session-a']),
+      argvRow(211, 210, 118, 'codex', ['codex', 'resume', 'session-b']),
+    ].join('\n'), 'Ubuntu-22.04', 1784000120000);
+    assert.equal(buildDistroTopology(ambiguousProbe).sessions[0].windows[0].panes[0].agentProcess.externalId, '');
+    assert.equal(buildDistroTopology(ambiguousProbe).sessions[0].windows[0].panes[0].agentProcess.identityAmbiguous, true);
     assert.equal(probe.historyFiles.codex[0].size, 2048);
     assert.equal(providerFromProcess({ command: 'node', args: 'node /x/@google/gemini-cli/bin/gemini' }), 'gemini');
+    assert.deepStrictEqual(probe.processes.find(item => item.pid === 110).argv,
+      ['node', '/home/dev/.local/bin/codex', 'resume', '--', 'session-111']);
+    assert.equal(probe.processes.some(item => [190, 191, 192].includes(item.pid)), false,
+      'malformed or non-canonical argv base64 must fail closed');
+    const emptyArgvProbe = parseTmuxProbe([
+      ['M', '/home/dev', 'tmux_3.2a'].join(sep),
+      ['P', '$3', 'empty-argv', '1784000000', '1', '1', '@3', '0', 'main', '1', '%3', '0', '300', 'gemini', '/mnt/d/repo', '1', '0', 'dev'].join(sep),
+      argvRow(300, 1, 10, 'gemini', ['gemini', '', '--resume', 'must-not-authorize']),
+    ].join('\n'), 'Ubuntu-22.04', 1784000120000);
+    const emptyArgvPane = buildDistroTopology(emptyArgvProbe).sessions[0].windows[0].panes[0];
+    assert.equal(emptyArgvPane.agentProcess.externalId, '', 'internal empty argv must not be filtered or shift identity options');
   });
 
   test('tmux AI 패널을 같은 WSL 작업 폴더의 대화 세션과 연결한다', () => {
@@ -52,6 +91,125 @@ function registerTmuxAndProcessTests(context) {
     assert.equal(linked.summary.aiPanes, 1);
     assert.equal(linked.summary.linked, 1);
     assert.equal(linked.distros[0].sessions[0].windows[0].panes[0].agent.linkedSessionId, 'codex:linked');
+    assert.equal(linked.distros[0].sessions[0].windows[0].panes[0].agent.linkAuthority, 'heuristic-display');
+
+    const crosswireTopology = structuredClone(topology);
+    crosswireTopology.distros[0].sessions[0].windows[0].panes = [
+      { ...structuredClone(topology.distros[0].sessions[0].windows[0].panes[0]), id: 'pane-b', agentProcess: {
+        provider: 'codex', pid: 211, command: 'codex', args: 'codex resume session-B', argv: ['codex', 'resume', 'session-B'], startedAt: new Date().toISOString(),
+      } },
+      { ...structuredClone(topology.distros[0].sessions[0].windows[0].panes[0]), id: 'pane-a', agentProcess: {
+        provider: 'codex', pid: 212, command: 'codex', args: 'codex resume session-A', argv: ['codex', 'resume', 'session-A'], startedAt: new Date().toISOString(),
+      } },
+    ];
+    const exactSessions = [
+      { ...session, id: 'codex:session-A', externalId: 'session-A', title: 'A' },
+      { ...session, id: 'codex:session-B', externalId: 'session-B', title: 'B' },
+    ];
+    const exactLinked = linkAgentSessions(crosswireTopology, exactSessions);
+    const [paneB, paneA] = exactLinked.distros[0].sessions[0].windows[0].panes;
+    assert.equal(paneB.agent.linkedSessionId, 'codex:session-B');
+    assert.equal(paneA.agent.linkedSessionId, 'codex:session-A');
+    assert.equal(paneB.agent.linkAuthority, 'explicit-session-id');
+    assert.equal(paneA.agent.linkAuthority, 'explicit-session-id');
+    const exactRuntime = applyRuntimePresence(exactSessions, exactLinked, { processes: [] });
+    assert.equal(exactRuntime.find(item => item.id === 'codex:session-B').runtimePresence[0].paneId, 'pane-b');
+    assert.equal(exactRuntime.find(item => item.id === 'codex:session-A').runtimePresence[0].paneId, 'pane-a');
+
+    const providerCommands = {
+      claude: id => `claude --resume ${id}`,
+      codex: id => `codex resume -- ${id}`,
+      gemini: id => `gemini --resume ${id}`,
+      grok: id => `grok --resume ${id}`,
+    };
+    const providerArgv = {
+      claude: id => ['claude', '--resume', id],
+      codex: id => ['codex', 'resume', '--', id],
+      gemini: id => ['gemini', '--resume', id],
+      grok: id => ['grok', '--resume', id],
+    };
+    const promptInjectionCommands = {
+      claude: id => `claude -- "investigate --resume ${id}"`,
+      codex: id => `codex -- "investigate codex resume -- ${id}"`,
+      gemini: id => `gemini -- "investigate --resume ${id}"`,
+      grok: id => `grok -- "investigate --resume ${id}"`,
+    };
+    for (const [provider, commandFor] of Object.entries(providerCommands)) {
+      const providerTopology = structuredClone(topology);
+      providerTopology.distros[0].sessions[0].windows[0].panes = ['B', 'A'].map((suffix, index) => ({
+        ...structuredClone(topology.distros[0].sessions[0].windows[0].panes[0]),
+        id: `${provider}-pane-${suffix}`,
+        agentProcess: {
+          provider,
+          pid: 300 + index,
+          command: provider,
+          args: commandFor(`${provider}-session-${suffix}`),
+          argv: providerArgv[provider](`${provider}-session-${suffix}`),
+          startedAt: new Date().toISOString(),
+        },
+      }));
+      const providerSessions = ['A', 'B'].map(suffix => ({
+        ...session,
+        id: `${provider}:${provider}-session-${suffix}`,
+        externalId: `${provider}-session-${suffix}`,
+        provider,
+      }));
+      const providerLinked = linkAgentSessions(providerTopology, providerSessions);
+      const providerPanes = providerLinked.distros[0].sessions[0].windows[0].panes;
+      assert.deepStrictEqual(providerPanes.map(item => item.agent.linkedSessionId), [
+        `${provider}:${provider}-session-B`,
+        `${provider}:${provider}-session-A`,
+      ]);
+      assert.deepStrictEqual(providerPanes.map(item => item.agent.linkAuthority), [
+        'explicit-session-id',
+        'explicit-session-id',
+      ]);
+
+      const ambiguousTopology = structuredClone(providerTopology);
+      for (const ambiguousPane of ambiguousTopology.distros[0].sessions[0].windows[0].panes) {
+        ambiguousPane.agentProcess.args = commandFor(`${provider}-session-A`);
+        ambiguousPane.agentProcess.argv = providerArgv[provider](`${provider}-session-A`);
+      }
+      const ambiguousLinked = linkAgentSessions(ambiguousTopology, providerSessions);
+      const ambiguousPanes = ambiguousLinked.distros[0].sessions[0].windows[0].panes;
+      assert.deepStrictEqual(ambiguousPanes.map(item => item.agent.linkedSessionId), [null, null]);
+      assert.deepStrictEqual(ambiguousPanes.map(item => item.agent.linkAuthority), ['', '']);
+
+      const injectedTopology = structuredClone(providerTopology);
+      const injectedArgv = {
+        claude: id => ['claude', '--', `investigate --resume ${id}`],
+        codex: id => ['codex', `resume ${id}`],
+        gemini: id => ['gemini', `--resume ${id}`],
+        grok: id => ['grok', `--resume ${id}`],
+      };
+      injectedTopology.distros[0].sessions[0].windows[0].panes = [{
+        ...injectedTopology.distros[0].sessions[0].windows[0].panes[0],
+        agentProcess: {
+          ...injectedTopology.distros[0].sessions[0].windows[0].panes[0].agentProcess,
+          args: promptInjectionCommands[provider](`${provider}-session-A`),
+          argv: injectedArgv[provider](`${provider}-session-A`),
+        },
+      }];
+      const injectedPane = linkAgentSessions(injectedTopology, providerSessions)
+        .distros[0].sessions[0].windows[0].panes[0];
+      assert.notEqual(injectedPane.agent.linkAuthority, 'explicit-session-id',
+        `${provider} prompt text must never become writable tmux authority`);
+
+      const flattenedTopology = structuredClone(providerTopology);
+      delete flattenedTopology.distros[0].sessions[0].windows[0].panes[0].agentProcess.argv;
+      flattenedTopology.distros[0].sessions[0].windows[0].panes.length = 1;
+      const flattenedPane = linkAgentSessions(flattenedTopology, providerSessions)
+        .distros[0].sessions[0].windows[0].panes[0];
+      assert.equal(flattenedPane.agent.linkAuthority, 'heuristic-display',
+        `${provider} flattened ps text must remain display-only`);
+      const flattenedRuntime = applyRuntimePresence(providerSessions,
+        linkAgentSessions(flattenedTopology, providerSessions), { processes: [] });
+      assert.equal(flattenedRuntime.every(item => !(item.runtimePresence || []).some(presence => presence.kind === 'tmux')), true);
+    }
+
+    const heuristicRuntime = applyRuntimePresence([session], linked, { processes: [] });
+    assert.deepStrictEqual(heuristicRuntime[0].runtimePresence || [], [],
+      'provider/cwd/time heuristic must remain display-only and never authorize tmux input');
     const deadTopology = structuredClone(topology);
     deadTopology.distros[0].sessions[0].windows[0].panes[0].dead = true;
     const deadLinked = linkAgentSessions(deadTopology, [session]);
@@ -115,7 +273,7 @@ function registerTmuxAndProcessTests(context) {
     assert.equal(processCalls[0].options.windowsHide, true);
 
     const base = {
-      distros: [{ name: 'Ubuntu', sessions: [{ name: 'tmux-work', windows: [{ panes: [{ nativeId: '%1', index: 0, cwd: '/repo', agent: { provider: 'claude', pid: 301, linkedSessionId: 'claude:wsl', startedAt: '2026-07-14T03:00:00Z' } }] }] }] }],
+      distros: [{ name: 'Ubuntu', sessions: [{ name: 'tmux-work', windows: [{ panes: [{ nativeId: '%1', index: 0, cwd: '/repo', agent: { provider: 'claude', pid: 301, linkedSessionId: 'claude:wsl', linkAuthority: 'explicit-session-id', startedAt: '2026-07-14T03:00:00Z' } }] }] }] }],
     };
     const usage = { input: 0, cachedInput: 0, cacheWrite: 0, output: 0, reasoning: 0, total: 0 };
     const sessions = [
@@ -175,6 +333,16 @@ function registerTmuxAndProcessTests(context) {
     const commandLine = 'claude.exe --session-id current-session --fork-session --resume C:\\Users\\dev\\.claude\\projects\\repo\\old-session.jsonl';
     assert.equal(processSessionExternalId({ commandLine }, 'claude'), 'current-session');
     assert.equal(processSessionExternalId({ commandLine: 'claude.exe --resume "C:\\Users\\dev\\.claude\\projects\\repo\\resumed-session.jsonl"' }, 'claude'), 'resumed-session');
+    assert.equal(processSessionExternalId({ commandLine: 'codex resume -- codex-session' }, 'codex'), 'codex-session');
+    assert.equal(processSessionExternalId({ commandLine: 'gemini --resume gemini-session' }, 'gemini'), 'gemini-session');
+    assert.equal(processSessionExternalId({ commandLine: 'grok --resume grok-session' }, 'grok'), 'grok-session');
+    assert.equal(processSessionExternalId({ commandLine: 'claude -- "investigate --resume claude-session"' }, 'claude'), '');
+    assert.equal(processSessionExternalId({ commandLine: 'codex -- "investigate codex resume -- codex-session"' }, 'codex'), '');
+    assert.equal(processSessionExternalId({ commandLine: 'gemini -- "investigate --resume gemini-session"' }, 'gemini'), '');
+    assert.equal(processSessionExternalId({ commandLine: 'grok -- "investigate --resume grok-session"' }, 'grok'), '');
+    assert.equal(processSessionExternalId({
+      argv: ['claude', '--', 'investigate', '--resume', 'argv-injected'],
+    }, 'claude'), '');
   });
 
   test('세션 터미널은 추측 대신 명시된 AI 세션 ID에 연결한다', () => {
@@ -976,7 +1144,1167 @@ function registerTerminalLifecycleTests(context) {
     manager.close(original.id);
   });
 
-  test('터미널 호스트 프로토콜이 detach·reconnect·stop 생명주기를 전달한다', async () => {
+  test('늦게 도착한 다른 identity의 브리지 create는 기존 PTY에 쓰거나 새 PTY를 만들지 않는다', async () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit() {}
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => ({ ok: true }),
+      ptyModule: {
+        spawn: () => {
+          const handle = new FakePty(8_700 + processes.length);
+          processes.push(handle);
+          return handle;
+        },
+      },
+    });
+    const bridge = {
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      bridgeId: 'codex:identity-race',
+      sessionBackend: 'direct',
+      reuseBridge: true,
+    };
+    const current = manager.create({
+      ...bridge,
+      args: ['resume', 'identity-race-current'],
+      recoveryArgs: ['resume', 'identity-race-current'],
+      agentConnectionSignature: 'signature:current',
+    });
+
+    assert.throws(() => manager.create({
+      ...bridge,
+      args: ['resume', 'identity-race-stale'],
+      recoveryArgs: ['resume', 'identity-race-stale'],
+      agentConnectionSignature: 'signature:stale',
+      initialCommand: '이전 identity에 보내면 안 되는 질문',
+      initialCommandInArgs: false,
+    }), error => error.code === 'AGENT_CONNECTION_IDENTITY_CONFLICT'
+      && error.deliveryState === 'rejected');
+
+    assert.throws(() => manager.create({
+      ...bridge,
+      reuseBridge: false,
+      args: ['resume', 'identity-race-stale-no-reuse'],
+      recoveryArgs: ['resume', 'identity-race-stale-no-reuse'],
+      agentConnectionSignature: 'signature:stale',
+      initialCommand: 'reuseBridge=false로도 이전 identity를 우회하면 안 되는 질문',
+      initialCommandInArgs: false,
+    }), error => error.code === 'AGENT_CONNECTION_IDENTITY_CONFLICT'
+      && error.deliveryState === 'rejected');
+
+    assert.throws(() => manager.create({
+      ...bridge,
+      reuseBridge: false,
+      args: ['resume', 'identity-race-current'],
+      recoveryArgs: ['resume', 'identity-race-current'],
+      agentConnectionSignature: 'signature:current',
+      initialCommand: '같은 identity여도 기존 연결 종료 확인 전 새 PTY를 만들면 안 되는 질문',
+      initialCommandInArgs: false,
+    }), error => error.code === 'AGENT_CONNECTION_ALREADY_ACTIVE'
+      && error.deliveryState === 'rejected');
+
+    assert.equal(processes.length, 1);
+    assert.deepStrictEqual(processes[0].writes, []);
+    assert.deepStrictEqual(manager.list().map(session => session.id), [current.id]);
+
+    const reused = manager.create({
+      ...bridge,
+      args: ['resume', 'identity-race-current'],
+      recoveryArgs: ['resume', 'identity-race-current'],
+      agentConnectionSignature: 'signature:current',
+      initialCommand: '같은 identity의 후속 질문',
+      initialCommandInArgs: false,
+    });
+    assert.equal(reused.id, current.id);
+    assert.equal(reused.reused, true);
+    assert.deepStrictEqual(processes[0].writes, ['같은 identity의 후속 질문\r']);
+    manager.close(current.id);
+
+    let releaseDuplicateRetirement;
+    const duplicateRetirementGate = new Promise(resolve => { releaseDuplicateRetirement = resolve; });
+    const dedupeProcesses = [];
+    const dedupeManager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => duplicateRetirementGate,
+      ptyModule: { spawn: () => {
+        const handle = new FakePty(8_750 + dedupeProcesses.length);
+        dedupeProcesses.push(handle);
+        return handle;
+      } },
+    });
+    const dedupeBase = {
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'direct',
+      agentConnectionSignature: 'signature:dedupe',
+      args: ['resume', 'identity-dedupe'],
+      recoveryArgs: ['resume', 'identity-dedupe'],
+    };
+    const olderDuplicate = dedupeManager.create({ ...dedupeBase, bridgeId: 'codex:dedupe-old' });
+    const survivor = dedupeManager.create({
+      ...dedupeBase,
+      bridgeId: 'codex:dedupe-new',
+      args: ['resume', 'identity-dedupe-new'],
+      recoveryArgs: ['resume', 'identity-dedupe-new'],
+    });
+    const survivorRecord = dedupeManager.sessions.get(survivor.id);
+    survivorRecord.options.bridgeId = 'codex:dedupe-old';
+    survivorRecord.updatedAt = new Date(Date.now() + 60_000).toISOString();
+
+    assert.throws(
+      () => dedupeManager.deduplicateAgentBridgeSessions(),
+      error => error.code === 'AGENT_CONNECTION_RETIRE_IN_PROGRESS'
+        && error.deliveryState === 'rejected',
+    );
+    const pendingDuplicate = dedupeManager.get(olderDuplicate.id);
+    assert.equal(pendingDuplicate.status, 'stopping');
+    assert.equal(pendingDuplicate.terminationPending, true);
+    assert.equal(dedupeManager.list().length, 2, 'tree 종료 ACK 전에는 중복 행을 삭제하면 안 됩니다.');
+    const duplicateRetirement = dedupeManager.transitionPromises.get(olderDuplicate.id).promise;
+    releaseDuplicateRetirement({ ok: true, exited: true });
+    await duplicateRetirement;
+    assert.equal(dedupeManager.get(olderDuplicate.id), null);
+    assert.deepStrictEqual(dedupeManager.list().map(item => item.id), [survivor.id]);
+    await dedupeManager.close(survivor.id);
+  });
+
+  test('PTY exit 확인 전 retire는 레지스트리를 유지하고 exit 후 완료하며 timeout은 fail closed 한다', async () => {
+    class FakePty {
+      constructor(pid = 8_801) {
+        this.pid = pid;
+        this.killed = false;
+        this.exitCallbacks = new Set();
+        this.disposals = 0;
+      }
+      onData() {}
+      onExit(callback) {
+        this.exitCallbacks.add(callback);
+        return {
+          dispose: () => {
+            this.disposals += 1;
+            this.exitCallbacks.delete(callback);
+          },
+        };
+      }
+      write() {}
+      resize() {}
+      kill() { this.killed = true; }
+      emitExit(event = { exitCode: 0, signal: 0 }) {
+        for (const callback of [...this.exitCallbacks]) callback(event);
+      }
+    }
+    const terminatedPosixGroups = new Set();
+    const posixSignals = [];
+    const posixKillProcess = (target, signal) => {
+      const groupPid = -Number(target);
+      posixSignals.push([target, signal]);
+      if (signal === 'SIGHUP') {
+        terminatedPosixGroups.add(groupPid);
+        return;
+      }
+      if (signal === 0 && terminatedPosixGroups.has(groupPid)) {
+        const error = new Error('missing process group');
+        error.code = 'ESRCH';
+        throw error;
+      }
+    };
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'win32',
+      // Exercise confirmed POSIX process-group shutdown independently of the
+      // host OS running this regression suite.
+      killTree: (handle, pid) => killPtyTree(handle, pid, 250, {
+        platform: 'darwin',
+        killProcess: posixKillProcess,
+      }),
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'direct', bridgeId: 'codex:posix-group-direct',
+    });
+    let settled = false;
+    const retiring = manager.retire(session.id);
+    retiring.then(() => { settled = true; }, () => { settled = true; });
+    await Promise.resolve();
+
+    assert.equal(processHandle.killed, false);
+    assert.deepStrictEqual(posixSignals.slice(0, 2), [[-8_801, 'SIGHUP'], [-8_801, 0]]);
+    assert.equal(settled, false);
+    assert.equal(manager.get(session.id).status, 'stopping');
+    assert.equal(manager.list().length, 1);
+    assert.equal(processHandle.exitCallbacks.size, 2);
+
+    processHandle.emitExit();
+    assert.deepStrictEqual(await retiring, { ok: true });
+    assert.equal(settled, true);
+    assert.equal(processHandle.disposals, 1);
+    assert.equal(manager.get(session.id), null);
+    assert.equal(manager.list().length, 0);
+
+    const alreadyExited = new FakePty(8_803);
+    alreadyExited.__loadtoagentExited = true;
+    assert.deepStrictEqual(await killPtyTree(alreadyExited, alreadyExited.pid, 50, {
+      platform: 'darwin', killProcess: posixKillProcess,
+    }), {
+      ok: true,
+      exited: true,
+      processGroup: true,
+    });
+    assert.equal(alreadyExited.killed, false);
+    assert.equal(alreadyExited.exitCallbacks.size, 0);
+
+    const preferredSignalHandle = new FakePty(8_804);
+    preferredSignalHandle.__loadtoagentPosixSignal = 'SIGTERM';
+    const preferredSignals = [];
+    let preferredGroupAlive = true;
+    const preferredCompletion = killPtyTree(preferredSignalHandle, preferredSignalHandle.pid, 200, {
+      platform: 'darwin',
+      killProcess: (target, signal) => {
+        preferredSignals.push([target, signal]);
+        if (signal === 'SIGTERM') {
+          preferredGroupAlive = false;
+          setImmediate(() => preferredSignalHandle.emitExit());
+          return;
+        }
+        if (signal === 0 && !preferredGroupAlive) {
+          const error = new Error('missing preferred-signal process group');
+          error.code = 'ESRCH';
+          throw error;
+        }
+      },
+    });
+    assert.deepStrictEqual(await preferredCompletion, { ok: true, exited: true, processGroup: true });
+    assert.deepStrictEqual(preferredSignals.slice(0, 2), [[-8_804, 'SIGTERM'], [-8_804, 0]]);
+
+    let synchronousDisposals = 0;
+    let synchronousKills = 0;
+    const synchronousExit = {
+      onExit(callback) {
+        callback({ exitCode: 0, signal: 0 });
+        return { dispose: () => { synchronousDisposals += 1; } };
+      },
+      kill() { synchronousKills += 1; },
+    };
+    assert.deepStrictEqual(await killPtyTree(synchronousExit, 8_804, 50, {
+      platform: 'darwin', killProcess: posixKillProcess,
+    }), {
+      ok: true,
+      exited: true,
+      processGroup: true,
+    });
+    assert.equal(synchronousDisposals, 1);
+    assert.equal(synchronousKills, 0);
+
+    const missingPosixPid = new FakePty(0);
+    await assert.rejects(
+      killPtyTree(missingPosixPid, Number.NaN, 50, { platform: 'darwin' }),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+    );
+    assert.equal(missingPosixPid.killed, true);
+
+    let delayedGroupAlive = true;
+    const delayedGroupHandle = new FakePty(8_807);
+    let delayedGroupSettled = false;
+    const delayedGroupCompletion = killPtyTree(delayedGroupHandle, delayedGroupHandle.pid, 200, {
+      platform: 'darwin',
+      killProcess: (_target, signal) => {
+        if (signal === 0 && !delayedGroupAlive) {
+          const error = new Error('missing process group');
+          error.code = 'ESRCH';
+          throw error;
+        }
+      },
+    }).then(result => {
+      delayedGroupSettled = true;
+      return result;
+    });
+    delayedGroupHandle.emitExit();
+    await new Promise(resolve => setTimeout(resolve, 30));
+    assert.equal(delayedGroupSettled, false, 'root PTY exit만으로 POSIX process group 종료를 확정하면 안 됩니다.');
+    delayedGroupAlive = false;
+    const delayedGroupKeepAlive = setTimeout(() => {}, 500);
+    try {
+      assert.deepStrictEqual(await delayedGroupCompletion, { ok: true, exited: true, processGroup: true });
+    } finally {
+      clearTimeout(delayedGroupKeepAlive);
+    }
+
+    const managedGroupHandle = new FakePty(8_806);
+    const managedTerminatedGroups = new Set();
+    let managedGroupStopCalls = 0;
+    const managedGroupManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: (handle, pid) => killPtyTree(handle, pid, 200, {
+        platform: 'darwin',
+        killProcess: (target, signal) => {
+          const groupPid = -Number(target);
+          if (signal === 'SIGHUP') {
+            managedTerminatedGroups.add(groupPid);
+            return;
+          }
+          if (signal === 0 && managedTerminatedGroups.has(groupPid)) {
+            const error = new Error('missing process group');
+            error.code = 'ESRCH';
+            throw error;
+          }
+        },
+      }),
+      managedTmuxRuntime: {
+        existsStrict: () => true,
+        stopStrict: () => { managedGroupStopCalls += 1; return { ok: true }; },
+      },
+      ptyModule: { spawn: () => managedGroupHandle },
+    });
+    const managedGroupSession = managedGroupManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'posix-group-managed',
+      bridgeId: 'codex:posix-group-managed',
+    });
+    const managedGroupDetach = managedGroupManager.detach(managedGroupSession.id);
+    assert.equal(managedGroupManager.get(managedGroupSession.id).status, 'stopping');
+    assert.equal(managedGroupStopCalls, 0);
+    managedGroupHandle.emitExit();
+    assert.equal((await managedGroupDetach).status, 'detached');
+    assert.equal(managedGroupStopCalls, 0, 'managed attach 분리는 tmux provider를 종료하면 안 됩니다.');
+    assert.deepStrictEqual(managedGroupManager.close(managedGroupSession.id), { ok: true });
+    assert.equal(managedGroupStopCalls, 1);
+
+    const managedKillHandle = new FakePty(8_805);
+    const managedKillGroups = new Set();
+    const managedKillManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: (handle, pid) => killPtyTree(handle, pid, 200, {
+        platform: 'darwin',
+        killProcess: (target, signal) => {
+          const groupPid = -Number(target);
+          if (signal === 'SIGHUP') {
+            managedKillGroups.add(groupPid);
+            return;
+          }
+          if (signal === 0 && managedKillGroups.has(groupPid)) {
+            const error = new Error('missing process group');
+            error.code = 'ESRCH';
+            throw error;
+          }
+        },
+      }),
+      managedTmuxRuntime: { existsStrict: () => true, stopStrict: () => ({ ok: true }) },
+      ptyModule: { spawn: () => managedKillHandle },
+    });
+    const managedKillSession = managedKillManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'posix-group-managed-kill',
+      bridgeId: 'codex:posix-group-managed-kill',
+    });
+    const managedKill = managedKillManager.kill(managedKillSession.id);
+    managedKillHandle.emitExit();
+    assert.deepStrictEqual(await managedKill, { ok: true });
+    assert.equal(managedKillManager.get(managedKillSession.id).status, 'detached');
+    assert.throws(
+      () => managedKillManager.create({
+        type: 'agent', provider: 'codex', cwd: root,
+        sessionBackend: 'managed-tmux', managedTmuxSession: 'posix-group-managed-kill-new',
+        bridgeId: 'codex:posix-group-managed-kill',
+        reuseBridge: false,
+      }),
+      error => error.code === 'AGENT_CONNECTION_ALREADY_ACTIVE',
+    );
+    assert.deepStrictEqual(managedKillManager.close(managedKillSession.id), { ok: true });
+
+    const missingWindowsPid = new FakePty(0);
+    await assert.rejects(
+      killPtyTree(missingWindowsPid, Number.NaN, 50, { platform: 'win32' }),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+    );
+    assert.equal(missingWindowsPid.killed, true);
+
+    const delayedPidHandle = new FakePty(0);
+    let delayedTreePid = null;
+    const delayedPidManager = new TerminalManager({
+      platform: 'win32',
+      ptyPidReadyTimeoutMs: 200,
+      killTree: async (handle, pid) => {
+        delayedTreePid = pid;
+        handle.emitExit();
+        return { ok: true, exited: true, taskkill: true };
+      },
+      ptyModule: { spawn: () => delayedPidHandle },
+    });
+    const delayedPidSession = delayedPidManager.create({ type: 'powershell', cwd: root });
+    const delayedPidClose = delayedPidManager.close(delayedPidSession.id);
+    assert.equal(delayedTreePid, null, 'ConPTY PID가 0인 동안 process-tree 종료를 시작하면 안 됩니다.');
+    setTimeout(() => { delayedPidHandle.pid = 8_814; }, 20);
+    assert.deepStrictEqual(await delayedPidClose, { ok: true });
+    assert.equal(delayedTreePid, 8_814, 'ready_datapipe 뒤 공개된 실제 ConPTY PID로 taskkill해야 합니다.');
+    assert.equal(delayedPidManager.get(delayedPidSession.id), null);
+
+    const successfulTaskkillHandle = new FakePty(8_805);
+    const successfulTaskkill = new EventEmitter();
+    successfulTaskkill.unref = () => {};
+    successfulTaskkill.kill = () => {};
+    let taskkillSpawn = null;
+    let taskkillSettled = false;
+    const taskkillCompletion = killPtyTree(successfulTaskkillHandle, 8_805, 100, {
+      platform: 'win32',
+      spawnChild: (file, args, options) => {
+        taskkillSpawn = { file, args, options };
+        return successfulTaskkill;
+      },
+    }).then(result => {
+      taskkillSettled = true;
+      return result;
+    });
+    assert.equal(successfulTaskkillHandle.exitCallbacks.size, 1, 'taskkill 실행 전에 PTY exit listener를 등록해야 합니다.');
+    assert.deepStrictEqual(taskkillSpawn, {
+      file: 'taskkill.exe',
+      args: ['/PID', '8805', '/T', '/F'],
+      options: { windowsHide: true, stdio: 'ignore' },
+    });
+    successfulTaskkill.emit('exit', 0);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(taskkillSettled, false, 'taskkill exit 0만으로 프로세스 종료를 확정하면 안 됩니다.');
+    assert.equal(successfulTaskkillHandle.killed, false, '성공한 taskkill 뒤 handle.kill을 다시 호출하면 안 됩니다.');
+    successfulTaskkillHandle.emitExit();
+    assert.deepStrictEqual(await taskkillCompletion, { ok: true, exited: true, taskkill: true });
+    assert.equal(successfulTaskkillHandle.killed, false);
+
+    const preExitedHandle = new FakePty(8_813);
+    preExitedHandle.__loadtoagentExited = true;
+    const preExitedTaskkill = new EventEmitter();
+    preExitedTaskkill.unref = () => {};
+    preExitedTaskkill.kill = () => {};
+    let preExitedSpawnCalls = 0;
+    let preExitedSettled = false;
+    const preExitedCompletion = killPtyTree(preExitedHandle, 8_813, 100, {
+      platform: 'win32',
+      spawnChild: () => {
+        preExitedSpawnCalls += 1;
+        return preExitedTaskkill;
+      },
+    }).then(result => {
+      preExitedSettled = true;
+      return result;
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(preExitedSpawnCalls, 1, 'numeric PID가 있으면 이미 끝난 PTY도 taskkill /T 확인을 생략하면 안 됩니다.');
+    assert.equal(preExitedSettled, false);
+    preExitedTaskkill.emit('exit', 0);
+    assert.deepStrictEqual(await preExitedCompletion, { ok: true, exited: true, taskkill: true });
+    assert.equal(preExitedHandle.killed, false);
+
+    const exitFirstHandle = new FakePty(8_808);
+    const exitFirstTaskkill = new EventEmitter();
+    exitFirstTaskkill.unref = () => {};
+    exitFirstTaskkill.kill = () => {};
+    let exitFirstSettled = false;
+    const exitFirstCompletion = killPtyTree(exitFirstHandle, 8_808, 100, {
+      platform: 'win32',
+      spawnChild: () => exitFirstTaskkill,
+    }).then(result => {
+      exitFirstSettled = true;
+      return result;
+    });
+    exitFirstHandle.emitExit();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(exitFirstSettled, false, 'PTY exit가 먼저 와도 taskkill 작업 완료 전에 ACK하면 안 됩니다.');
+    exitFirstTaskkill.emit('exit', 0);
+    assert.deepStrictEqual(await exitFirstCompletion, { ok: true, exited: true, taskkill: true });
+    assert.equal(exitFirstHandle.killed, false);
+
+    const exitedNonzeroHandle = new FakePty(8_809);
+    const exitedNonzeroTaskkill = new EventEmitter();
+    exitedNonzeroTaskkill.unref = () => {};
+    exitedNonzeroTaskkill.kill = () => {};
+    const exitedNonzeroCompletion = killPtyTree(exitedNonzeroHandle, 8_809, 100, {
+      platform: 'win32',
+      spawnChild: () => exitedNonzeroTaskkill,
+      processKill: () => {
+        const error = new Error('already gone');
+        error.code = 'ESRCH';
+        throw error;
+      },
+    });
+    exitedNonzeroHandle.emitExit();
+    exitedNonzeroTaskkill.emit('exit', 1);
+    assert.deepStrictEqual(await exitedNonzeroCompletion, { ok: true, exited: true });
+    assert.equal(exitedNonzeroHandle.killed, false, 'PTY가 이미 끝났음을 PID probe로 확인하면 fallback kill을 호출하면 안 됩니다.');
+
+    const nonzeroHandle = new FakePty(8_810);
+    const nonzeroTaskkill = new EventEmitter();
+    nonzeroTaskkill.unref = () => {};
+    nonzeroTaskkill.kill = () => {};
+    const nonzeroCompletion = killPtyTree(nonzeroHandle, 8_810, 100, {
+      platform: 'win32',
+      spawnChild: () => nonzeroTaskkill,
+      processKill: () => {},
+    });
+    const nonzeroRejection = assert.rejects(
+      nonzeroCompletion,
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+    );
+    nonzeroTaskkill.emit('exit', 1);
+    await nonzeroRejection;
+    assert.equal(nonzeroHandle.killed, true);
+
+    const erroredHandle = new FakePty(8_811);
+    const erroredTaskkill = new EventEmitter();
+    erroredTaskkill.unref = () => {};
+    erroredTaskkill.kill = () => {};
+    const erroredCompletion = killPtyTree(erroredHandle, 8_811, 100, {
+      platform: 'win32',
+      spawnChild: () => erroredTaskkill,
+      processKill: () => {},
+    });
+    const erroredRejection = assert.rejects(
+      erroredCompletion,
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+    );
+    erroredTaskkill.emit('error', new Error('taskkill unavailable'));
+    await erroredRejection;
+    assert.equal(erroredHandle.killed, true);
+
+    const timedOutTreeHandle = new FakePty(8_812);
+    const timedOutTaskkill = new EventEmitter();
+    timedOutTaskkill.unref = () => {};
+    timedOutTaskkill.kill = () => {};
+    const timedOutTreeCompletion = killPtyTree(timedOutTreeHandle, 8_812, 20, {
+      platform: 'win32',
+      spawnChild: () => timedOutTaskkill,
+      processKill: () => {},
+    });
+    const timedOutKeepAlive = setTimeout(() => {}, 200);
+    try {
+      await assert.rejects(
+        timedOutTreeCompletion,
+        error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED'
+          && error.cause?.code === 'TASKKILL_TIMEOUT',
+      );
+    } finally {
+      clearTimeout(timedOutKeepAlive);
+    }
+    assert.equal(timedOutTreeHandle.killed, true);
+
+    const unconfirmedTaskkillHandle = new FakePty(8_806);
+    const unconfirmedTaskkill = new EventEmitter();
+    unconfirmedTaskkill.unref = () => {};
+    unconfirmedTaskkill.kill = () => {};
+    const unconfirmedCompletion = killPtyTree(unconfirmedTaskkillHandle, 8_806, 20, {
+      platform: 'win32',
+      spawnChild: () => unconfirmedTaskkill,
+    });
+    unconfirmedTaskkill.emit('exit', 0);
+    const taskkillKeepAlive = setTimeout(() => {}, 200);
+    try {
+      await assert.rejects(
+        unconfirmedCompletion,
+        error => error.code === 'PTY_EXIT_CONFIRM_TIMEOUT',
+      );
+    } finally {
+      clearTimeout(taskkillKeepAlive);
+    }
+    assert.equal(unconfirmedTaskkillHandle.killed, false, 'taskkill 성공 ACK 이후 timeout에서도 fallback kill을 호출하면 안 됩니다.');
+
+    const stuckHandle = new FakePty(8_804);
+    const stuckManager = new TerminalManager({
+      platform: 'win32',
+      killTree: (handle, pid) => killPtyTree(handle, pid, 20, {
+        platform: 'darwin',
+        killProcess: () => {},
+      }),
+      ptyModule: { spawn: () => stuckHandle },
+    });
+    const stuckSession = stuckManager.create({ type: 'powershell', cwd: root });
+    const keepAlive = setTimeout(() => {}, 200);
+    try {
+      await assert.rejects(
+        stuckManager.retire(stuckSession.id),
+        error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+      );
+    } finally {
+      clearTimeout(keepAlive);
+    }
+    assert.equal(stuckManager.get(stuckSession.id).status, 'stopping');
+    assert.equal(stuckManager.get(stuckSession.id).terminationUncertain, true);
+    assert.equal(stuckManager.list().length, 1);
+    await assert.rejects(
+      stuckManager.retire(stuckSession.id),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED' && error.terminationUncertain === true,
+    );
+    stuckHandle.emitExit();
+    assert.equal(stuckManager.get(stuckSession.id).status, 'stopping');
+    assert.throws(
+      () => stuckManager.close(stuckSession.id),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED' && error.terminationUncertain === true,
+    );
+    stuckManager.dispose({ preserveSessions: true });
+
+    const uncertainStore = path.join(temp, 'terminal-tree-exit-uncertain.json');
+    const hangingTaskkill = new EventEmitter();
+    hangingTaskkill.unref = () => {};
+    hangingTaskkill.kill = () => {};
+    class ExitOnFallbackPty extends FakePty {
+      kill() {
+        this.killed = true;
+        this.emitExit();
+      }
+    }
+    const uncertainHandle = new ExitOnFallbackPty(8_814);
+    let uncertainSpawnCalls = 0;
+    const uncertainManager = new TerminalManager({
+      platform: 'win32',
+      storeFile: uncertainStore,
+      killTree: (handle, pid) => killPtyTree(handle, pid, 20, {
+        platform: 'win32',
+        spawnChild: () => hangingTaskkill,
+        processKill: () => {},
+      }),
+      ptyModule: { spawn: () => {
+        uncertainSpawnCalls += 1;
+        return uncertainHandle;
+      } },
+    });
+    const uncertainOptions = {
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      sessionBackend: 'direct',
+      bridgeId: 'codex:tree-uncertain',
+      agentConnectionSignature: 'signature:tree-uncertain',
+      args: ['resume', 'tree-uncertain'],
+      recoveryArgs: ['resume', 'tree-uncertain'],
+      reuseBridge: true,
+    };
+    const uncertainSession = uncertainManager.create(uncertainOptions);
+    const uncertainKeepAlive = setTimeout(() => {}, 200);
+    try {
+      await assert.rejects(
+        uncertainManager.retire(uncertainSession.id),
+        error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED',
+      );
+    } finally {
+      clearTimeout(uncertainKeepAlive);
+    }
+    const uncertainRecord = uncertainManager.get(uncertainSession.id);
+    assert.equal(uncertainRecord.status, 'stopping');
+    assert.equal(uncertainRecord.terminationUncertain, true);
+    assert.equal(uncertainRecord.terminationErrorCode, 'PTY_TREE_EXIT_UNCONFIRMED');
+    assert.equal(uncertainManager.sessions.get(uncertainSession.id).process, null);
+    await assert.rejects(
+      uncertainManager.retire(uncertainSession.id),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED' && error.terminationUncertain === true,
+    );
+    assert.throws(
+      () => uncertainManager.close(uncertainSession.id),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED' && error.terminationUncertain === true,
+    );
+    assert.throws(
+      () => uncertainManager.create(uncertainOptions),
+      error => error.code === 'AGENT_CONNECTION_RETIRE_IN_PROGRESS',
+    );
+    assert.throws(
+      () => uncertainManager.create({ ...uncertainOptions, reuseBridge: false }),
+      error => error.code === 'AGENT_CONNECTION_RETIRE_IN_PROGRESS',
+    );
+    assert.equal(uncertainSpawnCalls, 1, 'reuseBridge=false도 sticky bridge를 우회해 새 provider를 만들면 안 됩니다.');
+    uncertainManager.persistNow();
+    const persistedUncertain = JSON.parse(fs.readFileSync(uncertainStore, 'utf8')).sessions[0];
+    assert.equal(persistedUncertain.status, 'stopping');
+    assert.equal(persistedUncertain.terminationUncertain, true);
+    assert.equal(persistedUncertain.terminationErrorCode, 'PTY_TREE_EXIT_UNCONFIRMED');
+    fs.writeFileSync(uncertainStore, JSON.stringify({
+      version: 2,
+      sessions: [
+        persistedUncertain,
+        {
+          ...persistedUncertain,
+          id: 'terminal:newer-healthy-duplicate',
+          status: 'exited',
+          updatedAt: new Date(Date.parse(persistedUncertain.updatedAt) + 60_000).toISOString(),
+          terminationPending: false,
+          terminationIntent: '',
+          terminationUncertain: false,
+          terminationErrorCode: '',
+          terminationErrorMessage: '',
+        },
+      ],
+    }), 'utf8');
+
+    const restoredUncertainManager = new TerminalManager({
+      platform: 'win32',
+      storeFile: uncertainStore,
+      killTree: () => { throw new Error('복원된 uncertainty는 killTree를 재시도하면 안 됩니다.'); },
+      ptyModule: { spawn: () => { throw new Error('복원된 uncertainty는 spawn하면 안 됩니다.'); } },
+    });
+    const restoredUncertain = restoredUncertainManager.get(uncertainSession.id);
+    assert.equal(restoredUncertainManager.list().length, 1, 'dedupe는 더 최신인 정상 행보다 sticky marker를 보존해야 합니다.');
+    assert.equal(restoredUncertain.status, 'stopping');
+    assert.equal(restoredUncertain.terminationUncertain, true);
+    await assert.rejects(
+      restoredUncertainManager.retire(uncertainSession.id),
+      error => error.code === 'PTY_TREE_EXIT_UNCONFIRMED' && error.terminationUncertain === true,
+    );
+    assert.throws(
+      () => restoredUncertainManager.create(uncertainOptions),
+      error => error.code === 'AGENT_CONNECTION_RETIRE_IN_PROGRESS',
+    );
+
+    const uncertaintySuffix = `${process.pid}-${Date.now()}-uncertain`;
+    const uncertaintyDiscovery = path.join(temp, `terminal-host-uncertain-${uncertaintySuffix}.json`);
+    const uncertaintyEndpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-host-uncertain-${uncertaintySuffix}`
+      : path.join(os.tmpdir(), `lta-host-uncertain-${uncertaintySuffix}.sock`);
+    let uncertaintyShutdowns = 0;
+    const uncertaintyServer = new TerminalHostServer({
+      manager: restoredUncertainManager,
+      endpoint: uncertaintyEndpoint,
+      discoveryFile: uncertaintyDiscovery,
+      token: 'uncertain-host-token',
+      idleShutdownMs: 20,
+      onShutdown: () => { uncertaintyShutdowns += 1; },
+    });
+    const uncertaintyClient = new TerminalHostClient({ discoveryFile: uncertaintyDiscovery });
+    try {
+      await uncertaintyServer.start();
+      await uncertaintyClient.connect();
+      const confirmedUncertain = await uncertaintyClient.listFresh();
+      await assert.rejects(
+        uncertaintyClient.shutdownForUpdate(confirmedUncertain, 1_000),
+        /정리 중인 명령창 작업이 끝나지 않았습니다/,
+      );
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.equal(uncertaintyClient.connected, true);
+      assert.equal(uncertaintyClient.socket.destroyed, false);
+      assert.equal(uncertaintyShutdowns, 0, '종료 불확실한 세션이 있으면 호스트를 유지해야 합니다.');
+    } finally {
+      uncertaintyClient.dispose();
+      uncertaintyServer.dispose();
+      restoredUncertainManager.dispose({ preserveSessions: true });
+      uncertainManager.dispose({ preserveSessions: true });
+    }
+
+    let releaseHostShutdown;
+    const hostShutdownGate = new Promise(resolve => { releaseHostShutdown = resolve; });
+    let hostShutdownKillCalls = 0;
+    const hostShutdownStore = path.join(temp, 'terminal-host-confirmed-dispose.json');
+    const hostShutdownHandles = [];
+    const hostShutdownOptions = {
+      platform: 'win32',
+      storeFile: hostShutdownStore,
+      killTree: () => {
+        hostShutdownKillCalls += 1;
+        return hostShutdownKillCalls === 1
+          ? hostShutdownGate
+          : { ok: true, exited: true };
+      },
+      ptyModule: { spawn: () => {
+        const handle = new FakePty(8_900 + hostShutdownHandles.length);
+        hostShutdownHandles.push(handle);
+        return handle;
+      } },
+    };
+    const hostShutdownManager = new TerminalManager(hostShutdownOptions);
+    const hostShutdownSession = hostShutdownManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      bridgeId: 'codex:confirmed-host-shutdown',
+      sessionBackend: 'direct',
+      args: ['resume', 'confirmed-host-shutdown'],
+      recoveryArgs: ['resume', 'confirmed-host-shutdown'],
+    });
+    let hostShutdownSettled = false;
+    const hostShutdown = hostShutdownManager.dispose({ preserveSessions: true });
+    hostShutdown.then(() => { hostShutdownSettled = true; }, () => { hostShutdownSettled = true; });
+    assert.equal(hostShutdownManager.get(hostShutdownSession.id).status, 'stopping');
+    assert.equal(hostShutdownSettled, false);
+    assert.equal(hostShutdownKillCalls, 1);
+    const persistedHostShutdownPending = JSON.parse(fs.readFileSync(hostShutdownStore, 'utf8')).sessions[0];
+    assert.equal(persistedHostShutdownPending.terminationPending, true);
+    assert.equal(persistedHostShutdownPending.terminationIntent, 'h');
+
+    releaseHostShutdown({ ok: true, exited: true });
+    await hostShutdown;
+    assert.equal(hostShutdownSettled, true);
+    assert.equal(hostShutdownManager.get(hostShutdownSession.id).status, 'running');
+    assert.equal(hostShutdownManager.sessions.get(hostShutdownSession.id).process, null);
+    const persistedHostShutdownComplete = JSON.parse(fs.readFileSync(hostShutdownStore, 'utf8')).sessions[0];
+    assert.equal(persistedHostShutdownComplete.terminationPending, false);
+    assert.equal(persistedHostShutdownComplete.terminationIntent, '');
+
+    const recoveredHostShutdownManager = new TerminalManager(hostShutdownOptions);
+    const recoveredHostShutdown = recoveredHostShutdownManager.recoverPersistedSessions();
+    assert.equal(recoveredHostShutdown.length, 1);
+    assert.equal(recoveredHostShutdown[0].id, hostShutdownSession.id);
+    assert.equal(hostShutdownHandles.length, 2, 'tree 종료 ACK 전에는 새 호스트가 resume PTY를 만들면 안 됩니다.');
+    assert.equal(recoveredHostShutdownManager.close(hostShutdownSession.id).ok, true);
+  });
+
+  test('managed-tmux retire는 비동기 tmux stop이 끝난 뒤에만 레지스트리를 삭제한다', async () => {
+    const missingTmuxError = new Error("can't find session: missing");
+    missingTmuxError.status = 1;
+    missingTmuxError.stderr = "can't find session: missing";
+    const missingRuntime = new ManagedTmuxRuntime({
+      platform: 'darwin',
+      execFileSync: () => { throw missingTmuxError; },
+    });
+    missingRuntime.available = () => true;
+    assert.equal(missingRuntime.existsStrict({ tmuxSocket: 'test', managedTmuxSession: 'missing' }), false);
+    assert.deepStrictEqual(missingRuntime.stopStrict({ tmuxSocket: 'test', managedTmuxSession: 'missing' }), { ok: true });
+    const infrastructureError = new Error('WSL 배포판을 찾을 수 없습니다.');
+    infrastructureError.status = 1;
+    infrastructureError.stderr = 'There is no distribution with the supplied name.';
+    const unavailableRuntime = new ManagedTmuxRuntime({
+      platform: 'win32',
+      execFileSync: () => { throw infrastructureError; },
+    });
+    unavailableRuntime.available = () => true;
+    assert.throws(
+      () => unavailableRuntime.existsStrict({ distro: 'Missing', tmuxSocket: 'test', managedTmuxSession: 'missing' }),
+      error => error === infrastructureError,
+    );
+    assert.throws(
+      () => unavailableRuntime.stopStrict({ distro: 'Missing', tmuxSocket: 'test', managedTmuxSession: 'missing' }),
+      error => error === infrastructureError,
+    );
+
+    let releaseKill;
+    let releaseStop;
+    let stopCalls = 0;
+    const killGate = new Promise(resolve => { releaseKill = resolve; });
+    const stopGate = new Promise(resolve => { releaseStop = resolve; });
+    class FakePty {
+      constructor() { this.pid = 8_802; this.exitCallbacks = new Set(); }
+      onData() {}
+      onExit(callback) { this.exitCallbacks.add(callback); }
+      write() {}
+      resize() {}
+      kill() {}
+      emitExit(event = { exitCode: 0, signal: 0 }) {
+        for (const callback of [...this.exitCallbacks]) callback(event);
+      }
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => killGate,
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => {
+          stopCalls += 1;
+          return stopGate;
+        },
+      },
+      ptyModule: { spawn: () => processHandle },
+    });
+    const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
+    let settled = false;
+    const retiring = manager.retire(session.id);
+    retiring.then(() => { settled = true; }, () => { settled = true; });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    processHandle.emitExit();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(manager.get(session.id).status, 'stopping', 'PTY exit 뒤에도 tree/tmux 정리가 끝날 때까지 stopping이어야 합니다.');
+    assert.equal(stopCalls, 0);
+    assert.equal(settled, false);
+
+    releaseKill({ ok: true, exited: true });
+    assert.equal(await waitUntil(() => stopCalls === 1), true);
+    assert.equal(stopCalls, 1);
+    assert.equal(settled, false);
+    assert.equal(manager.get(session.id).status, 'stopping');
+
+    releaseStop({ ok: true });
+    assert.deepStrictEqual(await retiring, { ok: true });
+    assert.equal(settled, true);
+    assert.equal(manager.get(session.id), null);
+
+    const missingDetachHandle = new FakePty();
+    const missingDetachManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: missingRuntime,
+      ptyModule: { spawn: () => missingDetachHandle },
+    });
+    const missingDetachSession = missingDetachManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'missing',
+    });
+    assert.equal(missingDetachManager.detach(missingDetachSession.id).status, 'stopped');
+    assert.deepStrictEqual(missingDetachManager.close(missingDetachSession.id), { ok: true });
+
+    const unavailableDetachHandle = new FakePty();
+    const unavailableDetachManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: unavailableRuntime,
+      ptyModule: { spawn: () => unavailableDetachHandle },
+    });
+    const unavailableDetachSession = unavailableDetachManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'unavailable',
+    });
+    assert.throws(
+      () => unavailableDetachManager.detach(unavailableDetachSession.id),
+      error => error === infrastructureError,
+    );
+    assert.equal(unavailableDetachManager.get(unavailableDetachSession.id).status, 'stopping');
+    assert.equal(unavailableDetachManager.get(unavailableDetachSession.id).terminationUncertain, true);
+    assert.throws(
+      () => unavailableDetachManager.close(unavailableDetachSession.id),
+      error => error.code === 'TERMINATION_UNCERTAIN' && error.terminationUncertain === true,
+    );
+    unavailableDetachManager.dispose({ preserveSessions: true });
+
+    const unavailableExitHandle = new FakePty();
+    const unavailableExitManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: unavailableRuntime,
+      ptyModule: { spawn: () => unavailableExitHandle },
+    });
+    const unavailableExitSession = unavailableExitManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'unavailable-exit',
+    });
+    unavailableExitHandle.emitExit();
+    assert.equal(unavailableExitManager.get(unavailableExitSession.id).status, 'stopping');
+    assert.equal(unavailableExitManager.get(unavailableExitSession.id).terminationUncertain, true);
+    assert.equal(unavailableExitManager.get(unavailableExitSession.id).terminationErrorCode, 'MANAGED_SESSION_STATE_UNCONFIRMED');
+
+    let reconnectInfrastructureUnavailable = false;
+    const reconnectHandle = new FakePty();
+    const reconnectManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: {
+        existsStrict: () => {
+          if (reconnectInfrastructureUnavailable) throw infrastructureError;
+          return true;
+        },
+        stopStrict: () => ({ ok: true }),
+      },
+      ptyModule: { spawn: () => reconnectHandle },
+    });
+    const reconnectSession = reconnectManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'unavailable-reconnect',
+    });
+    assert.equal(reconnectManager.detach(reconnectSession.id).status, 'detached');
+    reconnectInfrastructureUnavailable = true;
+    assert.throws(
+      () => reconnectManager.reconnect(reconnectSession.id),
+      error => error.code === 'MANAGED_SESSION_STATE_UNCONFIRMED',
+    );
+    assert.equal(reconnectManager.get(reconnectSession.id).status, 'stopping');
+    assert.equal(reconnectManager.get(reconnectSession.id).terminationUncertain, true);
+
+    const recoveryStore = path.join(temp, 'managed-infrastructure-recovery.json');
+    const recoverySourceHandle = new FakePty();
+    const recoverySourceManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: recoveryStore,
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: { existsStrict: () => true, stopStrict: () => ({ ok: true }) },
+      ptyModule: { spawn: () => recoverySourceHandle },
+    });
+    const recoverySourceSession = recoverySourceManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'unavailable-recovery',
+    });
+    recoverySourceManager.persistNow();
+    const unavailableRecoveryManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: recoveryStore,
+      killTree: () => ({ ok: true, exited: true }),
+      managedTmuxRuntime: unavailableRuntime,
+      ptyModule: { spawn: () => { throw new Error('인프라 오류를 missing으로 오판해 attach하면 안 됩니다.'); } },
+    });
+    assert.deepStrictEqual(unavailableRecoveryManager.recoverPersistedSessions(), []);
+    assert.equal(unavailableRecoveryManager.get(recoverySourceSession.id).status, 'stopping');
+    assert.equal(unavailableRecoveryManager.get(recoverySourceSession.id).terminationUncertain, true);
+    assert.equal(unavailableRecoveryManager.get(recoverySourceSession.id).terminationErrorCode, 'MANAGED_SESSION_STATE_UNCONFIRMED');
+
+    let generationConflictManager;
+    const generationConflictHandle = new FakePty();
+    generationConflictManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => {
+        const record = generationConflictManager.sessions.get(generationConflictSession.id);
+        record.process = null;
+        record.generation += 1;
+        return { ok: true, exited: true };
+      },
+      managedTmuxRuntime: unavailableRuntime,
+      ptyModule: { spawn: () => generationConflictHandle },
+    });
+    const generationConflictSession = generationConflictManager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      sessionBackend: 'managed-tmux', managedTmuxSession: 'unavailable-fail-transition',
+    });
+    assert.throws(
+      () => generationConflictManager.kill(generationConflictSession.id),
+      error => error.code === 'MANAGED_SESSION_STATE_UNCONFIRMED',
+    );
+    assert.equal(generationConflictManager.get(generationConflictSession.id).status, 'stopping');
+    assert.equal(generationConflictManager.get(generationConflictSession.id).terminationUncertain, true);
+
+    const legacyManagedStore = path.join(temp, 'managed-legacy-stopped-reconcile.json');
+    const legacyNow = '2026-08-05T00:00:00.000Z';
+    const legacyManagedRecord = (id, bridgeId, managedTmuxSession, status = 'stopped', offset = 0) => ({
+      id,
+      options: {
+        type: 'agent', provider: 'codex', cwd: root,
+        sessionBackend: 'managed-tmux', bridgeId, managedTmuxSession,
+      },
+      status,
+      createdAt: new Date(Date.parse(legacyNow) + offset).toISOString(),
+      updatedAt: new Date(Date.parse(legacyNow) + offset).toISOString(),
+      replay: '',
+    });
+    fs.writeFileSync(legacyManagedStore, JSON.stringify({
+      version: 2,
+      sessions: [
+        legacyManagedRecord('terminal:legacy-live', 'codex:legacy-live', 'legacy-live'),
+        legacyManagedRecord('terminal:legacy-missing', 'codex:legacy-missing', 'legacy-missing'),
+        legacyManagedRecord('terminal:legacy-failed-live', 'codex:legacy-failed-live', 'legacy-failed-live', 'failed'),
+        legacyManagedRecord('terminal:legacy-reclaim-live', 'codex:legacy-reclaim-live', 'legacy-reclaim-live'),
+      ],
+    }), 'utf8');
+    const legacyStops = [];
+    const legacyLiveSessions = new Set(['legacy-live', 'legacy-failed-live', 'legacy-reclaim-live']);
+    const legacyManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: legacyManagedStore,
+      managedTmuxRuntime: {
+        existsStrict: options => legacyLiveSessions.has(options.managedTmuxSession),
+        stopStrict: options => { legacyStops.push(options.managedTmuxSession); return { ok: true }; },
+      },
+    });
+    assert.equal(legacyManager.get('terminal:legacy-live').status, 'detached');
+    assert.equal(legacyManager.get('terminal:legacy-missing').status, 'stopped');
+    assert.equal(legacyManager.get('terminal:legacy-failed-live').status, 'detached');
+    assert.equal(legacyManager.get('terminal:legacy-reclaim-live').status, 'detached');
+    assert.throws(
+      () => legacyManager.create({
+        type: 'agent', provider: 'codex', cwd: root,
+        sessionBackend: 'managed-tmux', bridgeId: 'codex:legacy-live',
+        managedTmuxSession: 'legacy-live-new', reuseBridge: false,
+      }),
+      error => error.code === 'AGENT_CONNECTION_ALREADY_ACTIVE',
+    );
+    legacyLiveSessions.add('legacy-missing');
+    assert.throws(
+      () => legacyManager.create({
+        type: 'agent', provider: 'codex', cwd: root,
+        sessionBackend: 'managed-tmux', bridgeId: 'codex:legacy-missing',
+        managedTmuxSession: 'legacy-missing-new', reuseBridge: false,
+      }),
+      error => error.code === 'AGENT_CONNECTION_ALREADY_ACTIVE',
+    );
+    assert.equal(legacyManager.get('terminal:legacy-missing').status, 'detached');
+    legacyManager.sessions.get('terminal:legacy-reclaim-live').status = 'stopped';
+    legacyManager.reclaimFinishedSessions(100);
+    assert.equal(legacyManager.get('terminal:legacy-reclaim-live').status, 'detached');
+
+    const livePreferredStore = path.join(temp, 'managed-dedupe-live-preferred.json');
+    fs.writeFileSync(livePreferredStore, JSON.stringify({
+      version: 2,
+      sessions: [
+        legacyManagedRecord('terminal:older-live', 'codex:managed-dedupe', 'older-live', 'stopped', 0),
+        legacyManagedRecord('terminal:newer-missing', 'codex:managed-dedupe', 'newer-missing', 'stopped', 60_000),
+      ],
+    }), 'utf8');
+    const livePreferredStops = [];
+    const livePreferredManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: livePreferredStore,
+      managedTmuxRuntime: {
+        existsStrict: options => options.managedTmuxSession === 'older-live',
+        stopStrict: options => { livePreferredStops.push(options.managedTmuxSession); return { ok: true }; },
+      },
+    });
+    assert.deepStrictEqual(livePreferredManager.list().map(item => item.id), ['terminal:older-live']);
+    assert.deepStrictEqual(livePreferredStops, [], 'newer missing 기록을 남기려고 실제 live tmux를 종료하면 안 됩니다.');
+
+    const bothLiveStore = path.join(temp, 'managed-dedupe-both-live.json');
+    fs.writeFileSync(bothLiveStore, JSON.stringify({
+      version: 2,
+      sessions: [
+        legacyManagedRecord('terminal:older-live-duplicate', 'codex:managed-both-live', 'older-live-duplicate', 'detached', 0),
+        legacyManagedRecord('terminal:newer-live-survivor', 'codex:managed-both-live', 'newer-live-survivor', 'detached', 60_000),
+      ],
+    }), 'utf8');
+    const bothLiveStops = [];
+    const bothLiveManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: bothLiveStore,
+      managedTmuxRuntime: {
+        existsStrict: () => true,
+        stopStrict: options => { bothLiveStops.push(options.managedTmuxSession); return { ok: true }; },
+      },
+    });
+    assert.deepStrictEqual(bothLiveManager.list().map(item => item.id), [
+      'terminal:older-live-duplicate',
+      'terminal:newer-live-survivor',
+    ]);
+    assert.equal(bothLiveManager.list().every(item => item.terminationUncertain), true);
+    assert.equal(bothLiveManager.list().every(item => item.terminationErrorCode === 'AGENT_CONNECTION_DUPLICATE_LIVE_UNCONFIRMED'), true);
+    assert.deepStrictEqual(bothLiveStops, [], 'startup 생성자에서 비동기 retire를 시작하거나 live tmux를 임의 종료하면 안 됩니다.');
+
+    const unknownDedupeStore = path.join(temp, 'managed-dedupe-probe-unknown.json');
+    fs.writeFileSync(unknownDedupeStore, JSON.stringify({
+      version: 2,
+      sessions: [
+        legacyManagedRecord('terminal:unknown-one', 'codex:managed-unknown', 'unknown-one', 'detached', 0),
+        legacyManagedRecord('terminal:unknown-two', 'codex:managed-unknown', 'unknown-two', 'detached', 60_000),
+      ],
+    }), 'utf8');
+    const unknownDedupeManager = new TerminalManager({
+      platform: 'darwin',
+      storeFile: unknownDedupeStore,
+      managedTmuxRuntime: {
+        existsStrict: options => {
+          if (options.managedTmuxSession === 'unknown-one') throw infrastructureError;
+          return true;
+        },
+        stopStrict: () => { throw new Error('probe 불확실 상태에서 어느 tmux도 종료하면 안 됩니다.'); },
+      },
+    });
+    assert.equal(unknownDedupeManager.list().length, 2);
+    assert.equal(unknownDedupeManager.list().every(item => item.terminationUncertain), true);
+    assert.throws(
+      () => unknownDedupeManager.create({
+        type: 'agent', provider: 'codex', cwd: root,
+        sessionBackend: 'managed-tmux', bridgeId: 'codex:managed-unknown',
+        managedTmuxSession: 'unknown-new', reuseBridge: false,
+      }),
+      error => error.code === 'AGENT_CONNECTION_RETIRE_IN_PROGRESS',
+    );
+
+    unavailableExitManager.dispose({ preserveSessions: true });
+    reconnectManager.dispose({ preserveSessions: true });
+    unavailableRecoveryManager.dispose({ preserveSessions: true });
+    recoverySourceManager.close(recoverySourceSession.id);
+    generationConflictManager.dispose({ preserveSessions: true });
+    legacyManager.close('terminal:legacy-live');
+    legacyManager.close('terminal:legacy-missing');
+    legacyManager.close('terminal:legacy-failed-live');
+    legacyManager.close('terminal:legacy-reclaim-live');
+    livePreferredManager.close('terminal:older-live');
+    bothLiveManager.dispose({ preserveSessions: true });
+    unknownDedupeManager.dispose({ preserveSessions: true });
+  });
+
+  test('터미널 호스트 프로토콜이 prompt response·detach·reconnect·stop 생명주기를 전달한다', async () => {
     class FakeManager extends EventEmitter {
       constructor() { super(); this.calls = []; }
       list() { return []; }
@@ -990,6 +2318,7 @@ function registerTerminalLifecycleTests(context) {
         }
         return { ok: true, deliveryState: 'accepted' };
       }
+      respond(id, choiceKey) { this.calls.push(['respond', id, choiceKey]); return { ok: true }; }
       detach(id) { this.calls.push(['detach', id]); return { id, status: 'detached' }; }
       reconnect(id) { this.calls.push(['reconnect', id]); return { id, status: 'running' }; }
       stop(id) { this.calls.push(['stop', id]); return { id, status: 'stopped' }; }
@@ -1017,12 +2346,14 @@ function registerTerminalLifecycleTests(context) {
         client.command('terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }),
         error => error.code === 'DELIVERY_LEDGER_UNAVAILABLE' && error.deliveryState === 'rejected',
       );
+      assert.equal((await client.respond('terminal:managed', 'y')).ok, true);
       assert.equal((await client.detach('terminal:managed')).status, 'detached');
       assert.equal((await client.reconnect('terminal:managed')).status, 'running');
       assert.equal((await client.stop('terminal:managed')).status, 'stopped');
       assert.deepStrictEqual(manager.calls, [
         ['command', 'terminal:managed', '한 번만 보내기', { deliveryId: 'delivery:host:1' }],
         ['command', 'terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }],
+        ['respond', 'terminal:managed', 'y'],
         ['detach', 'terminal:managed'],
         ['reconnect', 'terminal:managed'],
         ['stop', 'terminal:managed'],
@@ -1042,10 +2373,21 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(resolveTerminalHostExecutable({ platform: 'win32', isPackaged: true, executable, fileSystem }), executable);
   });
 
-  test('PTY 터미널을 만들고 입력·명령·리사이즈·신호·재시작·종료를 제어한다', () => {
+  test('PTY 터미널을 만들고 입력·명령·리사이즈·신호·재시작·종료를 제어한다', async () => {
     const processes = [];
     const spawnOptions = [];
     const storeFile = path.join(temp, 'terminal-sessions-lifecycle.json');
+    const lifecycleFileSystem = Object.create(fs);
+    let transientRenameFailures = 1;
+    lifecycleFileSystem.renameSync = (source, destination) => {
+      if (destination === storeFile && transientRenameFailures > 0) {
+        transientRenameFailures -= 1;
+        const error = new Error('simulated transient Windows scanner lock');
+        error.code = 'EPERM';
+        throw error;
+      }
+      return fs.renameSync(source, destination);
+    };
     class FakePty {
       constructor(pid) { this.pid = pid; this.writes = []; this.resizes = []; this.killed = false; }
       onData(callback) { this.dataCallback = callback; }
@@ -1055,7 +2397,7 @@ function registerTerminalLifecycleTests(context) {
       clear() { this.cleared = true; }
       kill() { this.killed = true; }
     }
-    const managerOptions = { platform: 'darwin', storeFile, killTree: handle => handle.kill(), managedTmuxRuntime: {
+    const managerOptions = { platform: 'darwin', storeFile, fileSystem: lifecycleFileSystem, killTree: handle => handle.kill(), managedTmuxRuntime: {
       exists: () => true,
       stop: () => ({ ok: true }),
     }, ptyModule: { spawn: (...args) => {
@@ -1065,7 +2407,11 @@ function registerTerminalLifecycleTests(context) {
       return processHandle;
     } } };
     let manager = new TerminalManager(managerOptions);
+    assert.equal(transientRenameFailures, 1);
+    const outputSequences = [];
+    manager.on('data', payload => outputSequences.push(payload.outputSequence));
     const session = manager.create({ type: 'powershell', cwd: root, cols: 100, rows: 30 });
+    assert.equal(transientRenameFailures, 0, '일시적인 저장 파일 잠금은 제한된 재시도로 복구해야 합니다.');
     assert.equal(session.status, 'running');
     assert.equal(session.background, false);
     assert.equal(session.pid, 9000);
@@ -1080,6 +2426,8 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(processes[0].cleared, true);
     processes[0].dataCallback('PTY_OK');
     assert.equal(manager.get(session.id, true).replay, 'PTY_OK');
+    assert.equal(manager.get(session.id).outputSequence, 1);
+    assert.deepStrictEqual(outputSequences, [1]);
     processes[0].exitCallback({ exitCode: 0, signal: 0 });
     assert.equal(manager.list().length, 1);
     assert.equal(manager.get(session.id).status, 'exited');
@@ -1090,16 +2438,20 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(manager.get(session.id).status, 'exited');
     assert.equal(manager.get(session.id).pid, null);
     assert.equal(manager.get(session.id, true).replay, 'PTY_OK');
+    assert.equal(manager.get(session.id).outputSequence, 1);
     const restarted = manager.restart(session.id);
     assert.equal(processes[0].killed, false);
     assert.equal(restarted.pid, 9001);
     assert.equal(restarted.replay, '');
+    assert.equal(restarted.outputSequence, 1, 'restart 뒤에도 output sequence를 재설정하면 안 됩니다.');
+    processes[1].dataCallback('PTY_AFTER_RESTART');
+    assert.equal(manager.get(session.id).outputSequence, 2);
     manager.close(session.id);
     assert.equal(processes[1].killed, true);
     assert.equal(manager.list().length, 0);
     const backgroundAgent = manager.create({ type: 'agent', provider: 'codex', cwd: root });
     assert.equal(backgroundAgent.background, true);
-    manager.dispose({ preserveSessions: true });
+    await manager.dispose({ preserveSessions: true });
     assert.equal(processes[2].killed, true);
     manager = new TerminalManager(managerOptions);
     assert.equal(manager.get(backgroundAgent.id).status, 'detached');
@@ -1153,10 +2505,120 @@ function registerTerminalLifecycleTests(context) {
     }), /Linux 명령창을 실행할 프로그램/);
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).file, '/bin/zsh');
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).args[0], '-l');
-    const macTmux = launchSpec(normalizeLaunchOptions({ type: 'tmux', distro: 'macOS', tmuxSession: 'work' }, 'darwin'), 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
+    const normalizedMacTmux = normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'darwin');
+    assert.equal(normalizedMacTmux.distro, '');
+    assert.equal(normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'linux').distro, '');
+    assert.throws(
+      () => normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'win32'),
+      /Linux 환경을 선택/,
+    );
+    assert.throws(() => normalizeLaunchOptions({ type: 'wsl' }, 'win32'), /Linux 환경을 선택/);
+    const macTmux = launchSpec(normalizedMacTmux, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
     assert.notEqual(macTmux.file, 'wsl.exe');
     assert.equal(macTmux.file, '/bin/zsh');
+    const exactTmux = launchSpec(normalizeLaunchOptions({
+      type: 'tmux',
+      distro: 'Ubuntu',
+      tmuxSession: 'work',
+      tmuxWindow: '@7',
+      tmuxPane: '%19',
+      tmuxPanePid: 4190,
+    }, 'win32'), 'win32');
+    assert.equal(exactTmux.file, process.execPath);
+    assert.equal(path.basename(exactTmux.args[0]), 'tmuxControlProxy.js');
+    assert.equal(exactTmux.env.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(exactTmux.exactPaneProxy, true);
+    const exactTmuxProxy = JSON.parse(Buffer.from(exactTmux.args[1], 'base64url').toString('utf8'));
+    assert.equal(exactTmuxProxy.distro, 'Ubuntu');
+    assert.equal(exactTmuxProxy.session, 'work');
+    assert.equal(exactTmuxProxy.window, '@7');
+    assert.equal(exactTmuxProxy.pane, '%19');
+    assert.equal(exactTmuxProxy.panePid, 4190);
+    assert.equal(exactTmuxProxy.channel, exactTmux.proxyChannel);
+    assert.equal(exactTmuxProxy.readyMarker, exactTmux.readyMarker);
+    const localizedExactTmux = launchSpec(normalizeLaunchOptions({
+      type: 'tmux',
+      distro: 'Ubuntu',
+      tmuxSession: '한글 작업 세션',
+      tmuxSessionId: '$71',
+      tmuxWindow: '@72',
+      tmuxPane: '%73',
+      tmuxPanePid: 4_191,
+    }, 'win32'), 'win32');
+    const localizedPayload = parseLaunchPayload(localizedExactTmux.args[1]);
+    assert.equal(localizedPayload.session, '한글 작업 세션');
+    assert.equal(localizedPayload.sessionId, '$71');
+    assert.throws(() => launchSpec(normalizeLaunchOptions({
+      type: 'tmux', distro: 'Ubuntu', tmuxSession: 'work', tmuxPane: '%20', tmuxPanePid: 4200,
+    }, 'win32'), 'win32'), /window/);
     manager.dispose();
+  });
+
+  test('exact tmux 대화 명령은 proxy의 원자적 ACK 전까지 전달 완료로 표시하지 않는다', async () => {
+    class FakePty {
+      constructor() {
+        this.pid = 9_490;
+        this.writes = [];
+        this.dataHandler = () => {};
+        this.exitHandler = () => {};
+      }
+      onData(handler) { this.dataHandler = handler; }
+      onExit(handler) { this.exitHandler = handler; }
+      write(value) { this.writes.push(String(value)); }
+      resize() {}
+      kill() {}
+    }
+    const processHandle = new FakePty();
+    const manager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => ({ ok: true }),
+      ptyModule: { spawn: () => processHandle },
+      tmuxControlProxyFactory: () => processHandle,
+      tmuxProxyDeliveryTimeoutMs: 10,
+      tmuxProxyDeliveryRecoveryGraceMs: 30,
+      tmuxProxyLargeDeliveryTimeoutMs: 20,
+    });
+    const created = manager.create({
+      type: 'tmux', distro: 'Ubuntu', tmuxSession: 'work', tmuxSessionId: '$7', tmuxWindow: '@8', tmuxPane: '%9', tmuxPanePid: 4900,
+    });
+    const internal = manager.sessions.get(created.id);
+    processHandle.dataHandler(`${internal.spec.readyMarker}\r\n`);
+    assert.equal(manager.get(created.id).status, 'running');
+
+    let settled = false;
+    const acceptedPromise = manager.command(created.id, '한 번만 전달', { deliveryId: 'delivery:proxy:accepted' })
+      .then(result => { settled = true; return result; });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(settled, false, 'tmux control ACK 전에 accepted를 반환하면 안 됩니다.');
+    const commandFrame = processHandle.writes.at(-1);
+    const encodedCommand = commandFrame.match(/^LTA_PROXY_CMD_[^;]+;([^\r]+)\r$/u)?.[1];
+    const request = JSON.parse(Buffer.from(encodedCommand, 'base64url').toString('utf8'));
+    assert.equal(request.command, '한 번만 전달');
+    const acceptedAck = `LTA_PROXY_ACK_${internal.spec.proxyChannel};${request.requestId};accepted;\n`;
+    processHandle.dataHandler(acceptedAck.slice(0, 17));
+    processHandle.dataHandler(acceptedAck.slice(17));
+    const accepted = await acceptedPromise;
+    assert.equal(accepted.deliveryState, 'accepted');
+    assert.equal(manager.get(created.id, true).replay.includes('LTA_PROXY_ACK_'), false, 'proxy ACK 제어 프레임을 xterm에 노출하면 안 됩니다.');
+
+    const gracePromise = manager.command(created.id, '이벤트 루프 복구 뒤 전달', { deliveryId: 'delivery:proxy:grace' });
+    const graceFrame = processHandle.writes.at(-1);
+    const encodedGrace = graceFrame.match(/^LTA_PROXY_CMD_[^;]+;([^\r]+)\r$/u)?.[1];
+    const graceRequest = JSON.parse(Buffer.from(encodedGrace, 'base64url').toString('utf8'));
+    await new Promise(resolve => setTimeout(resolve, 25));
+    processHandle.dataHandler(`LTA_PROXY_ACK_${internal.spec.proxyChannel};${graceRequest.requestId};accepted;\n`);
+    const graceAccepted = await gracePromise;
+    assert.equal(graceAccepted.deliveryState, 'accepted', 'deadline 직후 buffered ACK를 unknown으로 오판하면 안 됩니다.');
+
+    const rejectedPromise = manager.command(created.id, '바뀐 pane에는 금지', { deliveryId: 'delivery:proxy:rejected' });
+    const rejectedFrame = processHandle.writes.at(-1);
+    const encodedRejected = rejectedFrame.match(/^LTA_PROXY_CMD_[^;]+;([^\r]+)\r$/u)?.[1];
+    const rejectedRequest = JSON.parse(Buffer.from(encodedRejected, 'base64url').toString('utf8'));
+    const reason = Buffer.from('pane PID가 변경되었습니다.', 'utf8').toString('base64url');
+    processHandle.dataHandler(`LTA_PROXY_ACK_${internal.spec.proxyChannel};${rejectedRequest.requestId};rejected;${reason}\r\n`);
+    await assert.rejects(rejectedPromise, error => error.code === 'TMUX_EXACT_TARGET_CHANGED'
+      && error.deliveryState === 'rejected' && /PID/.test(error.message));
+    await manager.dispose();
   });
 
   test('여러 줄 질문은 bracketed paste 한 번과 마지막 Enter 한 번으로 보낸다', () => {
@@ -1408,6 +2870,51 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(Boolean(retriedSpawn.duplicate), false);
     assert.equal(spawnAttempts, 2);
     spawnManager.dispose();
+
+    const promptAfterSpawnRequest = {
+      type: 'agent', provider: 'claude', cwd: root,
+      bridgeId: 'claude:prompt-after-spawn', sessionBackend: 'direct',
+      args: ['--resume', 'prompt-after-spawn'],
+      recoveryArgs: ['--resume', 'prompt-after-spawn'],
+      initialCommand: 'PTY가 열린 뒤 보낼 질문', initialCommandInArgs: false,
+      deliveryId: 'delivery:prompt-after-spawn:rejected',
+    };
+    const promptAfterSpawnManager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => {},
+      ptyModule: { spawn: () => { throw new Error('prompt-free PTY missing'); } },
+    });
+    assert.throws(
+      () => promptAfterSpawnManager.create(promptAfterSpawnRequest),
+      error => error.deliveryState === 'rejected'
+        && error.deliveryId === 'delivery:prompt-after-spawn:rejected'
+        && error.terminalProcessStarted === false,
+    );
+    promptAfterSpawnManager.dispose();
+
+    const promptAfterStartedManager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => {},
+      ptyModule: { spawn: () => ({
+        pid: 11_501,
+        onData() { throw new Error('PTY IPC registration lost'); },
+        onExit() {},
+        write() {},
+        resize() {},
+        kill() {},
+      }) },
+    });
+    assert.throws(
+      () => promptAfterStartedManager.create({
+        ...promptAfterSpawnRequest,
+        bridgeId: 'claude:prompt-after-started',
+        deliveryId: 'delivery:prompt-after-spawn:unknown',
+      }),
+      error => error.deliveryState === 'unknown'
+        && error.deliveryId === 'delivery:prompt-after-spawn:unknown'
+        && error.terminalProcessStarted === true,
+    );
+    promptAfterStartedManager.dispose();
   });
 
   test('호스트 재시작 시 같은 AI 대화의 중복 연결은 하나만 복구하고 과거 질문을 다시 보내지 않는다', () => {
@@ -1570,11 +3077,251 @@ function registerTerminalLifecycleTests(context) {
     assert.match((await secondClient.get(created.id, true)).replay, /BEFORE_RESTART/);
     await secondClient.command(created.id, 'Write-Output AFTER_RESTART');
     assert.equal(processes[0].writes.at(-1), 'Write-Output AFTER_RESTART\r');
+
+    let acknowledgeRetirement;
+    let retirementSettled = false;
+    const retireCalls = [];
+    manager.retire = async id => {
+      retireCalls.push(id);
+      return new Promise(resolve => { acknowledgeRetirement = resolve; });
+    };
+    const retirement = secondClient.retire(created.id).then(result => {
+      retirementSettled = true;
+      return result;
+    });
+    assert.equal(await waitUntil(() => retireCalls.length === 1), true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepStrictEqual(retireCalls, [created.id]);
+    assert.equal(retirementSettled, false);
+    acknowledgeRetirement({ ok: true, id: created.id, retired: true });
+    assert.deepStrictEqual(await retirement, { ok: true, id: created.id, retired: true });
+    assert.equal(retirementSettled, true);
+
     await secondClient.close(created.id);
     assert.equal(processes[0].killed, true);
     secondClient.dispose();
     server.dispose();
     manager.dispose();
+  });
+
+  test('느린 터미널 호스트 시작이 연결 제한시간을 넘겨도 같은 PID가 살아 있는 동안 다시 띄우지 않는다', async () => {
+    const discovery = path.join(temp, 'terminal-host-slow-launch.json');
+    let spawnCalls = 0;
+    let processState = 'alive';
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 30,
+      spawnHost: () => {
+        spawnCalls += 1;
+        return 55_000 + spawnCalls;
+      },
+      processExists: pid => {
+        assert.equal(pid, 55_000 + spawnCalls);
+        if (processState === 'unknown') throw new Error('PID 상태 확인 실패');
+        return processState === 'alive';
+      },
+    });
+    client.connectExisting = async () => {
+      const error = new Error('호스트가 아직 준비되지 않았습니다.');
+      error.code = 'ENOENT';
+      throw error;
+    };
+
+    await assert.rejects(client.connect(), /호스트가 아직 준비되지 않았습니다/);
+    assert.equal(spawnCalls, 1);
+    assert.equal(client.hostLaunch.pid, 55_001);
+
+    await assert.rejects(client.connect(), /호스트가 아직 준비되지 않았습니다/);
+    assert.equal(spawnCalls, 1, '살아 있는 첫 호스트 대신 두 번째 daemon을 시작하면 안 됩니다.');
+
+    processState = 'unknown';
+    await assert.rejects(client.connect(), /호스트가 아직 준비되지 않았습니다/);
+    assert.equal(spawnCalls, 1, 'PID 상태가 불확실할 때도 두 번째 daemon을 시작하면 안 됩니다.');
+
+    processState = 'dead';
+    await assert.rejects(client.connect(), /호스트가 아직 준비되지 않았습니다/);
+    assert.equal(spawnCalls, 2, '첫 호스트의 종료가 확인된 뒤에만 교체 daemon을 시작해야 합니다.');
+    assert.equal(client.hostLaunch.pid, 55_002);
+    client.dispose();
+  });
+
+  test('연결 재시도 중 시작한 호스트 PID가 죽으면 같은 연결 루프에서만 교체한다', async () => {
+    const discovery = path.join(temp, 'terminal-host-dies-during-connect.json');
+    let spawnCalls = 0;
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 1_000,
+      spawnHost: () => {
+        spawnCalls += 1;
+        return 56_000 + spawnCalls;
+      },
+      processExists: pid => {
+        assert.equal(pid, 56_001);
+        return false;
+      },
+    });
+    client.connectExisting = async () => {
+      if (spawnCalls >= 2) {
+        client.connected = true;
+        return;
+      }
+      const error = new Error('호스트가 아직 준비되지 않았습니다.');
+      error.code = 'ENOENT';
+      throw error;
+    };
+
+    await client.connect();
+    assert.equal(spawnCalls, 2);
+    assert.equal(client.connected, true);
+    client.dispose();
+  });
+
+  test('동시에 시작한 터미널 호스트는 OS 잠금을 하나만 소유하고 해제 뒤에만 교체된다', async () => {
+    const formerlyCollidingA = terminalHostLockEndpoint('C:/audit/discovery-129.json', 'linux');
+    const formerlyCollidingB = terminalHostLockEndpoint('C:/audit/discovery-190.json', 'linux');
+    assert.notDeepStrictEqual(formerlyCollidingA, formerlyCollidingB, '서로 다른 discovery가 같은 10k-port 잠금으로 충돌하면 안 됩니다.');
+    assert.equal(formerlyCollidingA.startsWith('\0lta-th-'), true);
+
+    let darwinCloseCalls = 0;
+    let darwinKeepAliveCalls = 0;
+    let darwinClearKeepAliveCalls = 0;
+    const darwinKeepAlive = { kind: 'darwin-lock-keepalive' };
+    const darwinOpen = [];
+    const darwinFileSystem = {
+      constants: { O_CREAT: 0x200, O_RDWR: 0x2, O_NONBLOCK: 0x4 },
+      mkdirSync() {},
+      openSync(file, flags, mode) {
+        darwinOpen.push({ file, flags, mode });
+        return 71;
+      },
+      closeSync(fileDescriptor) {
+        darwinCloseCalls += 1;
+        assert.equal(fileDescriptor, 71);
+      },
+    };
+    const darwinLock = await acquireTerminalHostProcessLock('/tmp/loadtoagent/discovery.json', {
+      platform: 'darwin',
+      fileSystem: darwinFileSystem,
+      setInterval(callback, delay) {
+        darwinKeepAliveCalls += 1;
+        assert.equal(typeof callback, 'function');
+        assert.equal(delay, 60_000);
+        return darwinKeepAlive;
+      },
+      clearInterval(handle) {
+        darwinClearKeepAliveCalls += 1;
+        assert.equal(handle, darwinKeepAlive);
+      },
+    });
+    assert.equal(darwinLock.server, null);
+    assert.equal(darwinOpen.length, 1);
+    assert.equal((darwinOpen[0].flags & 0x20) === 0x20, true, 'Darwin O_EXLOCK 없이 파일을 열면 안 됩니다.');
+    assert.equal((darwinOpen[0].flags & 0x4) === 0x4, true, 'Darwin lock open은 non-blocking이어야 합니다.');
+    assert.equal((darwinOpen[0].flags & 0x100) === 0x100, true, 'Darwin lock은 symlink를 따라가면 안 됩니다.');
+    assert.equal(darwinOpen[0].mode, 0o600);
+    assert.equal(darwinKeepAliveCalls, 1, 'Darwin lock 소유 중 daemon을 살리는 handle이 필요합니다.');
+    assert.equal(darwinClearKeepAliveCalls, 0, 'lock fd를 닫기 전에 keepalive를 해제하면 안 됩니다.');
+    assert.equal((await darwinLock.release()).ok, true);
+    assert.equal(darwinClearKeepAliveCalls, 1, 'lock fd가 닫힌 뒤 keepalive를 해제해야 합니다.');
+    assert.equal((await darwinLock.release()).alreadyReleased, true);
+    assert.equal(darwinClearKeepAliveCalls, 1, '중복 release가 keepalive를 다시 해제하면 안 됩니다.');
+    assert.equal(darwinCloseCalls, 1);
+
+    let failClosedCloseCalls = 0;
+    let failClosedClearCalls = 0;
+    const failClosedLock = await acquireTerminalHostProcessLock('/tmp/loadtoagent/fail-closed.json', {
+      platform: 'darwin',
+      fileSystem: {
+        ...darwinFileSystem,
+        openSync() { return 72; },
+        closeSync(fileDescriptor) {
+          failClosedCloseCalls += 1;
+          assert.equal(fileDescriptor, 72);
+          if (failClosedCloseCalls === 1) throw Object.assign(new Error('close failed'), { code: 'EIO' });
+        },
+      },
+      setInterval: () => darwinKeepAlive,
+      clearInterval: handle => {
+        assert.equal(handle, darwinKeepAlive);
+        failClosedClearCalls += 1;
+      },
+    });
+    await assert.rejects(failClosedLock.release(), error => error.code === 'TERMINAL_HOST_LOCK_RELEASE_FAILED');
+    assert.equal(failClosedClearCalls, 0, 'release 실패 뒤에는 keepalive와 lock 소유를 유지해야 합니다.');
+    assert.equal((await failClosedLock.release()).ok, true, 'release 실패 뒤 재시도할 수 있어야 합니다.');
+    assert.equal(failClosedClearCalls, 1);
+    await assert.rejects(
+      acquireTerminalHostProcessLock('/tmp/loadtoagent/discovery.json', {
+        platform: 'darwin',
+        fileSystem: {
+          ...darwinFileSystem,
+          openSync() { throw Object.assign(new Error('would block'), { code: 'EAGAIN' }); },
+        },
+      }),
+      error => error.code === 'TERMINAL_HOST_ALREADY_RUNNING',
+    );
+
+    const discovery = path.join(temp, `terminal-host-process-lock-${process.pid}-${Date.now()}.json`);
+    const attempts = await Promise.allSettled([
+      acquireTerminalHostProcessLock(discovery),
+      acquireTerminalHostProcessLock(discovery),
+    ]);
+    const acquired = attempts.filter(result => result.status === 'fulfilled');
+    const rejected = attempts.filter(result => result.status === 'rejected');
+    try {
+      assert.equal(acquired.length, 1, '동시에 두 daemon이 OS 잠금을 소유하면 안 됩니다.');
+      assert.equal(rejected.length, 1);
+      assert.equal(rejected[0].reason.code, 'TERMINAL_HOST_ALREADY_RUNNING');
+
+      const owner = acquired[0].value;
+      assert.equal((await owner.release()).ok, true);
+      assert.equal((await owner.release()).alreadyReleased, true);
+
+      const replacement = await acquireTerminalHostProcessLock(discovery);
+      try {
+        if (process.platform === 'darwin') {
+          assert.equal(replacement.server, null);
+          assert.equal(Number.isInteger(replacement.fileDescriptor), true);
+        } else {
+          assert.equal(Boolean(replacement.server?.listening), true);
+        }
+      } finally {
+        await replacement.release();
+      }
+    } finally {
+      await Promise.allSettled(acquired.map(result => result.value.release()));
+    }
+
+    const deniedServer = new EventEmitter();
+    deniedServer.listen = () => setImmediate(() => {
+      const error = new Error('listen denied');
+      error.code = 'EACCES';
+      deniedServer.emit('error', error);
+    });
+    await assert.rejects(
+      acquireTerminalHostProcessLock(discovery, {
+        platform: 'linux',
+        endpoint: 'denied-test-endpoint',
+        createServer: () => deniedServer,
+      }),
+      error => error.code === 'TERMINAL_HOST_LOCK_FAILED' && error.cause?.code === 'EACCES',
+    );
+
+    let closeCalls = 0;
+    const retryServer = new EventEmitter();
+    retryServer.listen = () => setImmediate(() => retryServer.emit('listening'));
+    retryServer.close = callback => {
+      closeCalls += 1;
+      callback(closeCalls === 1 ? Object.assign(new Error('close failed'), { code: 'EIO' }) : null);
+    };
+    const retryLock = await acquireTerminalHostProcessLock(discovery, {
+      platform: 'linux',
+      endpoint: 'retry-test-endpoint',
+      createServer: () => retryServer,
+    });
+    await assert.rejects(retryLock.release(), error => error.code === 'TERMINAL_HOST_LOCK_RELEASE_FAILED');
+    assert.equal((await retryLock.release()).ok, true);
+    assert.equal(closeCalls, 2, 'OS lock close 실패 뒤에는 release를 다시 시도할 수 있어야 합니다.');
   });
 
   test('PTY 런타임이 바뀌면 이전 터미널 호스트를 종료한 뒤 새 런타임으로 교체한다', async () => {
@@ -1622,11 +3369,203 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(retiredRuntime, 'node-pty-1.1.0');
     assert.equal(client.connected, true);
     assert.equal(JSON.parse(fs.readFileSync(discovery, 'utf8')).runtime, 'node-pty-1.2.0-beta.14');
+
+    const taskkill = new EventEmitter();
+    taskkill.exitCode = null;
+    taskkill.kill = () => {};
+    taskkill.removeListener = EventEmitter.prototype.removeListener;
+    const taskkillCalls = [];
+    const treeTermination = terminateHostProcess({ pid: 43_210 }, {
+      platform: 'win32',
+      timeoutMs: 1_000,
+      processExists: () => false,
+      spawnProcess: (file, args, options) => {
+        taskkillCalls.push({ file, args, options });
+        return taskkill;
+      },
+    });
+    taskkill.emit('exit', 0, null);
+    await treeTermination;
+    assert.deepStrictEqual(taskkillCalls[0].args, ['/PID', '43210', '/T', '/F']);
+    assert.equal(taskkillCalls[0].options.windowsHide, true);
+
+    let processGroupAlive = true;
+    const groupSignals = [];
+    const killProcess = (target, signal) => {
+      groupSignals.push([target, signal]);
+      if (signal === 'SIGTERM') {
+        processGroupAlive = false;
+        return;
+      }
+      if (!processGroupAlive) {
+        const error = new Error('missing group');
+        error.code = 'ESRCH';
+        throw error;
+      }
+    };
+    await terminateHostProcess({ pid: 43_211 }, {
+      platform: 'linux',
+      timeoutMs: 1_000,
+      processExists: () => false,
+      killProcess,
+    });
+    assert.deepStrictEqual(groupSignals, [[-43_211, 'SIGTERM'], [-43_211, 0]]);
     client.dispose();
     replacementServer?.dispose();
   });
 
-  test('stale 구버전 호스트 정보의 재사용된 PID는 인증 없이 종료하지 않는다', async () => {
+  test('prompt response를 지원하지 않는 v9 호스트는 인증 확인 뒤 v10 호스트로 교체한다', async () => {
+    class EmptyManager extends EventEmitter {
+      list() { return []; }
+      on() { return super.on(...arguments); }
+      removeListener() { return super.removeListener(...arguments); }
+    }
+    const manager = new EmptyManager();
+    const discovery = path.join(temp, 'terminal-host-protocol-upgrade.json');
+    const endpoint = suffix => process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-host-protocol-${process.pid}-${suffix}`
+      : path.join(os.tmpdir(), `lta-host-protocol-${process.pid}-${suffix}.sock`);
+    const oldServer = new TerminalHostServer({
+      manager,
+      endpoint: endpoint('v9'),
+      discoveryFile: discovery,
+      token: 'v9-protocol-token',
+    });
+    await oldServer.start();
+    const oldDiscovery = JSON.parse(fs.readFileSync(discovery, 'utf8'));
+    fs.writeFileSync(discovery, JSON.stringify({ ...oldDiscovery, protocol: 9 }), 'utf8');
+
+    let replacementServer = null;
+    let retiredProtocol = 0;
+    let acknowledgeTermination = null;
+    const transitionOrder = [];
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 2_000,
+      terminateHost: async info => {
+        transitionOrder.push('terminate-start');
+        retiredProtocol = info.protocol;
+        oldServer.dispose();
+        await new Promise(resolve => { acknowledgeTermination = resolve; });
+        transitionOrder.push('terminate-ack');
+      },
+      spawnHost: async () => {
+        transitionOrder.push('spawn');
+        replacementServer = new TerminalHostServer({
+          manager,
+          endpoint: endpoint('v10'),
+          discoveryFile: discovery,
+          token: 'v10-protocol-token',
+        });
+        await replacementServer.start();
+      },
+    });
+    const connecting = client.connect();
+    assert.equal(await waitUntil(() => typeof acknowledgeTermination === 'function'), true);
+    assert.deepStrictEqual(transitionOrder, ['terminate-start']);
+    acknowledgeTermination();
+    await connecting;
+
+    const replacementDiscovery = JSON.parse(fs.readFileSync(discovery, 'utf8'));
+    assert.equal(TERMINAL_HOST_PROTOCOL, 10);
+    assert.equal(retiredProtocol, 9);
+    assert.equal(client.connected, true);
+    assert.equal(replacementDiscovery.protocol, 10);
+    assert.deepStrictEqual(transitionOrder, ['terminate-start', 'terminate-ack', 'spawn']);
+    client.dispose();
+    replacementServer?.dispose();
+  });
+
+  test('인증할 수 없는 구버전 호스트 PID가 살아 있으면 종료하거나 교체하지 않는다', async () => {
+    const discovery = path.join(temp, 'terminal-host-live-unresponsive-runtime.json');
+    fs.writeFileSync(discovery, JSON.stringify({
+      protocol: 1,
+      endpoint: process.platform === 'win32'
+        ? `\\\\.\\pipe\\loadtoagent-live-unresponsive-${process.pid}`
+        : path.join(os.tmpdir(), `lta-live-unresponsive-${process.pid}.sock`),
+      token: 'live-unresponsive-token',
+      pid: process.pid,
+    }), 'utf8');
+    let terminated = 0;
+    let spawned = 0;
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 2_000,
+      verifyHost: async () => { throw new Error('호스트 무응답'); },
+      processExists: pid => {
+        assert.equal(pid, process.pid);
+        return true;
+      },
+      terminateHost: () => { terminated += 1; },
+      spawnHost: () => { spawned += 1; },
+    });
+
+    await assert.rejects(
+      client.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_UNCONFIRMED',
+    );
+    await assert.rejects(
+      client.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_UNCONFIRMED',
+    );
+    assert.equal(terminated, 0);
+    assert.equal(spawned, 0);
+    client.dispose();
+  });
+
+  test('인증할 수 없는 구버전 호스트 PID 상태가 불확실하면 교체하지 않는다', async () => {
+    const discovery = path.join(temp, 'terminal-host-unknown-runtime.json');
+    fs.writeFileSync(discovery, JSON.stringify({
+      protocol: 1,
+      endpoint: process.platform === 'win32'
+        ? `\\\\.\\pipe\\loadtoagent-unknown-${process.pid}`
+        : path.join(os.tmpdir(), `lta-unknown-${process.pid}.sock`),
+      token: 'unknown-token',
+      pid: 98_765,
+    }), 'utf8');
+    let spawned = 0;
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      verifyHost: async () => { throw new Error('호스트 무응답'); },
+      processExists: () => { throw Object.assign(new Error('PID 확인 권한 없음'), { code: 'EACCES' }); },
+      spawnHost: () => { spawned += 1; },
+    });
+
+    await assert.rejects(
+      client.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_UNCONFIRMED'
+        && error.cause?.code === 'EACCES',
+    );
+    assert.equal(spawned, 0);
+    client.dispose();
+  });
+
+  test('서로 다른 클라이언트도 살아 있는 무응답 구버전 호스트를 동시에 교체하지 않는다', async () => {
+    const discovery = path.join(temp, 'terminal-host-shared-live-runtime.json');
+    fs.writeFileSync(discovery, JSON.stringify({
+      protocol: 8,
+      endpoint: process.platform === 'win32'
+        ? `\\\\.\\pipe\\loadtoagent-shared-live-${process.pid}`
+        : path.join(os.tmpdir(), `lta-shared-live-${process.pid}.sock`),
+      token: 'shared-live-token',
+      pid: process.pid,
+    }), 'utf8');
+    let spawned = 0;
+    const clients = [0, 1].map(() => new TerminalHostClient({
+      discoveryFile: discovery,
+      verifyHost: async () => { throw new Error('호스트 무응답'); },
+      processExists: () => true,
+      spawnHost: () => { spawned += 1; },
+    }));
+
+    const results = await Promise.allSettled(clients.map(client => client.connect()));
+    assert.equal(results.every(result => result.status === 'rejected'
+      && result.reason?.code === 'TERMINAL_HOST_REPLACEMENT_UNCONFIRMED'), true);
+    assert.equal(spawned, 0);
+    clients.forEach(client => client.dispose());
+  });
+
+  test('인증할 수 없는 구버전 호스트 PID의 종료가 확인된 경우에만 교체한다', async () => {
     class EmptyManager extends EventEmitter {
       list() { return []; }
       on() { return super.on(...arguments); }
@@ -1643,15 +3582,22 @@ function registerTerminalLifecycleTests(context) {
         ? `\\\\.\\pipe\\loadtoagent-missing-${process.pid}`
         : path.join(os.tmpdir(), `lta-host-missing-${process.pid}.sock`),
       token: 'stale-token',
-      pid: process.pid,
+      pid: 98_766,
     }), 'utf8');
     let terminated = false;
+    let spawned = 0;
     let replacementServer = null;
     const client = new TerminalHostClient({
       discoveryFile: discovery,
       connectTimeoutMs: 2_000,
+      verifyHost: async () => { throw new Error('호스트 없음'); },
+      processExists: pid => {
+        assert.equal(pid, 98_766);
+        return false;
+      },
       terminateHost: () => { terminated = true; },
       spawnHost: async () => {
+        spawned += 1;
         replacementServer = new TerminalHostServer({
           manager,
           endpoint: replacementEndpoint,
@@ -1664,6 +3610,7 @@ function registerTerminalLifecycleTests(context) {
     await client.connect();
 
     assert.equal(terminated, false);
+    assert.equal(spawned, 1);
     assert.equal(client.connected, true);
     client.dispose();
     replacementServer?.dispose();
@@ -1942,7 +3889,7 @@ function registerTerminalLifecycleTests(context) {
     assert.deepStrictEqual(client.list().map(session => session.id), ['terminal:list-newest']);
   });
 
-  test('업데이트 종료는 최신 호스트 상태를 확인하고 관리형 작업은 분리하며 직접 작업은 중지한다', async () => {
+  test('업데이트 종료는 최신 상태와 진행 중인 retire를 기다린 뒤 관리형 작업은 분리하고 직접 작업은 중지한다', async () => {
     const client = new TerminalHostClient({ discoveryFile: path.join(temp, 'unused-update-host.json') });
     const sessions = [
       { id: 'managed', status: 'running', backend: 'managed-tmux' },
@@ -1958,7 +3905,7 @@ function registerTerminalLifecycleTests(context) {
       write: value => { frames.push(JSON.parse(String(value).trim())); return true; },
       end() { this.destroyed = true; },
     };
-    client.request = async (operation, ...args) => {
+    const updateRequest = async (operation, ...args) => {
       calls.push([operation, ...args]);
       if (operation === 'list') return sessions;
       if (operation === 'detach' || operation === 'stop') {
@@ -1967,6 +3914,8 @@ function registerTerminalLifecycleTests(context) {
       }
       return { ok: true };
     };
+    client.request = updateRequest;
+    client.requestForUpdate = updateRequest;
 
     const fresh = await client.listFresh();
     await assert.rejects(
@@ -1976,17 +3925,356 @@ function registerTerminalLifecycleTests(context) {
     calls.length = 0;
     const result = await client.shutdownForUpdate(fresh, 1_000);
 
-    assert.deepStrictEqual(calls, [['list'], ['detach', 'managed'], ['stop', 'direct'], ['list']]);
+    assert.deepStrictEqual(calls, [
+      ['list'],
+      ['detach', 'managed', { waitForExit: true }],
+      ['stop', 'direct', { waitForExit: true }],
+      ['list'],
+    ]);
     assert.deepStrictEqual(frames, [{ type: 'control', operation: 'shutdown-if-idle' }]);
     assert.equal(result.stopped, 2);
     assert.equal(client.disposed, true);
     assert.equal(client.socket.destroyed, true);
     assert.throws(() => client.create({}), /업데이트를 준비하는 동안/);
+
+    let blockedTransitionKills = 0;
+    const blockedTransitionManager = new TerminalManager({
+      storeFile: path.join(temp, 'terminal-transition-persist-blocked.json'),
+      killTree: () => {
+        blockedTransitionKills += 1;
+        return { ok: true, exited: true };
+      },
+      ptyModule: { spawn: () => ({
+        pid: 8_816, onData() {}, onExit() {}, write() {}, resize() {}, kill() {},
+      }) },
+    });
+    const blockedTransitionSession = blockedTransitionManager.create({
+      type: process.platform === 'win32' ? 'powershell' : 'shell', cwd: root,
+    });
+    blockedTransitionManager.storeWriteBlocked = true;
+    assert.throws(
+      () => blockedTransitionManager.stop(blockedTransitionSession.id),
+      error => error.code === 'TERMINAL_TRANSITION_PERSIST_FAILED',
+    );
+    assert.equal(blockedTransitionKills, 0, 'pending marker 저장 실패 뒤 process kill을 시작하면 안 됩니다.');
+    assert.equal(blockedTransitionManager.get(blockedTransitionSession.id).status, 'running');
+    assert.equal(blockedTransitionManager.get(blockedTransitionSession.id).terminationPending, false);
+    blockedTransitionManager.storeWriteBlocked = false;
+    assert.equal(blockedTransitionManager.close(blockedTransitionSession.id).ok, true);
+
+    let releaseStopAcknowledgement;
+    const stopAcknowledgement = new Promise(resolve => { releaseStopAcknowledgement = resolve; });
+    let confirmedKillCalls = 0;
+    class ConfirmedStopPty {
+      constructor() { this.pid = 8_807; this.exitCallbacks = new Set(); }
+      onData() {}
+      onExit(callback) { this.exitCallbacks.add(callback); }
+      write() {}
+      resize() {}
+      kill() { throw new Error('confirmed stop은 releaseProcess를 사용하면 안 됩니다.'); }
+      emitExit(event = { exitCode: 0, signal: 0 }) {
+        for (const callback of [...this.exitCallbacks]) callback(event);
+      }
+    }
+    const confirmedStopStore = path.join(temp, 'terminal-confirmed-stop-pending.json');
+    const confirmedStopManager = new TerminalManager({
+      storeFile: confirmedStopStore,
+      killTree: () => {
+        confirmedKillCalls += 1;
+        return stopAcknowledgement;
+      },
+      ptyModule: { spawn: () => new ConfirmedStopPty() },
+    });
+    const confirmedStopSession = confirmedStopManager.create({
+      type: process.platform === 'win32' ? 'powershell' : 'shell',
+      cwd: root,
+    });
+    const confirmedHandle = confirmedStopManager.sessions.get(confirmedStopSession.id).process;
+    const confirmedPid = confirmedStopManager.sessions.get(confirmedStopSession.id).pid;
+    const confirmedGeneration = confirmedStopManager.sessions.get(confirmedStopSession.id).generation;
+    const confirmedSuffix = `${process.pid}-${Date.now()}-confirmed-stop`;
+    const confirmedDiscovery = path.join(temp, `terminal-host-update-stop-${confirmedSuffix}.json`);
+    const confirmedEndpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-host-update-stop-${confirmedSuffix}`
+      : path.join(os.tmpdir(), `lta-host-update-stop-${confirmedSuffix}.sock`);
+    const confirmedServer = new TerminalHostServer({
+      manager: confirmedStopManager,
+      endpoint: confirmedEndpoint,
+      discoveryFile: confirmedDiscovery,
+      token: 'update-stop-token',
+    });
+    const confirmedClient = new TerminalHostClient({ discoveryFile: confirmedDiscovery });
+    let confirmedShutdown = null;
+    try {
+      await confirmedServer.start();
+      await confirmedClient.connect();
+      const confirmedSessions = await confirmedClient.listFresh();
+      confirmedClient.discovery = { ...confirmedClient.discovery, pid: 2_147_483_646 };
+      let confirmedShutdownSettled = false;
+      confirmedShutdown = confirmedClient.shutdownForUpdate(confirmedSessions, 1_000).then(result => {
+        confirmedShutdownSettled = true;
+        return result;
+      });
+      assert.equal(await waitUntil(() => confirmedStopManager.get(confirmedStopSession.id)?.status === 'stopping'), true);
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const stoppingRecord = confirmedStopManager.sessions.get(confirmedStopSession.id);
+      assert.equal(confirmedShutdownSettled, false, '실제 process-tree 종료 ACK 전에 업데이트 종료가 완료되면 안 됩니다.');
+      assert.equal(confirmedKillCalls, 1);
+      assert.equal(stoppingRecord.process, confirmedHandle);
+      assert.equal(stoppingRecord.pid, confirmedPid);
+      assert.equal(stoppingRecord.generation, confirmedGeneration);
+      const persistedPending = JSON.parse(fs.readFileSync(confirmedStopStore, 'utf8')).sessions[0];
+      assert.equal(persistedPending.status, 'stopping');
+      assert.equal(persistedPending.terminationPending, true);
+      assert.equal(persistedPending.terminationIntent, 's');
+      const sameStopTransition = confirmedStopManager.stop(confirmedStopSession.id);
+      assert.strictEqual(sameStopTransition, confirmedStopManager.stop(confirmedStopSession.id, { waitForExit: true }));
+      assert.throws(
+        () => confirmedStopManager.restart(confirmedStopSession.id),
+        error => error.code === 'TERMINAL_STOP_IN_PROGRESS',
+      );
+      assert.throws(
+        () => confirmedStopManager.close(confirmedStopSession.id),
+        error => error.code === 'TERMINAL_STOP_IN_PROGRESS',
+      );
+      assert.throws(
+        () => confirmedClient.close(confirmedStopSession.id),
+        /업데이트를 준비하는 동안/,
+      );
+
+      const interruptedStore = path.join(temp, 'terminal-confirmed-stop-interrupted.json');
+      fs.copyFileSync(confirmedStopStore, interruptedStore);
+      const interruptedManager = new TerminalManager({
+        storeFile: interruptedStore,
+        killTree: () => { throw new Error('중단된 transition을 자동 재시도하면 안 됩니다.'); },
+      });
+      const interruptedRecord = interruptedManager.get(confirmedStopSession.id);
+      assert.equal(interruptedRecord.status, 'stopping');
+      assert.equal(interruptedRecord.terminationUncertain, true);
+      assert.equal(interruptedRecord.terminationErrorCode, 'TERMINATION_INTERRUPTED');
+      assert.throws(
+        () => interruptedManager.stop(confirmedStopSession.id),
+        error => error.code === 'TERMINATION_INTERRUPTED' && error.terminationUncertain === true,
+      );
+      interruptedManager.dispose({ preserveSessions: true });
+      confirmedHandle.emitExit();
+      await new Promise(resolve => setImmediate(resolve));
+      const exitedButPendingRecord = confirmedStopManager.sessions.get(confirmedStopSession.id);
+      assert.equal(exitedButPendingRecord.status, 'stopping', 'onExit만으로 confirmed stop을 완료 처리하면 안 됩니다.');
+      assert.equal(exitedButPendingRecord.process, null);
+      assert.equal(exitedButPendingRecord.pid, null);
+      assert.equal(confirmedShutdownSettled, false);
+
+      releaseStopAcknowledgement({ ok: true, exited: true });
+      const confirmedResult = await confirmedShutdown;
+      const stoppedRecord = confirmedStopManager.sessions.get(confirmedStopSession.id);
+      assert.equal(confirmedResult.stopped, 1);
+      assert.equal(confirmedShutdownSettled, true);
+      assert.equal(stoppedRecord.status, 'stopped');
+      assert.equal(stoppedRecord.process, null);
+      assert.equal(stoppedRecord.pid, null);
+      assert.equal(stoppedRecord.generation, confirmedGeneration);
+      assert.equal((await sameStopTransition).status, 'stopped');
+      const persistedStopped = JSON.parse(fs.readFileSync(confirmedStopStore, 'utf8')).sessions[0];
+      assert.equal(persistedStopped.terminationPending, false);
+      assert.equal(persistedStopped.terminationIntent, '');
+
+      let postShutdownSpawnCalls = 0;
+      confirmedClient.spawnHost = () => { postShutdownSpawnCalls += 1; };
+      const postShutdownConnectGeneration = confirmedClient.connectGeneration;
+      await assert.rejects(confirmedClient.connect(), /업데이트를 준비하는 동안/);
+      await assert.rejects(confirmedClient.listFresh(), /업데이트를 준비하는 동안/);
+      await assert.rejects(confirmedClient.get(confirmedStopSession.id), /업데이트를 준비하는 동안/);
+      await assert.rejects(confirmedClient.write(confirmedStopSession.id, '업데이트 뒤 쓰기 금지'), /업데이트를 준비하는 동안/);
+      await assert.rejects(confirmedClient.command(confirmedStopSession.id, '업데이트 뒤 명령 금지'), /업데이트를 준비하는 동안/);
+      await assert.rejects(confirmedClient.resize(confirmedStopSession.id, 120, 40), /업데이트를 준비하는 동안/);
+      assert.throws(() => confirmedClient.signal(confirmedStopSession.id, 'interrupt'), /업데이트를 준비하는 동안/);
+      assert.throws(
+        () => confirmedClient.detach(confirmedStopSession.id, { waitForExit: true }),
+        /업데이트를 준비하는 동안/,
+      );
+      assert.throws(
+        () => confirmedClient.stop(confirmedStopSession.id, { waitForExit: true }),
+        /업데이트를 준비하는 동안/,
+      );
+      assert.equal(postShutdownSpawnCalls, 0, '업데이트 종료 뒤 polling/입력이 새 호스트를 시작하면 안 됩니다.');
+      assert.equal(confirmedClient.connectGeneration, postShutdownConnectGeneration);
+    } finally {
+      releaseStopAcknowledgement({ ok: true, exited: true });
+      await Promise.resolve(confirmedShutdown).catch(() => {});
+      confirmedClient.dispose();
+      confirmedServer.dispose();
+      confirmedStopManager.dispose();
+    }
+
+    let releaseManagedDetach;
+    const managedDetachGate = new Promise(resolve => { releaseManagedDetach = resolve; });
+    let managedKillCalls = 0;
+    let managedStopCalls = 0;
+    class ManagedDetachPty {
+      constructor() { this.pid = 8_815; this.exitCallbacks = new Set(); }
+      onData() {}
+      onExit(callback) { this.exitCallbacks.add(callback); }
+      write() {}
+      resize() {}
+      kill() { throw new Error('confirmed detach는 releaseProcess를 사용하면 안 됩니다.'); }
+      emitExit(event = { exitCode: 0, signal: 0 }) {
+        for (const callback of [...this.exitCallbacks]) callback(event);
+      }
+    }
+    const managedDetachHandle = new ManagedDetachPty();
+    const managedDetachManager = new TerminalManager({
+      platform: 'darwin',
+      killTree: () => {
+        managedKillCalls += 1;
+        return managedDetachGate;
+      },
+      managedTmuxRuntime: {
+        exists: () => true,
+        stop: () => {
+          managedStopCalls += 1;
+          return { ok: true };
+        },
+      },
+      ptyModule: { spawn: () => managedDetachHandle },
+    });
+    const managedDetachSession = managedDetachManager.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      sessionBackend: 'managed-tmux',
+      managedTmuxSession: 'update-confirmed-detach',
+    });
+    const managedSuffix = `${process.pid}-${Date.now()}-confirmed-detach`;
+    const managedDiscovery = path.join(temp, `terminal-host-update-detach-${managedSuffix}.json`);
+    const managedEndpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-host-update-detach-${managedSuffix}`
+      : path.join(os.tmpdir(), `lta-host-update-detach-${managedSuffix}.sock`);
+    const managedServer = new TerminalHostServer({
+      manager: managedDetachManager,
+      endpoint: managedEndpoint,
+      discoveryFile: managedDiscovery,
+      token: 'update-detach-token',
+    });
+    const managedClient = new TerminalHostClient({ discoveryFile: managedDiscovery });
+    let managedShutdown = null;
+    try {
+      await managedServer.start();
+      await managedClient.connect();
+      const managedSessions = await managedClient.listFresh();
+      managedClient.discovery = { ...managedClient.discovery, pid: 2_147_483_646 };
+      let managedShutdownSettled = false;
+      managedShutdown = managedClient.shutdownForUpdate(managedSessions, 1_000).then(result => {
+        managedShutdownSettled = true;
+        return result;
+      });
+      assert.equal(await waitUntil(() => managedDetachManager.get(managedDetachSession.id)?.status === 'stopping'), true);
+      await new Promise(resolve => setTimeout(resolve, 80));
+      assert.equal(managedShutdownSettled, false);
+      assert.equal(managedKillCalls, 1);
+      assert.equal(managedStopCalls, 0, '업데이트 detach는 tmux 작업 자체를 종료하면 안 됩니다.');
+      assert.ok(managedDetachManager.get(managedDetachSession.id));
+      managedDetachHandle.emitExit();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(managedDetachManager.get(managedDetachSession.id).status, 'stopping');
+      assert.equal(managedShutdownSettled, false);
+
+      releaseManagedDetach({ ok: true, exited: true });
+      const managedResult = await managedShutdown;
+      const detachedRecord = managedDetachManager.get(managedDetachSession.id);
+      assert.equal(managedResult.stopped, 1);
+      assert.equal(detachedRecord.status, 'detached');
+      assert.ok(detachedRecord, '업데이트 detach 뒤 tmux 세션 레코드는 살아 있어야 합니다.');
+      assert.equal(managedStopCalls, 0);
+    } finally {
+      releaseManagedDetach({ ok: true, exited: true });
+      await Promise.resolve(managedShutdown).catch(() => {});
+      managedClient.dispose();
+      managedServer.dispose();
+      managedDetachManager.dispose({ preserveSessions: true });
+    }
+
+    let releaseRetirement;
+    const retirementGate = new Promise(resolve => { releaseRetirement = resolve; });
+    class RetiringPty {
+      constructor() { this.pid = 8_803; }
+      onData() {}
+      onExit() {}
+      write() {}
+      resize() {}
+      kill() {}
+    }
+    const manager = new TerminalManager({
+      killTree: () => retirementGate,
+      ptyModule: { spawn: () => new RetiringPty() },
+    });
+    const retiringSession = manager.create({
+      type: process.platform === 'win32' ? 'powershell' : 'shell',
+      cwd: root,
+    });
+    const suffix = `${process.pid}-${Date.now()}`;
+    const overlapDiscovery = path.join(temp, `terminal-host-update-retire-${suffix}.json`);
+    const overlapEndpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-host-update-retire-${suffix}`
+      : path.join(os.tmpdir(), `lta-host-update-retire-${suffix}.sock`);
+    const overlapServer = new TerminalHostServer({
+      manager,
+      endpoint: overlapEndpoint,
+      discoveryFile: overlapDiscovery,
+      token: 'update-retire-token',
+    });
+    const retireClient = new TerminalHostClient({ discoveryFile: overlapDiscovery });
+    const updateClient = new TerminalHostClient({ discoveryFile: overlapDiscovery });
+    let retirement = null;
+    let overlappingShutdown = null;
+    try {
+      await overlapServer.start();
+      await retireClient.connect();
+      await updateClient.connect();
+      const confirmedBeforeRetire = await updateClient.listFresh();
+      retirement = retireClient.close(retiringSession.id);
+      assert.equal(await waitUntil(() => manager.get(retiringSession.id)?.status === 'stopping'), true);
+
+      // The host runs in this test process, so use a guaranteed-nonexistent PID
+      // for shutdownForUpdate's final daemon-exit check.
+      updateClient.discovery = { ...updateClient.discovery, pid: 2_147_483_646 };
+      let shutdownSettled = false;
+      overlappingShutdown = updateClient.shutdownForUpdate(confirmedBeforeRetire, 1_000).then(result => {
+        shutdownSettled = true;
+        return result;
+      });
+      await new Promise(resolve => setTimeout(resolve, 120));
+      assert.equal(shutdownSettled, false, 'retire process-tree 종료 ack 전에 업데이트 종료가 완료되면 안 됩니다.');
+      assert.equal(manager.get(retiringSession.id)?.status, 'stopping');
+
+      releaseRetirement({ ok: true });
+      assert.deepStrictEqual(await retirement, { ok: true });
+      const overlapResult = await overlappingShutdown;
+      assert.equal(overlapResult.stopped, 0);
+      assert.equal(manager.get(retiringSession.id), null);
+      assert.equal(shutdownSettled, true);
+    } finally {
+      releaseRetirement({ ok: true });
+      await Promise.resolve(retirement).catch(() => {});
+      await Promise.resolve(overlappingShutdown).catch(() => {});
+      retireClient.dispose();
+      updateClient.dispose();
+      overlapServer.dispose();
+      manager.dispose();
+    }
   });
 
-  test('마지막 클라이언트가 떠난 빈 터미널 호스트는 유예 뒤 스스로 종료한다', async () => {
+  test('마지막 클라이언트가 떠나도 retire 중에는 호스트를 유지하고 완료 뒤 스스로 종료한다', async () => {
     class EmptyManager extends EventEmitter {
-      list() { return []; }
+      constructor() {
+        super();
+        this.sessions = [{ id: 'terminal:retiring', status: 'stopping' }];
+      }
+      list() { return this.sessions.map(session => ({ ...session })); }
+      finishRetirement() {
+        this.sessions = [];
+        this.emit('state', { change: 'removed', sessions: [] });
+      }
       on() { return super.on(...arguments); }
       removeListener() { return super.removeListener(...arguments); }
     }
@@ -2008,6 +4296,9 @@ function registerTerminalLifecycleTests(context) {
     const client = new TerminalHostClient({ discoveryFile: discovery });
     await client.connect();
     client.dispose();
+    await new Promise(resolve => setTimeout(resolve, 80));
+    assert.equal(shutdowns, 0, 'retire 중인 세션을 idle로 판단해 호스트를 종료하면 안 됩니다.');
+    manager.finishRetirement();
     await waitUntil(() => shutdowns === 1);
 
     assert.equal(shutdowns, 1);
@@ -2202,22 +4493,42 @@ function registerTerminalFailureTests(context) {
     fs.mkdirSync(storeDir, { recursive: true });
     fs.writeFileSync(storeFile, JSON.stringify({
       version: 2,
-      sessions: [{
-        id: 'terminal:wsl-agent',
-        options: {
-          type: 'agent',
-          provider: 'codex',
-          cwd: '',
-          distro: 'Ubuntu',
-          args: ['resume', 'wsl-session-123'],
-          sessionBackend: 'direct',
+      sessions: [
+        {
+          id: 'terminal:wsl-agent',
+          options: {
+            type: 'agent',
+            provider: 'codex',
+            cwd: '',
+            distro: 'Ubuntu',
+            args: ['resume', 'wsl-session-123'],
+            sessionBackend: 'direct',
+          },
+          status: 'running',
+          createdAt: timestamp,
+          updatedAt: timestamp,
         },
-        status: 'running',
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      }],
+        {
+          id: 'terminal:tmux-pane',
+          options: {
+            type: 'tmux',
+            cwd: '',
+            distro: 'Ubuntu',
+            tmuxSession: 'work',
+            tmuxWindow: '@7',
+            tmuxPane: '%19',
+            tmuxPanePid: 4190,
+            agentConnectionSignature: '["tmux-signature-v1"]',
+            sessionBackend: 'direct',
+          },
+          status: 'running',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      ],
     }), 'utf8');
     const spawns = [];
+    const exactProxySpawns = [];
     class FakePty {
       constructor() { this.pid = 20_001; }
       onData() {}
@@ -2236,6 +4547,10 @@ function registerTerminalFailureTests(context) {
           return new FakePty();
         },
       },
+      tmuxControlProxyFactory: encoded => {
+        exactProxySpawns.push(JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')));
+        return new FakePty();
+      },
     });
 
     assert.equal(manager.list()[0].cwd, '');
@@ -2244,6 +4559,14 @@ function registerTerminalFailureTests(context) {
     assert.equal(spawns[0].file, 'wsl.exe');
     assert.deepStrictEqual(spawns[0].args, ['-d', 'Ubuntu', '--', 'codex', 'resume', 'wsl-session-123']);
     assert.equal(manager.list()[0].cwd, '');
+    assert.equal(manager.get('terminal:tmux-pane'), null, 'process identity 없는 legacy external tmux record는 복구하면 안 됩니다.');
+    assert.equal(exactProxySpawns.length, 0);
+    assert.equal(manager.get('terminal:wsl-agent').agentConnectionSignature, '');
+    assert.equal(manager.get('terminal:wsl-agent').agentResumeSessionId, 'wsl-session-123');
+    manager.persistNow();
+    const storedTmux = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions
+      .find(session => session.id === 'terminal:tmux-pane');
+    assert.equal(storedTmux, undefined);
     manager.dispose({ preserveSessions: true });
   });
 
@@ -2378,7 +4701,7 @@ function registerTerminalFailureTests(context) {
     manager.dispose({ preserveSessions: true });
 
     const replaylessBytes = fs.statSync(storeFile).size;
-    manager = new TerminalManager(managerOptions(replaylessBytes + 12));
+    manager = new TerminalManager(managerOptions(replaylessBytes + 16));
     manager.restart(created.id);
     const retainedTail = `${String.fromCharCode(92, 27)}😀`;
     const fullReplay = `discarded😀${retainedTail}`;
@@ -2388,7 +4711,7 @@ function registerTerminalFailureTests(context) {
     assert.equal(stored.replay, retainedTail);
     assert.equal(hasUnpairedSurrogate(stored.replay), false);
     assert.equal(manager.get(created.id, true).replay, fullReplay);
-    assert.equal(fs.statSync(storeFile).size <= replaylessBytes + 12, true);
+    assert.equal(fs.statSync(storeFile).size <= replaylessBytes + 16, true);
     manager.dispose({ preserveSessions: true });
 
     const sparseStoreFile = path.join(storeDir, 'sparse-terminal-sessions.json');
@@ -2420,7 +4743,6 @@ function registerTerminalFailureTests(context) {
     sparseManager.dispose({ preserveSessions: true });
 
     const preserved = fs.readFileSync(storeFile, 'utf8');
-    const fixedPayloadBytes = Buffer.byteLength(preserved, 'utf8') - 12;
     const sizeMaskingFileSystem = Object.create(fs);
     let writes = 0;
     sizeMaskingFileSystem.statSync = target => {
@@ -2440,7 +4762,7 @@ function registerTerminalFailureTests(context) {
     const oversizedMetadata = new TerminalManager({
       // Loading a saved running session normalizes its in-memory status to
       // exited, which shortens the fixed payload by one byte.
-      ...managerOptions(fixedPayloadBytes - 2),
+       ...managerOptions(1),
       fileSystem: sizeMaskingFileSystem,
     });
     assert.equal(oversizedMetadata.get(created.id) != null, true);
@@ -2501,7 +4823,7 @@ function registerTerminalFailureTests(context) {
     manager.dispose();
   });
 
-  test('Windows npm AI 명령은 실행 가능한 PowerShell 호스트로 연다', () => {
+  test('Windows npm AI 명령은 실행 가능한 PowerShell 호스트로 열고 배치 인자를 코드와 분리한다', () => {
     const bin = path.join(temp, 'windows-agent-bin');
     fs.mkdirSync(bin, { recursive: true });
     const shim = path.join(bin, 'codex.ps1');
@@ -2515,6 +4837,142 @@ function registerTerminalFailureTests(context) {
     }, 'win32'), 'win32', { codex: { command: shim, label: 'Codex' } });
     assert.ok(/powershell|pwsh/i.test(spec.file));
     assert.deepStrictEqual(spec.args.slice(-3), [shim, 'resume', 'session-id']);
+
+    // Keep the real cmd.exe injection regression independent from environment-
+    // derived temp paths. The command under test still receives hostile argv,
+    // but every executable and fixture path used by this test is rooted in the
+    // checked-out repository.
+    const batchSandbox = path.join(root, 'artifacts', `windows-agent-batch-${process.pid}-${crypto.randomBytes(6).toString('hex')}`);
+    const batchDir = path.join(batchSandbox, 'node_modules', '.bin');
+    fs.mkdirSync(batchDir, { recursive: true });
+    const captureFile = path.join(batchDir, 'captured-args.json');
+    const injectedFile = path.join(batchDir, 'batch-injected.txt');
+    const captureScript = path.join(batchDir, 'capture-args.js');
+    const batchShim = path.join(batchDir, 'codex.cmd');
+    fs.writeFileSync(captureScript, `require('fs').writeFileSync(${JSON.stringify(captureFile)}, JSON.stringify(process.argv.slice(2)), 'utf8');\n`, 'utf8');
+    fs.writeFileSync(batchShim, `@echo off\r\n"${process.execPath}" "${captureScript}" %*\r\n`, 'utf8');
+    const batchArguments = [
+      '--normal-provider-arg',
+      'run',
+      'safe-session-id',
+      '--',
+      'normal prompt',
+      'x&whoami',
+      'x&echo INJECTED>batch-injected.txt',
+      '%PATH%',
+      '!LOADTOAGENT_LITERAL_TEST!',
+      'embedded"quote',
+      String.raw`two-backslashes-before-quote:a\\"b`,
+      'argument-after-backslash-quote',
+      'x|whoami',
+      'caret^value',
+    ];
+    const batchSpec = launchSpec(normalizeLaunchOptions({
+      type: 'agent',
+      provider: 'codex',
+      args: batchArguments.slice(1),
+      cwd: batchDir,
+      sessionBackend: 'direct',
+    }, 'win32'), 'win32', {
+      codex: { command: batchShim, args: batchArguments.slice(0, 1), label: 'Codex batch' },
+    });
+    assert.ok(/cmd\.exe$/i.test(batchSpec.file));
+    assert.equal(typeof batchSpec.args, 'string');
+    assert.match(batchSpec.args, /^\/d \/v:off \/s \/c "/);
+    assert.equal(batchSpec.args.includes('x&whoami'), false);
+    const commandLine = batchSpec.args.slice('/d /v:off /s /c '.length);
+    assert.equal(['/d', '/v:off', '/s', '/c', commandLine].join(' '), batchSpec.args);
+    const trustedCmd = 'C:\\Windows\\System32\\cmd.exe';
+    if (process.platform === 'win32') {
+      // node-pty treats a string args value as an already assembled command
+      // line. spawnSync below uses the identical tail verbatim, so the real
+      // cmd.exe execution also verifies the ConPTY serialization contract.
+      const { argsToCommandLine: nodePtyArgsToCommandLine } = require('node-pty/lib/windowsPtyAgent');
+      assert.equal(
+        nodePtyArgsToCommandLine(batchSpec.file, batchSpec.args),
+        `${nodePtyArgsToCommandLine(batchSpec.file, [])} ${batchSpec.args}`,
+      );
+      assert.equal(path.win32.normalize(batchSpec.file).toLowerCase(), path.win32.normalize(trustedCmd).toLowerCase());
+      const launched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', commandLine], {
+        cwd: batchSpec.cwd,
+        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsVerbatimArguments: true,
+      });
+      assert.equal(launched.error, undefined);
+      assert.equal(launched.status, 0, launched.stderr || launched.stdout);
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(captureFile, 'utf8')), batchArguments);
+      assert.equal(fs.existsSync(injectedFile), false);
+
+      // An explicit /v:off must win even if a parent/default invocation has
+      // delayed expansion enabled. Otherwise !NAME! can disclose environment
+      // values into a prompt before the agent starts.
+      fs.rmSync(captureFile, { force: true });
+      const launchedAfterDelayedExpansion = spawnSync(trustedCmd, ['/d', '/v:on', '/v:off', '/s', '/c', commandLine], {
+        cwd: batchSpec.cwd,
+        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsVerbatimArguments: true,
+      });
+      assert.equal(launchedAfterDelayedExpansion.error, undefined);
+      assert.equal(launchedAfterDelayedExpansion.status, 0, launchedAfterDelayedExpansion.stderr || launchedAfterDelayedExpansion.stdout);
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(captureFile, 'utf8')), batchArguments);
+    }
+
+    if (process.platform === 'win32') fs.rmSync(captureFile, { force: true });
+    const batShim = path.join(batchDir, 'gemini.bat');
+    fs.writeFileSync(batShim, `@echo off\r\n"${process.execPath}" "${captureScript}" %*\r\n`, 'utf8');
+    const batSpec = launchSpec(normalizeLaunchOptions({
+      type: 'agent', provider: 'gemini', args: batchArguments, cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), 'win32', { gemini: { command: batShim, label: 'Gemini batch' } });
+    const batCommandLine = batSpec.args.slice('/d /v:off /s /c '.length);
+    assert.equal(['/d', '/v:off', '/s', '/c', batCommandLine].join(' '), batSpec.args);
+    if (process.platform === 'win32') {
+      const batLaunched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', batCommandLine], {
+        cwd: batSpec.cwd,
+        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        encoding: 'utf8',
+        timeout: 10_000,
+        windowsVerbatimArguments: true,
+      });
+      assert.equal(batLaunched.error, undefined);
+      assert.equal(batLaunched.status, 0, batLaunched.stderr || batLaunched.stdout);
+      assert.deepStrictEqual(JSON.parse(fs.readFileSync(captureFile, 'utf8')), batchArguments);
+      assert.equal(fs.existsSync(injectedFile), false);
+    }
+
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'codex', args: ['resume', 'x&whoami'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /AI 대화 ID 형식/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'codex', args: ['resume', 'safe-id', 'resume'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /한 번만 지정/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'codex', args: ['resume', '--', 'safe-id', '--resume'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /한 번만 지정/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'x|whoami'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /AI 대화 ID 형식/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'safe-id', '--resume', 'x&whoami'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /한 번만 지정/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'gemini', args: ['--model', 'flash', '--resume', 'safe-id'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /한 번만 지정/);
+    assert.deepStrictEqual(normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'safe-id', '--', '--resume'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32').args, ['--resume', 'safe-id', '--', '--resume']);
+    assert.equal(normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'safe-id'], cwd: batchDir,
+      agentConnectionSignature: 's'.repeat(1_200), sessionBackend: 'direct',
+    }, 'win32').agentConnectionSignature.length, 1_000);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'codex', args: ['resume', 'safe-id', '--', 'line one\r\nwhoami'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /줄바꿈 문자/);
+    fs.rmSync(batchSandbox, { recursive: true, force: true });
+
     const options = normalizeLaunchOptions({
       type: 'agent',
       provider: 'codex',

@@ -179,22 +179,137 @@ function windowsProcessRows(run = execFileSync) {
   }
 }
 
-function commandArgument(commandLine, name) {
-  const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = String(commandLine || '').match(new RegExp(`(?:^|\\s)${escaped}\\s+(?:"([^"]+)"|'([^']+)'|(\\S+))`, 'i'));
-  return match ? String(match[1] || match[2] || match[3] || '').trim() : '';
+function commandLineTokens(value) {
+  const text = String(value || '');
+  const tokens = [];
+  let token = '';
+  let tokenStarted = false;
+  let quote = '';
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (quote) {
+      if (character === quote) {
+        quote = '';
+      } else if (quote === '"' && character === '\\' && text[index + 1] === '"') {
+        token += '"';
+        index += 1;
+      } else token += character;
+      tokenStarted = true;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      tokenStarted = true;
+    } else if (/\s/u.test(character)) {
+      if (tokenStarted) {
+        tokens.push(token);
+        token = '';
+        tokenStarted = false;
+      }
+    } else {
+      token += character;
+      tokenStarted = true;
+    }
+  }
+  // A truncated or otherwise malformed process listing must never become
+  // writable routing authority.
+  if (quote) return [];
+  if (tokenStarted) tokens.push(token);
+  return tokens;
+}
+
+function providerToken(value, provider) {
+  const normalized = String(value || '').replace(/\\/gu, '/').toLowerCase();
+  const basename = normalized.split('/').pop() || '';
+  if (provider === 'claude') {
+    return /^claude(?:\.exe)?$/u.test(basename) || normalized.includes('/@anthropic-ai/claude-code/');
+  }
+  if (provider === 'codex') {
+    return /^codex(?:-[a-z0-9_.-]+)?(?:\.exe)?$/u.test(basename) || normalized.includes('/@openai/codex/');
+  }
+  if (provider === 'gemini') {
+    return /^gemini(?:-[a-z0-9_.-]+)?(?:\.exe)?$/u.test(basename) || normalized.includes('/@google/gemini-cli/');
+  }
+  if (provider === 'grok') {
+    return /^grok(?:-[a-z0-9_.-]+)?(?:\.exe)?$/u.test(basename)
+      || normalized.includes('/@xai-org/grok/')
+      || /\/node_modules\/grok(?:-cli)?\//u.test(normalized);
+  }
+  return false;
+}
+
+function providerInvocationArguments(processInfo, provider) {
+  const argv = Array.isArray(processInfo.argv)
+    ? processInfo.argv.map(value => String(value))
+    : commandLineTokens(processInfo.commandLine || processInfo.CommandLine || processInfo.args || '');
+  if (!argv.length) return [];
+  // The provider executable must be the process image or the script launched
+  // directly by node. Scanning arbitrary later argv would let prompt text
+  // containing a package path masquerade as a provider invocation.
+  const executable = String(argv[0] || '').replace(/\\/gu, '/').split('/').pop().toLowerCase();
+  const invocationIndex = providerToken(argv[0], provider)
+    ? 0
+    : (/^(?:node|nodejs)(?:\.exe)?$/u.test(executable) && providerToken(argv[1], provider) ? 1 : -1);
+  if (invocationIndex < 0) return [];
+  return argv.slice(invocationIndex + 1);
+}
+
+function canonicalSessionId(value) {
+  const id = pathlessSessionId(value);
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/u.test(id) ? id : '';
+}
+
+function canonicalLeadingOption(args, name) {
+  const first = String(args[0] || '');
+  if (first === name) return canonicalSessionId(args[1]);
+  const prefix = `${name}=`;
+  return first.startsWith(prefix) ? canonicalSessionId(first.slice(prefix.length)) : '';
+}
+
+function canonicalIdentityOption(args, name) {
+  const values = [];
+  let found = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = String(args[index] || '');
+    if (argument === '--') break;
+    const prefix = `${name}=`;
+    let candidate = '';
+    if (argument === name) {
+      found = true;
+      candidate = canonicalSessionId(args[index + 1]);
+      index += 1;
+    } else if (argument.startsWith(prefix)) {
+      found = true;
+      candidate = canonicalSessionId(argument.slice(prefix.length));
+    } else continue;
+    // A malformed identity option or two conflicting identities is not an
+    // authoritative description of the currently open conversation.
+    if (!candidate) return { found: true, value: '' };
+    values.push(candidate);
+  }
+  const unique = [...new Set(values)];
+  return { found, value: unique.length === 1 ? unique[0] : '' };
 }
 
 function processSessionExternalId(processInfo = {}, provider = '') {
-  const commandLine = String(processInfo.commandLine || processInfo.CommandLine || '');
+  const args = providerInvocationArguments(processInfo, provider);
+  if (!args.length) return '';
   if (provider === 'claude') {
-    const sessionId = commandArgument(commandLine, '--session-id');
-    if (sessionId) return pathlessSessionId(sessionId);
-    return pathlessSessionId(commandArgument(commandLine, '--resume'));
+    // Claude accepts global options in either order. An explicit session id
+    // names the resulting conversation (including --fork-session), so it
+    // takes precedence over the source named by --resume. Prompt text after
+    // `--`, malformed flags, and conflicting duplicates fail closed.
+    const sessionId = canonicalIdentityOption(args, '--session-id');
+    if (sessionId.found) return sessionId.value;
+    return canonicalIdentityOption(args, '--resume').value;
   }
   if (provider === 'codex') {
-    const match = commandLine.match(/(?:^|\s)resume\s+(?:--last\s+)?(?:"([^"]+)"|'([^']+)'|(\S+))/i);
-    return pathlessSessionId(match && (match[1] || match[2] || match[3]));
+    if (args[0] !== 'resume' || args[1] === '--last') return '';
+    const sessionIndex = args[1] === '--' ? 2 : 1;
+    return canonicalSessionId(args[sessionIndex]);
+  }
+  if (provider === 'gemini' || provider === 'grok') {
+    return canonicalLeadingOption(args, '--resume');
   }
   return '';
 }
@@ -399,12 +514,13 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     markRuntime(pair.session, { ...pair.bridge, kind: 'bridge', label: 'LoadToAgent 외부 명령창 연결', linkScore: Math.round(pair.score) });
   }
   for (const distro of tmuxSnapshot && tmuxSnapshot.distros || []) {
+    if (distro.stale) continue;
     for (const tmuxSession of distro.sessions || []) {
       for (const window of tmuxSession.windows || []) {
         for (const pane of window.panes || []) {
           const agent = pane.agent;
           const linked = agent && agent.linkedSessionId && byId.get(agent.linkedSessionId);
-          if (!linked || pane.dead) continue;
+          if (!linked || pane.dead || agent.linkAuthority !== 'explicit-session-id') continue;
           usedSessionIds.add(linked.id);
           markRuntime(linked, {
             id: `tmux:${distro.name}:${pane.nativeId}`,
@@ -415,8 +531,19 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
             sessionName: tmuxSession.name,
             paneId: pane.id,
             paneNativeId: pane.nativeId,
+            panePid: pane.pid,
             provider: agent.provider,
+            linkAuthority: 'explicit-session-id',
+            linkScore: 'explicit-session-id',
             pid: agent.pid,
+            agentPid: agent.identityPid || agent.pid,
+            agentProvider: agent.provider,
+            agentExternalId: agent.externalId || '',
+            agentArgvHash: agent.identityArgvHash || agent.argvHash || '',
+            agentStartTimeTicks: agent.identityStartTimeTicks || agent.startTimeTicks || '',
+            agentProcessGroupId: Number(agent.identityProcessGroupId || agent.processGroupId || 0),
+            agentTerminalForegroundGroupId: Number(agent.identityTerminalForegroundGroupId
+              || agent.terminalForegroundGroupId || 0),
             startedAt: agent.startedAt,
             cwd: pane.cwd,
           });

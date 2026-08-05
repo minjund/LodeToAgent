@@ -16,6 +16,9 @@ function createElement() {
     placeholder: '',
     isConnected: true,
     querySelector() { return createElement(); },
+    appendChild(child) { child.parentElement = this; return child; },
+    remove() { this.isConnected = false; },
+    addEventListener() {},
     setAttribute() {},
     toggleAttribute() {},
     removeAttribute() {},
@@ -31,12 +34,14 @@ function createWorkbench(root, options = {}) {
     return elements.get(selector);
   };
   const terminalCalls = [];
+  const terminalInstances = [];
   const notices = [];
   const session = options.session || null;
   const remote = options.remote || null;
   const sandbox = {
     document: {
       body: { dataset: {} },
+      createElement,
       querySelector: element,
       querySelectorAll: () => [],
       getElementById: id => element(`#${id}`),
@@ -47,8 +52,24 @@ function createWorkbench(root, options = {}) {
     setTimeout,
     window: {
       LoadToAgentI18n: { t: key => key },
+      Terminal: class FixtureTerminal {
+        constructor() {
+          this.writes = [];
+          this.buffer = { active: { viewportY: 0, baseY: 0 } };
+          terminalInstances.push(this);
+        }
+        loadAddon() {}
+        open() {}
+        onScroll() {}
+        onData() {}
+        onResize() {}
+        write(data, callback) { this.writes.push(String(data)); callback?.(); }
+        dispose() {}
+      },
+      FitAddon: { FitAddon: class FixtureFitAddon { fit() {} } },
       loadtoagent: {
         terminalList: options.terminalList || (async () => []),
+        terminalGet: options.terminalGet || (async () => ({ replay: '', outputSequence: 0 })),
         terminalCommand: async (id, text, deliveryOptions) => {
           terminalCalls.push([id, text, deliveryOptions]);
           return options.terminalCommandResult || { ok: true };
@@ -109,7 +130,7 @@ function createWorkbench(root, options = {}) {
     tmuxRows: () => options.tmuxRows || [],
     updateSnapshot() {},
   });
-  return { state, workbench, terminalCalls, notices, elements };
+  return { state, workbench, terminalCalls, terminalInstances, notices, elements };
 }
 
 function registerTerminalInteractionTests(context) {
@@ -131,6 +152,34 @@ function registerTerminalInteractionTests(context) {
     await staleRefresh;
 
     assert.deepStrictEqual(state.sessions.map(session => session.id), ['terminal:new']);
+  });
+
+  test('PTY replay hydration 중 도착한 live 출력은 sequence 기준으로 정확히 한 번만 이어 붙인다', async () => {
+    let resolveGet;
+    const pendingGet = new Promise(resolve => { resolveGet = resolve; });
+    const session = { id: 'terminal:hydrate', type: 'agent', status: 'running', title: 'Hydration PTY' };
+    const { state, workbench, terminalInstances } = createWorkbench(root, {
+      session,
+      terminalGet: () => pendingGet,
+    });
+
+    const ready = workbench.ensureSessionTerminal(session);
+    await Promise.resolve();
+    const entry = state.terminals.get(session.id);
+    assert.ok(entry, 'terminalGet을 기다리는 동안에도 live event가 찾을 수 있게 entry를 먼저 등록해야 합니다.');
+    assert.equal(entry.acceptOutput({ data: 'already-in-replay\r\n', outputSequence: 7 }), null);
+    assert.equal(entry.acceptOutput({ data: 'live-once\r\n', outputSequence: 8 }), null);
+
+    resolveGet({ replay: 'history\r\nalready-in-replay\r\n', outputSequence: 7 });
+    await ready;
+
+    assert.deepStrictEqual(terminalInstances[0].writes, [
+      'history\r\nalready-in-replay\r\n',
+      'live-once\r\n',
+    ]);
+    assert.equal(entry.outputSequence, 8);
+    assert.equal(entry.acceptOutput({ data: 'duplicate-live\r\n', outputSequence: 8 }), null);
+    assert.equal(entry.acceptOutput({ data: 'next-live\r\n', outputSequence: 9 }), 'next-live\r\n');
   });
 
   test('질문 모드는 일반 셸에 질문을 명령으로 보내지 않는다', async () => {

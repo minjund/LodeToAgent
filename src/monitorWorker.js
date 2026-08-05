@@ -261,6 +261,7 @@ function fingerprint(snapshot, tmux, automations) {
     pane.dead,
     pane.agent && pane.agent.provider,
     pane.agent && pane.agent.linkedSessionId,
+    pane.agent && pane.agent.linkAuthority,
     pane.agent && pane.agent.updatedAt,
   ]))));
   const automationState = (automations || []).map(item => [

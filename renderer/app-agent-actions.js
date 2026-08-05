@@ -3,6 +3,7 @@
 window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(context = {}) {
+  const QUICK_RESPONSE_DRAWER_TIMEOUT_MS = 30_000;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const errorText = (error, key, params) => window.LoadToAgentI18n.errorText(error, key, params);
   const {
@@ -14,6 +15,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     isLiveSession,
     conversationMessageKey,
   } = context;
+  const pendingQuickResponses = new Map();
 
   function emitTerminalDelivery(sessionId, deliveryState, target = null) {
     if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
@@ -267,7 +269,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     const canInterrupt = inputMode === "conversation"
       && Boolean(interruptEntry?.target)
       && ["confirming", "delayed", "received", "responding"].includes(options.delivery?.phase);
-    const sendAvailable = ((mode === "direct" && Boolean(target)) || ["resume", "handoff", "origin-resume"].includes(mode)) && !sending;
+    const terminalReady = options.connectionReady !== false;
+    const sendAvailable = terminalReady
+      && ((mode === "direct" && Boolean(target)) || ["resume", "handoff", "origin-resume"].includes(mode))
+      && !sending;
     const canSend = sendAvailable && (!options.conversation || Boolean(draft.trim()));
     const origin = originAppInfo(targetSession);
     const status = relayed
@@ -347,17 +352,42 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         : "agent.command_example")
       : status;
     const availabilityClass = mode === "direct" ? "connected" : ["resume", "handoff", "origin-resume"].includes(mode) ? "resume-ready" : "unavailable";
-    const interruptLabel = t(interrupting ? "agent.stopping_response" : "agent.stop_response");
+    const terminalInterruptible = inputMode === "terminal"
+      && terminalReady
+      && mode === "direct"
+      && target?.kind === "terminal";
+    const interruptLabel = t(interrupting
+      ? "agent.stopping_response"
+      : terminalInterruptible ? "agent.terminal_interrupt" : "agent.stop_response");
     const interruptAction = options.conversation && inputMode === "conversation"
       ? `<button class="conversation-interrupt" type="button" data-conversation-interrupt="${esc(session.id)}"
           ${canInterrupt && !interrupting ? "" : "disabled"} ${canInterrupt || interrupting ? "" : 'hidden'}
           ${interrupting ? 'aria-busy="true"' : ""} aria-label="${esc(interruptLabel)}" title="${esc(interruptLabel)}">
           <span class="conversation-interrupt-icon" aria-hidden="true">${interrupting ? "…" : ""}</span>
           <span class="conversation-interrupt-label">${esc(t(interrupting ? "agent.stopping_short" : "agent.stop_short"))}</span></button>`
-      : "";
+      : options.conversation && inputMode === "terminal"
+        ? `<button class="conversation-interrupt terminal-interrupt" type="button" data-terminal-interrupt="${esc(session.id)}"
+            ${terminalInterruptible && !interrupting ? "" : "disabled"}
+            ${interrupting ? 'aria-busy="true"' : ""} aria-label="${esc(interruptLabel)}" title="${esc(interruptLabel)}">
+            <span class="conversation-interrupt-icon" aria-hidden="true">${interrupting ? "…" : ""}</span>
+            <span class="conversation-interrupt-label">${esc(t(interrupting ? "agent.stopping_short" : "agent.terminal_interrupt"))}</span></button>`
+        : "";
     const safeSessionId = String(session.id || "").replace(/[^a-z0-9_-]/gi, "-");
     if (options.conversation) {
       const slashMenuId = `conversation-slash-menu-${safeSessionId}`;
+      const slashMenu = options.terminal
+        ? ""
+        : `<div class="conversation-slash-menu hidden" id="${esc(slashMenuId)}" data-conversation-slash-menu role="listbox"
+            aria-label="${esc(t("terminal.slash.title", { provider: providerInfo(session.provider).label }))}">
+            <header>
+              <b data-conversation-slash-title></b>
+              <small data-conversation-slash-status aria-live="polite"></small>
+            </header>
+            <div class="conversation-slash-menu-list" data-conversation-slash-list></div>
+          </div>`;
+      const slashAttributes = options.terminal
+        ? ""
+        : ` aria-controls="${esc(slashMenuId)}" aria-expanded="false" aria-autocomplete="list" aria-haspopup="listbox"`;
       const conversationActions = submitActionLabel
         ? `<button class="conversation-send" type="submit" ${canSend ? "" : "disabled"}
             ${sending ? 'aria-busy="true"' : ""} aria-label="${esc(submitActionLabel)}" title="${esc(submitActionLabel)}">
@@ -372,20 +402,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         <form class="agent-command-panel ${availabilityClass} control-${mode} conversation-composer ${options.terminal || options.terminalStyle ? "terminal-conversation" : ""}"
           data-agent-command-form="${esc(session.id)}" data-agent-command-route-selected="${esc(route)}"
           data-agent-command-input-mode-selected="${esc(inputMode)}" data-agent-command-routing="conversation"
-          data-agent-command-provider="${esc(session.provider)}" data-agent-send-available="${sendAvailable ? "true" : "false"}">
-          <div class="conversation-slash-menu hidden" id="${esc(slashMenuId)}" data-conversation-slash-menu role="listbox"
-            aria-label="${esc(t("terminal.slash.title", { provider: providerInfo(session.provider).label }))}">
-            <header>
-              <b data-conversation-slash-title></b>
-              <small data-conversation-slash-status aria-live="polite"></small>
-            </header>
-            <div class="conversation-slash-menu-list" data-conversation-slash-list></div>
-          </div>
+          data-agent-command-provider="${esc(session.provider)}" data-agent-terminal-ready="${terminalReady ? "true" : "false"}"
+          data-agent-send-available="${sendAvailable ? "true" : "false"}">
+          ${slashMenu}
           ${options.terminal ? picker : ""}
           <label class="agent-command-input">
             <span class="sr-only">${esc(t("agent.command_sr"))}</span>
-            <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="2"
-              aria-controls="${esc(slashMenuId)}" aria-expanded="false" aria-autocomplete="list" aria-haspopup="listbox"
+            <textarea data-agent-command-draft="${esc(session.id)}" maxlength="8000" rows="2"${slashAttributes}
               placeholder="${esc(t(options.terminal ? "drawer.terminal_placeholder" : "agent.chat_placeholder"))}" ${editable ? "" : "disabled"}>${editable ? esc(draft) : ""}</textarea>
           </label>
           ${options.terminal ? `<small class="drawer-terminal-input-hint"><span>${esc(t("drawer.terminal_raw_input"))}</span><span>${esc(t("drawer.terminal_shortcuts"))}</span></small>` : ""}
@@ -429,17 +452,25 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (!detail) return snapshot;
     if (!snapshot) return detail;
 
+    // The lightweight snapshot is the live authority for every field that
+    // identifies a writable PTY. Full-history detail can arrive late (or stay
+    // cached after a refresh failure); never let that stale record keep an old
+    // provider session, workspace, environment, or tmux pane writable.
+    const selected = { ...detail };
+    for (const field of ["provider", "externalId", "cwd", "environment", "runtimePresence"]) {
+      selected[field] = snapshot[field];
+    }
+
     const detailUpdatedAt = Date.parse(detail.updatedAt || 0);
     const snapshotUpdatedAt = Date.parse(snapshot.updatedAt || 0);
     if (Number.isFinite(detailUpdatedAt) && Number.isFinite(snapshotUpdatedAt) && snapshotUpdatedAt < detailUpdatedAt) {
-      return detail;
+      return selected;
     }
 
     // Full-history detail is kept for conversation and lifecycle rendering,
     // but its cached liveness can lag behind the frequently refreshed card.
     // Use the latest observed fields so opening a past record cannot revive an
     // already idle session as "running" while retaining the complete history.
-    const selected = { ...detail };
     for (const field of [
       "status", "statusDetail", "statusObserved", "updatedAt", "completedAt", "completionObserved",
       "attention", "outcome", "responseIntent", "runtimePresence", "executions",
@@ -509,6 +540,15 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
     const drawerSubmission = form?.dataset.agentCommandRouting === "conversation";
     const liveDrawerMode = form?.closest?.("#drawerComposer")?.dataset.mode || "";
+    if (drawerSubmission && liveDrawerMode === "terminal") {
+      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const usableTarget = agentCommandTargets(session).some(target => target.kind === "terminal"
+        && String(target.terminalId || target.id || "") === embedded.terminalId);
+      if (form?.dataset.agentTerminalReady === "false"
+        || !embedded.connected
+        || embedded.agentSessionId !== sessionId
+        || !usableTarget) return;
+    }
     const inputMode = drawerSubmission
       ? ["terminal", "conversation"].includes(liveDrawerMode)
         ? liveDrawerMode
@@ -730,24 +770,46 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
 
   async function interruptConversation(sessionId) {
     if (state.conversationInterruptRequests.has(sessionId)) return;
+    const session = snapshotSession(sessionId) || state.details.get(sessionId);
     const entries = state.pendingConversationMessages.get(sessionId) || [];
     const entry = [...entries].reverse().find(item =>
       item?.target
       && !["failed", "interrupted"].includes(item.status)
       && !["responded", "interrupted"].includes(item.phase));
-    if (!entry || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
+    if (!session || !entry || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
       return context.toast(t("agent.no_active_response"));
     }
     state.conversationInterruptRequests.add(sessionId);
     context.renderDrawer?.();
     try {
-      await window.LoadToAgentTerminal.interruptAgent(entry.target);
+      await window.LoadToAgentTerminal.interruptAgent(session, entry.target.id);
       entry.status = "interrupted";
       entry.phase = "interrupted";
       entry.interruptedAt = new Date().toISOString();
       clearTimeout(entry.confirmationTimer);
       entry.confirmationTimer = 0;
       state.drawerForceLatest = true;
+      context.toast(t("agent.response_stopped"));
+    } catch (error) {
+      context.toast(errorText(error, "agent.interrupt_failed"));
+    } finally {
+      state.conversationInterruptRequests.delete(sessionId);
+      context.render?.();
+      context.renderDrawer?.();
+    }
+  }
+
+  async function interruptAgentTerminal(sessionId) {
+    if (state.conversationInterruptRequests.has(sessionId)) return;
+    const session = snapshotSession(sessionId) || state.details.get(sessionId);
+    const target = session ? chosenAgentCommandTarget(session) : null;
+    if (!session || target?.kind !== "terminal" || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
+      return context.toast(t("agent.no_active_response"));
+    }
+    state.conversationInterruptRequests.add(sessionId);
+    context.renderDrawer?.();
+    try {
+      await window.LoadToAgentTerminal.interruptAgent(session, target.id);
       context.toast(t("agent.response_stopped"));
     } catch (error) {
       context.toast(errorText(error, "agent.interrupt_failed"));
@@ -816,18 +878,145 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     }
   }
 
+  function readyQuickResponseForm(sessionId, form, options = {}) {
+    const session = snapshotSession(sessionId);
+    const input = form?.querySelector?.("[data-agent-command-draft]");
+    const submit = form?.querySelector?.('[type="submit"]');
+    const route = form?.dataset?.agentCommandRouteSelected || "";
+    const target = session ? chosenAgentCommandTarget(session, route) : null;
+    // The submit button also reflects whether the ordinary draft was blank at
+    // render time. quickRespond fills that draft programmatically, so transport
+    // readiness comes from the live state and data attributes below instead.
+    const baseReady = Boolean(session)
+      && !state.agentCommandSending?.has?.(sessionId)
+      && form?.dataset?.agentCommandForm === sessionId
+      && form?.dataset?.agentCommandProvider === session.provider
+      && form?.dataset?.agentCommandRouting === "conversation"
+      && ["terminal", "conversation"].includes(form?.dataset?.agentCommandInputModeSelected)
+      && form?.dataset?.agentTerminalReady === "true"
+      && form?.dataset?.agentSendAvailable === "true"
+      && target?.kind === "terminal"
+      && Boolean(input)
+      && input?.dataset?.agentCommandDraft === sessionId
+      && !input.disabled
+      && Boolean(submit)
+      && typeof form?.requestSubmit === "function";
+    if (!baseReady) return null;
+    if (!options.drawer || !options.composer) return { input, target };
+
+    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const drawerReady = options.drawer.dataset?.mode === "session"
+      && options.drawer.dataset?.terminalChat === "true"
+      && options.drawer.dataset?.conversationSurface === "pty"
+      && options.composer.dataset?.mode === "terminal"
+      && embedded.connected === true
+      && embedded.agentSessionId === sessionId
+      && String(target.terminalId || target.id || "") === String(embedded.terminalId || "");
+    return drawerReady ? { input, target } : null;
+  }
+
+  function queueQuickResponseForDrawer(sessionId, command) {
+    if (pendingQuickResponses.has(sessionId)) return;
+    const pending = {
+      command,
+      opened: false,
+      scheduled: false,
+      frame: null,
+      timeout: null,
+      observer: null,
+      terminalListener: null,
+    };
+
+    const finish = (retry = false) => {
+      if (pendingQuickResponses.get(sessionId) !== pending) return;
+      pendingQuickResponses.delete(sessionId);
+      if (pending.frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(pending.frame);
+      if (pending.timeout !== null) clearTimeout(pending.timeout);
+      pending.observer?.disconnect?.();
+      if (pending.terminalListener && typeof window.removeEventListener === "function") {
+        window.removeEventListener("loadtoagent:drawer-terminal-targets-changed", pending.terminalListener);
+      }
+      if (retry) context.toast?.(t("agent.delivery_retry_ready"));
+    };
+
+    const ownsOpenDrawer = (drawer) => Boolean(drawer?.classList?.contains?.("open"))
+      && state.selectedId === sessionId
+      && state.drawerMode === "session"
+      && state.drawerTab === "chat";
+
+    const attemptSubmit = () => {
+      pending.scheduled = false;
+      pending.frame = null;
+      if (pendingQuickResponses.get(sessionId) !== pending || !pending.opened) return;
+      const drawer = document.querySelector?.("#detailDrawer");
+      if (!ownsOpenDrawer(drawer)) {
+        finish(false);
+        return;
+      }
+      const composer = drawer.querySelector?.("#drawerComposer");
+      const form = composer?.querySelector?.(`[data-agent-command-form="${CSS.escape(sessionId)}"]`);
+      const ready = readyQuickResponseForm(sessionId, form, { drawer, composer });
+      if (!ready) return;
+
+      ready.input.value = pending.command;
+      state.agentCommandDrafts.set(sessionId, pending.command);
+      // Remove every waiter before the synchronous submit event. This keeps
+      // duplicate PTY-ready events and quick-button double clicks exactly-once.
+      finish(false);
+      try {
+        form.requestSubmit();
+      } catch (error) {
+        window.LoadToAgentRendererUtils.reportRecoverableError("quick-response-submit", error);
+        context.toast?.(t("agent.delivery_retry_ready"));
+      }
+    };
+
+    const scheduleAttempt = () => {
+      if (pending.scheduled || pendingQuickResponses.get(sessionId) !== pending) return;
+      pending.scheduled = true;
+      if (typeof requestAnimationFrame === "function") {
+        pending.frame = requestAnimationFrame(attemptSubmit);
+      } else {
+        pending.frame = setTimeout(attemptSubmit, 0);
+      }
+    };
+
+    pending.terminalListener = () => scheduleAttempt();
+    if (typeof window.addEventListener === "function") {
+      window.addEventListener("loadtoagent:drawer-terminal-targets-changed", pending.terminalListener);
+    }
+    const drawer = document.querySelector?.("#detailDrawer");
+    if (drawer && typeof MutationObserver === "function") {
+      pending.observer = new MutationObserver(scheduleAttempt);
+      pending.observer.observe(drawer, { attributes: true, childList: true, subtree: true });
+    }
+    pending.timeout = setTimeout(() => finish(true), QUICK_RESPONSE_DRAWER_TIMEOUT_MS);
+    pending.timeout?.unref?.();
+    pendingQuickResponses.set(sessionId, pending);
+
+    try {
+      context.openDrawer?.(sessionId);
+      pending.opened = true;
+      scheduleAttempt();
+    } catch (error) {
+      finish(true);
+      window.LoadToAgentRendererUtils.reportRecoverableError("quick-response-open-drawer", error);
+    }
+  }
+
   function quickRespond(sessionId, value, root = document) {
+    sessionId = String(sessionId || "");
     const command = String(value || "").trim();
-    if (!command) return;
+    if (!sessionId || !command || pendingQuickResponses.has(sessionId)) return;
     state.agentCommandDrafts.set(sessionId, command);
     const form = root.querySelector?.(`[data-agent-command-form="${CSS.escape(sessionId)}"]`);
     const input = form?.querySelector("[data-agent-command-draft]");
     if (input) input.value = command;
-    if (form) form.requestSubmit();
-    else {
-      state.drawerTab = "summary";
-      context.openDrawer?.(sessionId);
-    }
+    const composer = form?.closest?.("#drawerComposer") || null;
+    const drawer = composer?.dataset?.mode === "terminal" ? document.querySelector?.("#detailDrawer") : null;
+    const ready = readyQuickResponseForm(sessionId, form, drawer ? { drawer, composer } : {});
+    if (!ready) return queueQuickResponseForDrawer(sessionId, command);
+    form.requestSubmit();
   }
 
   function prepareReassignment(sessionId) {
@@ -871,6 +1060,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     resetAgentSession,
     dispatchAgentCommand,
     interruptConversation,
+    interruptAgentTerminal,
     openAgentTerminal,
     copyBridgeCommand,
     controlManagedRun,

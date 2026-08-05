@@ -2,6 +2,13 @@
 
 const { execFileSync } = require('child_process');
 
+function confirmedMissingTmuxSession(error) {
+  if (Number(error?.status) !== 1 || error?.killed || error?.signal) return false;
+  if (error?.code && error.code !== 1 && error.code !== '1') return false;
+  const diagnostic = `${String(error?.stderr || '')}\n${String(error?.stdout || '')}\n${String(error?.message || '')}`;
+  return /can't find session|no server running on|(?:error|failed) connecting to .*no such file/i.test(diagnostic);
+}
+
 class ManagedTmuxRuntime {
   constructor(options = {}) {
     this.platform = options.platform || process.platform;
@@ -40,11 +47,39 @@ class ManagedTmuxRuntime {
     }
   }
 
+  available(options = {}) {
+    try {
+      this.execute(options, ['-V']);
+      return true;
+    } catch (_unavailable) {
+      return false;
+    }
+  }
+
+  existsStrict(options) {
+    try {
+      this.execute(options, ['has-session', '-t', `=${options.managedTmuxSession}`]);
+      return true;
+    } catch (error) {
+      if (confirmedMissingTmuxSession(error)) return false;
+      throw error;
+    }
+  }
+
   stop(options) {
     try {
       this.execute(options, ['kill-session', '-t', `=${options.managedTmuxSession}`]);
     } catch (error) {
       if (error?.status !== 1) throw error;
+    }
+    return { ok: true };
+  }
+
+  stopStrict(options) {
+    try {
+      this.execute(options, ['kill-session', '-t', `=${options.managedTmuxSession}`]);
+    } catch (error) {
+      if (!confirmedMissingTmuxSession(error)) throw error;
     }
     return { ok: true };
   }

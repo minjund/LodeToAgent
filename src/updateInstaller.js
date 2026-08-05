@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { execFile: execFileCallback, spawn: spawnProcess } = require('child_process');
 const { promisify } = require('util');
 const { reportRecoverableError } = require('./diagnostics');
+const { terminateApplication: terminateMacUpdateApplication } = require('./macUpdateHelper');
 
 const execFileProcess = promisify(execFileCallback);
 
@@ -52,12 +53,31 @@ function Executable-Version([string]$Candidate) {
 
 function App-Processes([string]$ExecutablePath) {
   try {
-    return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    return @(Get-CimInstance Win32_Process -ErrorAction Stop |
       Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -and [string]$_.ExecutablePath -ieq $ExecutablePath })
   } catch {
     Write-UpdateLog ('processLookupError=' + $_.Exception.Message)
-    return @()
+    throw
   }
+}
+
+function Wait-ForAppProcessesToStop([string]$ExecutablePath, [int]$TimeoutMilliseconds) {
+  $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+  do {
+    $remaining = @(App-Processes $ExecutablePath)
+    if ($remaining.Count -eq 0) {
+      Write-UpdateLog 'allAppProcessesStopped=true'
+      return
+    }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $deadline)
+
+  $remaining = @(App-Processes $ExecutablePath)
+  if ($remaining.Count -ne 0) {
+    $remainingPids = (($remaining | ForEach-Object { [string]$_.ProcessId }) -join ',')
+    throw ('LoadToAgent 프로세스 종료를 확인하지 못했습니다. 남은 PID: ' + $remainingPids)
+  }
+  Write-UpdateLog 'allAppProcessesStopped=true'
 }
 
 Add-Type -TypeDefinition @'
@@ -171,6 +191,7 @@ try {
     Start-Sleep -Milliseconds 250
   }
   Stop-AppProcesses $AppPath 'stoppingOrphanProcess'
+  Wait-ForAppProcessesToStop $AppPath 10000
 
   $installer = Start-Process -FilePath $InstallerPath -ArgumentList '/S' -PassThru -Wait -WindowStyle Hidden
   $exitCode = $installer.ExitCode
@@ -509,6 +530,29 @@ function waitForProcessSpawn(child, timeoutMs = 5000) {
   });
 }
 
+async function strictWindowsProcessExists(pid, options = {}) {
+  const probe = typeof options.processExists === 'function'
+    ? options.processExists
+    : targetPid => {
+      process.kill(targetPid, 0);
+      return true;
+    };
+  try {
+    const result = await Promise.resolve(probe(pid));
+    if (typeof result !== 'boolean') {
+      throw new Error('프로세스 상태 확인 결과가 올바르지 않습니다.');
+    }
+    return result;
+  } catch (cause) {
+    if (cause && cause.code === 'ESRCH') return false;
+    if (cause && cause.code === 'EPERM') return true;
+    const error = new Error(`업데이트 설치 도우미 PID ${pid}의 종료 상태를 확인하지 못했습니다.`);
+    error.code = 'UPDATE_HELPER_PROCESS_PROBE_FAILED';
+    error.cause = cause;
+    throw error;
+  }
+}
+
 async function terminateWindowsUpdateProcesses(pids, options = {}) {
   const targets = [...new Set((Array.isArray(pids) ? pids : [pids])
     .map(Number)
@@ -528,9 +572,41 @@ async function terminateWindowsUpdateProcesses(pids, options = {}) {
     try {
       await terminateTree(pid);
     } catch (_treeTerminationError) {
-      try { (options.killProcess || process.kill)(pid, 'SIGTERM'); } catch (_alreadyExited) {}
+      try { await Promise.resolve((options.killProcess || process.kill)(pid, 'SIGTERM')); } catch (_alreadyExited) {}
     }
   }
+  const timeoutMs = Math.max(1, Number(options.terminationTimeoutMs) || 5_000);
+  const pollMs = Math.max(1, Number(options.terminationPollMs) || 50);
+  const now = typeof options.now === 'function' ? options.now : Date.now;
+  const delay = typeof options.delay === 'function'
+    ? options.delay
+    : milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+  const deadline = now() + timeoutMs;
+  while (targets.length) {
+    const alive = [];
+    for (const pid of targets) {
+      if (await strictWindowsProcessExists(pid, options)) alive.push(pid);
+    }
+    if (!alive.length) return { ok: true, pids: targets };
+    if (now() >= deadline) {
+      const error = new Error(`업데이트 설치 도우미 프로세스 종료를 확인하지 못했습니다. 남은 PID: ${alive.join(',')}`);
+      error.code = 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED';
+      error.pids = alive;
+      throw error;
+    }
+    await delay(Math.min(pollMs, Math.max(1, deadline - now())));
+  }
+  return { ok: true, pids: [] };
+}
+
+function updateHelperCancellationError(originalError, cancellationError) {
+  const originalMessage = String(originalError && originalError.message || originalError || '업데이트 준비 실패');
+  const cancellationMessage = String(cancellationError && cancellationError.message || cancellationError || '종료 확인 실패');
+  const error = new Error(`${originalMessage} 업데이트 설치 도우미 취소도 확인하지 못했습니다: ${cancellationMessage}`);
+  error.code = 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED';
+  error.cause = originalError;
+  error.cancellationError = cancellationError;
+  return error;
 }
 
 async function readUpdateReadySignal(readyPath, expected = {}) {
@@ -740,7 +816,16 @@ async function launchDownloadedUpdate(options = {}) {
         });
       }
     } catch (error) {
-      try { if (typeof child.kill === 'function') child.kill(); } catch (_killError) {}
+      try {
+        await terminateMacUpdateApplication(child, {
+          delay: options.delay,
+          signalProcess: options.signalProcess,
+          timeoutMs: options.terminationTimeoutMs,
+          pollMs: options.terminationPollMs,
+        });
+      } catch (cancellationError) {
+        throw updateHelperCancellationError(error, cancellationError);
+      }
       await fs.promises.rm(readyPath, { force: true }).catch(cleanupError => {
         reportRecoverableError('mac-update-helper-ready-remove', cleanupError);
       });
@@ -821,7 +906,11 @@ async function launchDownloadedUpdate(options = {}) {
       try { readySignal = await readUpdateReadySignal(readyPath, { token: rendererReadyToken }); } catch (_missingReadySignal) {}
     }
     const helperPid = Number(readySignal && readySignal.helperPid || 0);
-    await terminateWindowsUpdateProcesses([helperPid, helperPid > 0 ? 0 : child && child.pid], options);
+    try {
+      await terminateWindowsUpdateProcesses([helperPid, child && child.pid], options);
+    } catch (cancellationError) {
+      throw updateHelperCancellationError(error, cancellationError);
+    }
     await Promise.all([
       fs.promises.rm(readyPath, { force: true }),
       fs.promises.rm(rendererReadyPath, { force: true }),
@@ -853,6 +942,8 @@ module.exports = {
   macAppBundlePath,
   readDesktopAppVersion,
   resolveInstalledDesktopApp,
+  strictWindowsProcessExists,
+  terminateWindowsUpdateProcesses,
   waitForProcessSpawn,
   waitForUpdateHelperReady,
   verifyDownloadedInstaller,

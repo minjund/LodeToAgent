@@ -190,10 +190,22 @@ class BridgeServer {
     } else if (message.type === 'resize') {
       this.terminalManager.resize(client.terminalId, message.cols, message.rows);
     } else if (message.type === 'signal') {
-      this.terminalManager.signal(client.terminalId, message.signal);
+      const signaling = this.terminalManager.signal(client.terminalId, message.signal);
+      if (signaling && typeof signaling.then === 'function') {
+        Promise.resolve(signaling).catch(error => {
+          sendFrame(client.socket, { type: 'error', message: String(error.message || error) });
+        });
+      }
     } else if (message.type === 'close') {
-      this.terminalManager.close(client.terminalId);
-      client.socket.end();
+      const closing = this.terminalManager.close(client.terminalId);
+      if (closing && typeof closing.then === 'function') {
+        Promise.resolve(closing).then(
+          () => client.socket.end(),
+          error => sendFrame(client.socket, { type: 'error', message: String(error.message || error) }),
+        );
+      } else {
+        client.socket.end();
+      }
     } else throw new Error('이 외부 명령창 요청은 지원하지 않습니다.');
   }
 

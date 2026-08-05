@@ -62,11 +62,16 @@ jobs:
         run: brew install tmux
       - run: npm test
       - run: npm run test:terminal
+      - run: npm run test:terminal:tmux-pane
       - run: npm run test:bridge
-      - name: Verify terminal-shaped conversation drawer
+      - name: Verify conversation drawer UI contract
         if: runner.os == 'Windows'
         timeout-minutes: 5
         run: npm run test:drawer-conversation
+      - name: Verify actual PTY conversation drawer end to end
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        run: npm run test:drawer-actual-pty
       - name: Upload drawer conversation diagnostics
         if: failure() && runner.os == 'Windows'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -74,6 +79,7 @@ jobs:
           name: Diagnostics-drawer-conversation-${{ github.run_attempt }}
           path: |
             artifacts/drawer-terminal-visual.log
+            artifacts/drawer-actual-pty-integration.log
             artifacts/loadtoagent-drawer-*.png
             artifacts/loadtoagent-history-empty.png
           if-no-files-found: ignore

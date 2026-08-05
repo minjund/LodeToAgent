@@ -75,7 +75,7 @@ app.whenReady().then(async () => {
     const windowSize = runtime.execute(options, ['show-options', '-g', '-v', 'window-size']).trim();
     if (windowSize !== 'largest') throw new Error(`tmux window-size 설정이 largest가 아닙니다: ${windowSize}`);
 
-    const detached = manager.detach(sessionId);
+    const detached = await manager.detach(sessionId);
     if (detached.status !== 'detached' || !runtime.exists(options)) {
       throw new Error('PTY 화면을 분리한 뒤 tmux 작업이 유지되지 않았습니다.');
     }
@@ -91,11 +91,11 @@ app.whenReady().then(async () => {
     }
     await backgroundOutput;
 
-    const stopped = manager.stop(sessionId);
+    const stopped = await manager.stop(sessionId);
     if (stopped.status !== 'stopped' || runtime.exists(options) || !manager.get(sessionId)) {
       throw new Error('명시적 중단 뒤 tmux 작업 종료와 세션 기록 보존이 일치하지 않습니다.');
     }
-    manager.close(sessionId);
+    await manager.close(sessionId);
     sessionId = '';
     if (manager.list().length !== 0) throw new Error('관리형 tmux 세션 기록이 제거되지 않았습니다.');
 
@@ -107,9 +107,9 @@ app.whenReady().then(async () => {
     process.exitCode = 1;
   } finally {
     try {
-      if (sessionId && manager.get(sessionId)) manager.close(sessionId);
+      if (sessionId && manager.get(sessionId)) await manager.close(sessionId);
     } catch {}
-    manager.dispose();
+    await manager.dispose();
     try { runtime.execute({ tmuxSocket: socket }, ['kill-server']); } catch {}
     try { fs.rmSync(temp, { recursive: true, force: true }); } catch {}
     setTimeout(() => app.exit(process.exitCode || 0), 100);

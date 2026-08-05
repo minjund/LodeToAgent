@@ -45,7 +45,7 @@ app.whenReady().then(async () => {
     process.exitCode = 1;
   } finally {
     server.dispose();
-    manager.dispose();
+    await manager.dispose();
     try { fs.rmSync(temp, { recursive: true, force: true }); } catch {}
     app.quit();
   }

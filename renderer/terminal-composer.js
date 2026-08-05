@@ -51,7 +51,7 @@
 
   function createTerminalComposer(context = {}) {
     const {
-      $, state, currentTargetId, isAiTarget, providerForTarget,
+      $, state, currentTargetId, isAiTarget, providerForTarget, allowSlashCommands,
       esc = value => String(value ?? ''),
     } = context;
     const t = (key, params) => window.LoadToAgentI18n.t(key, params);
@@ -125,7 +125,7 @@
 
     function syncMenu(options = {}) {
       const input = $('#terminalCommandInput');
-      if (!input || !isAiTarget?.() || input.disabled) {
+      if (!input || !isAiTarget?.() || allowSlashCommands?.() === false || input.disabled) {
         setMenuOpen(false);
         return;
       }
@@ -180,10 +180,13 @@
       const hint = $('#terminalCommandModeHint');
       if (!form || !trigger || !hint) return;
       const aiTarget = Boolean(isAiTarget?.());
+      const slashCommandsAllowed = aiTarget && allowSlashCommands?.() !== false;
       const targetProvider = providerName();
       form.dataset.aiTarget = aiTarget ? 'true' : 'false';
-      trigger.classList.toggle('hidden', !aiTarget);
-      trigger.disabled = !aiTarget;
+      trigger.classList.toggle('hidden', !slashCommandsAllowed);
+      trigger.disabled = !slashCommandsAllowed;
+      if (slashCommandsAllowed) trigger.setAttribute('aria-haspopup', 'listbox');
+      else trigger.removeAttribute('aria-haspopup');
       // File selection is not wired to the desktop bridge yet. Keep the
       // placeholder unavailable instead of presenting a button that opens the
       // unrelated slash-command menu.
@@ -258,7 +261,7 @@
 
     function openMenu() {
       const input = $('#terminalCommandInput');
-      if (!input || input.disabled || !isAiTarget?.()) return;
+      if (!input || input.disabled || !isAiTarget?.() || allowSlashCommands?.() === false) return;
       if (slashQuery(input.value, input.selectionStart) == null) input.value = '/';
       dismissedValue = '';
       input.dispatchEvent(new Event('input', { bubbles: true }));

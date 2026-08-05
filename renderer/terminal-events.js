@@ -581,7 +581,8 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     window.loadtoagent.onTerminalData(payload => {
       const entry = state.terminals.get(payload && payload.id);
-      writeTerminalOutput(entry, payload && payload.data);
+      const data = entry?.acceptOutput ? entry.acceptOutput(payload) : payload && payload.data;
+      writeTerminalOutput(entry, data);
       schedulePendingPromptRefresh();
     });
     window.loadtoagent.onTerminalState(payload => {

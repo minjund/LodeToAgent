@@ -17,6 +17,8 @@ const { registerTerminalInteractionTests } = require('./tests/terminal-interacti
 const { registerTerminalPromptTests } = require('./tests/terminal-prompts');
 const { registerAgentRunnerLifecycleTests } = require('./tests/agent-runner-lifecycle');
 const { registerUpdateDownloadLimitTests } = require('./tests/update-download-limits');
+const { registerTmuxControlProxyLifecycleTests } = require('./tests/tmux-control-proxy-lifecycle');
+const { registerTerminalBoundConversationTests } = require('./tests/terminal-bound-conversation');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -34,12 +36,14 @@ registerTerminalInteractionTests(context);
 registerTerminalPromptTests(context);
 registerAgentRunnerLifecycleTests(context);
 registerUpdateDownloadLimitTests(context);
+registerTmuxControlProxyLifecycleTests(context);
+registerTerminalBoundConversationTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 159) {
-  throw new Error(`회귀 테스트 등록 수가 159개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 216) {
+  throw new Error(`회귀 테스트 등록 수가 216개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

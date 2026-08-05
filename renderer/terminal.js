@@ -94,6 +94,7 @@
     wslDistros: [],
     active: false,
     terminals: new Map(),
+    agentConnectionSignatures: new Map(),
     remoteTerminal: null,
     remoteCapture: '',
     remoteViewportAnchor: null,
@@ -253,7 +254,9 @@
     if (!agentSession) return { supported: false, reason: t('terminal.resume.no_session_info') };
     if (agentSession.parentId) return { supported: false, parentControlled: true, reason: t('terminal.resume.parent_controlled') };
     const sessionId = String(agentSession.externalId || '').trim();
-    if (!sessionId) return { supported: false, reason: t('terminal.resume.no_session_id') };
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(sessionId)) {
+      return { supported: false, reason: t('terminal.resume.no_session_id') };
+    }
     const provider = String(agentSession.provider || '').toLowerCase();
     if (!['codex', 'claude', 'gemini', 'grok'].includes(provider)) {
       return { supported: false, reason: t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }) };
@@ -768,11 +771,12 @@
   composer = window.LoadToAgentTerminalComposer.create({
     $, state, currentTargetId, esc,
     isAiTarget: () => isAiTerminalSession(currentSession()),
+    allowSlashCommands: () => !currentSession()?.conversationBound,
     providerForTarget: () => visibleBoundAgent()?.provider || currentSession()?.provider || '',
   });
 
   const {
-    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, resetForAgent,
+    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
@@ -806,6 +810,9 @@
       return { ok: false, reason: 'invalid-mount', targets: [] };
     }
     const generation = ++state.embeddedGeneration;
+    const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
+    const mountTargets = () => agentTargets(agentSession).filter(item => item.kind !== 'terminal'
+      || !excludedTerminalIds.has(String(item.terminalId || item.id || '')));
     await init();
     if (generation !== state.embeddedGeneration) {
       return { ok: false, reason: 'cancelled', targets: [] };
@@ -816,35 +823,45 @@
       && state.embeddedMount === mount
       ? state.terminals.get(state.embeddedTerminalId)
       : null;
-    if (current && (!requestedTargetId || requestedTargetId === state.embeddedTerminalId)) {
+    const currentTargets = mountTargets();
+    const currentTarget = currentTargets.find(item => item.kind === 'terminal'
+      && String(item.terminalId || item.id || '') === state.embeddedTerminalId) || null;
+    if (current && currentTarget && (!requestedTargetId || requestedTargetId === state.embeddedTerminalId)
+      && bindAgentConnection(agentSession, currentTarget)) {
       current.host.classList.remove('hidden');
       fitEntry(current, state.embeddedTerminalId);
-      const targets = agentTargets(agentSession);
-      const target = targets.find(item => item.id === state.embeddedTerminalId) || {
-        id: state.embeddedTerminalId,
-        kind: 'terminal',
-        terminalId: state.embeddedTerminalId,
-      };
       return {
         ok: true,
         reused: true,
-        target,
-        targets,
+        target: currentTarget,
+        targets: currentTargets,
         terminal: state.sessions.find(item => item.id === state.embeddedTerminalId) || null,
       };
     }
 
     detachEmbedded();
-    let targets = agentTargets(agentSession);
+    let targets = mountTargets();
     if (!targets.length) {
       await refreshSessions();
       if (generation !== state.embeddedGeneration) return { ok: false, reason: 'cancelled', targets: [] };
-      targets = agentTargets(agentSession);
+      targets = mountTargets();
     }
     const requested = requestedTargetId ? targets.find(item => item.id === requestedTargetId) : null;
-    const target = requested || targets.find(item => item.kind === 'terminal') || targets[0] || null;
+    let target = requested || targets.find(item => item.kind === 'terminal')
+      || (options.createIfMissing ? null : targets[0]) || null;
+    if (!target && options.createIfMissing) {
+      target = await ensureForAgent(agentSession, { excludeTerminalIds: [...excludedTerminalIds] });
+      if (generation !== state.embeddedGeneration || !mount.isConnected) {
+        return { ok: false, reason: 'cancelled', targets };
+      }
+      targets = mountTargets();
+      target = targets.find(item => item.id === target?.id) || target;
+    }
     if (!target) return { ok: false, reason: 'no-target', targets };
     if (target.kind !== 'terminal') return { ok: false, reason: 'tmux-readonly', target, targets };
+    if (!bindAgentConnection(agentSession, target)) {
+      return { ok: false, reason: 'target-expired', target, targets };
+    }
 
     const terminalId = String(target.terminalId || target.id || '');
     if (target.reconnectable) {
@@ -923,13 +940,7 @@
     }
     const detected = await Promise.all(mappings.map(async ({ agent, target }) => {
       try {
-        const output = target.kind === 'tmux'
-          ? (await window.loadtoagent.tmuxCapture({
-            distro: target.distro,
-            target: target.paneNativeId,
-            lines: 160,
-          }))?.output
-          : (await window.loadtoagent.terminalGet(target.terminalId))?.replay;
+        const output = (await window.loadtoagent.terminalGet(target.terminalId))?.replay;
         const prompt = detector(output);
         if (!prompt || state.promptDismissals.get(target.id) === prompt.fingerprint) return null;
         return {
@@ -986,21 +997,33 @@
     });
   }
 
+  function rejectedPromptError(message, code = 'DELIVERY_REJECTED') {
+    const error = new Error(message);
+    error.code = code;
+    error.deliveryState = 'rejected';
+    return error;
+  }
+
   async function respondToPrompt(sessionOrId, choiceId) {
     const sessionId = typeof sessionOrId === 'object' ? sessionOrId?.id : sessionOrId;
     const prompt = pendingPromptForSession(sessionId);
     const choice = prompt?.choices?.find(item => item.id === choiceId);
-    if (!prompt || !choice || !prompt.target) throw new Error('선택할 승인 요청을 찾을 수 없습니다.');
-    const result = prompt.target.kind === 'tmux'
-      ? await window.loadtoagent.tmuxSendKey({
-        distro: prompt.target.distro,
-        target: prompt.target.paneNativeId,
-        key: choice.key,
-      })
-      : await window.loadtoagent.terminalWrite(
-        prompt.target.terminalId,
-        choice.key === 'Escape' ? '\x1b' : choice.key,
-      );
+    if (!prompt || !choice || !prompt.target) throw rejectedPromptError('선택할 승인 요청을 찾을 수 없습니다.');
+    const agentSession = state.snapshot?.sessions?.find(session => session.id === sessionId) || null;
+    let target = null;
+    try {
+      target = requiredAgentTarget(agentSession, prompt.target.id);
+    } catch (error) {
+      state.pendingPrompts.delete(String(sessionId || ''));
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      throw error;
+    }
+    if (target.kind !== 'terminal' || target.terminalId !== prompt.target.terminalId) {
+      state.pendingPrompts.delete(String(sessionId || ''));
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      throw rejectedPromptError('이 승인 요청의 실제 PTY 연결이 더 이상 현재 대화와 일치하지 않습니다.');
+    }
+    const result = await window.loadtoagent.terminalRespond(target.terminalId, choice.key);
     if (!result || result.ok === false) throw new Error(result?.error || '승인 선택을 전달하지 못했습니다.');
     state.promptDismissals.set(prompt.target.id, prompt.fingerprint);
     state.pendingPrompts.delete(String(sessionId || ''));
@@ -1252,7 +1275,10 @@
     activate,
     deactivate,
     updateSnapshot,
-    refresh: refreshSessions,
+    refresh: async () => {
+      await refreshSnapshot();
+      return refreshSessions();
+    },
     selectTmuxById,
     openTmuxModal,
     agentTargets,
@@ -1261,6 +1287,9 @@
     interruptAgent,
     openForAgent,
     resumeForAgent,
+    ensureForAgent,
+    bindAgentConnection,
+    hasTerminalSession: terminalId => state.sessions.some(item => item.id === String(terminalId || '')),
     resetForAgent,
     mountForAgent,
     unmountEmbedded,
