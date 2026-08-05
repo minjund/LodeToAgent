@@ -16,6 +16,7 @@ const {
   macAppBundlePath,
   readDesktopAppVersion,
   resolveInstalledDesktopApp,
+  terminateWindowsUpdateProcesses,
   verifyDownloadedInstaller,
   waitForUpdateHelperReady,
   WINDOWS_UPDATE_BOOTSTRAP,
@@ -429,7 +430,20 @@ function registerCliAndUpdateTests(context) {
     assert.match(helperSource, /Move-Item -LiteralPath \$readyTemporary -Destination \$ReadyPath -Force/);
     assert.match(helperSource, /helperPid = \$PID; token = \$RendererReadyToken/);
     assert.match(helperSource, /helperStarted=true;parentPid=/);
+    assert.match(helperSource, /Get-CimInstance Win32_Process -ErrorAction Stop/);
+    assert.match(helperSource, /\[string\]\$_.ExecutablePath -ieq \$ExecutablePath/);
+    assert.match(helperSource, /processLookupError=.*\n\s*throw/);
+    assert.match(helperSource, /function Wait-ForAppProcessesToStop/);
+    assert.match(helperSource, /if \(\$remaining\.Count -eq 0\)/);
+    assert.match(helperSource, /if \(\$remaining\.Count -ne 0\)/);
+    assert.match(helperSource, /LoadToAgent 프로세스 종료를 확인하지 못했습니다/);
     assert.match(helperSource, /Stop-AppProcesses \$AppPath 'stoppingOrphanProcess'/);
+    assert.match(helperSource, /Wait-ForAppProcessesToStop \$AppPath 10000/);
+    const stopAppProcessesIndex = helperSource.indexOf("Stop-AppProcesses $AppPath 'stoppingOrphanProcess'");
+    const confirmAppProcessesStoppedIndex = helperSource.indexOf('Wait-ForAppProcessesToStop $AppPath 10000');
+    const installerStartIndex = helperSource.indexOf("Start-Process -FilePath $InstallerPath -ArgumentList '/S'");
+    assert(stopAppProcessesIndex >= 0 && stopAppProcessesIndex < confirmAppProcessesStoppedIndex);
+    assert(confirmAppProcessesStoppedIndex < installerStartIndex);
     assert.match(helperSource, /ArgumentList '\/S'/);
     assert.match(helperSource, /if \(\$exitCode -ne 0\)/);
     assert.match(helperSource, /updateFailed=true/);
@@ -511,6 +525,7 @@ function registerCliAndUpdateTests(context) {
       waitForReady: async () => ({ helperPid: 3579, token: failedReadyToken }),
       beforeAutomaticInstall: async () => { throw new Error('fixture terminal shutdown failure'); },
       killProcessTree: async pid => { killedHelpers.push(pid); },
+      processExists: () => false,
       spawn: (_command, args) => {
         failedReadyToken = args[args.indexOf('-RendererReadyToken') + 1];
         const child = new EventEmitter();
@@ -521,7 +536,7 @@ function registerCliAndUpdateTests(context) {
         return child;
       },
     }), /fixture terminal shutdown failure/);
-    assert.deepStrictEqual(killedHelpers, [3579]);
+    assert.deepStrictEqual(killedHelpers, [3579, 3580]);
     assert.equal(fs.existsSync(path.join(downloadDir, `install-update-${failedReadyToken}.ps1`)), false);
     assert.equal(fs.existsSync(path.join(downloadDir, `install-update-bootstrap-${failedReadyToken}.ps1`)), false);
     const killedBootstrapTrees = [];
@@ -531,6 +546,7 @@ function registerCliAndUpdateTests(context) {
       expectedVersion: '3.1.0', environment: { SystemRoot: 'C:\\Windows' }, verifyInstaller,
       waitForReady: async () => { throw new Error('fixture helper readiness timeout'); },
       killProcessTree: async pid => { killedBootstrapTrees.push(pid); },
+      processExists: () => false,
       spawn: () => {
         const child = new EventEmitter();
         child.pid = 3581;
@@ -540,6 +556,69 @@ function registerCliAndUpdateTests(context) {
       },
     }), /fixture helper readiness timeout/);
     assert.deepStrictEqual(killedBootstrapTrees, [3581]);
+
+    const fallbackSignals = [];
+    let fallbackProbe = 0;
+    assert.deepStrictEqual(await terminateWindowsUpdateProcesses([3_590], {
+      killProcessTree: async () => { throw new Error('fixture taskkill failure'); },
+      killProcess: (pid, signal) => fallbackSignals.push([pid, signal]),
+      processExists: () => (++fallbackProbe === 1),
+      delay: async () => {},
+      terminationTimeoutMs: 20,
+    }), { ok: true, pids: [3_590] });
+    assert.deepStrictEqual(fallbackSignals, [[3_590, 'SIGTERM']]);
+    await terminateWindowsUpdateProcesses([3_591], {
+      killProcessTree: async () => {},
+      processExists: () => { throw Object.assign(new Error('already gone'), { code: 'ESRCH' }); },
+    });
+    let liveClock = 0;
+    await assert.rejects(terminateWindowsUpdateProcesses([3_592], {
+      killProcessTree: async () => {},
+      processExists: () => { throw Object.assign(new Error('access denied'), { code: 'EPERM' }); },
+      now: () => liveClock,
+      delay: async milliseconds => { liveClock += milliseconds; },
+      terminationTimeoutMs: 5,
+      terminationPollMs: 1,
+    }), error => error.code === 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED' && error.pids[0] === 3_592);
+    await assert.rejects(terminateWindowsUpdateProcesses([3_593], {
+      killProcessTree: async () => {},
+      processExists: () => { throw Object.assign(new Error('lookup failed'), { code: 'EIO' }); },
+    }), error => error.code === 'UPDATE_HELPER_PROCESS_PROBE_FAILED');
+
+    let unconfirmedReadyToken = '';
+    let unconfirmedClock = 0;
+    let unconfirmedError = null;
+    try {
+      await launchDownloadedUpdate({
+        platform: 'win32', installType: 'desktop', downloadsDir: downloadDir,
+        installerPath: downloaded.downloadedPath, appPath: process.execPath, parentPid: 4321,
+        expectedVersion: '3.1.0', environment: { SystemRoot: 'C:\\Windows' }, verifyInstaller,
+        waitForReady: async () => ({ helperPid: 3_594, token: unconfirmedReadyToken }),
+        beforeAutomaticInstall: async () => { throw new Error('fixture shutdown rejected'); },
+        killProcessTree: async () => {},
+        processExists: () => true,
+        now: () => unconfirmedClock,
+        delay: async milliseconds => { unconfirmedClock += milliseconds; },
+        terminationTimeoutMs: 1,
+        spawn: (_command, args) => {
+          unconfirmedReadyToken = args[args.indexOf('-RendererReadyToken') + 1];
+          const child = new EventEmitter();
+          child.pid = 3_595;
+          child.unref = () => {};
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+      });
+    } catch (error) {
+      unconfirmedError = error;
+    }
+    assert(unconfirmedError);
+    assert.equal(unconfirmedError.code, 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED');
+    assert.match(unconfirmedError.message, /fixture shutdown rejected/);
+    assert.equal(fs.existsSync(path.join(downloadDir, `install-update-${unconfirmedReadyToken}.ps1`)), true);
+    assert.equal(fs.existsSync(path.join(downloadDir, `install-update-bootstrap-${unconfirmedReadyToken}.ps1`)), true);
+    fs.rmSync(path.join(downloadDir, `install-update-${unconfirmedReadyToken}.ps1`), { force: true });
+    fs.rmSync(path.join(downloadDir, `install-update-bootstrap-${unconfirmedReadyToken}.ps1`), { force: true });
     assert.equal(canInstallSilently({
       platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
     }), false);
@@ -610,11 +689,16 @@ function registerCliAndUpdateTests(context) {
         expectedVersion: '3.1.0',
         verifyInstaller,
         waitForReady: async () => { throw new Error('fixture helper readiness timeout'); },
+        signalProcess: () => { throw Object.assign(new Error('fixture process group missing'), { code: 'ESRCH' }); },
         spawn: () => {
           const child = new EventEmitter();
           child.pid = 9888;
           child.unref = () => {};
-          child.kill = () => { failedMacHelperKilled = true; return true; };
+          child.kill = signal => {
+            failedMacHelperKilled = true;
+            child.signalCode = signal || 'SIGTERM';
+            return true;
+          };
           setImmediate(() => child.emit('spawn'));
           return child;
         },
@@ -622,6 +706,40 @@ function registerCliAndUpdateTests(context) {
       /fixture helper readiness timeout/,
     );
     assert.equal(failedMacHelperKilled, true);
+
+    let unconfirmedMacReadyPath = '';
+    let unconfirmedMacRendererReadyPath = '';
+    let unconfirmedMacError = null;
+    try {
+      await launchDownloadedUpdate({
+        platform: 'darwin', installType: 'desktop', downloadsDir: downloadDir,
+        installerPath: macInstaller, appPath: macExecutable, parentPid: 4321,
+        expectedVersion: '3.1.0', verifyInstaller,
+        waitForReady: async readyPath => {
+          unconfirmedMacReadyPath = readyPath;
+          fs.writeFileSync(readyPath, 'fixture-ready', 'utf8');
+        },
+        beforeAutomaticInstall: async () => { throw new Error('fixture mac shutdown rejected'); },
+        signalProcess: () => { throw Object.assign(new Error('fixture mac helper still live'), { code: 'EPERM' }); },
+        spawn: (_command, args) => {
+          unconfirmedMacRendererReadyPath = args[args.indexOf('--renderer-ready-path') + 1];
+          const child = new EventEmitter();
+          child.pid = 9_889;
+          child.unref = () => {};
+          child.kill = () => true;
+          setImmediate(() => child.emit('spawn'));
+          return child;
+        },
+      });
+    } catch (error) {
+      unconfirmedMacError = error;
+    }
+    assert(unconfirmedMacError);
+    assert.equal(unconfirmedMacError.code, 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED');
+    assert.match(unconfirmedMacError.message, /fixture mac shutdown rejected/);
+    assert.equal(fs.existsSync(unconfirmedMacReadyPath), true);
+    fs.rmSync(unconfirmedMacReadyPath, { force: true });
+    fs.rmSync(unconfirmedMacRendererReadyPath, { force: true });
 
     assert.equal(canInstallSilently({
       platform: 'darwin', installType: 'desktop', installerPath: macInstaller,

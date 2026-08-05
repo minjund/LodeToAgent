@@ -12,7 +12,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     handleRun, trapDialogFocus, currentDialog, selectView, saveRunDraft = () => {}, safeBackdrop = null,
     rememberDialogTrigger = () => {}, restoreDialogTrigger = () => {}, discardDialogTrigger = () => {}, setDialogOpenState = () => {},
     copyText = async () => false,
-    dispatchAgentCommand, interruptConversation, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
+    dispatchAgentCommand, interruptConversation, interruptAgentTerminal, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
     resetAgentSession = async () => {},
     markResultReviewComplete = () => 0,
   } = context;
@@ -159,8 +159,14 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const slashState = conversationSlashState(input);
       const form = input?.closest("[data-agent-command-routing='conversation']");
       const menu = form?.querySelector("[data-conversation-slash-menu]");
+      if (!menu) {
+        slashState.open = false;
+        input?.removeAttribute("aria-expanded");
+        input?.removeAttribute("aria-activedescendant");
+        return;
+      }
       slashState.open = Boolean(next && menu && input && !input.disabled);
-      menu?.classList.toggle("hidden", !slashState.open);
+      menu.classList.toggle("hidden", !slashState.open);
       input?.setAttribute("aria-expanded", slashState.open ? "true" : "false");
       if (!slashState.open) input?.removeAttribute("aria-activedescendant");
     };
@@ -540,6 +546,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const interrupt = event.target.closest("[data-conversation-interrupt]");
       if (interrupt) {
         await interruptConversation(interrupt.dataset.conversationInterrupt);
+        return;
+      }
+      const terminalInterrupt = event.target.closest("[data-terminal-interrupt]");
+      if (terminalInterrupt) {
+        await interruptAgentTerminal(terminalInterrupt.dataset.terminalInterrupt);
         return;
       }
       const stop = event.target.closest("[data-stop-run]");

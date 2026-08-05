@@ -24,20 +24,48 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     return t('time.days_ago', { count: Math.floor(hours / 24) });
   }
 
-  function createXtermHost(key, readOnly = false) {
+  function createXtermHost(key, readOnly = false, session = null) {
     if (!window.Terminal || !window.FitAddon || !window.FitAddon.FitAddon) throw new Error(t('terminal.error.screen_unavailable'));
     const host = document.createElement('div');
     host.className = 'terminal-screen hidden';
     host.dataset.terminalScreen = key;
     $('#terminalViewport').appendChild(host);
-    const terminal = new window.Terminal(xtermOptions(readOnly));
+    const fixedGrid = session?.fixedGrid ? {
+      cols: Number(session.cols) || 120,
+      rows: Number(session.rows) || 32,
+    } : null;
+    const inputDisabled = readOnly || Boolean(session?.conversationBound);
+    const terminal = new window.Terminal({
+      ...xtermOptions(inputDisabled),
+      ...(fixedGrid || {}),
+    });
     const fit = new window.FitAddon.FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
     const entry = {
-      terminal, fit, host, readOnly, userScrollRevision: 0, outputWritePending: 0,
+      terminal, fit, host, readOnly, inputDisabled, fixedGrid, userScrollRevision: 0, outputWritePending: 0,
       outputRestoreGeneration: 0,
       writeQueue: Promise.resolve(), pendingResize: null, resizePromise: null,
+      outputHydrating: !readOnly,
+      outputSequence: null,
+      outputHydrationBuffer: [],
+    };
+    entry.acceptOutput = payload => {
+      const data = String(payload?.data || '');
+      const sequenceValue = payload?.outputSequence;
+      const parsedSequence = sequenceValue == null || sequenceValue === '' ? Number.NaN : Number(sequenceValue);
+      const outputSequence = Number.isSafeInteger(parsedSequence) && parsedSequence >= 0
+        ? parsedSequence
+        : null;
+      if (entry.outputHydrating) {
+        entry.outputHydrationBuffer.push({ data, outputSequence, arrival: entry.outputHydrationBuffer.length });
+        return null;
+      }
+      if (outputSequence != null) {
+        if (entry.outputSequence != null && outputSequence <= entry.outputSequence) return null;
+        entry.outputSequence = outputSequence;
+      }
+      return data;
     };
     const syncScrollState = viewportY => {
       const normalizedViewport = Number(viewportY) || 0;
@@ -61,12 +89,14 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       host.addEventListener('keyup', event => {
         if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) rememberUserScroll();
       }, true);
-      terminal.onData(data => {
-        if (state.selectedId !== key && state.embeddedTerminalId !== key) return;
-        entry.writeQueue = entry.writeQueue
-          .then(() => window.loadtoagent.terminalWrite(key, data))
-          .catch(error => notice(errorMessage(error), 'error'));
-      });
+      if (!inputDisabled) {
+        terminal.onData(data => {
+          if (state.selectedId !== key && state.embeddedTerminalId !== key) return;
+          entry.writeQueue = entry.writeQueue
+            .then(() => window.loadtoagent.terminalWrite(key, data))
+            .catch(error => notice(errorMessage(error), 'error'));
+        });
+      }
       terminal.onResize(size => {
         entry.pendingResize = { cols: size.cols, rows: size.rows };
         if (entry.resizePromise) return;
@@ -88,7 +118,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (!entry || entry.host.classList.contains('hidden')) return;
     requestAnimationFrame(() => {
       try {
-        entry.fit.fit();
+        if (entry.fixedGrid) {
+          entry.host.dataset.fixedGrid = 'true';
+          entry.terminal.resize(entry.fixedGrid.cols, entry.fixedGrid.rows);
+        } else entry.fit.fit();
       } catch (error) {
         window.LoadToAgentRendererUtils.reportRecoverableError('terminal-fit', error);
       }
@@ -97,11 +130,34 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function ensureSessionTerminal(session) {
     let entry = state.terminals.get(session.id);
+    const inputDisabled = Boolean(session?.conversationBound);
+    if (entry && entry.inputDisabled !== inputDisabled) {
+      entry.terminal.dispose();
+      entry.host.remove();
+      state.terminals.delete(session.id);
+      entry = null;
+    }
     if (!entry) {
-      entry = createXtermHost(session.id, false);
+      entry = createXtermHost(session.id, false, session);
+      state.terminals.set(session.id, entry);
       entry.ready = (async () => {
         const detail = await window.loadtoagent.terminalGet(session.id);
+        const sequenceValue = detail?.outputSequence;
+        const parsedSequence = sequenceValue == null || sequenceValue === '' ? Number.NaN : Number(sequenceValue);
+        entry.outputSequence = Number.isSafeInteger(parsedSequence) && parsedSequence >= 0
+          ? parsedSequence
+          : null;
         if (detail && detail.replay) entry.terminal.write(detail.replay);
+        const buffered = entry.outputHydrationBuffer.splice(0).sort((left, right) => (
+          left.outputSequence != null && right.outputSequence != null
+            ? left.outputSequence - right.outputSequence || left.arrival - right.arrival
+            : left.arrival - right.arrival
+        ));
+        entry.outputHydrating = false;
+        for (const payload of buffered) {
+          const data = entry.acceptOutput(payload);
+          if (data) entry.terminal.write(data);
+        }
         return entry;
       })().catch(error => {
         // Every caller awaiting this entry must observe the same initialization
@@ -112,7 +168,6 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         entry.host.remove();
         throw error;
       });
-      state.terminals.set(session.id, entry);
     }
     return entry.ready ? await entry.ready : entry;
   }
@@ -584,6 +639,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     state.sessions = Array.isArray(nextSessions) ? nextSessions : [];
     state.terminalSessionRevision += 1;
     const activeIds = new Set(state.sessions.map(session => session.id));
+    for (const session of state.sessions) {
+      const entry = state.terminals.get(session.id);
+      if (!entry || !session.fixedGrid) continue;
+      entry.fixedGrid = { cols: Number(session.cols) || 120, rows: Number(session.rows) || 32 };
+      fitEntry(entry, session.id);
+    }
     const rehydratedIds = new Set(payload?.change === 'reconnected' ? activeIds : []);
     for (const [id, entry] of state.terminals) {
       if (activeIds.has(id) && !rehydratedIds.has(id)) continue;
@@ -820,11 +881,40 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   async function attachTmux() {
     const remote = currentTmux();
     if (!remote) return;
+    const agent = remote.pane?.agent || {};
+    const agentPid = Number(agent.identityPid || agent.pid);
+    const agentProcessGroupId = Number(agent.identityProcessGroupId || agent.processGroupId);
+    const agentForegroundGroupId = Number(agent.identityTerminalForegroundGroupId
+      || agent.terminalForegroundGroupId);
+    const agentProvider = String(agent.provider || '').toLowerCase();
+    const agentExternalId = String(agent.externalId || '').trim();
+    const agentArgvHash = String(agent.identityArgvHash || agent.argvHash || '').toLowerCase();
+    const agentStartTimeTicks = String(agent.identityStartTimeTicks || agent.startTimeTicks || '');
+    const exactAgentIdentity = Number.isSafeInteger(agentPid) && agentPid > 0
+      && Number.isSafeInteger(agentProcessGroupId) && agentProcessGroupId > 0
+      && agentForegroundGroupId === agentProcessGroupId
+      && ['claude', 'codex', 'gemini', 'grok'].includes(agentProvider)
+      && agentExternalId && !/[\u0000-\u001f\u007f]/u.test(agentExternalId)
+      && /^[a-f0-9]{64}$/u.test(agentArgvHash)
+      && /^[1-9][0-9]{0,30}$/u.test(agentStartTimeTicks)
+      ? {
+          tmuxAgentPid: agentPid,
+          tmuxAgentProvider: agentProvider,
+          tmuxAgentExternalId: agentExternalId,
+          tmuxAgentArgvHash: agentArgvHash,
+          tmuxAgentStartTimeTicks: agentStartTimeTicks,
+          tmuxAgentProcessGroupId: agentProcessGroupId,
+        }
+      : {};
     const created = await guarded(() => window.loadtoagent.terminalCreate({
       type: 'tmux',
       distro: remote.distro.name,
       tmuxSession: remote.session.name,
+      tmuxSessionId: remote.session.nativeId,
+      tmuxWindow: remote.window.nativeId,
       tmuxPane: remote.pane.nativeId,
+      tmuxPanePid: remote.pane.pid,
+      ...exactAgentIdentity,
       title: `${t('app.nav.tmux')} · ${remote.session.name} · ${remote.pane.nativeId}`,
       cols: 120,
       rows: 32,

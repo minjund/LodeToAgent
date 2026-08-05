@@ -8,7 +8,9 @@
     target: null,
     generation: 0,
     pendingMountKey: '',
+    connectionSignature: '',
     unavailableTargets: new Map(),
+    connectionFailures: new Map(),
     baseStatus: { tone: 'connecting', key: 'drawer.terminal_connecting', meta: '' },
   };
 
@@ -18,6 +20,22 @@
 
   function targetIdOf(target) {
     return String(target?.terminalId || target?.id || '');
+  }
+
+  function connectionSignature(session) {
+    const sharedSignature = window.LoadToAgentTerminal?.agentConnectionSignature?.(session);
+    if (sharedSignature) return sharedSignature;
+    const environment = session?.environment || {};
+    // Keep the fallback stable for the same conversation. External runtime
+    // discovery is display metadata and must never remount or authorize the
+    // app-owned PTY when a tmux pane moves.
+    return JSON.stringify([
+      session?.id,
+      String(session?.provider || '').toLowerCase(),
+      session?.externalId,
+      String(environment.kind || '').toLowerCase(),
+      String(environment.distro || '').toLowerCase(),
+    ].map(value => String(value || '').trim()));
   }
 
   function targetUnavailable(sessionId, targetId) {
@@ -74,8 +92,20 @@
     if (terminalComposer && input) input.placeholder = t(prompt ? 'drawer.terminal_answer_placeholder' : 'drawer.terminal_placeholder');
   }
 
+  function disableComposerUntilConnected() {
+    const composer = element('drawerComposer');
+    if (composer?.dataset.mode !== 'terminal' || !state.session?.id) return;
+    const form = composer.querySelector('[data-agent-command-form]');
+    if (!form || form.dataset.agentCommandForm !== state.session.id) return;
+    form.dataset.agentTerminalReady = 'false';
+    form.dataset.agentSendAvailable = 'false';
+    const submit = form.querySelector('[type="submit"]');
+    if (submit) submit.disabled = true;
+  }
+
   function setStatus(tone, key, meta = '') {
     state.baseStatus = { tone, key, meta };
+    if (['connecting', 'error', 'unavailable'].includes(tone)) disableComposerUntilConnected();
     renderStatus();
   }
 
@@ -89,11 +119,13 @@
     if (help) help.textContent = t(helpKey);
   }
 
-  function selectedTargetId(session) {
+  function selectedTargetId(session, createIfMissing = false, excludedTargetIds = new Set()) {
     const selected = element('drawerComposer')?.querySelector('[data-agent-command-target]')?.value || '';
-    if (selected) return selected;
-    const targets = window.LoadToAgentTerminal?.agentTargets?.(session) || [];
-    return (targets.find(target => target.kind === 'terminal') || targets[0] || {}).id || '';
+    const targets = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+      .filter(target => !excludedTargetIds.has(targetIdOf(target)));
+    const selectedTarget = selected ? targets.find(target => target.id === selected) : null;
+    if (selectedTarget && (!createIfMissing || selectedTarget.kind === 'terminal')) return selected;
+    return (targets.find(target => target.kind === 'terminal') || (createIfMissing ? null : targets[0]) || {}).id || '';
   }
 
   function targetMeta(result) {
@@ -104,18 +136,74 @@
 
   async function mount(session, options = {}) {
     if (!session?.id || !viewport()?.isConnected) return { ok: false, reason: 'invalid-mount', targets: [] };
+    const signature = connectionSignature(session);
+    const embeddedBefore = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const previousSessionId = String(state.session?.id || '');
+    const previousSignature = state.connectionSignature;
+    const switchingSession = (previousSessionId && previousSessionId !== session.id)
+      || (previousSessionId === session.id && previousSignature && previousSignature !== signature)
+      || (embeddedBefore.agentSessionId && embeddedBefore.agentSessionId !== session.id);
+    if (switchingSession) {
+      state.generation += 1;
+      window.LoadToAgentTerminal?.unmountEmbedded?.();
+      state.target = null;
+      state.pendingMountKey = '';
+    }
     state.session = session;
-    const requestedTargetId = options.targetId || selectedTargetId(session);
+    state.connectionSignature = signature;
+    if (switchingSession) {
+      setEmpty(true);
+      setStatus('connecting', 'drawer.terminal_connecting');
+    }
+    const createIfMissing = options.createIfMissing === true;
+    const excludedTargetIds = new Set((options.excludeTargetIds || []).map(value => String(value || '')).filter(Boolean));
+    const requestedOptionTargetId = String(options.targetId || '');
+    const requestedTargetId = requestedOptionTargetId && !excludedTargetIds.has(requestedOptionTargetId)
+      ? requestedOptionTargetId
+      : selectedTargetId(session, createIfMissing, excludedTargetIds);
+    if (!options.force && requestedTargetId && targetUnavailable(session.id, requestedTargetId)) {
+      state.target = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+        .find(target => target.id === requestedTargetId) || null;
+      if (switchingSession || !['error', 'unavailable'].includes(state.baseStatus.tone)) {
+        setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
+        setStatus('unavailable', 'drawer.terminal_unavailable', state.target?.label || '');
+        notifyTargetsChanged({ sessionId: session.id, targetId: requestedTargetId, available: false, reason: 'unavailable' });
+      } else renderStatus();
+      return { ok: false, reason: 'unavailable', target: state.target, targets: [] };
+    }
+    let cachedFailure = !requestedTargetId ? state.connectionFailures.get(session.id) : null;
+    if (cachedFailure && cachedFailure.signature !== signature) {
+      state.connectionFailures.delete(session.id);
+      cachedFailure = null;
+    }
+    if (!options.force && createIfMissing && cachedFailure) {
+      setEmpty(true, 'drawer.terminal_failed', 'drawer.terminal_failed_help');
+      setStatus('error', 'drawer.terminal_failed', cachedFailure.message || '');
+      if (switchingSession) notifyTargetsChanged({
+        sessionId: session.id,
+        available: false,
+        reason: cachedFailure.reason || 'mount-failed',
+      });
+      return { ok: false, reason: cachedFailure.reason || 'mount-failed', error: cachedFailure.error, targets: [] };
+    }
+    if (options.force) state.connectionFailures.delete(session.id);
     const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embeddedTarget = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+      .find(target => target.kind === 'terminal' && targetIdOf(target) === embedded.terminalId) || null;
+    const embeddedVerified = Boolean(embeddedTarget && !targetUnavailable(session.id, embedded.terminalId));
+    const embeddedJustConnected = state.session?.id === session.id
+      && targetIdOf(state.target) === embedded.terminalId
+      && state.baseStatus.tone === 'connected';
     if (!options.force
       && embedded.connected
       && embedded.agentSessionId === session.id
-      && (!requestedTargetId || embedded.terminalId === requestedTargetId)) {
+      && (!requestedTargetId || embedded.terminalId === requestedTargetId)
+      && (embeddedVerified || embeddedJustConnected)) {
       renderStatus();
       return { ok: true, reused: true, target: state.target };
     }
 
-    const mountKey = `${session.id}:${requestedTargetId}`;
+    const mountKey = `${signature}:${requestedTargetId}:${createIfMissing ? 'create' : 'reuse'}:${[...excludedTargetIds].sort().join(',')}`;
     if (!options.force && state.pendingMountKey === mountKey) return { ok: false, reason: 'pending', targets: [] };
     state.pendingMountKey = mountKey;
 
@@ -128,6 +216,8 @@
         mount: viewport(),
         targetId: requestedTargetId,
         focus: false,
+        createIfMissing,
+        excludeTerminalIds: [...excludedTargetIds],
       });
       if (generation !== state.generation || state.session?.id !== session.id) {
         return { ok: false, reason: 'cancelled', targets: [] };
@@ -135,6 +225,7 @@
       state.target = result?.target || null;
       if (result?.ok) {
         const connectedTargetId = targetIdOf(result.target) || requestedTargetId;
+        state.connectionFailures.delete(session.id);
         clearUnavailable(session.id, connectedTargetId);
         setEmpty(false);
         setStatus('connected', 'drawer.terminal_connected', targetMeta(result));
@@ -149,6 +240,14 @@
       }
       if (result?.reason !== 'cancelled' && result?.reason !== 'pending') {
         markUnavailable(session.id, targetIdOf(result?.target) || requestedTargetId, result?.reason || 'unavailable');
+        if (createIfMissing && !requestedTargetId) {
+          state.connectionFailures.set(session.id, {
+            reason: result?.reason || 'unavailable',
+            message: t('drawer.terminal_unavailable'),
+            signature,
+          });
+          notifyTargetsChanged({ sessionId: session.id, available: false, reason: result?.reason || 'unavailable' });
+        }
       }
       setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
       setStatus('unavailable', 'drawer.terminal_unavailable');
@@ -156,8 +255,13 @@
     } catch (error) {
       if (generation !== state.generation) return { ok: false, reason: 'cancelled', targets: [] };
       markUnavailable(session.id, requestedTargetId, 'mount-failed');
+      const message = window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed');
+      if (createIfMissing && !requestedTargetId) {
+        state.connectionFailures.set(session.id, { reason: 'mount-failed', message, error, signature });
+        notifyTargetsChanged({ sessionId: session.id, available: false, reason: 'mount-failed' });
+      }
       setEmpty(true, 'drawer.terminal_failed', 'drawer.terminal_failed_help');
-      setStatus('error', 'drawer.terminal_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed'));
+      setStatus('error', 'drawer.terminal_failed', message);
       report('drawer-terminal-mount', error);
       return { ok: false, reason: 'mount-failed', error, targets: [] };
     } finally {
@@ -172,21 +276,38 @@
     state.session = null;
     state.target = null;
     state.pendingMountKey = '';
-    if (options.resetAvailability && resetSessionId) clearUnavailable(resetSessionId);
+    state.connectionSignature = '';
+    if (options.resetAvailability && resetSessionId) {
+      clearUnavailable(resetSessionId);
+      state.connectionFailures.delete(resetSessionId);
+    }
     setEmpty(true);
     setStatus('connecting', 'drawer.terminal_connecting');
   }
 
   element('drawerTerminalFocusBtn')?.addEventListener('click', () => {
-    if (!window.LoadToAgentTerminal?.focusEmbedded?.()) setStatus('unavailable', 'drawer.terminal_unavailable');
+    const input = element('drawerComposer')?.querySelector('[data-agent-command-draft]');
+    if (input && !input.disabled) input.focus({ preventScroll: true });
+    else setStatus('unavailable', 'drawer.terminal_unavailable');
   });
   element('drawerTerminalReconnectBtn')?.addEventListener('click', async event => {
     const button = event.currentTarget;
     if (!state.session || button.getAttribute('aria-busy') === 'true') return;
     button.setAttribute('aria-busy', 'true');
     try {
+      clearUnavailable(state.session.id);
+      state.connectionFailures.delete(state.session.id);
       await window.LoadToAgentTerminal?.refresh?.();
-      await mount(state.session, { force: true, targetId: selectedTargetId(state.session) });
+      const missingTargetIds = (window.LoadToAgentTerminal?.agentTargets?.(state.session) || [])
+        .filter(target => target.kind === 'terminal'
+          && !window.LoadToAgentTerminal?.hasTerminalSession?.(targetIdOf(target)))
+        .map(targetIdOf);
+      await mount(state.session, {
+        force: true,
+        targetId: selectedTargetId(state.session, true, new Set(missingTargetIds)),
+        createIfMissing: true,
+        excludeTargetIds: missingTargetIds,
+      });
     } catch (error) {
       setStatus('error', 'drawer.terminal_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed'));
       report('drawer-terminal-reconnect', error);
@@ -226,6 +347,15 @@
         setTimeout(() => state.session && mount(state.session, { force: true, targetId: terminalId }), 0);
       } else if (!terminal || ['stopped', 'exited', 'failed'].includes(terminal.status)) {
         markUnavailable(state.session.id, terminalId, terminal?.status || 'removed');
+        state.connectionFailures.set(state.session.id, {
+          reason: terminal?.status || 'removed',
+          message: terminal?.statusDetail || t('drawer.terminal_unavailable'),
+          signature: state.connectionSignature || connectionSignature(state.session),
+        });
+        state.generation += 1;
+        state.pendingMountKey = '';
+        window.LoadToAgentTerminal?.unmountEmbedded?.();
+        state.target = null;
         setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');
       }
     }
@@ -257,13 +387,30 @@
   window.LoadToAgentDrawerTerminal = {
     mount,
     unmount,
-    refresh: () => state.session && mount(state.session, { force: true }),
+    refresh: () => {
+      if (!state.session) return null;
+      const missingTargetIds = (window.LoadToAgentTerminal?.agentTargets?.(state.session) || [])
+        .filter(target => target.kind === 'terminal'
+          && !window.LoadToAgentTerminal?.hasTerminalSession?.(targetIdOf(target)))
+        .map(targetIdOf);
+      return mount(state.session, {
+        force: true,
+        createIfMissing: true,
+        excludeTargetIds: missingTargetIds,
+      });
+    },
     canMount: (session, targetId) => !targetUnavailable(session?.id, targetId),
-    resetAvailability: sessionId => clearUnavailable(sessionId),
+    resetAvailability: sessionId => {
+      const changed = clearUnavailable(sessionId);
+      state.connectionFailures.delete(String(sessionId || ''));
+      return changed;
+    },
     state: () => ({
       sessionId: state.session?.id || '',
       targetId: state.target?.id || '',
       targetKind: state.target?.kind || '',
+      phase: state.baseStatus.tone,
+      connectionSignature: state.connectionSignature,
     }),
   };
 })();

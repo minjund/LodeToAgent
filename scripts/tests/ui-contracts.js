@@ -545,21 +545,18 @@ const TERMINAL_VIEW_CONTRACTS = [
 
 const DRAWER_TERMINAL_CONTRACTS = [
   'const terminalTargets = !session.parentId && !subagentMode && !executionMode',
-  'const terminalConversation = terminalTarget?.kind === "terminal"',
   'const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {}',
   'embeddedTerminal.connected',
   'window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id)',
-  'const transcriptChat = conversationTab && !liveTerminalChat',
-  'drawer-external-session-note',
   'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
   'drawer.dataset.conversationShell = conversationTab ? "terminal" : "standard"',
-  'drawer.dataset.terminalChat = liveTerminalChat ? "true" : "false"',
-  'drawer.dataset.conversationSurface = conversationTab ? (liveTerminalChat ? "pty" : "transcript") : "standard"',
-  'tab.dataset.tab === "chat" && liveTerminalChat ? "drawerTerminalSurface" : "drawerContent"',
   'terminalSurface.setAttribute("aria-labelledby", "drawerTabChat")',
   'drawer-terminal-transcript',
   'terminalStyle: conversationTab',
-  'window.LoadToAgentDrawerTerminal?.mount?.(session, { targetId: terminalTarget.id })',
+  'window.LoadToAgentDrawerTerminal?.mount?.(session',
+  'createIfMissing: true',
+  'ensureForAgent',
+  'resumeForAgent',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
   'loadtoagent:drawer-terminal-targets-changed',
   "markUnavailable(session.id, requestedTargetId, 'mount-failed')",
@@ -878,6 +875,7 @@ const MAIN_PROCESS_CONTRACTS = [
   'quitCleanupComplete = true',
   'setImmediate(() => app.quit())',
   "session.status === 'running' || session.status === 'starting'",
+  "terminalSessions: sessions.filter(session => ['running', 'starting', 'stopping'].includes(session.status))",
   "session.status === 'detached'",
   'event.preventDefault()',
   'mainWindow.hide()',
@@ -950,6 +948,7 @@ const PRELOAD_IPC_CONTRACTS = [
   "terminalDetach: id => ipcRenderer.invoke('terminals:detach'",
   "terminalReconnect: id => ipcRenderer.invoke('terminals:reconnect'",
   "terminalStop: id => ipcRenderer.invoke('terminals:stop'",
+  "terminalRetire: id => ipcRenderer.invoke('terminals:retire'",
   'pauseAgent',
   'resumeAgentRun',
   'retryAgent',
@@ -996,6 +995,7 @@ const RELEASE_WORKFLOW_CONTRACTS = [
   'npm publish --access public --tag latest',
   'Verify npm publication',
   'npm run test:drawer-conversation',
+  'npm run test:drawer-actual-pty',
 ];
 
 function assertIncludesAll(source, contracts, messageForContract) {
@@ -1096,6 +1096,9 @@ function registerUiContractTests(context) {
       contract => `${contract} 드로어 PTY 계약이 없습니다.`,
     );
     const drawerSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
+    const drawerTerminalSource = fs.readFileSync(path.join(root, 'renderer', 'drawer-terminal.js'), 'utf8');
+    const terminalSource = fs.readFileSync(path.join(root, 'renderer', 'terminal.js'), 'utf8');
+    const terminalAgentSource = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     assert.equal(html.includes('id="drawerTabTerminal"'), false, '대화와 분리된 터미널 탭을 다시 만들면 안 됩니다.');
     assert.ok(html.includes('id="drawerTabChat"'), '대화 탭이 없습니다.');
     assert.equal(drawerSource.includes('state.drawerTab === "terminal"'), false, '별도 터미널 탭 상태 분기가 남아 있습니다.');
@@ -1104,6 +1107,53 @@ function registerUiContractTests(context) {
       drawerSource,
       /const terminalTargets\s*=[^;]*isLiveSession/s,
       'PTY 연결 여부를 작업 상태값으로 제한하면 waiting/paused 전환에서 같은 PTY가 사라집니다.',
+    );
+    assert.doesNotMatch(
+      drawerSource,
+      /conversationSurface\s*=\s*conversationTab\s*\?\s*\(liveTerminalChat\s*\?\s*["']pty["']\s*:\s*["']transcript["']/,
+      '정상 대화창은 PTY 연결 완료 전에도 실제 터미널 surface를 유지해야 합니다.',
+    );
+    assert.match(
+      drawerSource,
+      /LoadToAgentDrawerTerminal\?\.mount\?\.\(session,\s*\{[^}]*createIfMissing:\s*true/s,
+      '정상 대화창을 열 때 기존 PTY mount 또는 prompt 없는 PTY 생성을 보장해야 합니다.',
+    );
+    const sessionSwitchIndex = drawerTerminalSource.indexOf('if (switchingSession)');
+    const sessionSwitchUnmountIndex = drawerTerminalSource.indexOf('unmountEmbedded', sessionSwitchIndex);
+    const cachedFailureIndex = drawerTerminalSource.indexOf('let cachedFailure', sessionSwitchIndex);
+    assert.ok(sessionSwitchIndex >= 0
+      && sessionSwitchUnmountIndex > sessionSwitchIndex
+      && cachedFailureIndex > sessionSwitchUnmountIndex,
+    '다른 작업으로 전환할 때 실패·canMount 판정보다 먼저 이전 PTY를 격리해야 합니다.');
+    assert.match(
+      terminalSource,
+      /const currentTarget\s*=\s*currentTargets\.find[\s\S]*if \(current && currentTarget/,
+      'embedded xterm 재사용 전에 현재 작업의 usable terminal인지 확인해야 합니다.',
+    );
+    assert.match(
+      drawerTerminalSource,
+      /\['stopped', 'exited', 'failed'\]\.includes[\s\S]*unmountEmbedded/,
+      '종료 상태가 inventory에 남아 있어도 embedded xterm을 즉시 해제해야 합니다.',
+    );
+    assert.doesNotMatch(
+      terminalAgentSource,
+      /terminalCreate\(\{\s*type:\s*['"]tmux['"]/,
+      '메인 대화창이 외부 tmux pane에 입력 가능한 터미널을 직접 붙이면 안 됩니다.',
+    );
+    assert.match(
+      terminalAgentSource,
+      /if \(terminal\.backend !== 'direct' \|\| terminal\.conversationBound !== true\) return false;/,
+      '메인 대화 입력 대상은 앱이 소유한 direct conversation PTY로 제한해야 합니다.',
+    );
+    assert.match(
+      terminalAgentSource,
+      /return resumeForAgent\(agentSession,\s*'',\s*false,\s*\{[\s\S]*focus:\s*false/,
+      '기존 앱 소유 PTY가 없으면 원래 세션을 prompt 없이 새 실제 PTY로 재개해야 합니다.',
+    );
+    assert.match(
+      drawerSource,
+      /const currentTerminalReady\s*=[\s\S]*const nextTerminalReady\s*=\s*liveTerminalChat\s*\?\s*"true"\s*:\s*"false"[\s\S]*reconcileFocusedComposer/,
+      '포커스된 composer도 PTY disconnect 즉시 같은 노드에서 terminal-ready 상태를 갱신해야 합니다.',
     );
     assertIncludesAll(
       app,
@@ -1252,7 +1302,7 @@ function registerUiContractTests(context) {
     assert.match(
       styles,
       /\.detail-drawer\[data-conversation-surface="transcript"\] #drawerContent\s*\{[^}]*background-color:\s*#080c12;[^}]*font-family:\s*var\(--font-mono/s,
-      'PTY가 없는 대화에도 터미널형 기록 화면 스타일이 필요합니다.',
+      '부모가 제어하는 서브에이전트의 읽기 전용 기록 화면 스타일이 필요합니다.',
     );
     assert.match(
       styles,
@@ -1291,7 +1341,7 @@ function registerUiContractTests(context) {
     }
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:write'"), '터미널 입력 IPC 응답 계약이 없습니다.');
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:resize'"), '터미널 크기 변경 IPC 응답 계약이 없습니다.');
-    for (const operation of ['detach', 'reconnect', 'stop']) {
+    for (const operation of ['detach', 'reconnect', 'stop', 'retire']) {
       assert.ok(
         ipcSource.includes(`ipcMain.handle(\`terminals:\${operation}\``)
           || ipcSource.includes(`'${operation}'`),
@@ -1327,6 +1377,7 @@ function registerUiContractTests(context) {
     assert.ok(pkg.dependencies['@xterm/addon-fit']);
     assert.equal(pkg.bin.loadtoagent, 'bin/loadtoagent.js');
     assert.equal(pkg.scripts['test:drawer-conversation'], 'electron scripts/drawer-terminal-visual.js');
+    assert.equal(pkg.scripts['test:drawer-actual-pty'], 'electron scripts/drawer-actual-pty-integration.js');
     assert.ok(pkg.build.mac.target.some(item => item.arch.includes('arm64') && item.arch.includes('x64')));
   });
 

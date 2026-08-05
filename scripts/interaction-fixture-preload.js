@@ -1,7 +1,34 @@
 'use strict';
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
+const crypto = require('crypto');
 const { enrichSession } = require('../src/sessionIntelligence');
+
+function additionalArgument(name) {
+  const prefix = `--${name}=`;
+  const argument = process.argv.find(value => String(value || '').startsWith(prefix));
+  return argument ? String(argument).slice(prefix.length) : '';
+}
+
+function decodedArgument(name) {
+  const value = additionalArgument(name);
+  if (!value) return '';
+  try {
+    return Buffer.from(value, 'base64url').toString('utf8');
+  } catch (_invalidArgument) {
+    return '';
+  }
+}
+
+const realTerminalFixture = (() => {
+  const terminalId = additionalArgument('loadtoagent-real-terminal-id');
+  if (!terminalId) return null;
+  return {
+    terminalId,
+    pid: Number(additionalArgument('loadtoagent-real-terminal-pid')) || null,
+    cwd: decodedArgument('loadtoagent-real-terminal-cwd') || process.cwd(),
+  };
+})();
 
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const now = new Date().toISOString();
@@ -59,7 +86,7 @@ const messages = [
 
 const rootSession = {
   id: 'fixture-root', externalId: 'fixture-root-external', provider: 'claude', model: 'Claude',
-  title: '화면 설명과 버튼을 쉽게 개선하기', shortTitle: '화면 개선 결과를 확인하고 필요한 문구 수정', displayName: '화면 개선 결과를 확인하고 필요한 문구 수정', cwd: 'D:\\fixture', originCwd: 'D:\\fixture', workspace: '화면 개선 작업', status: 'running',
+  title: '화면 설명과 버튼을 쉽게 개선하기', shortTitle: '화면 개선 결과를 확인하고 필요한 문구 수정', displayName: '화면 개선 결과를 확인하고 필요한 문구 수정', cwd: realTerminalFixture?.cwd || 'D:\\fixture', originCwd: realTerminalFixture?.cwd || 'D:\\fixture', workspace: realTerminalFixture ? '실제 PTY 통합 검증' : '화면 개선 작업', status: 'running',
   statusDetail: '화면 개선 결과를 확인하고 필요한 문구를 수정하는 중', startedAt: lastDaily(22), updatedAt: now, parentId: null, childIds: ['fixture-child', 'fixture-resting'],
   messages, usage, turnUsage: usage, context, runId: 'fixture-run',
   lifecycle: [{ type: 'tool', status: 'running', label: '화면 개선 결과를 확인하고 필요한 문구를 수정하는 중', detail: '결과를 확인한 뒤 버튼 설명과 화면 배치를 수정', timestamp: now }],
@@ -68,7 +95,9 @@ const rootSession = {
     { id: 'fixture-shell-completed', callId: 'fixture-shell-completed', kind: 'shell', mode: 'foreground', tool: 'shell_command', runtime: 'PowerShell', label: '기존 기능 다시 확인', command: 'npm test', cwd: 'D:\\fixture', status: 'completed', statusDetail: '문제 없이 완료', output: '128개 테스트 통과\n실패 0개', backgroundId: '', backgroundIdType: '', exitCode: 0, startedAt: now, updatedAt: now, completedAt: now, source: 'tool-call' },
     { id: 'fixture-background-running', callId: 'fixture-background-running', kind: 'background', mode: 'background', tool: 'background_job', runtime: 'Background', label: '화면 목록 새로 정리', command: '', cwd: 'D:\\fixture', status: 'running', statusDetail: '다른 화면을 보고 있어도 계속 실행됨', output: '', backgroundId: 'fixture-task-2', backgroundIdType: 'task', exitCode: null, startedAt: now, updatedAt: now, completedAt: null, source: 'tool-call' },
   ],
-  runtimePresence: [{ kind: 'terminal', terminalId: 'terminal-main', pid: 41001, label: '내 컴퓨터에서 실행하는 작업' }],
+  runtimePresence: [realTerminalFixture
+    ? { kind: 'terminal', terminalId: realTerminalFixture.terminalId, pid: realTerminalFixture.pid, label: '실제 PTY 통합 검증 명령창' }
+    : { kind: 'terminal', terminalId: 'terminal-main', pid: 41001, label: '내 컴퓨터에서 실행하는 작업' }],
   sourceLabel: '화면 작업 기록',
   collaboration: {
     communications: [
@@ -80,6 +109,29 @@ const rootSession = {
     metrics: { cumulativeCreated: 3, simultaneousCapacity: 3, currentlyRunning: 1, completedRecords: 2, retainedCount: 3, capacitySource: 'runtime-instruction' },
   },
 };
+
+function connectionSignatureForSession(session) {
+  const environment = session?.environment || {};
+  const canonical = JSON.stringify([
+    String(session?.id || ''),
+    String(session?.provider || '').toLowerCase(),
+    String(session?.externalId || '').trim(),
+    String(environment.kind || '').toLowerCase(),
+    String(environment.distro || '').trim().toLowerCase(),
+  ]);
+  return `acs1:${crypto.createHash('sha256').update(canonical, 'utf8').digest('hex')}`;
+}
+
+function resumeIdForTerminalOptions(options = {}) {
+  const args = Array.isArray(options.args) ? options.args.map(value => String(value || '')) : [];
+  if (String(options.provider || '').toLowerCase() === 'codex' && args[0] === 'resume') {
+    return String(args[args[1] === '--' ? 2 : 1] || '').trim();
+  }
+  const resumeIndex = args.indexOf('--resume');
+  return resumeIndex >= 0 ? String(args[resumeIndex + 1] || '').trim() : '';
+}
+
+const rootConnectionSignature = connectionSignatureForSession(rootSession);
 
 const childSession = {
   ...rootSession, id: 'fixture-child', externalId: 'fixture-child-external', provider: 'gpt', model: 'GPT',
@@ -289,7 +341,7 @@ const runningChildOfOldParent = {
   originCwd: oldParentWithRunningChild.originCwd,
   workspace: oldParentWithRunningChild.workspace,
   executions: [],
-  runtimePresence: [{ kind: 'tmux', paneId: 'fixture-nested-pane', label: '다른 컴퓨터 · 컴퓨터 작업 창' }],
+  runtimePresence: [{ kind: 'tmux', linkAuthority: 'explicit-session-id', paneId: 'fixture-nested-pane', label: '다른 컴퓨터 · 컴퓨터 작업 창' }],
   runId: '',
 };
 
@@ -398,16 +450,33 @@ const snapshot = {
 };
 
 const initialTerminals = [
-  { id: 'terminal-main', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41001, cwd: 'D:\\fixture' },
   {
-    id: 'terminal-managed', type: 'agent', title: 'GPT 대화창', status: 'running', pid: 41005,
-    cwd: 'D:\\fixture', provider: 'codex', background: true, backend: 'managed-tmux',
-    tmuxSocket: 'loadtoagent', managedTmuxSession: 'lta-codex-fixture',
+    id: realTerminalFixture?.terminalId || 'terminal-main',
+    type: 'agent',
+    title: '내 컴퓨터에서 실행하는 작업',
+    status: 'running',
+    pid: realTerminalFixture?.pid || 41001,
+    cwd: realTerminalFixture?.cwd || 'D:\\fixture',
+    provider: rootSession.provider,
+    bridgeId: rootSession.id,
+    agentResumeSessionId: rootSession.externalId,
+    agentConnectionSignature: rootConnectionSignature,
+    conversationBound: true,
+    background: true,
+    backend: 'direct',
+    distro: '',
+    outputSequence: 0,
   },
-  { id: 'terminal-ended', type: 'powershell', title: '완료된 컴퓨터 작업', status: 'exited', pid: 41002, cwd: 'D:\\fixture' },
-  { id: 'terminal-failed', type: 'powershell', title: '작업용-PC의 작업 화면을 열지 못했습니다', status: 'failed', pid: null, cwd: 'D:\\fixture', statusDetail: '작업 화면을 여는 프로그램이 응답하지 않았습니다.' },
-  { id: 'terminal-race-a', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41003, cwd: 'D:\\fixture' },
-  { id: 'terminal-race-b', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41004, cwd: 'D:\\fixture' },
+  {
+    id: 'terminal-managed', type: 'agent', title: 'Claude 일반 명령창', status: 'running', pid: 41005,
+    cwd: 'D:\\fixture', provider: 'claude', background: true, backend: 'managed-tmux',
+    tmuxSocket: 'loadtoagent', managedTmuxSession: 'lta-codex-fixture',
+    outputSequence: 0,
+  },
+  { id: 'terminal-ended', type: 'powershell', title: '완료된 컴퓨터 작업', status: 'exited', pid: 41002, cwd: 'D:\\fixture', outputSequence: 0 },
+  { id: 'terminal-failed', type: 'powershell', title: '작업용-PC의 작업 화면을 열지 못했습니다', status: 'failed', pid: null, cwd: 'D:\\fixture', statusDetail: '작업 화면을 여는 프로그램이 응답하지 않았습니다.', outputSequence: 0 },
+  { id: 'terminal-race-a', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41003, cwd: 'D:\\fixture', outputSequence: 0 },
+  { id: 'terminal-race-b', type: 'powershell', title: '내 컴퓨터에서 실행하는 작업', status: 'running', pid: 41004, cwd: 'D:\\fixture', outputSequence: 0 },
 ];
 
 const availableUpdate = {
@@ -457,21 +526,36 @@ async function controlled(name, args, value = { ok: true }) {
   return clone(value);
 }
 
+function emitTerminalInventory(change = 'updated', session = null) {
+  const payload = { change, session: clone(session), sessions: clone(terminals) };
+  terminalStateListeners.forEach(listener => listener(payload));
+  return terminalStateListeners.size;
+}
+
 const api = {
   rendererReady: () => controlled('rendererReady'),
   bootstrap: async () => {
     record('bootstrap');
     return {
       providers: clone(providers), availability: Object.fromEntries(providers.map(provider => [provider.id, true])),
-      workspaces: [
+      workspaces: realTerminalFixture ? [
+        { name: '실제 PTY 통합 검증', path: realTerminalFixture.cwd },
+      ] : [
         { name: '화면 개선', path: 'D:\\fixture' },
         { name: '자동 시작 작업 결과', path: 'D:\\fixture-other' },
         { name: '설정 개선', path: '/mnt/c/Users/fixture/nested-active-project' },
         { name: '관련 작업 모음', path: '/mnt/c/Users/fixture/tmux-only-project' },
         { name: '다시 시작한 작업', path: 'D:\\unregistered-origin' },
       ], snapshot: clone(snapshot), activeRuns: [],
-      platform: { id: 'win32', label: 'Windows', computerName: '작업용-PC', localShell: 'powershell', localShellLabel: '작업용-PC에서 실행하는 작업', nativeTmux: false },
-      versions: { app: '3.0.0', electron: '31.0.0', node: '20.0.0' }, update: clone(update),
+      platform: realTerminalFixture ? {
+        id: process.platform,
+        label: process.platform === 'win32' ? 'Windows' : (process.platform === 'darwin' ? 'macOS' : 'Linux'),
+        computerName: 'PTY 통합 검증',
+        localShell: process.platform === 'win32' ? 'powershell' : 'shell',
+        localShellLabel: '실제 PTY 통합 검증 명령창',
+        nativeTmux: process.platform !== 'win32',
+      } : { id: 'win32', label: 'Windows', computerName: '작업용-PC', localShell: 'powershell', localShellLabel: '작업용-PC에서 실행하는 작업', nativeTmux: false },
+      versions: { app: currentUpdate.currentVersion, electron: '31.0.0', node: '20.0.0' }, update: clone(update),
     };
   },
   checkForUpdate: async () => {
@@ -530,7 +614,9 @@ const api = {
     },
   }),
   setProviderVisibility: preference => controlled('setProviderVisibility', [preference]),
-  listWorkspaces: async () => [
+  listWorkspaces: async () => realTerminalFixture ? [
+    { name: '실제 PTY 통합 검증', path: realTerminalFixture.cwd },
+  ] : [
     { name: '화면 개선', path: 'D:\\fixture' },
     { name: '자동 시작 작업 결과', path: 'D:\\fixture-other' },
     { name: '설정 개선', path: '/mnt/c/Users/fixture/nested-active-project' },
@@ -572,32 +658,67 @@ const api = {
       failures.set('terminalGet', remaining - 1);
       throw new Error('terminalGet fixture failure');
     }
+    const terminal = terminals.find(item => item.id === id);
+    if (!terminal) throw new Error(`terminalGet fixture target not found: ${id}`);
     return {
+      ...clone(terminal),
       ok: true,
-      replay: terminalReplays.get(id) || `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n`,
+      replay: terminalReplays.get(id) || terminal.replay || `컴퓨터에 직접 지시할 준비가 되었습니다. 예: 메모장 열기\r\n`,
     };
   },
   terminalCreate: async options => {
+    const resumeSessionId = resumeIdForTerminalOptions(options);
+    const conversationBound = options.type === 'agent'
+      && Boolean(options.bridgeId)
+      && Boolean(options.agentConnectionSignature)
+      && Boolean(resumeSessionId);
     const created = {
       id: `terminal-created-${++terminalSequence}`,
       type: options.type,
       title: options.title || '새 컴퓨터 작업',
-      status: 'running',
+      status: 'starting',
       pid: 42000 + terminalSequence,
       cwd: options.cwd || 'D:\\fixture',
       provider: options.provider || '',
       bridgeId: options.bridgeId || '',
+      agentResumeSessionId: resumeSessionId,
+      agentConnectionSignature: options.agentConnectionSignature || '',
+      conversationBound,
+      distro: options.distro || '',
+      tmuxSession: options.tmuxSession || '',
+      tmuxWindow: options.tmuxWindow || '',
+      tmuxPane: options.tmuxPane || '',
       background: options.type === 'agent',
-      backend: options.sessionBackend || 'direct',
+      backend: conversationBound ? 'direct' : (options.sessionBackend || 'direct'),
       tmuxSocket: options.tmuxSocket || '',
       managedTmuxSession: options.managedTmuxSession || '',
+      outputSequence: 0,
+      replay: `CREATED_PTY:${terminalSequence}:${options.bridgeId || ''}\r\n`,
     };
-    await controlled('terminalCreate', [options], created);
+    record('terminalCreate', [options]);
     terminals.push(created);
+    // The production TerminalManager publishes a starting inventory while the
+    // create IPC is still in flight. Reproducing that ordering catches drawer
+    // rerenders that accidentally launch a second PTY for the same task.
+    emitTerminalInventory('updated', created);
+    const delay = Number(delays.get('terminalCreate') || 0);
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+    const remaining = Number(failures.get('terminalCreate') || 0);
+    if (remaining > 0) {
+      failures.set('terminalCreate', remaining - 1);
+      created.status = 'failed';
+      created.statusDetail = 'terminalCreate fixture failure';
+      created.replay += '[LoadToAgent] terminalCreate fixture failure\r\n';
+      emitTerminalInventory('updated', created);
+      throw new Error('terminalCreate fixture failure');
+    }
+    created.status = 'running';
+    emitTerminalInventory('updated', created);
     return clone(created);
   },
   terminalWrite: (id, data) => controlled('terminalWrite', [id, data]),
   terminalCommand: (id, command) => controlled('terminalCommand', [id, command]),
+  terminalRespond: (id, choiceKey) => controlled('terminalRespond', [id, choiceKey]),
   terminalResize: (id, cols, rows) => controlled('terminalResize', [id, cols, rows]),
   terminalSignal: (id, signal) => controlled('terminalSignal', [id, signal]),
   terminalRestart: async id => {
@@ -623,6 +744,13 @@ const api = {
     const terminal = terminals.find(item => item.id === id);
     if (terminal) terminal.status = 'stopped';
     return clone(terminal || { id, status: 'stopped' });
+  },
+  terminalRetire: async id => {
+    await controlled('terminalRetire', [id]);
+    const terminal = terminals.find(item => item.id === id) || null;
+    terminals = terminals.filter(item => item.id !== id);
+    emitTerminalInventory('removed', terminal);
+    return { ok: true };
   },
   terminalClose: async id => {
     await controlled('terminalClose', [id]);
@@ -653,9 +781,42 @@ const api = {
   onUpdateState: callback => { updateStateListeners.add(callback); return () => updateStateListeners.delete(callback); },
 };
 
+if (realTerminalFixture) {
+  const invokeTerminal = (name, channel, args = []) => {
+    record(name, args);
+    return ipcRenderer.invoke(channel, ...args);
+  };
+  const listenTerminal = (channel, callback) => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  };
+  Object.assign(api, {
+    terminalList: () => invokeTerminal('terminalList', 'terminals:list'),
+    terminalGet: id => invokeTerminal('terminalGet', 'terminals:get', [id]),
+    terminalCreate: options => invokeTerminal('terminalCreate', 'terminals:create', [options]),
+    terminalWrite: (id, data) => invokeTerminal('terminalWrite', 'terminals:write', [id, data]),
+    terminalCommand: (id, command, options) => invokeTerminal('terminalCommand', 'terminals:command', [id, command, options]),
+    terminalRespond: (id, choiceKey) => invokeTerminal('terminalRespond', 'terminals:respond', [id, choiceKey]),
+    terminalResize: (id, cols, rows) => invokeTerminal('terminalResize', 'terminals:resize', [id, cols, rows]),
+    terminalSignal: (id, signal) => invokeTerminal('terminalSignal', 'terminals:signal', [id, signal]),
+    terminalRestart: id => invokeTerminal('terminalRestart', 'terminals:restart', [id]),
+    terminalReconnect: id => invokeTerminal('terminalReconnect', 'terminals:reconnect', [id]),
+    terminalDetach: id => invokeTerminal('terminalDetach', 'terminals:detach', [id]),
+    terminalStop: id => invokeTerminal('terminalStop', 'terminals:stop', [id]),
+    terminalClose: id => invokeTerminal('terminalClose', 'terminals:close', [id]),
+    terminalRetire: id => invokeTerminal('terminalRetire', 'terminals:retire', [id]),
+    onTerminalData: callback => listenTerminal('terminals:data', callback),
+    onTerminalState: callback => listenTerminal('terminals:state', callback),
+    onTerminalError: callback => listenTerminal('terminals:error', callback),
+    onTerminalConnection: callback => listenTerminal('terminals:connection', callback),
+  });
+}
+
 const testApi = {
   getCalls: () => clone(calls),
   getSnapshot: () => clone(snapshot),
+  connectionSignatureForSession: session => connectionSignatureForSession(session),
   clearCalls: () => { calls = []; },
   configure: options => {
     if (options && options.delays) for (const [name, value] of Object.entries(options.delays)) delays.set(name, Number(value) || 0);
@@ -706,23 +867,42 @@ const testApi = {
     terminals.push(clone(terminal));
     return true;
   },
+  updateTerminal: (id, patch) => {
+    const index = terminals.findIndex(item => item.id === id);
+    if (index < 0) return null;
+    terminals[index] = { ...terminals[index], ...clone(patch || {}) };
+    return clone(terminals[index]);
+  },
   removeTerminal: id => {
     const before = terminals.length;
     terminals = terminals.filter(item => item.id !== id);
     return terminals.length !== before;
   },
   emitTerminalState: (change = 'updated') => {
-    const payload = { change, session: null, sessions: clone(terminals) };
-    terminalStateListeners.forEach(listener => listener(payload));
-    return terminalStateListeners.size;
+    return emitTerminalInventory(change);
   },
   clearControls: () => { failures = new Map(); delays = new Map(); terminalGetDelays = new Map(); terminalReplays = new Map(); detailResponses = new Map(); },
-  restoreTerminals: () => { terminals = clone(initialTerminals); return clone(terminals); },
+  getTerminals: () => clone(terminals),
+  restoreTerminals: () => {
+    terminals = clone(initialTerminals);
+    terminalSequence = 0;
+    emitTerminalInventory('updated');
+    return clone(terminals);
+  },
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   triggerAttention: sessionId => { attentionListeners.forEach(listener => listener({ sessionId })); return attentionListeners.size; },
   emitSnapshot: () => { snapshotListeners.forEach(listener => listener(clone(snapshot))); return snapshotListeners.size; },
-  emitTerminalData: (id, data) => { terminalDataListeners.forEach(listener => listener({ id, data })); return terminalDataListeners.size; },
+  emitTerminalData: (id, data) => {
+    const terminal = terminals.find(item => item.id === id);
+    const text = String(data == null ? '' : data);
+    if (terminal) terminal.replay = `${String(terminal.replay || '')}${text}`;
+    const outputSequence = terminal
+      ? (terminal.outputSequence = (Number.isSafeInteger(Number(terminal.outputSequence)) ? Number(terminal.outputSequence) : 0) + 1)
+      : 1;
+    terminalDataListeners.forEach(listener => listener({ id, data: text, outputSequence }));
+    return terminalDataListeners.size;
+  },
   emitTerminalReconnect: id => {
     terminals = terminals.map(session => session.id === id ? { ...session, recoveredAfterHostRestart: true } : session);
     const payload = { change: 'reconnected', session: null, sessions: clone(terminals) };

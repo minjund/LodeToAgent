@@ -27,11 +27,15 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
     requireTrustedSender(event);
     return requireManager(manager).command(id, command, options || {});
   });
+  ipcMain.handle('terminals:respond', (event, id, choiceKey) => {
+    requireTrustedSender(event);
+    return requireManager(manager).respond(id, choiceKey);
+  });
   ipcMain.handle('terminals:resize', (event, id, cols, rows) => {
     requireTrustedSender(event);
     return requireManager(manager).resize(id, cols, rows);
   });
-  for (const operation of ['signal', 'restart', 'reconnect', 'detach', 'stop', 'close']) {
+  for (const operation of ['signal', 'restart', 'reconnect', 'detach', 'stop', 'close', 'retire']) {
     ipcMain.handle(`terminals:${operation}`, (event, ...args) => {
       requireTrustedSender(event);
       return requireManager(manager)[operation](...args);

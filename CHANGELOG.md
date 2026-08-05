@@ -5,6 +5,33 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.12 - 2026-08-06
+
+- Open every main task's Conversation tab as an actual connected PTY: reuse
+  its exact xterm and scrollback when available, or resume the same provider
+  session into a prompt-free app-owned PTY instead of rendering a terminal-
+  styled transcript.
+- Keep PTYs isolated across task switches, replace stopped or exited PTYs
+  exactly once, and serialize resume-identity changes without duplicating AI
+  processes or replaying prompts. Externally discovered tmux panes remain
+  display-only for task matching instead of becoming writable by inference.
+- Disable conversation input in the same event tick as a disconnect while
+  preserving the focused draft, caret, and form, and retain explicit retryable
+  terminal errors instead of silently falling back to a non-interactive view.
+- Make automatic updates wait for confirmed direct-run, PTY, terminal-host,
+  and old-app process-tree shutdown; fail closed when a managed tmux runtime
+  or update-helper cancellation cannot be verified before installer handoff
+  and verified relaunch.
+- Prevent slow recovery or reconnect races from launching duplicate terminal
+  hosts, preserve PTY output ordering across replay hydration, and keep the
+  single-host OS lock until every shutdown transition is acknowledged.
+- Pin manually selected tmux terminals to their exact pane even when another
+  client changes panes, wait for delayed Windows ConPTY PIDs before tree
+  shutdown, and refuse legacy-host replacement until the old process is
+  confirmed gone.
+- Give Linux and macOS terminal hosts full-identity, OS-owned locks so crashes,
+  stale files, ports, and unrelated workspaces cannot false-lock one another.
+
 ## 1.6.11 - 2026-08-05
 
 - Restore every task's Conversation tab as a terminal-shaped surface: exact

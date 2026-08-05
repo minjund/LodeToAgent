@@ -108,6 +108,10 @@ function registerAgentRunnerLifecycleTests(context) {
       [-6_001, 'SIGTERM'],
     ]);
     runner.active.delete(controlled.id);
+    assert.deepStrictEqual(runner.prepareForUpdate([]), { active: 0 });
+    assert.deepStrictEqual(await runner.dispose(), { stopped: 0, errors: [] });
+    assert.equal(runner.resumeAfterUpdateFailure(), false, 'dispose가 시작된 runner를 다시 활성화하면 안 됩니다.');
+    assert.match(runner.start({}).error, /종료 중/);
   });
 
   test('앱 종료는 POSIX 직접 실행 AI의 자연스러운 close를 기다리고 상태를 저장한다', async () => {
@@ -247,6 +251,8 @@ function registerAgentRunnerLifecycleTests(context) {
     assert.match(timedOutResult.errors[0].error, /taskkill 응답 대기 시간/);
     assert.match(timedOutResult.errors[1].error, /taskkill 이후 프로그램 종료/);
     assert.deepStrictEqual(timedOutRunner.listActive(), []);
+    assert.equal(timedOutRunner.resumeAfterUpdateFailure(), false,
+      '종료 확인 오류가 난 runner도 업데이트 실패 뒤 새 실행을 허용하면 안 됩니다.');
     const timedOutState = JSON.parse(fs.readFileSync(path.join(timedOutRun.dir, 'session.json'), 'utf8'));
     assert.equal(timedOutState.status, 'cancelled');
     assert.equal(timedOutState.lifecycle.some(item => item.id === 'dispose-error'), true);
@@ -269,6 +275,18 @@ function registerAgentRunnerLifecycleTests(context) {
     assert.match(mainSource, /mainWindow\.on\('query-session-end', persistDirectRunsForWindowsSessionEnd\)/);
     assert.match(mainSource, /runner\.prepareForSystemShutdown\(\)/);
     assert.match(mainSource, /reportAgentRunnerCleanupErrors\('before-quit:agent-runner', result\)/);
+    assert.match(mainSource, /runner\.prepareForUpdate\(impact\.agentRuns\)/);
+    assert.match(mainSource, /requireAgentRunnerUpdateShutdown\(await runner\.dispose\(\)\)/);
+    assert.match(mainSource, /UPDATE_AGENT_RUNNER_SHUTDOWN_UNCONFIRMED/);
+    assert.match(mainSource, /!runner\.resumeAfterUpdateFailure\(\)/);
+    assert.match(mainSource, /update-agent-runner-remains-stopped/);
+    assert.match(mainSource, /error\?\.code === 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED'/);
+    assert.match(mainSource, /앱을 종료하지 않은 채 최소 60초 기다린 뒤 업데이트를 다시 시도해 주세요/);
+    assert.match(mainSource, /UPDATE_HELPER_CANCELLATION_GUARD_MS = 65_000/);
+    assert.match(mainSource, /function preventQuitDuringUpdateHelperCancellation/);
+    assert.match(mainSource, /if \(preventQuitDuringUpdateHelperCancellation\(event\)\) return/);
+    assert.match(mainSource, /systemSessionEnding = true/);
+    assert.match(mainSource, /process\.platform === 'win32'[\s\S]+!systemSessionEnding/);
   });
 }
 

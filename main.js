@@ -54,6 +54,7 @@ if (process.platform === 'win32') app.setAppUserModelId('com.wincube.loadtoagent
 const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
 // 사용자 메시지와 실제 개입 요청을 안정적으로 구분할 때까지 알림 발송을 중지한다.
 const ATTENTION_NOTIFICATIONS_ENABLED = false;
+const UPDATE_HELPER_CANCELLATION_GUARD_MS = 65_000;
 let mainWindow = null;
 let monitorWorker = null;
 let monitorWorkerConfig = null;
@@ -67,6 +68,9 @@ let updateManager = null;
 let updateInstallPromise = null;
 let attentionNotifier = null;
 let isQuitting = false;
+let systemSessionEnding = false;
+let updateHelperCancellationGuardUntil = 0;
+let updateHelperCancellationNoticePending = false;
 let quitCleanupPromise = null;
 let quitCleanupComplete = false;
 let appLocale = 'ko';
@@ -99,6 +103,10 @@ const MAIN_COPY = {
     updateActiveDetail: '업데이트를 계속하면 LoadToAgent와 명령창 연결 프로그램을 완전히 종료한 뒤 새 버전을 설치하고 다시 시작합니다. 관리형 명령창 작업은 분리해 유지하지만, 직접 실행 중인 작업은 중단되며 필요하면 업데이트 후 다시 시작해야 합니다.',
     updateLater: '나중에',
     updateNow: '업데이트하고 다시 시작',
+    updateCancellationGuardTitle: '업데이트 도우미 종료를 확인하는 중입니다',
+    updateCancellationGuardMessage: '지금은 LoadToAgent를 종료하지 마세요.',
+    updateCancellationGuardDetail: '앱을 종료하지 않은 채 최소 60초 기다린 뒤 업데이트를 다시 시도해 주세요.',
+    updateCancellationGuardConfirm: '확인',
   },
   en: {
     trayTooltip: 'LoadToAgent · {count} background tasks',
@@ -117,6 +125,10 @@ const MAIN_COPY = {
     updateActiveDetail: 'Continuing will fully close LoadToAgent and its terminal host, install the new version, and restart the app. Managed terminal work is detached and kept running, but direct work is stopped and may need to be restarted after the update.',
     updateLater: 'Later',
     updateNow: 'Update and restart',
+    updateCancellationGuardTitle: 'Waiting for the update helper to stop',
+    updateCancellationGuardMessage: 'Do not quit LoadToAgent yet.',
+    updateCancellationGuardDetail: 'Keep the app open for at least 60 seconds, then try the update again.',
+    updateCancellationGuardConfirm: 'OK',
   },
   'zh-CN': {
     trayTooltip: 'LoadToAgent · {count} 个后台任务',
@@ -135,6 +147,10 @@ const MAIN_COPY = {
     updateActiveDetail: '继续后将完全关闭 LoadToAgent 及终端连接程序，安装新版本并重新启动。受管理的终端任务会分离并继续运行，但直接运行的任务会停止，更新后可能需要重新启动。',
     updateLater: '稍后',
     updateNow: '更新并重新启动',
+    updateCancellationGuardTitle: '正在确认更新助手已停止',
+    updateCancellationGuardMessage: '现在请不要退出 LoadToAgent。',
+    updateCancellationGuardDetail: '请保持应用打开至少 60 秒，然后再试一次更新。',
+    updateCancellationGuardConfirm: '确定',
   },
 };
 let lastSnapshot = {
@@ -275,7 +291,64 @@ function reportAgentRunnerCleanupErrors(operation, result) {
   return result;
 }
 
+function activateUpdateHelperCancellationGuard() {
+  updateHelperCancellationGuardUntil = Math.max(
+    updateHelperCancellationGuardUntil,
+    Date.now() + UPDATE_HELPER_CANCELLATION_GUARD_MS,
+  );
+}
+
+function updateHelperCancellationGuardActive() {
+  return process.platform === 'win32'
+    && !systemSessionEnding
+    && Date.now() < updateHelperCancellationGuardUntil;
+}
+
+function showUpdateHelperCancellationGuard() {
+  if (updateHelperCancellationNoticePending) return;
+  updateHelperCancellationNoticePending = true;
+  const options = {
+    type: 'warning',
+    title: mainText('updateCancellationGuardTitle'),
+    message: mainText('updateCancellationGuardMessage'),
+    detail: mainText('updateCancellationGuardDetail'),
+    buttons: [mainText('updateCancellationGuardConfirm')],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true,
+  };
+  const prompt = mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options);
+  Promise.resolve(prompt)
+    .catch(error => reportRecoverableError('update-helper-cancellation-guard-dialog', error))
+    .finally(() => { updateHelperCancellationNoticePending = false; });
+}
+
+function preventQuitDuringUpdateHelperCancellation(event) {
+  if (!updateHelperCancellationGuardActive()) return false;
+  if (event && typeof event.preventDefault === 'function') event.preventDefault();
+  isQuitting = false;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  showUpdateHelperCancellationGuard();
+  return true;
+}
+
+function requireAgentRunnerUpdateShutdown(result) {
+  const errors = result && Array.isArray(result.errors) ? result.errors : [];
+  reportAgentRunnerCleanupErrors('update-agent-runner', result);
+  if (!errors.length) return result;
+  const error = new Error(`업데이트 전에 직접 실행 작업의 종료를 확인하지 못했습니다. LoadToAgent를 다시 시작한 뒤 재시도해 주세요. (${errors.map(item => item.error || '알 수 없는 종료 오류').join('; ')})`);
+  error.code = 'UPDATE_AGENT_RUNNER_SHUTDOWN_UNCONFIRMED';
+  error.failures = errors;
+  throw error;
+}
+
 function persistDirectRunsForWindowsSessionEnd() {
+  systemSessionEnding = true;
   isQuitting = true;
   if (!runner) return;
   try {
@@ -327,6 +400,7 @@ function createWindow() {
     showWindow();
   });
   mainWindow.on('close', event => {
+    if (preventQuitDuringUpdateHelperCancellation(event)) return;
     if (isQuitting || !backgroundWorkloadCount()) return;
     event.preventDefault();
     mainWindow.hide();
@@ -589,7 +663,7 @@ async function updateWorkloadImpact() {
   if (terminalManager instanceof TerminalHostClient) sessions = await terminalManager.listFresh();
   else if (terminalManager && typeof terminalManager.list === 'function') sessions = terminalManager.list();
   return {
-    terminalSessions: sessions.filter(session => session.status === 'running' || session.status === 'starting'),
+    terminalSessions: sessions.filter(session => ['running', 'starting', 'stopping'].includes(session.status)),
     agentRuns: backgroundAgentRuns(),
   };
 }
@@ -671,12 +745,13 @@ async function performDownloadedUpdateInstall() {
       if (runner) {
         runner.prepareForUpdate(impact.agentRuns);
         agentRunnerPrepared = true;
+        requireAgentRunnerUpdateShutdown(await runner.dispose());
       }
       terminalShutdownAttempted = true;
       if (terminalManager instanceof TerminalHostClient) {
         await terminalManager.shutdownForUpdate(impact.terminalSessions);
       } else if (terminalManager) {
-        terminalManager.dispose({ preserveSessions: true });
+        await terminalManager.dispose({ preserveSessions: true });
       }
     };
   }
@@ -684,12 +759,29 @@ async function performDownloadedUpdateInstall() {
   try {
     outcome = await launchDownloadedUpdate(launchOptions);
   } catch (error) {
-    if (agentRunnerPrepared && runner) runner.resumeAfterUpdateFailure();
+    let failure = error;
+    const cancellationUnconfirmed = error?.code === 'UPDATE_HELPER_CANCELLATION_UNCONFIRMED';
+    if (cancellationUnconfirmed) {
+      activateUpdateHelperCancellationGuard();
+      const guardedError = new Error(`${error.message} 앱을 종료하지 않은 채 최소 60초 기다린 뒤 업데이트를 다시 시도해 주세요.`);
+      guardedError.code = error.code;
+      guardedError.cause = error;
+      failure = guardedError;
+    }
+    if (agentRunnerPrepared && runner && !runner.resumeAfterUpdateFailure()) {
+      if (!cancellationUnconfirmed) {
+        const stoppedError = new Error(`${error.message} 직접 실행 작업 기능은 안전을 위해 중지된 상태입니다. LoadToAgent를 다시 시작해 주세요.`);
+        stoppedError.code = error.code || 'UPDATE_AGENT_RUNNER_RESTART_REQUIRED';
+        stoppedError.cause = error;
+        failure = stoppedError;
+      }
+      reportRecoverableError('update-agent-runner-remains-stopped', failure);
+    }
     if (terminalShutdownAttempted && terminalManager instanceof TerminalHostClient) {
       terminalManager.recoverAfterUpdateFailure()
         .catch(reconnectError => reportRecoverableError('update-terminal-host-recover', reconnectError));
     }
-    throw error;
+    throw failure;
   }
   if (outcome.mode === 'automatic') {
     isQuitting = true;
@@ -1030,8 +1122,9 @@ async function cleanupBeforeQuit() {
       .then(result => reportAgentRunnerCleanupErrors('before-quit:agent-runner', result)),
     quitCleanupTask('attention-notifier', () => attentionNotifier && attentionNotifier.dispose()),
     quitCleanupTask('terminal-manager', () => {
-      if (terminalManager instanceof TerminalHostClient) terminalManager.dispose({ shutdownIfIdle: true });
-      else if (terminalManager) terminalManager.dispose({ preserveSessions: true });
+      if (terminalManager instanceof TerminalHostClient) return terminalManager.dispose({ shutdownIfIdle: true });
+      if (terminalManager) return terminalManager.dispose({ preserveSessions: true });
+      return null;
     }),
     quitCleanupTask('monitor-worker', () => {
       if (!monitorWorker) return;
@@ -1046,6 +1139,7 @@ async function cleanupBeforeQuit() {
 }
 
 app.on('before-quit', event => {
+  if (preventQuitDuringUpdateHelperCancellation(event)) return;
   isQuitting = true;
   if (quitCleanupComplete) return;
   event.preventDefault();
