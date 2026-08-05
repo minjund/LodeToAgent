@@ -2507,6 +2507,12 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).args[0], '-l');
     const normalizedMacTmux = normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'darwin');
     assert.equal(normalizedMacTmux.distro, '');
+    assert.equal(normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'linux').distro, '');
+    assert.throws(
+      () => normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'win32'),
+      /Linux 환경을 선택/,
+    );
+    assert.throws(() => normalizeLaunchOptions({ type: 'wsl' }, 'win32'), /Linux 환경을 선택/);
     const macTmux = launchSpec(normalizedMacTmux, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
     assert.notEqual(macTmux.file, 'wsl.exe');
     assert.equal(macTmux.file, '/bin/zsh');
