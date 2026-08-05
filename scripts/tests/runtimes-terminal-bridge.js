@@ -2574,6 +2574,9 @@ function registerTerminalLifecycleTests(context) {
       killTree: () => ({ ok: true }),
       ptyModule: { spawn: () => processHandle },
       tmuxControlProxyFactory: () => processHandle,
+      tmuxProxyDeliveryTimeoutMs: 10,
+      tmuxProxyDeliveryRecoveryGraceMs: 30,
+      tmuxProxyLargeDeliveryTimeoutMs: 20,
     });
     const created = manager.create({
       type: 'tmux', distro: 'Ubuntu', tmuxSession: 'work', tmuxSessionId: '$7', tmuxWindow: '@8', tmuxPane: '%9', tmuxPanePid: 4900,
@@ -2597,6 +2600,15 @@ function registerTerminalLifecycleTests(context) {
     const accepted = await acceptedPromise;
     assert.equal(accepted.deliveryState, 'accepted');
     assert.equal(manager.get(created.id, true).replay.includes('LTA_PROXY_ACK_'), false, 'proxy ACK 제어 프레임을 xterm에 노출하면 안 됩니다.');
+
+    const gracePromise = manager.command(created.id, '이벤트 루프 복구 뒤 전달', { deliveryId: 'delivery:proxy:grace' });
+    const graceFrame = processHandle.writes.at(-1);
+    const encodedGrace = graceFrame.match(/^LTA_PROXY_CMD_[^;]+;([^\r]+)\r$/u)?.[1];
+    const graceRequest = JSON.parse(Buffer.from(encodedGrace, 'base64url').toString('utf8'));
+    await new Promise(resolve => setTimeout(resolve, 25));
+    processHandle.dataHandler(`LTA_PROXY_ACK_${internal.spec.proxyChannel};${graceRequest.requestId};accepted;\n`);
+    const graceAccepted = await gracePromise;
+    assert.equal(graceAccepted.deliveryState, 'accepted', 'deadline 직후 buffered ACK를 unknown으로 오판하면 안 됩니다.');
 
     const rejectedPromise = manager.command(created.id, '바뀐 pane에는 금지', { deliveryId: 'delivery:proxy:rejected' });
     const rejectedFrame = processHandle.writes.at(-1);

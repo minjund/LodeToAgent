@@ -247,6 +247,11 @@ class ControlProtocolParser extends EventEmitter {
       // responses are private proxy tokens only, so route those notifications
       // immediately instead of swallowing pane bytes into the response.
       if (this.forwardOutputInsideBlocks && this.consumeOutput(text)) return;
+      if (this.forwardOutputInsideBlocks
+        && /^%(?:layout-change|window-add|window-close|unlinked-window-|sessions-changed)/u.test(text)) {
+        this.emit('notification', text);
+        return;
+      }
       blockAppend(this.block, input);
       return;
     }
@@ -460,6 +465,7 @@ class TmuxControlProxy extends EventEmitter {
     this.stopPromise = null;
     this.exitCode = 1;
     this.healthTimer = null;
+    this.healthCheckPromise = null;
     this.resizeTimer = null;
     this.lastSize = { cols: options.cols, rows: options.rows };
     this.pid = null;
@@ -470,6 +476,8 @@ class TmuxControlProxy extends EventEmitter {
     this.inputOperationChain = Promise.resolve();
     this.topologyEpoch = 0;
     this.topologyRefreshTimer = null;
+    this.topologyRefreshPromise = null;
+    this.topologyRefreshPending = false;
     this.sourceCols = options.cols;
     this.sourceRows = options.rows;
     this.controlCols = options.cols;
@@ -581,16 +589,33 @@ class TmuxControlProxy extends EventEmitter {
       // exact output after an unrelated client merely changes selection.
       if (/^%(?:layout-change|window-add|window-close|unlinked-window-|sessions-changed)/u.test(text)) {
         this.topologyEpoch += 1;
-        if (this.verified && !this.topologyRefreshTimer) {
-          this.topologyRefreshTimer = setTimeout(() => {
-            this.topologyRefreshTimer = null;
-            this.verifyIdentity('topology').catch(error => this.fatal(error));
-          }, 10);
-        }
+        this.scheduleTopologyRefresh();
       }
     });
     this.parser.on('exit', reason => this.fatal(new Error(`tmux control client exited${reason ? `: ${reason}` : ''}`)));
     this.parser.on('fatal', error => this.fatal(error));
+  }
+
+  scheduleTopologyRefresh() {
+    if (!this.verified || this.stopping) return;
+    this.topologyRefreshPending = true;
+    // A running verification gets exactly one trailing check after the latest
+    // notification. This preserves post-topology ordering without allowing a
+    // layout storm to queue an unbounded series of identical control probes.
+    if (this.topologyRefreshPromise) return;
+    if (this.topologyRefreshTimer) return;
+    this.topologyRefreshTimer = setTimeout(() => {
+      this.topologyRefreshTimer = null;
+      if (!this.topologyRefreshPending || this.stopping) return;
+      this.topologyRefreshPending = false;
+      const operation = this.verifyIdentity('topology');
+      this.topologyRefreshPromise = operation;
+      operation.catch(error => this.fatal(error)).finally(() => {
+        if (this.topologyRefreshPromise === operation) this.topologyRefreshPromise = null;
+        if (this.topologyRefreshPending && !this.stopping) this.scheduleTopologyRefresh();
+      });
+    }, 10);
+    this.topologyRefreshTimer.unref?.();
   }
 
   executable() {
@@ -812,6 +837,18 @@ class TmuxControlProxy extends EventEmitter {
     });
   }
 
+  deferControlTimeout(resolve, reject, message) {
+    setImmediate(() => {
+      const index = this.pendingResponses.findIndex(candidate => candidate.resolve === resolve);
+      if (index < 0) return;
+      this.pendingResponses.splice(index, 1);
+      const error = new Error(message);
+      error.code = 'TMUX_CONTROL_PROTOCOL_TIMEOUT';
+      this.fatal(error);
+      reject(error);
+    });
+  }
+
   execute(command, timeoutMs = CONTROL_TIMEOUT_MS) {
     if (/\r|\n/u.test(command)) return Promise.reject(new Error('tmux control command contains a newline'));
     const operation = this.commandChain.then(() => new Promise((resolve, reject) => {
@@ -820,16 +857,11 @@ class TmuxControlProxy extends EventEmitter {
         return;
       }
       const timer = setTimeout(() => {
-        const index = this.pendingResponses.findIndex(candidate => candidate.resolve === resolve);
-        if (index < 0) return;
-        this.pendingResponses.splice(index, 1);
-        const error = new Error('tmux control command timed out');
-        error.code = 'TMUX_CONTROL_PROTOCOL_TIMEOUT';
-        // A late FIFO response cannot be correlated safely with the next
-        // command. Poison the connection synchronously before commandChain can
-        // release queued work; continuing could acknowledge the wrong write.
-        this.fatal(error);
-        reject(error);
+        // A synchronous system probe can starve the Node loop past this timer
+        // even when tmux's reply is already readable. Give the poll phase one
+        // turn to drain stdout; a real missing FIFO response still poisons the
+        // connection before commandChain can release the next write.
+        this.deferControlTimeout(resolve, reject, 'tmux control command timed out');
       }, timeoutMs);
       this.pendingResponses.push({ resolve, reject, timer });
       if (process.env.LTA_TMUX_PROXY_DEBUG === '1') process.stderr.write(`[tmux-control-proxy:command] ${command.slice(0, 700)}${command.length > 700 ? '…' : ''}\n`);
@@ -847,13 +879,7 @@ class TmuxControlProxy extends EventEmitter {
         return;
       }
       const timer = setTimeout(() => {
-        const index = this.pendingResponses.findIndex(candidate => candidate.resolve === resolve);
-        if (index < 0) return;
-        this.pendingResponses.splice(index, 1);
-        const error = new Error('tmux conditional command timed out');
-        error.code = 'TMUX_CONTROL_PROTOCOL_TIMEOUT';
-        this.fatal(error);
-        reject(error);
+        this.deferControlTimeout(resolve, reject, 'tmux conditional command timed out');
       }, timeoutMs);
       this.pendingResponses.push({ resolve, reject, timer, until, lines: [], onSatisfied: options.onSatisfied });
       if (process.env.LTA_TMUX_PROXY_DEBUG === '1') process.stderr.write(`[tmux-control-proxy:command] ${command.slice(0, 700)}${command.length > 700 ? '…' : ''}\n`);
@@ -1092,17 +1118,28 @@ class TmuxControlProxy extends EventEmitter {
   }
 
   async performInput(successCommands) {
-    if (!this.verified) throw new Error('tmux pane is not verified');
+    if (!this.verified) {
+      const error = new Error('tmux pane is not verified');
+      error.code = 'TMUX_EXACT_TARGET_UNVERIFIED';
+      throw error;
+    }
     const nonce = crypto.randomBytes(9).toString('hex');
     const ack = `LTA_INPUT_ACK_${nonce}`;
     const fail = `LTA_INPUT_FAIL_${nonce}`;
-    const lines = (await this.executeUntil(
+    const responseLines = await this.executeUntil(
       this.exactOperation(successCommands, ack, fail),
       (_response, aggregate) => aggregate.some(line => [ack, fail].includes(line.toString('utf8'))),
-    )).map(line => line.toString('utf8'));
+    );
+    const lines = responseLines.map(line => line.toString('utf8'));
     if (lines.includes(ack)) return;
-    if (lines.includes(fail)) throw new Error('tmux exact pane disappeared or changed');
-    throw new Error('tmux did not acknowledge exact-pane input');
+    if (lines.includes(fail)) {
+      const error = new Error('tmux exact pane disappeared or changed');
+      error.code = 'TMUX_EXACT_TARGET_CHANGED';
+      throw error;
+    }
+    const error = new Error('tmux did not acknowledge exact-pane input');
+    error.code = 'TMUX_EXACT_INPUT_UNCONFIRMED';
+    throw error;
   }
 
   enqueueInputOperation(operation) {
@@ -1138,9 +1175,10 @@ class TmuxControlProxy extends EventEmitter {
     }
   }
 
-  async pasteBufferExact(bufferName, bytes, pasteCommand) {
+  async pasteBufferExact(bufferName, bytes, pasteCommand, options = {}) {
     try {
       await this.loadBufferExact(bufferName, bytes);
+      options.onInputAttempt?.();
       await this.performInput(pasteCommand);
     } finally {
       // paste-buffer -d deletes on success, but an identity failure between
@@ -1196,17 +1234,35 @@ class TmuxControlProxy extends EventEmitter {
     }
     const bufferName = `lta-${this.nonce.slice(0, 10)}-${crypto.randomBytes(5).toString('hex')}`;
     this.enqueueInputOperation(async () => {
-      await this.pasteBufferExact(
-        bufferName,
-        payload.command,
-        `paste-buffer -p -r -d -b ${bufferName} -t ${quoteTmuxArgument(this.fullTarget)} ; send-keys -t ${quoteTmuxArgument(this.fullTarget)} Enter`,
-      );
-    }).then(() => {
-      this.emitCommandAck(payload.requestId, 'accepted');
-    }).catch(error => {
-      this.emitCommandAck(payload.requestId, 'rejected', error.message);
-      this.fatal(error);
-    });
+      let inputAttempted = false;
+      try {
+        // Prove the complete source session/window/pane/PID identity before
+        // any pane-side effect. If the old compound target no longer resolves,
+        // this failure is safely retryable. The guarded input below repeats the
+        // check; a target change after preflight remains conservatively unknown.
+        await this.verifyIdentity('input-preflight');
+        await this.pasteBufferExact(
+          bufferName,
+          payload.command,
+          // tmux appends paste-buffer bytes and send-keys to the same pane
+          // bufferevent in command-queue order. Keep both writes in one guarded
+          // control operation so health/topology commands cannot interleave and
+          // small deliveries remain within the manager ACK deadline.
+          `paste-buffer -p -r -d -b ${bufferName} -t ${quoteTmuxArgument(this.fullTarget)} ; send-keys -t ${quoteTmuxArgument(this.fullTarget)} Enter`,
+          { onInputAttempt: () => { inputAttempted = true; } },
+        );
+        this.emitCommandAck(payload.requestId, 'accepted');
+      } catch (error) {
+        // Loading a private buffer has no pane side effect. An exact guard fail
+        // also proves its combined paste+Enter success branch never ran. Any
+        // other failure after the control write is uncertain: retrying could
+        // execute the same command twice, so preserve the delivery ledger.
+        const safelyRejected = !inputAttempted
+          || ['TMUX_EXACT_TARGET_UNVERIFIED', 'TMUX_EXACT_TARGET_CHANGED'].includes(error?.code);
+        this.emitCommandAck(payload.requestId, safelyRejected ? 'rejected' : 'unknown', error.message);
+        throw error;
+      }
+    }).catch(() => {});
   }
 
   setupInput() {
@@ -1267,9 +1323,20 @@ class TmuxControlProxy extends EventEmitter {
     resize();
   }
 
-  async checkHealth() {
-    if (!this.verified || this.stopping) return;
-    await this.verifyIdentity('health');
+  checkHealth() {
+    if (!this.verified || this.stopping) return Promise.resolve();
+    // setInterval must not build an unbounded FIFO of health checks while WSL
+    // or the tmux server is briefly descheduled. Output/topology checks retain
+    // their own post-event ordering; only redundant periodic probes coalesce.
+    if (this.healthCheckPromise) return this.healthCheckPromise;
+    if (this.topologyRefreshPromise || this.topologyRefreshTimer || this.topologyRefreshPending) {
+      return this.topologyRefreshPromise || Promise.resolve();
+    }
+    const operation = this.verifyIdentity('health').finally(() => {
+      if (this.healthCheckPromise === operation) this.healthCheckPromise = null;
+    });
+    this.healthCheckPromise = operation;
+    return operation;
   }
 
   async verifyIdentity(purpose) {
@@ -1461,6 +1528,8 @@ class TmuxControlProxy extends EventEmitter {
     if (this.resizeTimer) clearInterval(this.resizeTimer);
     if (this.outputFlushTimer) clearTimeout(this.outputFlushTimer);
     if (this.topologyRefreshTimer) clearTimeout(this.topologyRefreshTimer);
+    this.topologyRefreshTimer = null;
+    this.topologyRefreshPending = false;
     for (const pending of this.pendingResponses.splice(0)) {
       clearTimeout(pending.timer);
       pending.reject(new Error('tmux proxy stopped'));

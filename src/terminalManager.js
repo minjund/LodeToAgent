@@ -36,6 +36,7 @@ const PTY_PID_READY_TIMEOUT_MS = 2_000;
 // not be mistaken for a mismatched pane.
 const TMUX_EXACT_PANE_READY_TIMEOUT_MS = 55_000;
 const TMUX_PROXY_DELIVERY_TIMEOUT_MS = 12_000;
+const TMUX_PROXY_DELIVERY_RECOVERY_GRACE_MS = 1_000;
 const TMUX_PROXY_LARGE_DELIVERY_TIMEOUT_MS = 60_000;
 const TERMINAL_TYPES = new Set(['powershell', 'cmd', 'shell', 'wsl', 'tmux', 'agent']);
 const SESSION_BACKENDS = new Set(['direct', 'managed-tmux']);
@@ -1261,6 +1262,18 @@ class TerminalManager extends EventEmitter {
     this.killTree = options.killTree || killPtyTree;
     this.processKill = typeof options.processKill === 'function' ? options.processKill : process.kill.bind(process);
     this.ptyPidReadyTimeoutMs = Math.max(50, Number(options.ptyPidReadyTimeoutMs) || PTY_PID_READY_TIMEOUT_MS);
+    this.tmuxProxyDeliveryTimeoutMs = Math.max(
+      10,
+      Number(options.tmuxProxyDeliveryTimeoutMs) || TMUX_PROXY_DELIVERY_TIMEOUT_MS,
+    );
+    this.tmuxProxyDeliveryRecoveryGraceMs = Math.max(
+      10,
+      Number(options.tmuxProxyDeliveryRecoveryGraceMs) || TMUX_PROXY_DELIVERY_RECOVERY_GRACE_MS,
+    );
+    this.tmuxProxyLargeDeliveryTimeoutMs = Math.max(
+      this.tmuxProxyDeliveryTimeoutMs,
+      Number(options.tmuxProxyLargeDeliveryTimeoutMs) || TMUX_PROXY_LARGE_DELIVERY_TIMEOUT_MS,
+    );
     this.platform = options.platform || process.platform;
     this.agentProviders = options.agentProviders || AGENT_PROVIDERS;
     this.managedTmuxRuntime = options.managedTmuxRuntime || new ManagedTmuxRuntime({ platform: this.platform });
@@ -2250,19 +2263,26 @@ class TerminalManager extends EventEmitter {
     const frame = `LTA_PROXY_CMD_${session.spec.proxyChannel};${encoded}\r`;
     const commandBytes = Buffer.byteLength(command, 'utf8');
     const acknowledgementTimeoutMs = Math.min(
-      TMUX_PROXY_LARGE_DELIVERY_TIMEOUT_MS,
-      TMUX_PROXY_DELIVERY_TIMEOUT_MS + (Math.ceil(commandBytes / 1_024) * 200),
+      this.tmuxProxyLargeDeliveryTimeoutMs,
+      this.tmuxProxyDeliveryTimeoutMs + (Math.ceil(commandBytes / 1_024) * 200),
     );
     let resolveWaiter;
     const acknowledged = new Promise(resolve => { resolveWaiter = resolve; });
     const waiter = {
       resolve: resolveWaiter,
-      timer: setTimeout(() => {
+      timer: null,
+    };
+    waiter.timer = setTimeout(() => {
+      // The main process may return from a long synchronous OS probe after the
+      // deadline while the proxy ACK is already buffered. Leave one bounded
+      // recovery interval for PTY I/O and proxy microtasks before committing
+      // the exactly-once ledger to an unknown state.
+      waiter.timer = setTimeout(() => {
         if (this.proxyWaiters(session).get(requestId) !== waiter) return;
         this.proxyWaiters(session).delete(requestId);
         resolveWaiter({ state: 'unknown', message: '정확한 tmux pane의 입력 확인 응답이 지연되었습니다.' });
-      }, acknowledgementTimeoutMs),
-    };
+      }, this.tmuxProxyDeliveryRecoveryGraceMs);
+    }, acknowledgementTimeoutMs);
     this.proxyWaiters(session).set(requestId, waiter);
     try {
       session.process.write(frame);

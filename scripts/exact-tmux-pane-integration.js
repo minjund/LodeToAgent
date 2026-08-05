@@ -381,17 +381,19 @@ async function acceptedCommand(id, text, label) {
   return result;
 }
 
-async function rejectedCommand(id, text, label) {
+async function blockedCommand(id, text, label) {
   let rejection = null;
+  let result = null;
   try {
-    await abortable(Promise.resolve(manager.command(id, text, {
+    result = await abortable(Promise.resolve(manager.command(id, text, {
       deliveryId: `e2e-reject-${label}-${runId}-${crypto.randomBytes(8).toString('hex')}`,
     })));
   } catch (error) {
     rejection = error;
   }
-  assert(rejection, `${label}: changed exact pane accepted input`);
-  return rejection;
+  assert(rejection || result?.deliveryState === 'unknown',
+    `${label}: changed exact pane accepted input: ${JSON.stringify(result)}`);
+  return rejection || result;
 }
 
 function paneRows(sessionName) {
@@ -638,8 +640,11 @@ async function testMaximumUnicodeCommand() {
   const fixture = createFixture('max-command');
   const id = await connectFixture(fixture, 'max-command');
   const marker = unique('MAX_COMMAND_RESULT');
-  const commandPrefix = "printf '%s' '";
-  const commandSuffix = `' | python3 -c 'import sys,hashlib;d=sys.stdin.buffer.read();print("${marker}:"+str(len(d))+":"+hashlib.sha256(d).hexdigest(),flush=True)'`;
+  const inputTailMarker = unique('MAX_COMMAND_INPUT_TAIL');
+  const statePath = `/tmp/lta-e2e-max-command-state-${runId}.txt`;
+  const sourcePath = `/tmp/lta-e2e-max-command-source-${runId}.bin`;
+  const commandPrefix = `printf 'S\\n' > '${statePath}'; printf '%s' '`;
+  const commandSuffix = `' | python3 -c 'import sys,hashlib;d=sys.stdin.buffer.read();print("${marker}:"+str(len(d))+":"+hashlib.sha256(d).hexdigest(),flush=True)'; printf 'D\\n' >> '${statePath}' # ${inputTailMarker}`;
   const maximumCharacters = 128 * 1024;
   const payloadCharacters = maximumCharacters - commandPrefix.length - commandSuffix.length;
   assert(payloadCharacters > 0, 'maximum command fixture has no payload budget');
@@ -651,10 +656,99 @@ async function testMaximumUnicodeCommand() {
   const payloadBytes = Buffer.from(payload, 'utf8');
   const expectedHash = crypto.createHash('sha256').update(payloadBytes).digest('hex');
   const expectedResult = `${marker}:${payloadBytes.length}:${expectedHash}`;
+  const diagnostics = {
+    tmuxVersion: tmuxText(['-V']),
+    bracketPasteFlag: paneFormat(fixture.target, '#{bracket_paste_flag}') || 'unsupported',
+    ackMs: null,
+    inputTailSeenMs: null,
+    executionStartedMs: null,
+    managerResultMs: null,
+    sourceBytes: [],
+  };
+  const startedAt = Date.now();
+  let sourcePipeOpen = false;
+  let state = '';
+  let source = Buffer.alloc(0);
+  let paneTail = '';
+  try {
+    tmux(['pipe-pane', '-O', '-t', fixture.target, `cat > '${sourcePath}'`]);
+    sourcePipeOpen = true;
+    assert(await waitUntil(() => linux(['test', '-e', sourcePath]).status === 0, 3_000),
+      'maximum command source pipe did not start');
+    await acceptedCommand(id, commandText, 'maximum-unicode-command');
+    diagnostics.ackMs = Date.now() - startedAt;
 
-  await acceptedCommand(id, commandText, 'maximum-unicode-command');
-  assert(await waitUntil(() => (outputByTerminal.get(id) || '').includes(expectedResult), 30_000),
-    `maximum Unicode command ACKed but target length/hash did not match: expected=${expectedResult}, tail=${JSON.stringify((outputByTerminal.get(id) || '').slice(-2_000))}`);
+    const deadline = Date.now() + 90_000;
+    let nextSampleAt = 0;
+    let completionObservedAt = null;
+    while (Date.now() < deadline) {
+      const now = Date.now();
+      const elapsed = now - startedAt;
+      const managerOutput = outputByTerminal.get(id) || '';
+      if (diagnostics.managerResultMs == null && managerOutput.includes(expectedResult)) {
+        diagnostics.managerResultMs = elapsed;
+      }
+      if (now >= nextSampleAt) {
+        paneTail = paneCapture(fixture.target);
+        if (diagnostics.inputTailSeenMs == null && paneTail.includes(inputTailMarker)) {
+          diagnostics.inputTailSeenMs = elapsed;
+        }
+        const stateResult = linux(['cat', statePath]);
+        state = stateResult.status === 0 ? String(stateResult.stdout || '').replace(/\r/g, '') : '';
+        if (diagnostics.executionStartedMs == null && /^S$/mu.test(state)) {
+          diagnostics.executionStartedMs = elapsed;
+        }
+        const sizeResult = linux(['wc', '-c', sourcePath]);
+        const sourceBytes = Number.parseInt(String(sizeResult.stdout || '').trim(), 10);
+        diagnostics.sourceBytes.push({ ms: elapsed, bytes: Number.isFinite(sourceBytes) ? sourceBytes : null });
+        diagnostics.sourceBytes = diagnostics.sourceBytes.slice(-12);
+        nextSampleAt = now + 1_000;
+      }
+      if (diagnostics.managerResultMs != null && /^S\nD\n?$/u.test(state)) {
+        completionObservedAt ??= now;
+        // Keep the source pipe and manager observer alive briefly after the
+        // first completion so a delayed duplicate cannot hide behind teardown.
+        if (now - completionObservedAt >= 1_500) break;
+      }
+      await delay(100);
+    }
+  } finally {
+    if (sourcePipeOpen) {
+      tmux(['pipe-pane', '-t', fixture.target], true);
+      await delay(150);
+      // pipe-pane closes asynchronously. On a loaded macOS runner, wait for
+      // the already-observed result line to reach the source file before the
+      // final integrity read instead of racing cat's last flush/exit.
+      await waitUntil(
+        () => linux(['grep', '-F', '-q', '--', expectedResult, sourcePath]).status === 0,
+        5_000,
+        100,
+      );
+    }
+    const sourceResult = linux(['cat', sourcePath], { encoding: null, maxBuffer: 2 * 1024 * 1024 });
+    if (sourceResult.status === 0 && Buffer.isBuffer(sourceResult.stdout)) source = sourceResult.stdout;
+    const stateResult = linux(['cat', statePath]);
+    if (stateResult.status === 0) state = String(stateResult.stdout || '').replace(/\r/g, '');
+    linux(['rm', '-f', statePath, sourcePath]);
+  }
+  const managerOutput = outputByTerminal.get(id) || '';
+  const diagnosticMessage = JSON.stringify({
+    ...diagnostics,
+    state,
+    sourceResultCount: source.toString('utf8').split(expectedResult).length - 1,
+    managerResultCount: managerOutput.split(expectedResult).length - 1,
+    sourceTail: source.toString('utf8').slice(-2_000),
+    managerTail: managerOutput.slice(-2_000),
+    paneTail: paneTail.slice(-2_000),
+  });
+  assert(diagnostics.inputTailSeenMs != null,
+    `maximum Unicode command did not drain its printable tail into the target pane: ${diagnosticMessage}`);
+  assert(/^S\nD\n?$/u.test(state),
+    `maximum Unicode command was not executed to completion after ACK: ${diagnosticMessage}`);
+  assert(source.toString('utf8').split(expectedResult).length - 1 === 1,
+    `maximum Unicode command source result was not exactly once: ${diagnosticMessage}`);
+  assert(managerOutput.split(expectedResult).length - 1 === 1,
+    `maximum Unicode command proxy result was not exactly once: ${diagnosticMessage}`);
   assert(manager.get(id)?.status === 'running', 'maximum Unicode command disconnected the exact PTY');
   assert(paneCapture(fixture.target).includes(expectedResult), 'maximum Unicode command result was not visible in the target pane');
   assert(!paneCapture(fixture.sibling).includes(marker), 'maximum Unicode command reached the sibling pane');
@@ -801,7 +895,7 @@ async function testRespawnRejected() {
     return /^\d+$/.test(pid) && pid !== fixture.targetPid;
   }), 'respawn did not change the target PID');
   const marker = unique('RESPAWN_BLOCK');
-  await rejectedCommand(id, `printf '${marker}\\n'`, 'respawn');
+  await blockedCommand(id, `printf '${marker}\\n'`, 'respawn');
   const staleOutput = unique('RESPAWN_STALE_OUTPUT');
   tmux(['send-keys', '-t', fixture.target, '-l', `printf '${staleOutput}\\n'`], true);
   tmux(['send-keys', '-t', fixture.target, 'Enter'], true);
@@ -822,7 +916,7 @@ async function testNaturalExitRejected() {
     'target pane did not exit naturally');
   await waitForNotRunning(id);
   const marker = unique('EXIT_BLOCK');
-  await rejectedCommand(id, `printf '${marker}\\n'`, 'natural-exit-after');
+  await blockedCommand(id, `printf '${marker}\\n'`, 'natural-exit-after');
   assert(!paneCapture(fixture.sibling).includes(marker), 'post-exit command was redirected to surviving sibling');
   await closeTerminal(id);
   process.stdout.write('✓ natural target exit closes the proxy and never redirects input to a sibling\n');
@@ -835,7 +929,7 @@ async function testMovedTargetRejected() {
   assert(await waitUntil(() => paneFormat(fixture.target, '#{window_id}') !== fixture.window),
     'break-pane did not move target away from its immutable window');
   const marker = unique('MOVED_BLOCK');
-  await rejectedCommand(id, `printf '${marker}\\n'`, 'moved-window');
+  await blockedCommand(id, `printf '${marker}\\n'`, 'moved-window');
   const staleOutput = unique('MOVED_STALE_OUTPUT');
   tmux(['send-keys', '-t', fixture.target, '-l', `printf '${staleOutput}\\n'`], true);
   tmux(['send-keys', '-t', fixture.target, 'Enter'], true);

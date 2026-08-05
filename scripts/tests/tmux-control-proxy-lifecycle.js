@@ -100,6 +100,7 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     assert.match(predicate, /current=5101/u);
     const operation = proxy.exactOperation('send-keys -t target Enter', 'ACK', 'FAIL');
     assert.match(operation, /if-shell[^\n]+if-shell/u);
+    assert.match(operation, /^if-shell -F -t '\$70:@80\.%90'/u, 'linked shadow가 아닌 source session/window identity로 검증해야 합니다.');
     assert.equal(operation.includes(predicate), false, 'tmux command에는 shell predicate가 안전하게 quote되어야 합니다.');
     assert.match(operation, /sha256sum/u);
   });
@@ -331,13 +332,16 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     parser.forwardOutputInsideBlocks = true;
     const output = [];
     const responses = [];
+    const notifications = [];
     parser.on('output', event => output.push(event));
     parser.on('response', response => responses.push(response));
+    parser.on('notification', notification => notifications.push(notification));
 
     parser.push(Buffer.from('garbage-prefix %output %90 SHOULD_NOT_FORWARD\\012\n', 'ascii'));
     parser.push(Buffer.from([
       '%begin 100 7 0',
       '%output %90 \\355\\225\\234\\360\\237\\230\\200\\012',
+      '%layout-change @80 layout-data',
       'literal response with embedded %output %90 marker',
       'LTA_HEALTH_TOKEN',
       '%end 100 7 0',
@@ -352,6 +356,156 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
       'literal response with embedded %output %90 marker',
       'LTA_HEALTH_TOKEN',
     ]);
+    assert.deepEqual(notifications, ['%layout-change @80 layout-data']);
+  });
+
+  test('command frame은 paste와 Enter를 한 guard로 보내고 확인 뒤 accepted ACK한다', async () => {
+    const proxy = new TmuxControlProxy(proxyOptions(41), { inProcess: true });
+    const stages = [];
+    const acks = [];
+    let fatalError = null;
+    let releaseInput;
+    const inputGate = new Promise(resolve => { releaseInput = resolve; });
+    proxy.verifyIdentity = async purpose => { stages.push({ type: 'preflight', purpose }); };
+    proxy.loadBufferExact = async (bufferName, bytes) => {
+      stages.push({ type: 'load', bufferName, bytes });
+    };
+    proxy.performInput = command => {
+      stages.push({ type: 'input', command });
+      return inputGate;
+    };
+    proxy.execute = async command => { stages.push({ type: 'cleanup', command }); };
+    proxy.emitCommandAck = (...args) => { acks.push(args); };
+    proxy.fatal = error => { fatalError ||= error; };
+
+    const requestId = 'atomic-command-success';
+    const commandText = "printf 'atomic-ok\\n'";
+    proxy.handleCommandFrame(
+      proxy.options.channel,
+      base64urlEncode(JSON.stringify({ requestId, command: commandText })),
+    );
+    await immediate();
+
+    assert.deepEqual(stages.map(stage => stage.type), ['preflight', 'load', 'input']);
+    assert.equal(stages[0].purpose, 'input-preflight');
+    const bufferName = stages[1].bufferName;
+    assert.match(bufferName, new RegExp(`^lta-${proxy.nonce.slice(0, 10)}-[a-f0-9]{10}$`, 'u'));
+    assert.equal(stages[1].bytes.equals(Buffer.from(commandText, 'utf8')), true);
+    assert.equal(
+      stages[2].command,
+      `paste-buffer -p -r -d -b ${bufferName} -t '${proxy.fullTarget}' ; send-keys -t '${proxy.fullTarget}' Enter`,
+    );
+    assert.deepEqual(acks, []);
+    assert.equal(fatalError, null);
+
+    releaseInput();
+    await proxy.inputOperationChain;
+    await immediate();
+    assert.deepEqual(stages.map(stage => stage.type), ['preflight', 'load', 'input', 'cleanup']);
+    assert.equal(stages[3].command, `delete-buffer -b ${bufferName}`);
+    assert.deepEqual(acks, [[requestId, 'accepted']]);
+    assert.equal(fatalError, null);
+  });
+
+  test('command frame의 불확실한 input만 unknown이고 guard 실패는 rejected다', async () => {
+    async function failedCommand(index, errorCode, message, failAtPreflight = false) {
+      const proxy = new TmuxControlProxy(proxyOptions(index), { inProcess: true });
+      const stages = [];
+      const acks = [];
+      let fatalError = null;
+      proxy.verifyIdentity = async () => {
+        stages.push('preflight');
+        if (failAtPreflight) {
+          const error = new Error(message);
+          if (errorCode) error.code = errorCode;
+          throw error;
+        }
+      };
+      proxy.loadBufferExact = async () => { stages.push('load'); };
+      proxy.performInput = async () => {
+        stages.push('input');
+        const error = new Error(message);
+        error.code = errorCode;
+        throw error;
+      };
+      proxy.execute = async () => { stages.push('cleanup'); };
+      proxy.emitCommandAck = (...args) => { acks.push(args); };
+      proxy.fatal = error => { fatalError ||= error; };
+      const requestId = errorCode === 'TMUX_EXACT_TARGET_CHANGED' || failAtPreflight
+        ? 'atomic-command-rejected'
+        : 'atomic-command-unknown';
+      proxy.handleCommandFrame(
+        proxy.options.channel,
+        base64urlEncode(JSON.stringify({ requestId, command: "printf 'once\\n'" })),
+      );
+      await proxy.inputOperationChain;
+      await immediate();
+      return { acks, fatalError, requestId, stages };
+    }
+
+    const uncertain = await failedCommand(42, 'TMUX_CONTROL_PROTOCOL_TIMEOUT', 'input confirmation timed out');
+    assert.deepEqual(uncertain.stages, ['preflight', 'load', 'input', 'cleanup']);
+    assert.deepEqual(uncertain.acks, [[uncertain.requestId, 'unknown', 'input confirmation timed out']]);
+    assert.equal(uncertain.fatalError?.message, 'input confirmation timed out');
+
+    const rejected = await failedCommand(43, 'TMUX_EXACT_TARGET_CHANGED', 'target changed before guarded input');
+    assert.deepEqual(rejected.stages, ['preflight', 'load', 'input', 'cleanup']);
+    assert.deepEqual(rejected.acks, [[rejected.requestId, 'rejected', 'target changed before guarded input']]);
+    assert.equal(rejected.fatalError?.message, 'target changed before guarded input');
+
+    const preflight = await failedCommand(44, '', 'old window target is gone', true);
+    assert.deepEqual(preflight.stages, ['preflight']);
+    assert.deepEqual(preflight.acks, [[preflight.requestId, 'rejected', 'old window target is gone']]);
+    assert.equal(preflight.fatalError?.message, 'old window target is gone');
+  });
+
+  test('health와 topology probe는 느린 control 응답 동안 bounded coalesce된다', async () => {
+    const proxy = new TmuxControlProxy(proxyOptions(45), { inProcess: true });
+    proxy.verified = true;
+    let checks = 0;
+    let release;
+    proxy.verifyIdentity = () => {
+      checks += 1;
+      return new Promise(resolve => { release = resolve; });
+    };
+
+    const first = proxy.checkHealth();
+    const second = proxy.checkHealth();
+    assert.equal(first, second);
+    assert.equal(checks, 1);
+    release();
+    await first;
+
+    const third = proxy.checkHealth();
+    assert.equal(checks, 2);
+    release();
+    await third;
+    assert.equal(proxy.healthCheckPromise, null);
+
+    const topology = new TmuxControlProxy(proxyOptions(46), { inProcess: true });
+    topology.verified = true;
+    const purposes = [];
+    let releaseTopology;
+    topology.verifyIdentity = purpose => {
+      purposes.push(purpose);
+      return new Promise(resolve => { releaseTopology = resolve; });
+    };
+    topology.parser.emit('notification', '%layout-change @125 layout-one');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(purposes, ['topology']);
+    const skippedHealth = topology.checkHealth();
+    topology.parser.emit('notification', '%layout-change @125 layout-two');
+    topology.parser.emit('notification', '%window-add @126');
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(purposes, ['topology']);
+    releaseTopology();
+    await skippedHealth;
+    await new Promise(resolve => setTimeout(resolve, 20));
+    assert.deepEqual(purposes, ['topology', 'topology']);
+    releaseTopology();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(topology.topologyRefreshPromise, null);
+    assert.equal(topology.topologyRefreshPending, false);
   });
 
   test('exact input 실패는 private buffer와 timeout 뒤 protocol 연결을 fail-closed 정리한다', async () => {
@@ -368,6 +522,29 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
       /target identity changed/u,
     );
     assert.deepEqual(commands, ['delete-buffer -b lta-private-buffer']);
+
+    const graceProxy = new TmuxControlProxy(proxyOptions(34), { inProcess: true });
+    let graceFatal = null;
+    graceProxy.fatal = error => { graceFatal = error; };
+    let resolveGrace;
+    let rejectGrace;
+    const recovered = new Promise((resolve, reject) => {
+      resolveGrace = resolve;
+      rejectGrace = reject;
+    });
+    const graceTimer = setTimeout(() => {}, 1_000);
+    graceProxy.pendingResponses.push({ resolve: resolveGrace, reject: rejectGrace, timer: graceTimer });
+    graceProxy.deferControlTimeout(resolveGrace, rejectGrace, 'should be recovered from buffered stdout');
+    graceProxy.parser.push(Buffer.from([
+      '%begin 99 68 0',
+      'BUFFERED_RESPONSE',
+      '%end 99 68 0',
+      '',
+    ].join('\n'), 'ascii'));
+    const recoveredLines = await recovered;
+    await immediate();
+    assert.deepEqual(recoveredLines.map(line => line.toString('utf8')), ['BUFFERED_RESPONSE']);
+    assert.equal(graceFatal, null);
 
     const timedProxy = new TmuxControlProxy(proxyOptions(35), { inProcess: true });
     const control = new FakeChild(20_135);
