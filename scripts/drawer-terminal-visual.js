@@ -96,7 +96,7 @@ app.whenReady().then(async () => {
       const drawer = document.querySelector('#detailDrawer');
       const embedded = window.LoadToAgentTerminal.embeddedState();
       return drawer?.classList.contains('open')
-        && drawer.dataset.presentation === 'context'
+        && ['context', 'modal'].includes(drawer.dataset.presentation)
         && drawer.dataset.conversationShell === 'terminal'
         && drawer.dataset.conversationSurface === 'pty'
         && drawer.dataset.terminalChat === 'true'
