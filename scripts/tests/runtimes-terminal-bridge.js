@@ -3248,17 +3248,29 @@ function registerTerminalLifecycleTests(context) {
     ]);
     const acquired = attempts.filter(result => result.status === 'fulfilled');
     const rejected = attempts.filter(result => result.status === 'rejected');
-    assert.equal(acquired.length, 1, '동시에 두 daemon이 OS 잠금을 소유하면 안 됩니다.');
-    assert.equal(rejected.length, 1);
-    assert.equal(rejected[0].reason.code, 'TERMINAL_HOST_ALREADY_RUNNING');
+    try {
+      assert.equal(acquired.length, 1, '동시에 두 daemon이 OS 잠금을 소유하면 안 됩니다.');
+      assert.equal(rejected.length, 1);
+      assert.equal(rejected[0].reason.code, 'TERMINAL_HOST_ALREADY_RUNNING');
 
-    const owner = acquired[0].value;
-    assert.equal((await owner.release()).ok, true);
-    assert.equal((await owner.release()).alreadyReleased, true);
+      const owner = acquired[0].value;
+      assert.equal((await owner.release()).ok, true);
+      assert.equal((await owner.release()).alreadyReleased, true);
 
-    const replacement = await acquireTerminalHostProcessLock(discovery);
-    assert.equal(Boolean(replacement.server?.listening), true);
-    await replacement.release();
+      const replacement = await acquireTerminalHostProcessLock(discovery);
+      try {
+        if (process.platform === 'darwin') {
+          assert.equal(replacement.server, null);
+          assert.equal(Number.isInteger(replacement.fileDescriptor), true);
+        } else {
+          assert.equal(Boolean(replacement.server?.listening), true);
+        }
+      } finally {
+        await replacement.release();
+      }
+    } finally {
+      await Promise.allSettled(acquired.map(result => result.value.release()));
+    }
 
     const deniedServer = new EventEmitter();
     deniedServer.listen = () => setImmediate(() => {
@@ -3268,6 +3280,7 @@ function registerTerminalLifecycleTests(context) {
     });
     await assert.rejects(
       acquireTerminalHostProcessLock(discovery, {
+        platform: 'linux',
         endpoint: 'denied-test-endpoint',
         createServer: () => deniedServer,
       }),
@@ -3282,6 +3295,7 @@ function registerTerminalLifecycleTests(context) {
       callback(closeCalls === 1 ? Object.assign(new Error('close failed'), { code: 'EIO' }) : null);
     };
     const retryLock = await acquireTerminalHostProcessLock(discovery, {
+      platform: 'linux',
       endpoint: 'retry-test-endpoint',
       createServer: () => retryServer,
     });
