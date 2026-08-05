@@ -722,7 +722,9 @@ function normalizeLaunchOptions(options = {}, platform = process.platform) {
   if (['powershell', 'cmd', 'shell', 'agent'].includes(type) && !wslAgent && (!fs.existsSync(localCwd) || !fs.statSync(localCwd).isDirectory())) {
     throw new Error(`작업 폴더를 찾을 수 없습니다: ${localCwd}`);
   }
-  if ((type === 'wsl' || type === 'tmux') && !distro) throw new Error('작업을 실행할 Linux 환경을 선택하세요.');
+  if ((type === 'wsl' || (platform === 'win32' && type === 'tmux')) && !distro) {
+    throw new Error('작업을 실행할 Linux 환경을 선택하세요.');
+  }
   const tmuxSession = cleanText(options.tmuxSession, 100);
   const tmuxSessionId = cleanText(options.tmuxSessionId, 100);
   const tmuxWindow = cleanText(options.tmuxWindow, 100);

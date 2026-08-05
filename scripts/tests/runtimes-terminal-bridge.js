@@ -2505,7 +2505,9 @@ function registerTerminalLifecycleTests(context) {
     }), /Linux 명령창을 실행할 프로그램/);
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).file, '/bin/zsh');
     assert.equal(launchSpec(macShell, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs }).args[0], '-l');
-    const macTmux = launchSpec(normalizeLaunchOptions({ type: 'tmux', distro: 'macOS', tmuxSession: 'work' }, 'darwin'), 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
+    const normalizedMacTmux = normalizeLaunchOptions({ type: 'tmux', tmuxSession: 'work' }, 'darwin');
+    assert.equal(normalizedMacTmux.distro, '');
+    const macTmux = launchSpec(normalizedMacTmux, 'darwin', undefined, { env: { SHELL: '/broken/login-shell' }, fileSystem: posixFs });
     assert.notEqual(macTmux.file, 'wsl.exe');
     assert.equal(macTmux.file, '/bin/zsh');
     const exactTmux = launchSpec(normalizeLaunchOptions({
