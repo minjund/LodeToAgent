@@ -5,6 +5,24 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.10 - 2026-08-05
+
+- Keep every task drawer on structured conversation by default, exposing an
+  exact attachable PTY in a dedicated Terminal tab while preserving consistent
+  conversation views across live, waiting, completed, failed, cancelled, and
+  external sessions.
+- Stabilize terminal-to-task matching across bridge and session-list arrival
+  races, prevent stale list responses from erasing newer PTY state, and return
+  restarted Codex subagents to active progress instead of completed history.
+- Let source and npm launches detect the installed desktop app and its actual
+  version, then hand verified installers to automatic quit-install-restart
+  while warning about active work, detaching managed terminals, stopping direct
+  runs, and blocking new work during shutdown.
+- Authenticate per-update helper readiness, clean up failed helper processes
+  and files, recover terminal and runner state after failures, block unsafe
+  updates when the installed version is unknown, and clarify manual and
+  portable update paths.
+
 ## 1.6.9 - 2026-08-04
 
 - Replace the inline AI command box in the task map with a responsive live-
