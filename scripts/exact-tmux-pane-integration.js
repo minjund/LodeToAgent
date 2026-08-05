@@ -641,33 +641,70 @@ async function testMaximumUnicodeCommand() {
   const id = await connectFixture(fixture, 'max-command');
   const marker = unique('MAX_COMMAND_RESULT');
   const inputTailMarker = unique('MAX_COMMAND_INPUT_TAIL');
-  const statePath = `/tmp/lta-e2e-max-command-state-${runId}.txt`;
+  const readerReady = unique('MAX_COMMAND_READER_READY');
   const sourcePath = `/tmp/lta-e2e-max-command-source-${runId}.bin`;
-  const commandPrefix = `printf 'S\\n' > '${statePath}'; printf '%s' '`;
-  const commandSuffix = `' | python3 -c 'import sys,hashlib;d=sys.stdin.buffer.read();print("${marker}:"+str(len(d))+":"+hashlib.sha256(d).hexdigest(),flush=True)'; printf 'D\\n' >> '${statePath}' # ${inputTailMarker}`;
   const maximumCharacters = 128 * 1024;
-  const payloadCharacters = maximumCharacters - commandPrefix.length - commandSuffix.length;
+  const payloadCharacters = maximumCharacters - inputTailMarker.length;
   assert(payloadCharacters > 0, 'maximum command fixture has no payload budget');
   const pattern = 'Ab한글42';
   const payload = pattern.repeat(Math.ceil(payloadCharacters / pattern.length)).slice(0, payloadCharacters);
-  const commandText = `${commandPrefix}${payload}${commandSuffix}`;
+  const commandText = `${payload}${inputTailMarker}`;
   assert(commandText.length === maximumCharacters,
     `maximum command did not reach the manager boundary: ${commandText.length}`);
-  const payloadBytes = Buffer.from(payload, 'utf8');
+  const payloadBytes = Buffer.from(commandText, 'utf8');
   const expectedHash = crypto.createHash('sha256').update(payloadBytes).digest('hex');
-  const expectedResult = `${marker}:${payloadBytes.length}:${expectedHash}`;
+  const expectedResult = `${marker}:${payloadBytes.length}:${expectedHash}:tail-ok:extra-ok`;
+  const readerReadyHex = Buffer.from(readerReady, 'utf8').toString('hex');
+  const markerHex = Buffer.from(marker, 'utf8').toString('hex');
+  const inputTailHex = Buffer.from(inputTailMarker, 'utf8').toString('hex');
+  const readerLines = [
+    'import os,sys,termios,tty,hashlib,select,time',
+    'old=termios.tcgetattr(0)',
+    'tty.setraw(0)',
+    `ready=bytes.fromhex("${readerReadyHex}").decode()`,
+    `marker=bytes.fromhex("${markerHex}").decode()`,
+    `tail=bytes.fromhex("${inputTailHex}")`,
+    'sys.stdout.write("\\x1b[?2004l\\r\\n"+ready+"\\r\\n")',
+    'sys.stdout.flush()',
+    'data=bytearray()',
+    'while True:',
+    '    chunk=os.read(0,65536)',
+    '    stops=[value for value in (chunk.find(b"\\r"),chunk.find(b"\\n")) if value >= 0]',
+    '    if stops:',
+    '        stop=min(stops)',
+    '        data.extend(chunk[:stop])',
+    '        extra=bytearray(chunk[stop+1:])',
+    '        break',
+    '    data.extend(chunk)',
+    'deadline=time.monotonic()+1.5',
+    'while True:',
+    '    remaining=deadline-time.monotonic()',
+    '    if remaining <= 0:',
+    '        break',
+    '    readable,_,_=select.select([0],[],[],remaining)',
+    '    if not readable:',
+    '        break',
+    '    chunk=os.read(0,65536)',
+    '    if not chunk:',
+    '        break',
+    '    extra.extend(chunk)',
+    'termios.tcsetattr(0,termios.TCSADRAIN,old)',
+    'tail_state="tail-ok" if data.endswith(tail) else "tail-missing"',
+    'extra_payload=bytes(extra).replace(b"\\r",b"").replace(b"\\n",b"")',
+    'extra_state="extra-ok" if not extra_payload else "extra-"+str(len(extra_payload))',
+    'print("\\n"+marker+":"+str(len(data))+":"+hashlib.sha256(data).hexdigest()+":"+tail_state+":"+extra_state,flush=True)',
+  ];
+  const readerCommand = `python3 -c 'exec(${JSON.stringify(readerLines.join('\n'))})'`;
   const diagnostics = {
     tmuxVersion: tmuxText(['-V']),
-    bracketPasteFlag: paneFormat(fixture.target, '#{bracket_paste_flag}') || 'unsupported',
+    bracketPasteFlag: null,
+    readerReadyMs: null,
     ackMs: null,
-    inputTailSeenMs: null,
-    executionStartedMs: null,
     managerResultMs: null,
     sourceBytes: [],
   };
   const startedAt = Date.now();
   let sourcePipeOpen = false;
-  let state = '';
   let source = Buffer.alloc(0);
   let paneTail = '';
   try {
@@ -675,10 +712,17 @@ async function testMaximumUnicodeCommand() {
     sourcePipeOpen = true;
     assert(await waitUntil(() => linux(['test', '-e', sourcePath]).status === 0, 3_000),
       'maximum command source pipe did not start');
+    await acceptedCommand(id, readerCommand, 'maximum-raw-reader');
+    assert(await waitUntil(() => terminalOutput(id).includes(readerReady), 10_000),
+      'maximum command raw PTY reader did not become ready');
+    diagnostics.readerReadyMs = Date.now() - startedAt;
+    diagnostics.bracketPasteFlag = paneFormat(fixture.target, '#{bracket_paste_flag}') || 'unsupported';
+    assert(diagnostics.bracketPasteFlag === '0' || diagnostics.bracketPasteFlag === 'unsupported',
+      `maximum command reader did not disable bracketed paste: ${diagnostics.bracketPasteFlag}`);
     await acceptedCommand(id, commandText, 'maximum-unicode-command');
     diagnostics.ackMs = Date.now() - startedAt;
 
-    const deadline = Date.now() + 90_000;
+    const deadline = Date.now() + 60_000;
     let nextSampleAt = 0;
     let completionObservedAt = null;
     while (Date.now() < deadline) {
@@ -690,21 +734,13 @@ async function testMaximumUnicodeCommand() {
       }
       if (now >= nextSampleAt) {
         paneTail = paneCapture(fixture.target);
-        if (diagnostics.inputTailSeenMs == null && paneTail.includes(inputTailMarker)) {
-          diagnostics.inputTailSeenMs = elapsed;
-        }
-        const stateResult = linux(['cat', statePath]);
-        state = stateResult.status === 0 ? String(stateResult.stdout || '').replace(/\r/g, '') : '';
-        if (diagnostics.executionStartedMs == null && /^S$/mu.test(state)) {
-          diagnostics.executionStartedMs = elapsed;
-        }
         const sizeResult = linux(['wc', '-c', sourcePath]);
         const sourceBytes = Number.parseInt(String(sizeResult.stdout || '').trim(), 10);
         diagnostics.sourceBytes.push({ ms: elapsed, bytes: Number.isFinite(sourceBytes) ? sourceBytes : null });
         diagnostics.sourceBytes = diagnostics.sourceBytes.slice(-12);
         nextSampleAt = now + 1_000;
       }
-      if (diagnostics.managerResultMs != null && /^S\nD\n?$/u.test(state)) {
+      if (diagnostics.managerResultMs != null) {
         completionObservedAt ??= now;
         // Keep the source pipe and manager observer alive briefly after the
         // first completion so a delayed duplicate cannot hide behind teardown.
@@ -727,24 +763,19 @@ async function testMaximumUnicodeCommand() {
     }
     const sourceResult = linux(['cat', sourcePath], { encoding: null, maxBuffer: 2 * 1024 * 1024 });
     if (sourceResult.status === 0 && Buffer.isBuffer(sourceResult.stdout)) source = sourceResult.stdout;
-    const stateResult = linux(['cat', statePath]);
-    if (stateResult.status === 0) state = String(stateResult.stdout || '').replace(/\r/g, '');
-    linux(['rm', '-f', statePath, sourcePath]);
+    linux(['rm', '-f', sourcePath]);
   }
   const managerOutput = outputByTerminal.get(id) || '';
   const diagnosticMessage = JSON.stringify({
     ...diagnostics,
-    state,
     sourceResultCount: source.toString('utf8').split(expectedResult).length - 1,
     managerResultCount: managerOutput.split(expectedResult).length - 1,
     sourceTail: source.toString('utf8').slice(-2_000),
     managerTail: managerOutput.slice(-2_000),
     paneTail: paneTail.slice(-2_000),
   });
-  assert(diagnostics.inputTailSeenMs != null,
-    `maximum Unicode command did not drain its printable tail into the target pane: ${diagnosticMessage}`);
-  assert(/^S\nD\n?$/u.test(state),
-    `maximum Unicode command was not executed to completion after ACK: ${diagnosticMessage}`);
+  assert(diagnostics.managerResultMs != null,
+    `maximum Unicode command did not reach the raw PTY reader: ${diagnosticMessage}`);
   assert(source.toString('utf8').split(expectedResult).length - 1 === 1,
     `maximum Unicode command source result was not exactly once: ${diagnosticMessage}`);
   assert(managerOutput.split(expectedResult).length - 1 === 1,
@@ -753,7 +784,7 @@ async function testMaximumUnicodeCommand() {
   assert(paneCapture(fixture.target).includes(expectedResult), 'maximum Unicode command result was not visible in the target pane');
   assert(!paneCapture(fixture.sibling).includes(marker), 'maximum Unicode command reached the sibling pane');
   await closeTerminal(id);
-  process.stdout.write(`✓ ${maximumCharacters}-character multilingual command ACKed with exact ${payloadBytes.length}-byte SHA-256 match\n`);
+  process.stdout.write(`✓ ${maximumCharacters}-character multilingual raw PTY input ACKed with exact ${payloadBytes.length}-byte SHA-256 match\n`);
 }
 
 async function testHighOutputAvailability() {
