@@ -27,7 +27,11 @@ const MAX_RAW_INPUT_CHUNK_BYTES = 4 * 1024;
 // rejects large nested if-shell commands, so keep each encoded set-buffer line
 // near 2 KiB even after octal expansion.
 const BUFFER_CHUNK_BYTES = 512;
-const CONTROL_TIMEOUT_MS = 5_000;
+// Control replies are normally immediate, but a busy WSL host or a tmux server
+// flushing a multi-MiB pane can exceed five seconds. Keep this below the
+// manager's delivery deadline while allowing one loaded-host scheduling stall;
+// identity checks still fail closed when the bounded reply never arrives.
+const CONTROL_TIMEOUT_MS = 10_000;
 const INITIAL_TIMEOUT_MS = 25_000;
 const SOURCE_GRID_PROBE_TIMEOUT_MS = 10_000;
 const MAX_SOURCE_GRID_PROBE_BYTES = 64 * 1024;
@@ -601,12 +605,20 @@ class TmuxControlProxy extends EventEmitter {
     // destroy-unattached, it destroys the shadow by itself.  Successful
     // startup removes the watchdog window immediately after enabling the
     // server-owned detach cleanup.
+    // The dedicated shadow control client must remain writable: user input is
+    // parsed into guarded set-buffer/paste-buffer/send-keys operations below.
+    // `read-only` makes tmux 3.7+ reject those operations before the immutable
+    // pane and process identity guards can run. Raw control commands are never
+    // forwarded from the renderer. Every operation targets the immutable pane
+    // explicitly, and ignore-size keeps the linked source window isolated from
+    // this client's dimensions; tracking a client-local active pane is neither
+    // required nor safe across move/join/swap on older tmux releases.
     const placeholder = `sleep 15; tmux kill-session -t ${this.shadowSession}`;
     return [
       '-C',
       'new-session', '-d', '-s', this.shadowSession, '-n', 'lta-hold', placeholder,
       ';', 'link-window', '-a', '-s', this.windowTarget, '-t', `${this.shadowTarget}:`,
-      ';', 'attach-session', '-f', 'read-only,active-pane,ignore-size', '-t', `${this.shadowTarget}:${this.options.window}`,
+      ';', 'attach-session', '-f', 'ignore-size', '-t', `${this.shadowTarget}:${this.options.window}`,
     ];
   }
 
@@ -809,8 +821,15 @@ class TmuxControlProxy extends EventEmitter {
       }
       const timer = setTimeout(() => {
         const index = this.pendingResponses.findIndex(candidate => candidate.resolve === resolve);
-        if (index >= 0) this.pendingResponses.splice(index, 1);
-        reject(new Error('tmux control command timed out'));
+        if (index < 0) return;
+        this.pendingResponses.splice(index, 1);
+        const error = new Error('tmux control command timed out');
+        error.code = 'TMUX_CONTROL_PROTOCOL_TIMEOUT';
+        // A late FIFO response cannot be correlated safely with the next
+        // command. Poison the connection synchronously before commandChain can
+        // release queued work; continuing could acknowledge the wrong write.
+        this.fatal(error);
+        reject(error);
       }, timeoutMs);
       this.pendingResponses.push({ resolve, reject, timer });
       if (process.env.LTA_TMUX_PROXY_DEBUG === '1') process.stderr.write(`[tmux-control-proxy:command] ${command.slice(0, 700)}${command.length > 700 ? '…' : ''}\n`);
@@ -829,8 +848,12 @@ class TmuxControlProxy extends EventEmitter {
       }
       const timer = setTimeout(() => {
         const index = this.pendingResponses.findIndex(candidate => candidate.resolve === resolve);
-        if (index >= 0) this.pendingResponses.splice(index, 1);
-        reject(new Error('tmux conditional command timed out'));
+        if (index < 0) return;
+        this.pendingResponses.splice(index, 1);
+        const error = new Error('tmux conditional command timed out');
+        error.code = 'TMUX_CONTROL_PROTOCOL_TIMEOUT';
+        this.fatal(error);
+        reject(error);
       }, timeoutMs);
       this.pendingResponses.push({ resolve, reject, timer, until, lines: [], onSatisfied: options.onSatisfied });
       if (process.env.LTA_TMUX_PROXY_DEBUG === '1') process.stderr.write(`[tmux-control-proxy:command] ${command.slice(0, 700)}${command.length > 700 ? '…' : ''}\n`);

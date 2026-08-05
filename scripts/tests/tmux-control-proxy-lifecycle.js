@@ -186,11 +186,13 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     const control = new FakeChild(20_103);
     const cleanup = new FakeChild(30_103);
     let controlSpawnOptions = null;
+    let controlSpawnArgs = null;
     let cleanupSpawned = false;
     const proxy = new TmuxControlProxy(options, {
       inProcess: true,
       spawnProbeChild: () => probe,
-      spawnChild: (_file, _args, spawnOptions) => {
+      spawnChild: (_file, args, spawnOptions) => {
+        controlSpawnArgs = args;
         controlSpawnOptions = spawnOptions;
         return control;
       },
@@ -209,6 +211,9 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     assert.equal(proxy.__loadtoagentPosixSignal, 'SIGTERM');
     assert.equal(proxy.pid, control.pid);
     assert.equal(controlSpawnOptions.detached, process.platform !== 'win32');
+    const attachFlags = controlSpawnArgs[controlSpawnArgs.indexOf('-f') + 1].split(',');
+    assert.deepEqual(attachFlags, ['ignore-size']);
+    assert.equal(attachFlags.includes('read-only'), false);
     proxy.kill();
     await assert.rejects(starting, error => error.code === 'TMUX_PROXY_STOPPED');
     await new Promise(resolve => setTimeout(resolve, 55));
@@ -349,7 +354,7 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     ]);
   });
 
-  test('buffer load 뒤 exact paste가 실패해도 private tmux buffer를 삭제한다', async () => {
+  test('exact input 실패는 private buffer와 timeout 뒤 protocol 연결을 fail-closed 정리한다', async () => {
     const proxy = new TmuxControlProxy(proxyOptions(40), { inProcess: true });
     const commands = [];
     proxy.loadBufferExact = async () => {};
@@ -363,6 +368,29 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
       /target identity changed/u,
     );
     assert.deepEqual(commands, ['delete-buffer -b lta-private-buffer']);
+
+    const timedProxy = new TmuxControlProxy(proxyOptions(35), { inProcess: true });
+    const control = new FakeChild(20_135);
+    const writes = [];
+    control.stdin.write = value => { writes.push(String(value)); };
+    timedProxy.control = control;
+    const exited = exitPromise(timedProxy);
+
+    const first = timedProxy.execute('display-message -p FIRST', 20);
+    const second = timedProxy.execute('display-message -p SECOND', 100);
+    await assert.rejects(first, error => error.code === 'TMUX_CONTROL_PROTOCOL_TIMEOUT');
+    assert.equal(timedProxy.stopping, true);
+    await assert.rejects(second, /unavailable/u);
+
+    timedProxy.parser.push(Buffer.from([
+      '%begin 100 70 0',
+      'LATE_FIRST_RESPONSE',
+      '%end 100 70 0',
+      '',
+    ].join('\n'), 'ascii'));
+    await exited;
+    assert.equal(writes.includes('display-message -p FIRST\n'), true);
+    assert.equal(writes.includes('display-message -p SECOND\n'), false);
   });
 }
 
