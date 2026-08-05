@@ -153,9 +153,12 @@ async function waitUntil(predicate, timeoutMs = 12_000, intervalMs = 50) {
 }
 
 async function stablePaneSize(pane, stableMs = 300, timeoutMs = 4_000) {
-  const deadline = Date.now() + timeoutMs;
   let observed = paneFormat(pane, '#{pane_width}x#{pane_height}');
   let stableSince = Date.now();
+  // paneFormat is synchronous and has its own process timeout. Start the
+  // settling budget after that first real observation so a loaded WSL host
+  // cannot consume the entire stability window before sampling begins.
+  const deadline = stableSince + timeoutMs;
   const samples = [observed];
   while (Date.now() < deadline) {
     await delay(50);
@@ -193,6 +196,13 @@ function unique(label) {
 
 function terminalOutput(id) {
   return `${outputByTerminal.get(id) || ''}${manager?.get(id, true)?.replay || ''}`;
+}
+
+function findCompletedWrap(output, head, tail, width) {
+  const start = output.lastIndexOf(`\r${head}`);
+  if (start < 0) return null;
+  const tailIndex = output.indexOf(tail, start + 1 + width);
+  return tailIndex < 0 ? null : { output, start, tailIndex };
 }
 
 function consumeIndexedHighOutput(tracker, value) {
@@ -526,11 +536,12 @@ async function testStableExactPane() {
   const wrapTail = `WN${crypto.randomBytes(6).toString('hex')}`;
   const wrapPayload = `${wrapHead}${'W'.repeat(sourceWidth - wrapHead.length)}${wrapTail}`;
   await acceptedCommand(id, `printf '\\r%s\\n' '${wrapPayload}'`, 'resize-wrap');
-  assert(await waitUntil(() => terminalOutput(id).includes(wrapTail)), 'resize wrap sentinel was not forwarded');
-  const wrapOutput = terminalOutput(id);
-  const wrapStart = wrapOutput.indexOf(`\r${wrapHead}`);
-  const wrapTailIndex = wrapOutput.indexOf(wrapTail, wrapStart + 1 + sourceWidth);
-  assert(wrapStart >= 0 && wrapTailIndex >= 0, 'could not isolate source-width wrap output');
+  let wrapEvidence = null;
+  assert(await waitUntil(() => {
+    wrapEvidence = findCompletedWrap(String(outputByTerminal.get(id) || ''), wrapHead, wrapTail, sourceWidth);
+    return Boolean(wrapEvidence);
+  }), `could not isolate source-width wrap output: ${JSON.stringify(String(outputByTerminal.get(id) || '').slice(-2_000))}`);
+  const { output: wrapOutput, start: wrapStart, tailIndex: wrapTailIndex } = wrapEvidence;
   const viewerWidth = Number(manager.get(id)?.cols);
   const explicitBoundary = wrapOutput.slice(wrapStart + 1 + sourceWidth, wrapTailIndex);
   assert(viewerWidth === sourceWidth || /[\r\n]|\x1b\[[0-9;?]*[Hf]/u.test(explicitBoundary),
@@ -551,12 +562,13 @@ async function testStableExactPane() {
     `printf '\\033[38;5;196m${vtMarker}\\033[0m\\033[?1h\\033[?2004h\\n'`,
     'raw-vt',
   );
-  assert(await waitUntil(() => terminalOutput(id).includes(vtMarker)), 'raw VT marker was not forwarded to manager data');
-  const liveVt = terminalOutput(id);
-  assert(liveVt.includes(`\x1b[38;5;196m${vtMarker}\x1b[0m`), 'raw ANSI color bytes were flattened or lost');
-  assert(liveVt.includes('\x1b[?1h'), 'application-cursor DECSET was not forwarded');
-  assert(liveVt.includes('\x1b[?2004h'), 'bracketed-paste DECSET was not forwarded');
-  assert(String(manager.get(id, true)?.replay || '').includes(vtMarker), 'raw VT output was not retained in replay');
+  const vtColor = `\x1b[38;5;196m${vtMarker}\x1b[0m`;
+  assert(await waitUntil(() => {
+    const live = String(outputByTerminal.get(id) || '');
+    const replay = String(manager.get(id, true)?.replay || '');
+    return live.includes(vtColor) && live.includes('\x1b[?1h')
+      && live.includes('\x1b[?2004h') && replay.includes(vtMarker);
+  }), 'raw VT bytes were not forwarded live and retained in replay');
 
   tmux(['swap-pane', '-d', '-s', fixture.target, '-t', fixture.sibling]);
   tmux(['move-pane', '-d', '-s', fixture.extras[0].pane, '-t', fixture.target]);
@@ -597,11 +609,21 @@ async function testStableExactPane() {
   const newWrapTail = `SN${crypto.randomBytes(6).toString('hex')}`;
   const newWrapPayload = `${newWrapHead}${'S'.repeat(structuralCols - newWrapHead.length)}${newWrapTail}`;
   await acceptedCommand(id, `printf '\\r%s\\n' '${newWrapPayload}'`, 'structural-wrap');
-  assert(await waitUntil(() => terminalOutput(id).includes(newWrapTail)), 'updated-grid wrap sentinel was not forwarded');
-  const newWrapOutput = terminalOutput(id);
-  const newWrapStart = newWrapOutput.indexOf(`\r${newWrapHead}`);
-  const newWrapTailIndex = newWrapOutput.indexOf(newWrapTail, newWrapStart + 1 + structuralCols);
-  assert(newWrapStart >= 0 && newWrapTailIndex >= 0, 'could not isolate updated-grid wrap output');
+  let newWrapEvidence = null;
+  assert(await waitUntil(() => {
+    newWrapEvidence = findCompletedWrap(
+      String(outputByTerminal.get(id) || ''),
+      newWrapHead,
+      newWrapTail,
+      structuralCols,
+    );
+    return Boolean(newWrapEvidence);
+  }), `could not isolate updated-grid wrap output: ${JSON.stringify(String(outputByTerminal.get(id) || '').slice(-2_000))}`);
+  const {
+    output: newWrapOutput,
+    start: newWrapStart,
+    tailIndex: newWrapTailIndex,
+  } = newWrapEvidence;
   const newBoundary = newWrapOutput.slice(newWrapStart + 1 + structuralCols, newWrapTailIndex);
   assert(manager.get(id)?.cols === structuralCols || /[\r\n]|\x1b\[[0-9;?]*[Hf]/u.test(newBoundary),
     `updated source/viewer width lost wrap parity: source=${structuralCols}, viewer=${manager.get(id)?.cols}`);
