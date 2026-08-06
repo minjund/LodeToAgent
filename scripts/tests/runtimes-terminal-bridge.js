@@ -23,6 +23,7 @@ const {
   terminateHostProcess,
   resolveTerminalHostExecutable,
 } = require('../../src/terminalHost');
+const { parseConfig: parseTerminalHostConfig, run: runTerminalHostDaemon } = require('../../src/terminalHostDaemon');
 const { TmuxController, safeName, safeTarget } = require('../../src/tmuxController');
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../../src/tmuxMonitor');
 const { ManagedTmuxRuntime } = require('../../src/managedTmuxRuntime');
@@ -659,6 +660,11 @@ function registerGenericAgentTests(context) {
 
 function registerTerminalLifecycleTests(context) {
   const { test, temp, root } = context;
+  test('터미널 호스트 데몬 진입점은 패키지 런타임에서 정의되지 않은 참조 없이 로드된다', () => {
+    assert.equal(typeof parseTerminalHostConfig, 'function');
+    assert.equal(typeof runTerminalHostDaemon, 'function');
+  });
+
   test('지속형 AI 터미널은 독립 tmux 소켓의 관리 세션으로 시작한다', () => {
     const spawns = [];
     class FakePty {
