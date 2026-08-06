@@ -16,7 +16,7 @@ window.LoadToAgentRendererUtils = Object.freeze({
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   },
   uiLocale() {
-    return window.LoadToAgentI18n?.getLocaleTag() || 'ko-KR';
+    return window.LoadToAgentI18n?.getLocaleTag() || 'en-US';
   },
   providerLabel(provider) {
     return ({ claude: 'Claude', gpt: 'GPT', codex: 'GPT', gemini: 'Gemini', grok: 'Grok' })[provider] || 'AI';

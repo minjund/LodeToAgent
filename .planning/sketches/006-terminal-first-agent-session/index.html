@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoadToAgent — Terminal-first Agent Session</title>
+  <link id="theme-link" rel="stylesheet" href="../themes/default.css">
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    :root {
+      --toolbar-height: 58px;
+      --window-chrome: 34px;
+      --global-rail: 58px;
+      --session-rail: 0px;
+      --insight-width: 0px;
+      --terminal-bg: #080a10;
+      --terminal-surface: #0d1018;
+      --surface-2: #151824;
+      --surface-3: #1a1e2b;
+      --border-strong: rgba(223, 231, 255, .24);
+      --text-dim: #72798d;
+      --warning: #ffc36a;
+      --cyan: #7bdff2;
+      --violet: #c5a7ff;
+      --terminal-green: #8be9c3;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      overflow: hidden;
+      background: #05060b;
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      letter-spacing: -.018em;
+    }
+    body[data-variant="b"] { --session-rail: 268px; }
+    body[data-variant="c"] { --session-rail: 232px; --insight-width: 326px; }
+    body.insights-collapsed { --insight-width: 0px; }
+    body[data-theme="paper"] {
+      --color-bg: #e8e9e5;
+      --color-surface: #f6f6f1;
+      --color-border: rgba(23, 30, 34, .15);
+      --color-text: #171b1b;
+      --color-text-muted: #626b69;
+      --color-primary: #006d5b;
+      --color-primary-hover: #005044;
+      --color-accent: #7453a6;
+      --color-danger: #b83e31;
+      --color-success: #007d62;
+      --surface-2: #eeeee9;
+      --surface-3: #e4e5df;
+      --border-strong: rgba(23, 30, 34, .28);
+      --text-dim: #828986;
+      --terminal-bg: #111515;
+      --terminal-surface: #181d1d;
+    }
+    button, textarea { font: inherit; }
+    button { color: inherit; }
+    button, textarea, [role="button"] { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+    .mono { font-family: var(--font-mono); letter-spacing: -.015em; }
+    .muted { color: var(--color-text-muted); }
+    .dim { color: var(--text-dim); }
+    .hidden { display: none !important; }
+
+    /* Sketch controls */
+    .sketch-toolbar {
+      position: fixed;
+      z-index: 200;
+      inset: 0 0 auto 0;
+      height: var(--toolbar-height);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      background: rgba(5, 6, 11, .96);
+      box-shadow: 0 12px 40px rgba(0,0,0,.3);
+      backdrop-filter: blur(20px);
+    }
+    .sketch-id {
+      margin-right: 7px;
+      color: #9299ab;
+      font: 700 11px/1 var(--font-mono);
+      letter-spacing: .11em;
+      white-space: nowrap;
+    }
+    .sketch-id strong { color: var(--terminal-green); }
+    .variant-tab, .tool-button, .viewport-button {
+      height: 39px;
+      padding: 0 12px;
+      border: 1px solid transparent;
+      border-radius: 9px;
+      background: transparent;
+      color: #a2a8b8;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: .15s ease;
+    }
+    .variant-tab:hover, .tool-button:hover, .viewport-button:hover {
+      color: #f2f4f7;
+      background: rgba(255,255,255,.055);
+    }
+    .variant-tab.active, .viewport-button.active {
+      border-color: rgba(139, 233, 195, .28);
+      background: rgba(139, 233, 195, .1);
+      color: var(--terminal-green);
+    }
+    .toolbar-divider { width: 1px; height: 24px; margin: 0 3px; background: rgba(255,255,255,.12); }
+    .toolbar-spacer { flex: 1; }
+    .tool-button { min-width: 39px; padding: 0 10px; border-color: rgba(255,255,255,.1); }
+    .variant-summary {
+      max-width: 280px;
+      overflow: hidden;
+      color: #737a8d;
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .stage {
+      position: fixed;
+      inset: var(--toolbar-height) 0 0;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+      overflow: auto;
+      background:
+        radial-gradient(circle at 75% 0%, rgba(139,233,195,.055), transparent 35rem),
+        #05060b;
+    }
+    .preview-frame {
+      position: relative;
+      width: min(100%, 1580px);
+      height: min(100%, 960px);
+      min-height: 620px;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 14px;
+      background: var(--color-bg);
+      box-shadow: 0 30px 100px rgba(0,0,0,.5);
+      transition: width .25s ease, height .25s ease;
+    }
+    .preview-frame[data-viewport="1280"] { width: 1280px; height: min(820px, 100%); }
+    .preview-frame[data-viewport="768"] { width: 768px; height: min(900px, 100%); }
+    .preview-frame[data-viewport="375"] { width: 375px; height: min(780px, 100%); }
+    .window-chrome {
+      height: var(--window-chrome);
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border-bottom: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 92%, black);
+      user-select: none;
+    }
+    .window-dot { width: 9px; height: 9px; border-radius: 50%; background: #ff6b62; }
+    .window-dot:nth-child(2) { background: #e7b851; }
+    .window-dot:nth-child(3) { background: #55c77a; }
+    .window-title { margin-left: 8px; color: var(--text-dim); font-size: 11px; }
+    .window-title strong { color: var(--color-text-muted); font-weight: 600; }
+    .window-spacer { flex: 1; }
+    .window-shortcut { color: var(--text-dim); font: 10px var(--font-mono); }
+
+    /* App shell */
+    .app-shell {
+      position: relative;
+      height: calc(100% - var(--window-chrome));
+      display: grid;
+      grid-template-columns: var(--global-rail) var(--session-rail) minmax(0, 1fr) var(--insight-width);
+      background: var(--color-bg);
+      transition: grid-template-columns .25s ease;
+    }
+    .global-rail {
+      grid-column: 1;
+      min-width: 0;
+      padding: 11px 8px 10px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      overflow: hidden;
+      border-right: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 82%, transparent);
+    }
+    .app-mark {
+      width: 36px; height: 36px; margin-bottom: 7px;
+      display: grid; place-items: center;
+      border: 1px solid rgba(139,233,195,.3);
+      border-radius: 11px;
+      background: rgba(139,233,195,.08);
+      color: var(--color-primary);
+      font-size: 17px; font-weight: 800;
+    }
+    .rail-button {
+      position: relative;
+      width: 40px; height: 40px;
+      display: grid; place-items: center;
+      border: 0; border-radius: 10px;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+    }
+    .rail-button:hover, .rail-button.active { background: rgba(255,255,255,.06); color: var(--color-text); }
+    .rail-button.active::before {
+      content: ""; position: absolute; left: -8px; width: 2px; height: 19px;
+      border-radius: 2px; background: var(--color-primary);
+    }
+    .rail-button.attention::after {
+      content: "2"; position: absolute; top: 3px; right: 2px;
+      min-width: 15px; height: 15px; padding: 0 3px;
+      display: grid; place-items: center;
+      border-radius: 999px; background: var(--warning); color: #17130b;
+      font: 800 9px var(--font-mono);
+    }
+    .rail-bottom { margin-top: auto; display: grid; gap: 6px; }
+
+    /* Optional session rail */
+    .session-rail {
+      grid-column: 2;
+      min-width: 0;
+      overflow: hidden;
+      border-right: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+      opacity: 0;
+      transition: opacity .18s ease;
+    }
+    body[data-variant="b"] .session-rail,
+    body[data-variant="c"] .session-rail { opacity: 1; }
+    .session-rail-inner { width: var(--session-rail); height: 100%; padding: 15px 12px; display: flex; flex-direction: column; }
+    .rail-heading { padding: 0 6px 12px; display: flex; align-items: center; gap: 8px; }
+    .project-glyph {
+      width: 30px; height: 30px; display: grid; place-items: center;
+      border-radius: 8px; background: rgba(139,233,195,.09); color: var(--color-primary); font: 800 12px var(--font-mono);
+    }
+    .rail-heading-copy { min-width: 0; flex: 1; }
+    .rail-heading-copy b { display: block; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-heading-copy small { display: block; margin-top: 2px; color: var(--text-dim); font-size: 10px; }
+    .small-icon-button {
+      width: 29px; height: 29px; display: grid; place-items: center;
+      border: 1px solid var(--color-border); border-radius: 8px;
+      background: transparent; color: var(--color-text-muted); cursor: pointer;
+    }
+    .rail-section-label {
+      padding: 13px 7px 7px; color: var(--text-dim);
+      font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase;
+    }
+    .session-list { min-height: 0; display: grid; align-content: start; gap: 4px; overflow: auto; }
+    .session-item {
+      width: 100%; padding: 10px 9px;
+      display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; align-items: start;
+      border: 1px solid transparent; border-radius: 10px;
+      background: transparent; color: var(--color-text-muted); text-align: left; cursor: pointer;
+    }
+    .session-item:hover { background: rgba(255,255,255,.035); color: var(--color-text); }
+    .session-item.active {
+      border-color: rgba(139,233,195,.17);
+      background: linear-gradient(95deg, rgba(139,233,195,.1), rgba(139,233,195,.02));
+      color: var(--color-text);
+    }
+    .status-dot { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: var(--text-dim); }
+    .status-dot.live { background: var(--color-success); box-shadow: 0 0 0 4px rgba(133,245,199,.08); }
+    .status-dot.wait { background: var(--warning); }
+    .session-copy { min-width: 0; }
+    .session-copy b { display: block; overflow: hidden; font-size: 11px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+    .session-copy small { display: block; margin-top: 4px; overflow: hidden; color: var(--text-dim); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .session-time { color: var(--text-dim); font: 9px var(--font-mono); }
+    .new-session {
+      margin-top: auto; height: 38px; border: 1px dashed var(--border-strong); border-radius: 9px;
+      background: transparent; color: var(--color-text-muted); cursor: pointer;
+    }
+    .new-session:hover { border-color: rgba(139,233,195,.35); color: var(--color-primary); }
+
+    /* Terminal workspace */
+    .terminal-workspace { grid-column: 3; min-width: 0; display: grid; grid-template-rows: 44px 48px minmax(0,1fr) 24px; overflow: hidden; }
+    .agent-tabs {
+      min-width: 0; padding: 0 8px;
+      display: flex; align-items: end; gap: 2px;
+      overflow-x: auto; border-bottom: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 78%, transparent);
+      scrollbar-width: none;
+    }
+    .agent-tab {
+      position: relative; min-width: 160px; max-width: 230px; height: 37px; padding: 0 11px;
+      display: grid; grid-template-columns: 17px minmax(0,1fr) auto; align-items: center; gap: 7px;
+      border: 0; border-radius: 8px 8px 0 0; background: transparent;
+      color: var(--text-dim); text-align: left; cursor: pointer;
+    }
+    .agent-tab:hover { background: rgba(255,255,255,.035); color: var(--color-text-muted); }
+    .agent-tab.active { background: var(--terminal-bg); color: #e7eaf0; }
+    .agent-tab.active::after { content: ""; position: absolute; inset: auto 0 -1px; height: 1px; background: var(--terminal-bg); }
+    .agent-symbol { color: var(--terminal-green); font: 700 11px var(--font-mono); }
+    .agent-tab-label { min-width: 0; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .tab-state { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); }
+    .tab-add { min-width: 34px; width: 34px; padding: 0; display: grid; place-items: center; }
+    .workspace-header {
+      min-width: 0; padding: 0 10px 0 14px;
+      display: flex; align-items: center; gap: 9px;
+      border-bottom: 1px solid rgba(255,255,255,.075); background: var(--terminal-bg); color: #b9bec9;
+    }
+    .mobile-rail-toggle { display: none; }
+    .live-indicator { display: flex; align-items: center; gap: 7px; color: #dce0e7; font-size: 11px; font-weight: 650; }
+    .live-pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--terminal-green); box-shadow: 0 0 0 4px rgba(139,233,195,.08); }
+    .workspace-context { min-width: 0; display: flex; align-items: center; gap: 6px; color: #68707e; font: 10px var(--font-mono); }
+    .workspace-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .workspace-context .branch { color: #9da4b2; }
+    .workspace-actions { margin-left: auto; display: flex; gap: 4px; }
+    .workspace-action {
+      height: 30px; min-width: 30px; padding: 0 8px;
+      display: grid; place-items: center;
+      border: 1px solid transparent; border-radius: 7px; background: transparent;
+      color: #737b89; font-size: 11px; cursor: pointer;
+    }
+    .workspace-action:hover, .workspace-action.active { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.045); color: #dce0e7; }
+    .workspace-action.stop { color: #ff8d7f; }
+
+    .terminal-grid { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(0,1fr); background: var(--terminal-bg); }
+    body.split-terminal .terminal-grid { grid-template-columns: minmax(0,1fr) minmax(260px,.72fr); }
+    .terminal-pane { min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0,1fr) auto; overflow: hidden; background: var(--terminal-bg); }
+    .terminal-secondary { display: none; border-left: 1px solid rgba(255,255,255,.11); }
+    body.split-terminal .terminal-secondary { display: grid; }
+    .terminal-scroll {
+      min-height: 0; padding: 17px 18px 10px; overflow-y: auto;
+      color: #b9c0ca; font: 12px/1.58 var(--font-mono); scrollbar-width: thin;
+      scrollbar-color: #333845 transparent;
+    }
+    .boot-line { margin-bottom: 15px; color: #626b79; }
+    .boot-line .terminal-brand { color: var(--terminal-green); font-weight: 700; }
+    .terminal-turn { margin: 0 0 17px; }
+    .turn-head { margin-bottom: 7px; display: flex; align-items: center; gap: 8px; color: #6f7785; font-size: 10px; }
+    .turn-head .who { color: #dce0e7; font-weight: 700; }
+    .turn-head .who.user { color: var(--cyan); }
+    .turn-head .who.agent { color: var(--terminal-green); }
+    .turn-copy { max-width: 920px; color: #c9ced6; white-space: pre-wrap; }
+    .turn-copy.user-copy { color: #eef0f3; }
+    .activity-block {
+      margin: 9px 0; padding: 10px 12px;
+      border-left: 2px solid #3a404c; background: rgba(255,255,255,.022); color: #8d95a2;
+    }
+    .activity-row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto; gap: 7px; }
+    .activity-row + .activity-row { margin-top: 5px; }
+    .activity-row .ok { color: var(--terminal-green); }
+    .activity-row code { color: #b8bec8; }
+    .activity-time { color: #505866; font-size: 10px; }
+    .terminal-command { margin: 9px 0; color: #8f98a5; }
+    .terminal-command .prompt { color: var(--violet); }
+    .terminal-output { color: #737c89; white-space: pre-wrap; }
+    .diff-add { color: #8be9c3; }
+    .diff-remove { color: #ff8d7f; }
+    .result-line { margin-top: 9px; color: #dce0e7; }
+    .result-line .check { color: var(--terminal-green); }
+    .stream-cursor { display: inline-block; width: 7px; height: 13px; margin-left: 4px; vertical-align: -2px; background: var(--terminal-green); animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .terminal-composer {
+      margin: 0 12px 11px; padding: 9px 11px 8px;
+      border: 1px solid rgba(139,233,195,.24); border-radius: 9px;
+      background: #0d1117; box-shadow: 0 0 0 3px rgba(139,233,195,.025);
+    }
+    .composer-row { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; align-items: start; gap: 7px; }
+    .composer-prompt { padding-top: 4px; color: var(--terminal-green); font: 800 12px var(--font-mono); }
+    #terminalInput {
+      width: 100%; min-height: 28px; max-height: 96px; padding: 2px 0;
+      resize: none; overflow-y: auto; border: 0; outline: 0;
+      background: transparent; color: #eef1f4; caret-color: var(--terminal-green);
+      font: 12px/1.55 var(--font-mono);
+    }
+    #terminalInput::placeholder { color: #545c68; }
+    .send-button {
+      width: 29px; height: 29px; display: grid; place-items: center;
+      border: 1px solid rgba(139,233,195,.25); border-radius: 7px;
+      background: rgba(139,233,195,.09); color: var(--terminal-green); cursor: pointer;
+    }
+    .composer-meta { margin: 5px 0 0 23px; display: flex; gap: 10px; color: #505866; font: 9px var(--font-mono); }
+    .composer-meta .mode { color: #858e9b; }
+    .secondary-scroll { padding-bottom: 20px; }
+    .terminal-secondary .terminal-composer { display: none; }
+    .secondary-title { margin-bottom: 12px; color: #858e9b; }
+
+    .status-bar {
+      min-width: 0; padding: 0 11px;
+      display: flex; align-items: center; gap: 12px; overflow: hidden;
+      border-top: 1px solid rgba(255,255,255,.07); background: #0b0e14; color: #59616e;
+      font: 9px var(--font-mono);
+    }
+    .status-bar span { white-space: nowrap; }
+    .status-bar .connected { color: var(--terminal-green); }
+    .status-spacer { flex: 1; }
+
+    /* Optional projection. It never owns input. */
+    .insight-panel {
+      grid-column: 4;
+      min-width: 0; overflow: hidden;
+      border-left: 1px solid var(--color-border); background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+      opacity: 0; transition: opacity .18s ease;
+    }
+    body[data-variant="c"]:not(.insights-collapsed) .insight-panel { opacity: 1; }
+    .insight-inner { width: 326px; height: 100%; display: grid; grid-template-rows: auto auto minmax(0,1fr) auto; }
+    .insight-head { padding: 15px 15px 11px; display: flex; align-items: center; gap: 8px; }
+    .insight-head-copy { min-width: 0; flex: 1; }
+    .insight-head b { display: block; font-size: 12px; }
+    .insight-head small { display: block; margin-top: 3px; color: var(--text-dim); font-size: 9px; }
+    .source-badge {
+      padding: 4px 7px; border: 1px solid rgba(139,233,195,.18); border-radius: 999px;
+      background: rgba(139,233,195,.07); color: var(--color-primary); font: 8px var(--font-mono); white-space: nowrap;
+    }
+    .insight-tabs { margin: 0 12px 8px; padding: 3px; display: grid; grid-template-columns: repeat(3,1fr); border-radius: 8px; background: rgba(255,255,255,.035); }
+    .insight-tab { height: 29px; border: 0; border-radius: 6px; background: transparent; color: var(--text-dim); font-size: 9px; cursor: pointer; }
+    .insight-tab.active { background: var(--surface-3); color: var(--color-text); }
+    .insight-content { min-height: 0; padding: 6px 14px 14px; overflow-y: auto; }
+    .projection-note {
+      margin-bottom: 13px; padding: 9px 10px; border: 1px solid var(--color-border); border-radius: 8px;
+      color: var(--text-dim); font-size: 9px; line-height: 1.5;
+    }
+    .projection-card { position: relative; padding: 0 0 15px 17px; }
+    .projection-card::before { content: ""; position: absolute; left: 3px; top: 7px; bottom: -2px; width: 1px; background: var(--color-border); }
+    .projection-card:last-child::before { display: none; }
+    .projection-dot { position: absolute; left: 0; top: 4px; width: 7px; height: 7px; border: 2px solid var(--color-surface); border-radius: 50%; background: var(--text-dim); box-sizing: content-box; }
+    .projection-dot.live { background: var(--color-success); }
+    .projection-card small { color: var(--text-dim); font: 8px var(--font-mono); }
+    .projection-card b { display: block; margin: 4px 0; color: var(--color-text); font-size: 10px; }
+    .projection-card p { margin: 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.5; }
+    .context-list { display: grid; gap: 7px; }
+    .context-row { padding: 9px; border: 1px solid var(--color-border); border-radius: 8px; }
+    .context-row b { display: block; color: var(--color-text); font-size: 9px; }
+    .context-row span { display: block; margin-top: 4px; overflow: hidden; color: var(--text-dim); font: 8px var(--font-mono); text-overflow: ellipsis; white-space: nowrap; }
+    .insight-foot { padding: 9px 14px; border-top: 1px solid var(--color-border); color: var(--text-dim); font-size: 8px; line-height: 1.4; }
+
+    /* Annotation mode */
+    .annotation {
+      position: absolute; z-index: 90; display: none;
+      padding: 5px 7px; border: 1px solid #ffd173; border-radius: 5px;
+      background: #19160f; color: #ffd173; box-shadow: 0 8px 24px rgba(0,0,0,.35);
+      font: 700 9px var(--font-mono); pointer-events: none;
+    }
+    body[data-annotations="on"] .annotation { display: block; }
+    .annotation::after { content: ""; position: absolute; width: 20px; height: 1px; background: #ffd173; }
+    .annotation.a-terminal { top: 113px; left: 38%; }
+    .annotation.a-terminal::after { top: 100%; left: 12px; transform: rotate(65deg); transform-origin: left; }
+    .annotation.a-input { right: 26%; bottom: 47px; }
+    .annotation.a-input::after { right: 12px; bottom: 100%; transform: rotate(-65deg); transform-origin: right; }
+    .annotation.a-projection { top: 120px; right: 22px; }
+    .annotation.a-projection::after { right: 100%; top: 50%; }
+
+    .toast {
+      position: absolute; z-index: 100; left: 50%; bottom: 38px; transform: translate(-50%, 15px);
+      padding: 8px 11px; border: 1px solid var(--border-strong); border-radius: 8px;
+      background: #171b24; color: #e4e7ec; box-shadow: 0 14px 35px rgba(0,0,0,.4);
+      font-size: 10px; opacity: 0; pointer-events: none; transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    /* Simulated viewport and actual responsive behavior */
+    .preview-frame[data-viewport="768"] { --session-rail: 210px; --insight-width: 0px; }
+    body[data-variant="c"] .preview-frame[data-viewport="768"] .insight-panel { display: none; }
+    .preview-frame[data-viewport="375"] { --global-rail: 44px; --session-rail: 0px; --insight-width: 0px; }
+    .preview-frame[data-viewport="375"] .session-rail,
+    .preview-frame[data-viewport="375"] .insight-panel { display: none; }
+    .preview-frame[data-viewport="375"] .global-rail { padding-inline: 3px; }
+    .preview-frame[data-viewport="375"] .rail-button { width: 36px; }
+    .preview-frame[data-viewport="375"] .workspace-context,
+    .preview-frame[data-viewport="375"] .workspace-action .label,
+    .preview-frame[data-viewport="375"] .agent-tab:not(.active),
+    .preview-frame[data-viewport="375"] .status-bar .desktop-only { display: none; }
+    .preview-frame[data-viewport="375"] .agent-tab { min-width: 190px; }
+    .preview-frame[data-viewport="375"] .mobile-rail-toggle { display: grid; }
+    .preview-frame[data-viewport="375"] .terminal-scroll { padding: 13px 12px 8px; font-size: 10px; }
+    .preview-frame[data-viewport="375"] .terminal-composer { margin-inline: 7px; }
+
+    @media (max-width: 900px) {
+      .variant-summary { display: none; }
+      .viewport-button { display: none; }
+      .stage { padding: 8px; }
+      .preview-frame { min-height: 540px; }
+    }
+    @media (max-width: 650px) {
+      :root { --global-rail: 44px; --session-rail: 0px !important; --insight-width: 0px !important; }
+      .sketch-toolbar { overflow-x: auto; }
+      .sketch-id { display: none; }
+      .toolbar-spacer { min-width: 6px; }
+      .preview-frame { width: 100%; height: 100%; min-height: 0; border-radius: 10px; }
+      .session-rail, .insight-panel { display: none; }
+      .global-rail { padding-inline: 3px; }
+      .rail-button { width: 36px; }
+      .workspace-context, .workspace-action .label, .agent-tab:not(.active), .status-bar .desktop-only { display: none; }
+      .agent-tab { min-width: 190px; }
+      .mobile-rail-toggle { display: grid; }
+      .terminal-scroll { padding: 13px 12px 8px; font-size: 10px; }
+      .terminal-composer { margin-inline: 7px; }
+    }
+  </style>
+</head>
+<body data-variant="a" data-theme="night" data-annotations="off">
+  <header class="sketch-toolbar" aria-label="스케치 비교 도구">
+    <div class="sketch-id"><strong>006</strong> TERMINAL FIRST</div>
+    <button class="variant-tab active" data-variant-choice="a">A · 순수 터미널</button>
+    <button class="variant-tab" data-variant-choice="b">B · 세션 레일</button>
+    <button class="variant-tab" data-variant-choice="c">C · 대화 투영</button>
+    <div class="toolbar-divider"></div>
+    <span class="variant-summary" id="variantSummary">터미널 하나가 대화·실행·상태의 원본입니다.</span>
+    <div class="toolbar-spacer"></div>
+    <button class="viewport-button active" data-viewport-choice="full" title="창에 맞춤">자동</button>
+    <button class="viewport-button" data-viewport-choice="1280">1280</button>
+    <button class="viewport-button" data-viewport-choice="768">768</button>
+    <button class="viewport-button" data-viewport-choice="375">375</button>
+    <div class="toolbar-divider"></div>
+    <button class="tool-button" id="annotationToggle" aria-pressed="false" title="설계 주석">주석</button>
+    <button class="tool-button" id="themeToggle" aria-pressed="false" title="테마 전환">◐</button>
+  </header>
+
+  <main class="stage">
+    <section class="preview-frame" id="previewFrame" data-viewport="full" aria-label="LoadToAgent UI 초안">
+      <div class="window-chrome">
+        <span class="window-dot"></span><span class="window-dot"></span><span class="window-dot"></span>
+        <span class="window-title"><strong>LoadToAgent</strong> · Lodestar</span>
+        <span class="window-spacer"></span>
+        <span class="window-shortcut">⌘K 명령</span>
+      </div>
+
+      <div class="app-shell">
+        <nav class="global-rail" aria-label="전역 탐색">
+          <div class="app-mark">L</div>
+          <button class="rail-button active" title="세션">▣</button>
+          <button class="rail-button attention" title="확인할 일">◇</button>
+          <button class="rail-button" title="실행 기록">↯</button>
+          <button class="rail-button" title="예약">◷</button>
+          <div class="rail-bottom">
+            <button class="rail-button" title="새 터미널">＋</button>
+            <button class="rail-button" title="설정">⌁</button>
+          </div>
+        </nav>
+
+        <aside class="session-rail" aria-label="프로젝트 세션">
+          <div class="session-rail-inner">
+            <div class="rail-heading">
+              <span class="project-glyph">LO</span>
+              <span class="rail-heading-copy"><b>Lodestar</b><small>3개 세션 · 2개 실행 중</small></span>
+              <button class="small-icon-button" title="프로젝트 바꾸기">⌄</button>
+            </div>
+            <div class="rail-section-label">현재 세션</div>
+            <div class="session-list">
+              <button class="session-item active" data-session="terminal-ui">
+                <span class="status-dot live"></span>
+                <span class="session-copy"><b>터미널 중심 UI 초안</b><small>Codex · 응답 작성 중</small></span>
+                <span class="session-time">now</span>
+              </button>
+              <button class="session-item" data-session="message-delay">
+                <span class="status-dot wait"></span>
+                <span class="session-copy"><b>메시지 확인 지연 분석</b><small>Claude · 입력 필요</small></span>
+                <span class="session-time">4m</span>
+              </button>
+              <button class="session-item" data-session="responsive-audit">
+                <span class="status-dot live"></span>
+                <span class="session-copy"><b>반응형 회귀 점검</b><small>Gemini · 테스트 실행 중</small></span>
+                <span class="session-time">8m</span>
+              </button>
+              <div class="rail-section-label">최근</div>
+              <button class="session-item" data-session="release-note">
+                <span class="status-dot"></span>
+                <span class="session-copy"><b>1.6.7 릴리스 노트</b><small>완료 · 변경 12개</small></span>
+                <span class="session-time">1h</span>
+              </button>
+            </div>
+            <button class="new-session">＋ 이 프로젝트에서 새 세션</button>
+          </div>
+        </aside>
+
+        <section class="terminal-workspace" aria-label="에이전트 터미널">
+          <div class="agent-tabs">
+            <button class="agent-tab active" data-agent-tab="terminal-ui">
+              <span class="agent-symbol">C</span><span class="agent-tab-label">codex · terminal-first UI</span><span class="tab-state"></span>
+            </button>
+            <button class="agent-tab" data-agent-tab="responsive-audit">
+              <span class="agent-symbol">G</span><span class="agent-tab-label">gemini · responsive audit</span><span class="tab-state"></span>
+            </button>
+            <button class="agent-tab tab-add" title="새 에이전트 세션">＋</button>
+          </div>
+
+          <div class="workspace-header">
+            <button class="workspace-action mobile-rail-toggle" title="세션 목록">☰</button>
+            <div class="live-indicator"><span class="live-pulse"></span><span id="liveState">응답 중</span></div>
+            <div class="workspace-context"><span>codex</span><span>·</span><span class="branch">codex/terminal-first</span><span>·</span><span id="cwdLabel">D:\winCudeProject\oneForAll\Lodestar</span></div>
+            <div class="workspace-actions">
+              <button class="workspace-action stop" id="stopButton" title="실행 중단">■ <span class="label">중단</span></button>
+              <button class="workspace-action" id="splitButton" title="터미널 분할">▥</button>
+              <button class="workspace-action" id="insightButton" title="대화 투영 열기">◫</button>
+              <button class="workspace-action" id="restartButton" title="세션 재시작">↻</button>
+              <button class="workspace-action" title="더 보기">•••</button>
+            </div>
+          </div>
+
+          <div class="terminal-grid">
+            <div class="terminal-pane">
+              <div class="terminal-scroll" id="terminalScroll" role="log" aria-live="polite">
+                <div class="boot-line"><span class="terminal-brand">◆ LoadToAgent</span> / Codex CLI 0.32 · PTY connected · scrollback restored</div>
+                <div class="terminal-turn">
+                  <div class="turn-head"><span class="who user">YOU</span><span>14:32:08</span><span>↵ PTY</span></div>
+                  <div class="turn-copy user-copy">메시지 확인이 늦어질 때 그냥 끝난 것처럼 보이면 안 돼. 대화에 터미널을 아예 붙이고, 오르카처럼 터미널에서 바로 채팅 치게 해줘.</div>
+                </div>
+                <div class="terminal-turn">
+                  <div class="turn-head"><span class="who agent">CODEX</span><span>14:32:11</span><span>working</span></div>
+                  <div class="turn-copy">터미널을 세션의 원본으로 두고, 상태와 대화 보기는 그 위에 얇게 얹는 방향으로 정리하겠습니다.</div>
+                  <div class="activity-block">
+                    <div class="activity-row"><span class="ok">✓</span><span>현재 PTY 입력·복원 경로 확인</span><span class="activity-time">1.2s</span></div>
+                    <div class="activity-row"><span class="ok">✓</span><span><code>renderer/terminal-workbench.js</code> 읽음</span><span class="activity-time">0.4s</span></div>
+                    <div class="activity-row"><span>↳</span><span>같은 PTY에 직접 입력하는 UI 스케치 작성</span><span class="activity-time">now</span></div>
+                  </div>
+                  <div class="terminal-command"><span class="prompt">PS D:\…\Lodestar&gt;</span> rg "terminalWrite|onData" renderer</div>
+                  <div class="terminal-output">renderer/terminal-workbench.js:64  term.onData(data =&gt; terminalWrite(data))
+renderer/terminal-workbench.js:98  restoreScrollback(sessionId)</div>
+                  <div class="result-line"><span class="check">✓</span> 별도 채팅 전송 경로 없이도 터미널 입력이 이미 가능해요. UI의 기본 진입점만 바꾸면 됩니다.<span class="stream-cursor"></span></div>
+                </div>
+              </div>
+
+              <form class="terminal-composer" id="terminalForm">
+                <div class="composer-row">
+                  <span class="composer-prompt">›</span>
+                  <textarea id="terminalInput" rows="1" spellcheck="false" aria-label="터미널에 메시지 입력" placeholder="터미널에 메시지 또는 명령 입력…"></textarea>
+                  <button class="send-button" type="submit" title="PTY로 전송">↵</button>
+                </div>
+                <div class="composer-meta"><span class="mode">agent input · raw PTY</span><span>Enter 전송</span><span>Shift+Enter 줄바꿈</span></div>
+              </form>
+            </div>
+
+            <div class="terminal-pane terminal-secondary" aria-label="분할 터미널">
+              <div class="terminal-scroll secondary-scroll">
+                <div class="secondary-title">powershell · Lodestar</div>
+                <div class="terminal-command"><span class="prompt">PS D:\…\Lodestar&gt;</span> npm run test:terminal</div>
+                <div class="terminal-output">&gt; loadtoagent@1.6.7 test:terminal
+&gt; electron scripts/terminal-integration-test.js
+
+PTY bridge .............. <span class="diff-add">passed</span>
+IME composition ......... <span class="diff-add">passed</span>
+scrollback replay ....... <span class="diff-add">passed</span>
+
+3 passed · 0 failed</div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="status-bar">
+            <span class="connected">● PTY 연결됨</span><span class="desktop-only">pwsh 7.5</span><span class="desktop-only">utf-8</span>
+            <span class="status-spacer"></span><span>2 agents</span><span class="desktop-only">context 42%</span><span>Ln 18</span>
+          </footer>
+        </section>
+
+        <aside class="insight-panel" aria-label="대화 투영 패널">
+          <div class="insight-inner">
+            <div class="insight-head">
+              <div class="insight-head-copy"><b>세션 보기</b><small>터미널 출력을 읽기 쉽게 투영</small></div>
+              <span class="source-badge">READ ONLY</span>
+              <button class="small-icon-button" id="closeInsight" title="패널 닫기">×</button>
+            </div>
+            <div class="insight-tabs">
+              <button class="insight-tab active" data-insight-tab="conversation">대화</button>
+              <button class="insight-tab" data-insight-tab="activity">작업</button>
+              <button class="insight-tab" data-insight-tab="context">컨텍스트</button>
+            </div>
+            <div class="insight-content" id="insightContent"></div>
+            <div class="insight-foot">입력과 실제 상태는 항상 왼쪽 PTY가 소유합니다. 이 패널을 닫아도 세션은 끊기지 않습니다.</div>
+          </div>
+        </aside>
+
+        <div class="annotation a-terminal">① 터미널 = 세션 원본</div>
+        <div class="annotation a-input">② 입력도 같은 PTY로</div>
+        <div class="annotation a-projection">③ 대화 보기는 선택 사항</div>
+        <div class="toast" id="toast">세션을 다시 연결했습니다.</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const body = document.body;
+    const previewFrame = document.getElementById('previewFrame');
+    const terminalScroll = document.getElementById('terminalScroll');
+    const terminalInput = document.getElementById('terminalInput');
+    const liveState = document.getElementById('liveState');
+    const toast = document.getElementById('toast');
+    const summaries = {
+      a: '터미널 하나가 대화·실행·상태의 원본입니다.',
+      b: '터미널은 유지하고 프로젝트 세션 전환만 왼쪽에 둡니다.',
+      c: '원본 터미널 옆에 읽기 전용 대화 투영을 선택적으로 엽니다.'
+    };
+    const sessions = {
+      'terminal-ui': {
+        title: 'codex · terminal-first UI', branch: 'codex/terminal-first', state: '응답 중',
+        message: '터미널 상시 노출과 직접 입력 흐름을 스케치하고 있습니다.'
+      },
+      'message-delay': {
+        title: 'claude · message delay', branch: 'fix/message-ack', state: '입력 필요',
+        message: '메시지 수신 확인 정책을 선택해 주세요. PTY는 연결된 상태입니다.'
+      },
+      'responsive-audit': {
+        title: 'gemini · responsive audit', branch: 'audit/responsive', state: '테스트 중',
+        message: '375px, 768px, 1280px 뷰포트 회귀 테스트를 실행하고 있습니다.'
+      },
+      'release-note': {
+        title: 'codex · release notes', branch: 'release/1.6.7', state: '완료',
+        message: '1.6.7 릴리스 노트 정리를 완료했습니다.'
+      }
+    };
+
+    const projectionTemplates = {
+      conversation: `
+        <div class="projection-note">동일 PTY의 출력에서 사용자·에이전트 발화를 식별한 보기입니다. 여기에는 별도 입력창이 없습니다.</div>
+        <article class="projection-card"><span class="projection-dot"></span><small>YOU · 14:32</small><b>터미널을 대화의 기본 화면으로</b><p>메시지 확인이 늦어져도 세션이 끝난 것처럼 보이지 않게 하고, 터미널에서 바로 입력.</p></article>
+        <article class="projection-card"><span class="projection-dot live"></span><small>CODEX · NOW</small><b>UI 초안 작성 중</b><p>PTY를 원본으로 유지하고 세션 레일과 구조화 보기를 선택적 보조층으로 설계.</p></article>`,
+      activity: `
+        <div class="projection-note">터미널에서 감지된 실행 이벤트만 추려 보여줍니다.</div>
+        <article class="projection-card"><span class="projection-dot"></span><small>14:32:14 · READ</small><b>터미널 브리지 확인</b><p>terminal-workbench.js · onData → terminalWrite</p></article>
+        <article class="projection-card"><span class="projection-dot"></span><small>14:32:18 · SEARCH</small><b>직접 입력 경로 검색</b><p>rg “terminalWrite|onData” renderer</p></article>
+        <article class="projection-card"><span class="projection-dot live"></span><small>NOW · WRITE</small><b>클릭형 UI 스케치</b><p>3개 레이아웃과 PTY 입력 상호작용 구현 중</p></article>`,
+      context: `
+        <div class="projection-note">세션 재연결 후에도 복구해야 하는 최소 문맥입니다.</div>
+        <div class="context-list">
+          <div class="context-row"><b>프로젝트</b><span>D:\\winCudeProject\\oneForAll\\Lodestar</span></div>
+          <div class="context-row"><b>브랜치</b><span>codex/terminal-first</span></div>
+          <div class="context-row"><b>에이전트</b><span>Codex CLI · PTY 4f2a</span></div>
+          <div class="context-row"><b>마지막 수신</b><span>14:32:22 · 1.3s ago</span></div>
+          <div class="context-row"><b>복원 범위</b><span>scrollback 2,184 lines</span></div>
+        </div>`
+    };
+
+    function setVariant(variant) {
+      body.dataset.variant = variant;
+      body.classList.remove('insights-collapsed');
+      document.querySelectorAll('[data-variant-choice]').forEach(button => button.classList.toggle('active', button.dataset.variantChoice === variant));
+      document.getElementById('variantSummary').textContent = summaries[variant];
+      document.getElementById('insightButton').classList.toggle('active', variant === 'c');
+    }
+
+    function setSession(id) {
+      const session = sessions[id];
+      if (!session) return;
+      document.querySelectorAll('[data-session]').forEach(button => button.classList.toggle('active', button.dataset.session === id));
+      document.querySelectorAll('[data-agent-tab]').forEach(button => button.classList.toggle('active', button.dataset.agentTab === id));
+      const activeTab = document.querySelector(`[data-agent-tab="${id}"]`);
+      if (activeTab) activeTab.querySelector('.agent-tab-label').textContent = session.title;
+      liveState.textContent = session.state;
+      document.querySelector('.workspace-context .branch').textContent = session.branch;
+      const turn = document.createElement('div');
+      turn.className = 'terminal-turn';
+      turn.innerHTML = `<div class="turn-head"><span class="who agent">SESSION</span><span>now</span><span>restored</span></div><div class="turn-copy">${session.message}</div>`;
+      terminalScroll.appendChild(turn);
+      terminalScroll.scrollTop = terminalScroll.scrollHeight;
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 1600);
+    }
+
+    function appendPrompt(message) {
+      const safe = message.replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character]));
+      const userTurn = document.createElement('div');
+      userTurn.className = 'terminal-turn';
+      userTurn.innerHTML = `<div class="turn-head"><span class="who user">YOU</span><span>now</span><span>↵ PTY</span></div><div class="turn-copy user-copy">${safe}</div>`;
+      const agentTurn = document.createElement('div');
+      agentTurn.className = 'terminal-turn';
+      agentTurn.innerHTML = `<div class="turn-head"><span class="who agent">CODEX</span><span>now</span><span>working</span></div><div class="turn-copy">같은 PTY에서 입력을 받았습니다. 별도 채팅 상태를 만들지 않고 이 세션에서 계속 처리합니다.<span class="stream-cursor"></span></div>`;
+      terminalScroll.append(userTurn, agentTurn);
+      terminalScroll.scrollTop = terminalScroll.scrollHeight;
+      liveState.textContent = '응답 중';
+    }
+
+    document.querySelectorAll('[data-variant-choice]').forEach(button => button.addEventListener('click', () => setVariant(button.dataset.variantChoice)));
+    document.querySelectorAll('[data-viewport-choice]').forEach(button => button.addEventListener('click', () => {
+      previewFrame.dataset.viewport = button.dataset.viewportChoice;
+      document.querySelectorAll('[data-viewport-choice]').forEach(item => item.classList.toggle('active', item === button));
+    }));
+    document.getElementById('themeToggle').addEventListener('click', event => {
+      const paper = body.dataset.theme !== 'paper';
+      body.dataset.theme = paper ? 'paper' : 'night';
+      event.currentTarget.setAttribute('aria-pressed', String(paper));
+    });
+    document.getElementById('annotationToggle').addEventListener('click', event => {
+      const next = body.dataset.annotations !== 'on';
+      body.dataset.annotations = next ? 'on' : 'off';
+      event.currentTarget.setAttribute('aria-pressed', String(next));
+      event.currentTarget.classList.toggle('active', next);
+    });
+    document.querySelectorAll('[data-session], [data-agent-tab]').forEach(button => button.addEventListener('click', () => setSession(button.dataset.session || button.dataset.agentTab)));
+    document.getElementById('terminalForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const message = terminalInput.value.trim();
+      if (!message) return;
+      appendPrompt(message);
+      terminalInput.value = '';
+    });
+    terminalInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        document.getElementById('terminalForm').requestSubmit();
+      }
+    });
+    document.getElementById('stopButton').addEventListener('click', () => {
+      liveState.textContent = '중단됨';
+      document.querySelector('.stream-cursor')?.remove();
+      showToast('현재 에이전트 실행을 중단했습니다. PTY는 유지됩니다.');
+    });
+    document.getElementById('splitButton').addEventListener('click', event => {
+      body.classList.toggle('split-terminal');
+      event.currentTarget.classList.toggle('active', body.classList.contains('split-terminal'));
+    });
+    document.getElementById('restartButton').addEventListener('click', () => {
+      liveState.textContent = '다시 연결됨';
+      showToast('PTY scrollback을 복원해 세션을 다시 연결했습니다.');
+    });
+    document.getElementById('insightButton').addEventListener('click', () => {
+      if (body.dataset.variant !== 'c') setVariant('c');
+      else body.classList.toggle('insights-collapsed');
+    });
+    document.getElementById('closeInsight').addEventListener('click', () => body.classList.add('insights-collapsed'));
+    document.querySelectorAll('[data-insight-tab]').forEach(button => button.addEventListener('click', () => {
+      document.querySelectorAll('[data-insight-tab]').forEach(item => item.classList.toggle('active', item === button));
+      document.getElementById('insightContent').innerHTML = projectionTemplates[button.dataset.insightTab];
+    }));
+    document.querySelector('.new-session').addEventListener('click', () => showToast('새 터미널 탭을 열 준비가 되었습니다.'));
+    document.getElementById('insightContent').innerHTML = projectionTemplates.conversation;
+  </script>
+</body>
+</html>

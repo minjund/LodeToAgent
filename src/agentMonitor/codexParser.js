@@ -491,7 +491,7 @@ function createCodexParser(dependencies) {
         session.status = 'running';
         session.statusDetail = '턴 실행 중';
         session.statusObserved = true;
-      } else if (session.depth && state.lastTurnCompleted) {
+      } else if (state.lastTurnCompleted) {
         session.status = 'completed';
         session.statusDetail = '작업 완료';
         session.statusObserved = false;
@@ -506,7 +506,7 @@ function createCodexParser(dependencies) {
   }
 
   return function parseCodex(fileInfo, options = {}) {
-    const parsed = readJsonLines(fileInfo.file);
+    const parsed = readJsonLines(fileInfo.file, options.maxBytes);
     if (!parsed.rows.length) return null;
     const { session, meta } = initializeSession(fileInfo, parsed, options);
     const state = createParseState(session, meta);

@@ -27,6 +27,16 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     ));
   }
 
+  function isPastRecord(session) {
+    return Boolean(session && !["running", "starting"].includes(session.status));
+  }
+
+  function latestSessionSort(sessions = []) {
+    return [...sessions].sort((left, right) =>
+      Date.parse(right.updatedAt || right.startedAt || 0) - Date.parse(left.updatedAt || left.startedAt || 0)
+      || String(right.id || "").localeCompare(String(left.id || "")));
+  }
+
   function shortText(value, maxCharacters = 54) {
     return readablePreview(value || t("studio.session.untitled"), maxCharacters).text || t("studio.session.untitled");
   }
@@ -503,12 +513,11 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     if (historyList) {
       const historySessions = allVisibleSessions
         .filter((session) => !session.parentId)
-        .filter((session) => ["completed", "cancelled", "failed", "idle"].includes(session.status))
+        .filter(isPastRecord)
         .filter(matchesWorkspaceFilter)
-        .sort((left, right) => Date.parse(right.updatedAt || 0) - Date.parse(left.updatedAt || 0))
-        .slice(0, 8);
-      historyList.innerHTML = historySessions.length
-        ? historySessions.map((session) => {
+      const latestHistorySessions = latestSessionSort(historySessions).slice(0, 8);
+      historyList.innerHTML = latestHistorySessions.length
+        ? latestHistorySessions.map((session) => {
           const provider = state.providerMap.get(session.provider);
           const providerLabel = provider?.label || String(session.provider || "AI").toUpperCase();
           const updatedAt = new Date(session.updatedAt || 0);
@@ -583,7 +592,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const activeRootCount = sessions.filter((session) => !session.parentId && isControlRoomSession(session)).length
       + (state.workspace === "all" ? unlinkedLiveTmuxSessions().length : 0);
     const memoryRootCount = sessions.filter((session) => (
-      !session.parentId && ["completed", "cancelled", "failed", "idle"].includes(session.status)
+      !session.parentId && isPastRecord(session)
     )).length;
     const reviewNeededCount = Math.min(
       activeRootCount,
@@ -1010,9 +1019,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
   }
 
   function filteredSessions() {
-    const allSessions = displaySessions();
+    const allSessions = state.view === "active" ? visibleSessions() : displaySessions();
     let sessions = state.view === "waiting" ? allSessions : allSessions.filter((session) => !session.parentId);
-    if (state.view === "active") sessions = sessions.filter((session) => ["completed", "cancelled", "failed", "idle"].includes(session.status));
+    if (state.view === "active") sessions = sessions.filter(isPastRecord);
     if (state.view === "waiting") sessions = sessions.filter((session) => context.needsManagementInbox?.(session));
     if (state.providerFilters.size) sessions = sessions.filter((session) => state.providerFilters.has(session.provider));
     sessions = sessions.filter(matchesWorkspaceFilter);
@@ -1027,6 +1036,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     }
     if (state.sort === "tokens") sessions.sort((a, b) => Number((b.usage && b.usage.total) || 0) - Number((a.usage && a.usage.total) || 0));
     else if (state.sort === "context") sessions.sort((a, b) => Number((b.context && b.context.percent) || 0) - Number((a.context && a.context.percent) || 0));
+    else if (state.view === "active") sessions = latestSessionSort(sessions);
     else sessions = stableSessionSort(sessions);
     return sessions;
   }
@@ -1159,6 +1169,8 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     announceProviderFilter,
     filteredSessions,
     graphFilteredSessions,
+    isPastRecord,
+    latestSessionSort,
     stableSessionSort,
     moveSessionOrder,
     ensureProjectOrder,

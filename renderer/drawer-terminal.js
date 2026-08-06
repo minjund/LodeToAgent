@@ -209,6 +209,7 @@
 
     const generation = ++state.generation;
     state.target = null;
+    setResumeAction(false);
     setEmpty(true);
     setStatus('connecting', 'drawer.terminal_connecting');
     try {
@@ -249,6 +250,8 @@
           notifyTargetsChanged({ sessionId: session.id, available: false, reason: result?.reason || 'unavailable' });
         }
       }
+      if (result?.reason === 'no-target') return showUnavailable(session);
+      setResumeAction(false);
       setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
       setStatus('unavailable', 'drawer.terminal_unavailable');
       return result || { ok: false, reason: 'unavailable', targets: [] };
@@ -315,6 +318,47 @@
       button.removeAttribute('aria-busy');
     }
   });
+  element('drawerTerminalResumeBtn')?.addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const session = state.session;
+    if (!session || button.getAttribute('aria-busy') === 'true') return;
+    const support = resumeSupport(session);
+    if (!support.supported) {
+      setResumeAction(false);
+      setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
+      setStatus('unavailable', 'drawer.terminal_unavailable', support.reason || '');
+      return;
+    }
+    button.setAttribute('aria-busy', 'true');
+    button.disabled = true;
+    setEmpty(true, 'drawer.terminal_resuming', 'drawer.terminal_resuming_help');
+    setStatus('connecting', 'drawer.terminal_resuming');
+    try {
+      // Resuming is explicit: merely viewing an external session must never
+      // spawn another AI process. The existing resume path preserves the
+      // provider session id and creates only the LoadToAgent-owned PTY needed
+      // for subsequent input and scrollback.
+      const resumed = await window.LoadToAgentTerminal.resumeForAgent(session, '', false, { focus: false });
+      if (state.session?.id !== session.id) return;
+      const terminalId = targetIdOf(resumed);
+      if (!terminalId) throw new Error(t('terminal.agent.resume_terminal_failed'));
+      clearUnavailable(session.id, terminalId);
+      const mounted = await mount(session, { force: true, targetId: terminalId });
+      if (!mounted?.ok && !['cancelled', 'pending'].includes(mounted?.reason)) {
+        throw new Error(t('drawer.terminal_resume_failed'));
+      }
+    } catch (error) {
+      if (state.session?.id !== session.id) return;
+      setResumeAction(true);
+      setEmpty(true, 'drawer.terminal_resume_failed', 'drawer.terminal_resume_failed_help');
+      setStatus('error', 'drawer.terminal_resume_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_resume_failed'));
+      report('drawer-terminal-resume', error);
+    } finally {
+      button.removeAttribute('aria-busy');
+      if (state.session?.id === session.id && !state.target) setResumeAction(true);
+      else button.disabled = false;
+    }
+  });
   element('drawerComposer')?.addEventListener('submit', event => {
     if (!state.session || element('drawerComposer')?.dataset.mode !== 'terminal') return;
     setStatus('running', 'drawer.terminal_sending', state.target?.label || '');
@@ -359,8 +403,8 @@
         setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');
       }
     }
-    // The terminal inventory can change while the drawer is showing a safe
-    // transcript. Re-evaluate the surface even when no xterm is mounted.
+    // The terminal inventory can change while the drawer is showing the PTY's
+    // unavailable state. Re-evaluate even when no xterm is mounted.
     setTimeout(() => notifyTargetsChanged({ change: payload.change || 'updated' }), 0);
   });
   window.loadtoagent?.onTerminalConnection?.(payload => {

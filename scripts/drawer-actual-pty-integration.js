@@ -13,8 +13,8 @@ app.disableHardwareAcceleration();
 
 const root = path.resolve(__dirname, '..');
 const artifacts = path.join(root, 'artifacts');
-const logFile = path.join(artifacts, 'drawer-actual-pty-integration.log');
-const screenshotFile = path.join(artifacts, 'loadtoagent-drawer-actual-pty-failure.png');
+const logFile = path.join(artifacts, 'inline-actual-pty-integration.log');
+const screenshotFile = path.join(artifacts, 'loadtoagent-inline-actual-pty-failure.png');
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-drawer-actual-pty-'));
 const discoveryFile = path.join(temporary, 'terminal-host.json');
 const storeFile = path.join(temporary, 'terminals.json');
@@ -209,8 +209,8 @@ async function run() {
         backgroundThrottling: false,
       },
     });
-    win.webContents.on('console-message', (_event, details) => {
-      const message = typeof details === 'object' ? details.message : String(details || '');
+    win.webContents.on('console-message', (_event, details, legacyMessage) => {
+      const message = typeof details === 'object' ? details.message : String(legacyMessage || details || '');
       log(`renderer ${message}`);
     });
 
@@ -232,19 +232,26 @@ async function run() {
 
     await win.loadFile(path.join(root, 'renderer', 'index.html'));
     await waitForRenderer(win,
-      `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentTerminal && window.LoadToAgentDrawerTerminal && window.interactionTest)`,
+      `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentTerminal && window.LoadToAgentInlineTerminal && window.interactionTest)`,
       'renderer와 실제 PTY preload가 준비되지 않았습니다.');
 
-    await rendererValue(win, `window.LoadToAgentApp.openDrawer('fixture-root', { context: true })`);
+    const openedInline = await rendererValue(win, `(() => {
+      const workspace = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(node => node.dataset.workspace === ${JSON.stringify(root)});
+      workspace?.click();
+      const trigger = document.querySelector('.control-room-main[data-inline-pty-trigger="fixture-root"]');
+      trigger?.click();
+      return Boolean(workspace && trigger);
+    })()`);
+    assert(openedInline, '실제 PTY를 열 프로젝트 또는 메인 AI 영역을 찾지 못했습니다.');
     await waitForRenderer(win, `(() => {
-      const drawer = document.querySelector('#detailDrawer');
+      const inline = document.querySelector('[data-inline-agent-terminal="fixture-root"]');
       const embedded = window.LoadToAgentTerminal.embeddedState();
       const rootSession = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
       const terminal = window.interactionTest.getTerminals().find(item =>
         item.id === ${JSON.stringify(terminalId)});
-      return drawer?.classList.contains('open')
-        && drawer.dataset.conversationSurface === 'pty'
-        && drawer.dataset.terminalChat === 'true'
+      return inline
+        && !document.querySelector('#detailDrawer')?.classList.contains('open')
         && embedded.connected
         && embedded.agentSessionId === 'fixture-root'
         && embedded.terminalId === ${JSON.stringify(terminalId)}
@@ -253,11 +260,12 @@ async function run() {
         && terminal?.conversationBound === true
         && terminal?.backend === 'direct'
         && terminal?.agentResumeSessionId === rootSession.externalId
-        && document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm');
-    })()`, 'root 대화 drawer가 주입된 실제 PTY의 xterm에 연결되지 않았습니다.');
+        && document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm')
+        && document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]')?.dataset.agentTerminalReady === 'true';
+    })()`, '클릭한 메인 AI 바로 아래에 주입된 실제 PTY와 안전한 입력창이 연결되지 않았습니다.');
 
     const terminalTextExpression = `(() => {
-      const screen = document.querySelector('#drawerTerminalViewport > .terminal-screen');
+      const screen = document.querySelector('#agentInlineTerminalViewport > .terminal-screen');
       if (!screen) return '';
       return [
         ...[...screen.querySelectorAll('.xterm-rows > div')].map(row => row.textContent || ''),
@@ -265,11 +273,11 @@ async function run() {
       ].join('\\n');
     })()`;
     await waitForRenderer(win, `${terminalTextExpression}.includes(${JSON.stringify(hydrationMarker)})`,
-      'terminalGet replay가 drawer xterm에 hydrate되지 않았습니다.');
+      'terminalGet replay가 인라인 xterm에 hydrate되지 않았습니다.');
 
     await rendererValue(win, `(() => {
       window.interactionTest.clearCalls();
-      const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]');
+      const form = document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]');
       const input = form?.querySelector('[data-agent-command-draft]');
       if (!form || !input) return false;
       input.value = ${JSON.stringify(liveCommand)};
@@ -279,27 +287,28 @@ async function run() {
     })()`);
 
     await waitUntil(() => clientData.join('').includes(liveMarker),
-      'drawer composer 명령이 TerminalHost 소켓을 거쳐 실제 PTY 출력으로 돌아오지 않았습니다.');
+      '인라인 PTY 입력 명령이 TerminalHost 소켓을 거쳐 실제 PTY 출력으로 돌아오지 않았습니다.');
     await waitForRenderer(win, `${terminalTextExpression}.includes(${JSON.stringify(liveMarker)})`,
-      '실제 PTY live marker가 drawer xterm에 표시되지 않았습니다.');
+      '실제 PTY live marker가 인라인 xterm에 표시되지 않았습니다.');
 
     const rendererResult = await rendererValue(win, `(() => ({
       embedded: window.LoadToAgentTerminal.embeddedState(),
-      surface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
-      xtermMounted: Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm')),
-      transcriptHidden: document.querySelector('#drawerContent')?.classList.contains('hidden'),
+      inlineMounted: Boolean(document.querySelector('[data-inline-agent-terminal="fixture-root"]')),
+      drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
+      xtermMounted: Boolean(document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm')),
+      composerReady: document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]')?.dataset.agentTerminalReady || '',
       calls: window.interactionTest.getCalls(),
       text: ${terminalTextExpression},
     }))()`);
     const rendererCommands = rendererResult.calls.filter(call => call.name === 'terminalCommand');
-    assert(rendererResult.surface === 'pty' && rendererResult.xtermMounted && rendererResult.transcriptHidden,
-      `drawer가 실제 PTY 전용 화면이 아닙니다: ${JSON.stringify(rendererResult)}`);
+    assert(rendererResult.inlineMounted && !rendererResult.drawerOpen && rendererResult.xtermMounted && rendererResult.composerReady === 'true',
+      `메인 AI 바로 아래 인라인 영역이 실제 PTY 전용 화면이 아닙니다: ${JSON.stringify(rendererResult)}`);
     assert(rendererCommands.length === 1
       && rendererCommands[0].args[0] === terminalId
       && rendererCommands[0].args[1] === liveCommand,
     `composer가 실제 terminalCommand IPC를 정확히 한 번 호출하지 않았습니다: ${JSON.stringify(rendererCommands)}`);
     assert(!rendererResult.calls.some(call => call.name === 'terminalCreate'),
-      '기존 실제 PTY가 있는데 drawer가 별도 터미널을 생성했습니다.');
+      '기존 실제 PTY가 있는데 인라인 화면이 별도 터미널을 생성했습니다.');
     assert(!rendererResult.calls.some(call => call.name === 'terminalWrite'),
       '서명된 대화 PTY에 raw xterm 입력 경로가 열렸습니다.');
     assert(ipcCalls.some(call => call.operation === 'list')
@@ -321,7 +330,7 @@ async function run() {
       ipcOperations: ipcCalls.map(call => call.operation),
     };
     log(`passed ${JSON.stringify(summary)}`);
-    process.stdout.write(`✓ drawer → preload → IPC → TerminalHost socket → TerminalManager → node-pty → xterm 실제 PTY 통합 검증\n${JSON.stringify(summary, null, 2)}\n`);
+    process.stdout.write(`✓ AI 아래 인라인 PTY → preload → IPC → TerminalHost socket → TerminalManager → node-pty → xterm 통합 검증\n${JSON.stringify(summary, null, 2)}\n`);
   } catch (error) {
     log(`failed ${error.stack || error}`);
     if (win && !win.isDestroyed()) {

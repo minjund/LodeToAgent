@@ -340,6 +340,7 @@ app.whenReady().then(() => {
           ...base,
           id,
           provider: 'claude',
+          parentId: 'visual-check:structured-parent',
           title: '지난 작업 내용 확인',
           model: base.model || 'claude',
           status: 'idle',
@@ -354,6 +355,7 @@ app.whenReady().then(() => {
         };
         window.LoadToAgentApp.state.details.set(id, fixture);
         window.LoadToAgentApp.state.selectedId = id;
+        window.LoadToAgentApp.state.drawerMode = 'subagent';
         window.LoadToAgentApp.state.detailLoading = false;
         window.LoadToAgentApp.state.drawerTab = 'chat';
         window.LoadToAgentApp.state.drawerForceLatest = true;
@@ -406,6 +408,7 @@ app.whenReady().then(() => {
         const fixture = {
           ...base,
           id,
+          parentId: null,
           title: '메시지 전달 상태 확인',
           status: 'idle',
           statusDetail: '다음 요청 대기',
@@ -426,20 +429,24 @@ app.whenReady().then(() => {
         app.state.details.set(id, fixture);
         app.state.pendingConversationMessages.set(id, [entry]);
         app.state.selectedId = id;
+        app.state.drawerMode = 'session';
         app.state.drawerTab = 'chat';
         app.state.drawerForceLatest = true;
         document.querySelector('#drawerBackdrop').classList.remove('hidden');
         document.querySelector('#detailDrawer').classList.add('open');
         document.querySelector('#detailDrawer').setAttribute('aria-hidden', 'false');
         app.renderDrawer();
-        const panel = document.querySelector('.chat-delivery-progress');
-        const status = document.querySelector('.chat-delivery-status.delayed');
-        const content = document.querySelector('#drawerContent');
+        const drawer = document.querySelector('#detailDrawer');
         return {
-          hasDeliveryCard: Boolean(panel),
-          inlineStatus: status?.textContent.replace(/\\s+/g, ' ').trim() || '',
-          providerStatus: document.querySelector('#drawerProvider')?.textContent || '',
-          noHorizontalOverflow: Boolean(content && content.scrollWidth <= content.clientWidth + 2),
+          conversationSurface: drawer?.dataset.conversationSurface || '',
+          terminalChat: drawer?.dataset.terminalChat || '',
+          terminalVisible: Boolean(document.querySelector('#drawerTerminalSurface:not(.hidden)')?.getClientRects().length),
+          contentHidden: document.querySelector('#drawerContent')?.classList.contains('hidden'),
+          composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden'),
+          composerEmpty: !document.querySelector('#drawerComposer')?.children.length,
+          transcriptAbsent: !document.querySelector('.drawer-terminal-transcript'),
+          hasDeliveryCard: Boolean(document.querySelector('.chat-delivery-progress')),
+          noPtyEmptyVisible: Boolean(document.querySelector('#drawerTerminalEmpty:not(.hidden)')?.getClientRects().length),
         };
       })()`);
       await new Promise(resolve => setTimeout(resolve, 250));
@@ -447,9 +454,11 @@ app.whenReady().then(() => {
       const deliveryOutput = path.join(outputDir, 'loadtoagent-message-delivery-status.png');
       fs.writeFileSync(deliveryOutput, deliveryImage.toPNG());
       await win.webContents.executeJavaScript("document.querySelector('#closeDrawerBtn')?.click()");
-      if (deliveryMetrics.hasDeliveryCard || !deliveryMetrics.inlineStatus.includes('확인이 늦어짐')
-        || !deliveryMetrics.providerStatus.includes('메시지 확인이 늦어짐') || !deliveryMetrics.noHorizontalOverflow) {
-        throw new Error(`메시지 전달 상태가 간결한 인라인 표시로 유지되지 않았습니다: ${JSON.stringify(deliveryMetrics)}`);
+      if (deliveryMetrics.conversationSurface !== 'pty' || deliveryMetrics.terminalChat !== 'true'
+        || !deliveryMetrics.terminalVisible || !deliveryMetrics.contentHidden
+        || !deliveryMetrics.composerHidden || !deliveryMetrics.composerEmpty
+        || !deliveryMetrics.transcriptAbsent || deliveryMetrics.hasDeliveryCard || !deliveryMetrics.noPtyEmptyVisible) {
+        throw new Error(`PTY가 없는 상위 작업에 별도 대화·전달 상태 화면이 렌더링됐습니다: ${JSON.stringify(deliveryMetrics)}`);
       }
       const densitySetup = await win.webContents.executeJavaScript(`(async () => {
         const sessions = window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || [];
@@ -696,181 +705,62 @@ app.whenReady().then(() => {
         })()`);
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-      const directMarker = `LOADTOAGENT_AGENT_DIRECT_${Date.now()}`;
-      const commandUiMetrics = await win.webContents.executeJavaScript(`(() => {
+      const commandUiMetrics = await win.webContents.executeJavaScript(`(async () => {
         window.__ensureLoadToAgentDensityFixture?.();
         window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
         window.LoadToAgentApp.renderSessions();
         window.LoadToAgentApp.openDrawer(${JSON.stringify(densityFocusId)});
+        for (let attempt = 0; attempt < 40 && !window.LoadToAgentTerminal.embeddedState().connected; attempt += 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
         const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === ${JSON.stringify(densityFocusId)});
         const targets = window.LoadToAgentTerminal.agentTargets(session);
-        const form = document.querySelector('#drawerComposer [data-agent-command-form="${densityFocusId}"]');
-        const input = form?.querySelector('[data-agent-command-draft]');
-        const picker = form?.querySelector('[data-agent-command-target]');
-        const initiallyDisabled = form?.querySelector('[type="submit"]')?.disabled || false;
-        if (picker) {
-          picker.value = ${JSON.stringify(commandTerminalId)};
-          picker.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        if (input) {
-          input.value = ${JSON.stringify(markerCommand(directMarker))};
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          form.requestSubmit();
-        }
+        const embedded = window.LoadToAgentTerminal.embeddedState();
         return {
           progressPanelVisible: Boolean(document.querySelector('[data-workflow-progress="${densityFocusId}"]')),
           workScreenComposerAbsent: !document.querySelector('.agent-workflow-canvas [data-agent-command-form]'),
           drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
-          drawerComposerVisible: Boolean(form),
-          formVisible: Boolean(form),
-          connected: form?.classList.contains('connected') || false,
+          ptySurface: document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'pty'
+            && !document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden'),
+          contentHidden: document.querySelector('#drawerContent')?.classList.contains('hidden'),
+          drawerComposerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden')
+            && !document.querySelector('#drawerComposer')?.children.length,
+          transcriptAbsent: !document.querySelector('.drawer-terminal-transcript'),
+          connected: embedded.connected,
+          terminalId: embedded.terminalId,
           targetCount: targets.length,
           targetIds: targets.map(target => target.terminalId).filter(Boolean),
-          pickerVisible: Boolean(picker),
-          initiallyDisabled,
-          selectedTargetId: picker?.value || '',
-          maxLength: input?.maxLength || 0,
         };
       })()`);
-      const directReplay = await waitForRenderer(win, `(async () => { const value = await window.loadtoagent.terminalGet(${JSON.stringify(commandTerminalId)}); return value?.replay.includes(${JSON.stringify(directMarker)}) ? value.replay : ''; })()`, 50, 200);
-      if (!commandUiMetrics.progressPanelVisible || !commandUiMetrics.workScreenComposerAbsent || !commandUiMetrics.drawerOpen || !commandUiMetrics.drawerComposerVisible
-        || !commandUiMetrics.formVisible || !commandUiMetrics.connected || commandUiMetrics.targetCount !== 2 || !commandUiMetrics.targetIds.includes(commandTerminalId) || !commandUiMetrics.targetIds.includes(alternateCommandTerminalId) || !commandUiMetrics.pickerVisible || !commandUiMetrics.initiallyDisabled || commandUiMetrics.selectedTargetId !== commandTerminalId || commandUiMetrics.maxLength !== 8000 || !directReplay) {
-        throw new Error(`진행 화면과 별도 대화창의 터미널 직접 지시가 올바르지 않습니다: ${JSON.stringify(commandUiMetrics)}`);
+      if (!commandUiMetrics.progressPanelVisible || !commandUiMetrics.workScreenComposerAbsent || !commandUiMetrics.drawerOpen
+        || !commandUiMetrics.ptySurface || !commandUiMetrics.contentHidden || !commandUiMetrics.drawerComposerHidden
+        || !commandUiMetrics.transcriptAbsent || !commandUiMetrics.connected
+        || commandUiMetrics.targetCount !== 2 || !commandUiMetrics.targetIds.includes(commandTerminalId)
+        || !commandUiMetrics.targetIds.includes(alternateCommandTerminalId)
+        || !commandUiMetrics.targetIds.includes(commandUiMetrics.terminalId)) {
+        throw new Error(`진행 화면과 PTY 전용 대화 연결이 올바르지 않습니다: ${JSON.stringify(commandUiMetrics)}`);
       }
-      const openDraft = '이 문장을 터미널 입력창에서 이어서 작성';
-      await win.webContents.executeJavaScript(`(async () => {
-        window.__ensureLoadToAgentDensityFixture?.();
-        window.LoadToAgentApp.state.graphFocusId = ${JSON.stringify(densityFocusId)};
-        window.LoadToAgentApp.renderSessions();
-        window.LoadToAgentApp.openDrawer(${JSON.stringify(densityFocusId)});
-        const input = document.querySelector('#drawerComposer [data-agent-command-draft="${densityFocusId}"]');
-        if (input) {
-          input.value = ${JSON.stringify(openDraft)};
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        await window.LoadToAgentApp.openAgentTerminal(${JSON.stringify(densityFocusId)});
-      })()`);
-      const terminalOpenReady = await waitForRenderer(win, `(() => window.LoadToAgentApp.state.view === 'terminal' && document.querySelector('.terminal-session-item.active')?.dataset.terminalId === ${JSON.stringify(commandTerminalId)} && document.querySelector('#terminalCommandInput')?.value === ${JSON.stringify(openDraft)})()`);
-      if (!terminalOpenReady) throw new Error('선택한 AI에서 정확한 일반 터미널과 지시 초안을 열지 못했습니다.');
-      const sessionTerminalMetrics = await win.webContents.executeJavaScript(`(() => ({
-        historyVisible: !document.querySelector('#terminalHistoryPanel')?.classList.contains('hidden'),
-        historyMessages: document.querySelectorAll('.terminal-history-message').length,
-        historyTitle: document.querySelector('#terminalHistoryTitle')?.textContent || '',
-        bindingCopy: document.querySelector('#terminalTargetMeta span')?.textContent || '',
-        activeTerminalId: document.querySelector('.terminal-session-item.active')?.dataset.terminalId || '',
-        inputCopy: document.querySelector('#terminalCommandLabel')?.textContent || '',
-        inputEnabled: !document.querySelector('#terminalCommandInput')?.disabled,
-        composerVisible: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return Boolean(rect && rect.top >= 0 && rect.bottom <= window.innerHeight + 2); })(),
-        composerRect: (() => { const rect = document.querySelector('#terminalCommandForm')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
-        historyRect: (() => { const rect = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
-        workbenchRect: (() => { const rect = document.querySelector('.terminal-workbench')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
-        terminalStageRect: (() => { const rect = document.querySelector('#terminalStage')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
-        layoutRect: (() => { const rect = document.querySelector('#terminalSection .terminal-layout')?.getBoundingClientRect(); return rect ? { top: rect.top, bottom: rect.bottom, height: rect.height } : null; })(),
-        viewportWidth: window.innerWidth,
-        viewportHeight: window.innerHeight,
-        questionModePressed: document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') || '',
-        stageScrollTop: document.querySelector('.main-stage')?.scrollTop || 0,
-        currentView: document.body.dataset.currentView || '',
-        consoleVisible: (() => { const rect = document.querySelector('.terminal-console-pane')?.getBoundingClientRect(); return Boolean(rect && rect.width > 500 && rect.height > 180); })(),
-        stackedWithoutOverlap: (() => {
-          const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
-          const composer = document.querySelector('#terminalCommandForm')?.getBoundingClientRect();
-          return Boolean(history && composer && history.bottom <= composer.top + 2);
-        })(),
-      }))()`);
-      if (!sessionTerminalMetrics.historyVisible || sessionTerminalMetrics.historyMessages < 1 || !sessionTerminalMetrics.bindingCopy.includes('질문을 받을 AI') || sessionTerminalMetrics.activeTerminalId !== commandTerminalId || !sessionTerminalMetrics.inputCopy.includes('에게 질문') || !sessionTerminalMetrics.inputEnabled || !sessionTerminalMetrics.composerVisible || !sessionTerminalMetrics.consoleVisible || !sessionTerminalMetrics.stackedWithoutOverlap) {
-        throw new Error(`기존 AI 세션 대화와 터미널 결합 화면이 올바르지 않습니다: ${JSON.stringify(sessionTerminalMetrics)}`);
-      }
-      const continuityMetrics = await win.webContents.executeJavaScript(`(async () => {
-        const before = await window.loadtoagent.terminalList();
-        document.querySelector('[data-terminal-id="${alternateCommandTerminalId}"]')?.click();
-        await new Promise(resolve => setTimeout(resolve, 80));
-        const alternateInput = document.querySelector('#terminalCommandInput');
-        if (alternateInput) {
-          alternateInput.value = '다른 터미널 전용 초안';
-          alternateInput.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-        document.querySelector('[data-terminal-id="${commandTerminalId}"]')?.click();
-        await new Promise(resolve => setTimeout(resolve, 80));
-        const after = await window.loadtoagent.terminalList();
-        return {
-          sameSessionCount: before.length === after.length,
-          sameSessionIds: before.every(item => after.some(next => next.id === item.id && next.pid === item.pid)),
-          activeTerminalId: document.querySelector('.terminal-session-item.active')?.dataset.terminalId || '',
-          restoredDraft: document.querySelector('#terminalCommandInput')?.value || '',
-          historyVisibleAfterReturn: !document.querySelector('#terminalHistoryPanel')?.classList.contains('hidden'),
-        };
-      })()`);
-      if (!continuityMetrics.sameSessionCount || !continuityMetrics.sameSessionIds || continuityMetrics.activeTerminalId !== commandTerminalId || continuityMetrics.restoredDraft !== openDraft || !continuityMetrics.historyVisibleAfterReturn) {
-        throw new Error(`터미널 탭 이동 후 기존 세션과 입력 초안이 유지되지 않았습니다: ${JSON.stringify(continuityMetrics)}`);
-      }
-      const sessionTerminalImage = await captureStableState(win,
-        `(() => {
-          document.querySelector('#runModal')?.classList.add('hidden');
-          document.querySelector('#drawerBackdrop')?.classList.add('hidden');
-          document.querySelector('#detailDrawer')?.classList.remove('open');
-          document.querySelector('.main-stage')?.scrollTo(0, 0);
-        })()`,
-        `(() => {
-          const section = document.querySelector('#terminalSection');
-          const composer = document.querySelector('#terminalCommandForm')?.getBoundingClientRect();
-          return Boolean(section && !section.classList.contains('hidden')
-            && !document.querySelector('#terminalHistoryPanel')?.classList.contains('hidden')
-            && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')
-            && composer && composer.top >= 0 && composer.bottom <= window.innerHeight + 2);
-        })()`, 12);
+      const sessionTerminalMetrics = { ...commandUiMetrics, presentation: 'drawer-pty' };
+      const continuityMetrics = { connected: commandUiMetrics.connected, terminalId: commandUiMetrics.terminalId };
+      const sessionTerminalImage = await win.webContents.capturePage();
       const sessionTerminalOutput = path.join(outputDir, 'loadtoagent-session-terminal.png');
       fs.writeFileSync(sessionTerminalOutput, sessionTerminalImage.toPNG());
       setTestWindowSize(win, 1180, 900);
-      const terminalCompactImage = await captureStableState(win,
-        `(() => {
-          document.querySelector('.terminal-session-tools')?.removeAttribute('open');
-          document.querySelector('.main-stage')?.scrollTo(0, 0);
-        })()`,
-        `(() => {
-          const section = document.querySelector('#terminalSection');
-          return Boolean(section && !section.classList.contains('hidden')
-            && document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2);
-        })()`, 12);
-      const terminalCompactMetrics = await win.webContents.executeJavaScript(`(() => {
-        const resource = document.querySelector('#terminalSection .terminal-resource-panel')?.getBoundingClientRect();
-        const workbench = document.querySelector('#terminalWorkbench')?.getBoundingClientRect();
-        const composer = document.querySelector('#terminalCommandForm')?.getBoundingClientRect();
-        const actionButtons = [...document.querySelectorAll('#terminalSection .terminal-key-actions button')].map(button => {
-          const rect = button.getBoundingClientRect();
-          return { text: button.textContent.trim(), left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom };
-        }).filter(rect => rect.right > rect.left && rect.bottom > rect.top);
-        return {
-          width: window.innerWidth,
-          resourceRect: resource ? { top: resource.top, bottom: resource.bottom, width: resource.width } : null,
-          workbenchRect: workbench ? { top: workbench.top, bottom: workbench.bottom, width: workbench.width } : null,
-          composerRect: composer ? { top: composer.top, bottom: composer.bottom, width: composer.width } : null,
-          sessionStripAboveWorkbench: Boolean(resource && workbench && resource.bottom <= workbench.top + 2),
-          composerVisible: Boolean(composer && composer.top >= 0 && composer.bottom <= window.innerHeight + 2),
-          noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
-          historyBesideConsole: (() => {
-            const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
-            const consolePane = document.querySelector('.terminal-console-pane')?.getBoundingClientRect();
-            return Boolean(history && consolePane && history.right <= consolePane.left + 2);
-          })(),
-          historyVisible: (() => {
-            const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
-            return Boolean(history && history.width > 100 && history.height > 100);
-          })(),
-          historyAboveComposer: (() => {
-            const history = document.querySelector('#terminalHistoryPanel')?.getBoundingClientRect();
-            return Boolean(history && composer
-              && history.bottom <= composer.top + 2
-              && Math.abs(history.left - composer.left) <= 2
-              && Math.abs(history.right - composer.right) <= 2);
-          })(),
-          questionMode: document.querySelector('#terminalModeQuestionBtn')?.getAttribute('aria-pressed') === 'true',
-          actionsVisible: Boolean(actionButtons.length >= 3 && actionButtons.every(rect => rect.left >= -1 && rect.right <= window.innerWidth + 1 && rect.top >= -1 && rect.bottom <= window.innerHeight + 1)),
-          actionRects: actionButtons,
-          actionLabels: actionButtons.map(item => item.text),
-        };
-      })()`);
-      if (!terminalCompactMetrics.sessionStripAboveWorkbench || !terminalCompactMetrics.composerVisible || !terminalCompactMetrics.noHorizontalOverflow || !terminalCompactMetrics.historyVisible || !terminalCompactMetrics.historyAboveComposer || !terminalCompactMetrics.questionMode || terminalCompactMetrics.actionsVisible) throw new Error(`중간 너비 AI 질문창 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const terminalCompactMetrics = await win.webContents.executeJavaScript(`(() => ({
+        conversationSurface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+        terminalVisible: Boolean(document.querySelector('#drawerTerminalSurface:not(.hidden)')?.getClientRects().length),
+        contentHidden: document.querySelector('#drawerContent')?.classList.contains('hidden'),
+        composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden')
+          && !document.querySelector('#drawerComposer')?.children.length,
+        noHorizontalOverflow: document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
+      }))()`);
+      if (terminalCompactMetrics.conversationSurface !== 'pty' || !terminalCompactMetrics.terminalVisible
+        || !terminalCompactMetrics.contentHidden || !terminalCompactMetrics.composerHidden
+        || !terminalCompactMetrics.noHorizontalOverflow) {
+        throw new Error(`중간 너비 PTY 대화창 배치가 올바르지 않습니다: ${JSON.stringify(terminalCompactMetrics)}`);
+      }
+      const terminalCompactImage = await win.webContents.capturePage();
       const terminalCompactOutput = path.join(outputDir, 'loadtoagent-session-terminal-compact.png');
       fs.writeFileSync(terminalCompactOutput, terminalCompactImage.toPNG());
       setTestWindowSize(win, 1600, 980);
@@ -1271,7 +1161,14 @@ app.whenReady().then(() => {
       await new Promise(resolve => setTimeout(resolve, 120));
       exitCode = 1;
     } finally {
-      app.exit(exitCode);
+      try {
+        if (win && !win.isDestroyed()) {
+          await win.webContents.executeJavaScript(`window.loadtoagent.terminalList()
+            .then(items => Promise.all(items.map(item => window.loadtoagent.terminalClose(item.id).catch(() => null))))`);
+        }
+      } catch {}
+      process.exitCode = exitCode;
+      app.quit();
     }
   }, 9000);
   timeout.unref?.();

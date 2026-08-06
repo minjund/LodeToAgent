@@ -76,7 +76,7 @@ try {
     { type: 'assistant', uuid: 'completed-final-answer', timestamp: new Date(now - 1_000).toISOString(), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '왕복 완료' }] } },
   ]));
   const completedResults = completed.collaboration.communications.filter(event => event.kind === 'result');
-  check('completed.parent.status', completed.status === 'idle');
+  check('completed.parent.status', completed.status === 'completed');
   check('completed.spawn.status', completed.collaboration.spawns[0].status === 'completed');
   check('completed.spawn.completed-at', Boolean(completed.collaboration.spawns[0].completedAt));
   check('completed.spawn.result', completed.collaboration.spawns[0].result === 'FIRST-91C2 SECOND-4DB8');
@@ -85,7 +85,7 @@ try {
   check('completed.communication.last-text', completed.collaboration.communications.at(-1).text === 'FIRST-91C2 SECOND-4DB8');
   check('completed.communication.last-child', completed.collaboration.communications.at(-1).childId === 'claude:accuracy-child');
   check('completed.result-rounds', completedResults.length === 2);
-  check('completed.parent.detail', completed.statusDetail === '다음 요청 대기');
+  check('completed.parent.detail', completed.statusDetail === '작업 완료');
 
   const waitingQuestion = parseClaude(jsonl(path.join(temp, 'states', 'question.jsonl'), [
     { type: 'assistant', timestamp: new Date(now - 1_000).toISOString(), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Windows와 WSL 중 무엇을 선택할까요?' }] } },
@@ -104,8 +104,8 @@ try {
   check('states.question.detail', waitingQuestion.statusDetail === '내 답변을 기다리는 중');
   check('states.input-tool.status', waitingTool.status === 'waiting');
   check('states.input-tool.detail', waitingTool.statusDetail === '내 답변을 기다리는 중');
-  check('states.idle.status', idle.status === 'idle');
-  check('states.idle.detail', idle.statusDetail === '다음 요청 대기');
+  check('states.idle.status', idle.status === 'completed');
+  check('states.idle.detail', idle.statusDetail === '작업 완료');
   check('states.responding.status', responding.status === 'running');
   check('states.responding.detail', responding.statusDetail === '응답 생성 중');
 

@@ -53,6 +53,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     drawerForceLatest: false,
     visibleLimit: 30,
     graphFocusId: null,
+    inlineTerminalSessionId: null,
+    workflowDetailTab: "summary",
     controlRoomSort: "recent",
     supervisionFocusId: null,
     graphExpandedProviders: new Set(),

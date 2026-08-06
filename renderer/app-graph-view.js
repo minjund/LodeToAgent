@@ -97,7 +97,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
-      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.focus_relationships", { role }))}">
+      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal" aria-label="${esc(t("graph.focus_relationships", { role }))}">
         <span class="agent-node-top">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small></span>
@@ -134,7 +134,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           ? (cumulativeChildren ? t("graph.subagents_created", { count: cumulativeChildren }) : t("graph.helper_ai"))
           : t("project.origin_named", { name: sessionWorkspaceLabel(session) })}</span>
         ${retained ? `<button type="button" data-session-archive="${esc(session.id)}">${esc(t("control.move_to_history"))}</button>` : ""}
-        <button type="button" data-open-session="${esc(session.id)}">${esc(t("graph.view_conversation"))} <b>↗</b>
+        <button type="button" data-workflow-detail-scroll="summary">${esc(t("control.open_project_progress_short"))} <b>↓</b>
         </button>
         </footer>
     </article>`;
@@ -172,9 +172,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           ? `<span class="agent-flow-assignment"><small>${esc(t("graph.assignment_details"))}</small><strong title="${esc(assignedWork)}">${esc(assignedWork)}</strong></span>`
           : "";
       const workState = subagentWorkState(session);
-      const interaction = directChildren
-        ? `data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.view_child_flow", { task: primaryTask }))}"`
-        : `data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(t("graph.view_main_ai_conversation_for_task", { task: primaryTask }))}"`;
+      const interaction = `data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}" aria-label="${esc(t("graph.view_child_flow", { task: primaryTask }))}"`;
       const action = directChildren ? t("graph.view_child_subagents", { count: directChildren }) : t("graph.view_main_ai_conversation");
       return `<button type="button" class="agent-flow-row child-session work-${workState} ${statusClass(session.status)}"
         ${interaction}
@@ -203,7 +201,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       </button>`;
     }
     return `<button type="button" class="agent-flow-row ${isLiveSession(session) ? "running" : ""} ${statusClass(presentationStatus)}"
-      data-graph-focus="${esc(session.id)}"
+      data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}"
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
@@ -457,7 +455,15 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const quickActions = typeof context.quickActionsHtml === "function"
       ? context.quickActionsHtml(session)
       : "";
-    return `<aside class="control-session-review" data-control-review="${esc(session.id)}" style="${providerStyle(session.provider)}">
+    if (!quickActions) {
+      return `<aside class="control-session-review simple-review" data-control-review="${esc(session.id)}" style="${providerStyle(session.provider)}">
+        <span class="control-review-provider"><i aria-hidden="true">${esc(provider.mark)}</i><span><small>${esc(provider.label)}</small><b>${esc(review.label)}</b></span></span>
+        <span class="control-review-copy"><strong title="${esc(review.request.full || review.request.text)}">${esc(review.request.text)}</strong>${review.detail ? `<small title="${esc(review.detail.full || review.detail.text)}">${esc(review.detail.text)}</small>` : ""}</span>
+        ${remainingCount > 0 ? `<em class="control-review-more">${esc(t("studio.review.more", { count: remainingCount }))}</em>` : ""}
+        <button type="button" class="control-review-open" data-open-session="${esc(session.id)}" ${review.resultReview ? 'data-result-review="true"' : ""}>${esc(review.action)} <i aria-hidden="true">→</i></button>
+      </aside>`;
+    }
+    return `<aside class="control-session-review has-review-actions" data-control-review="${esc(session.id)}" style="${providerStyle(session.provider)}">
       <header>
         <span class="control-review-provider"><i aria-hidden="true">${esc(provider.mark)}</i><span><small>${esc(t("studio.review.what"))}</small><b>${esc(provider.label)} · ${esc(review.label)}</b></span></span>
         ${remainingCount > 0 ? `<em>${esc(t("studio.review.more", { count: remainingCount }))}</em>` : ""}
@@ -576,7 +582,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const assignmentPreview = controlRoomAgentGoal(child, 58);
     const workState = subagentWorkState(child);
     return `<button type="button" class="control-room-node helper-node is-${esc(workState)} ${child.status === "starting" ? "is-spawning" : ""}"
-      data-open-subagent-chat="${esc(child.id)}"
+      data-inline-pty-trigger="${esc(child.id)}" aria-expanded="${state.inlineTerminalSessionId === child.id ? "true" : "false"}" aria-controls="agentInlineTerminal"
       data-control-summary="${esc(assignmentPreview.text)}"
       data-motion-key="control-helper:${esc(child.id)}"
       data-motion-value="${esc(child.status || "")}:${esc(child.updatedAt || "")}"
@@ -630,6 +636,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const retained = isControlRoomSession(root) && !isLiveSession(root) && !delivery;
     const descendants = controlRoomDescendants(root, model);
     const actors = [root, ...descendants];
+    const inlineSession = actors.find(session => session.id === state.inlineTerminalSessionId) || null;
     const terminalReviewSources = actors.map(session => ({
       session,
       prompt: window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null,
@@ -661,14 +668,14 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const current = controlRoomSummary(delivery ? t(deliverySummaryKey(delivery.phase)) : latestWorkCopy(root) || root.statusDetail || root.title, 74);
     const title = controlRoomAgentGoal(root, 64);
     const unitCount = activeUnits.length;
-    const main = `<button type="button" class="control-room-main" data-open-session="${esc(root.id)}"
+    const main = `<button type="button" class="control-room-main" data-inline-pty-trigger="${esc(root.id)}" aria-expanded="${state.inlineTerminalSessionId === root.id ? "true" : "false"}" aria-controls="agentInlineTerminal"
       data-control-summary="${esc(title.text)}"
       data-motion-key="control-main:${esc(root.id)}" data-motion-value="${esc(root.updatedAt || "")}:${esc(root.status || "")}"
       style="${providerStyle(root.provider)}">
       <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><b>${esc(provider.label)}${root.model && root.model !== provider.label ? ` · ${esc(root.model)}` : ""}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</em></span>
       <strong title="${esc(title.full)}">${esc(title.text)}</strong>
       <span class="control-main-now"><small>${esc(t("graph.current_work"))}</small><b title="${esc(current.full)}">${esc(current.text)}</b></span>
-      <span class="control-main-meta"><small>${esc(t("control.unit_counts", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small><b>${esc(t("graph.view_conversation"))} →</b></span>
+      <span class="control-main-meta"><small>${esc(t("control.unit_counts", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small><b>PTY ${state.inlineTerminalSessionId === root.id ? "↑" : "↓"}</b></span>
     </button>`;
     const shownActiveUnits = activeUnits.slice(0, 6);
     const hiddenActiveUnits = Math.max(0, activeUnits.length - shownActiveUnits.length);
@@ -691,7 +698,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       : reviewSources.length
         ? controlRoomReviewHtml(reviewSources[0], Math.max(0, attentionCount - 1))
         : "";
-    return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
+    return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""} ${inlineSession ? "has-inline-terminal" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
       <header><div><span class="control-session-live"><i></i>${esc(hasAttention ? t("control.causal_judgement") : t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}" aria-label="${esc(t("control.open_full_flow", { title: root.title }))}">${esc(t("control.open_project_progress_short"))}</button></header>
@@ -700,6 +707,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
         <section class="control-room-column activity-column"><span class="control-column-label">${esc(t("control.running_work_column_counts", { delegated: activeChildren.length, executions: activeExecutions.length }))}</span><div class="control-room-node-list">${active}</div></section>
+        ${inlineSession ? inlineTerminalPanel(inlineSession) : ""}
         <span class="control-flow-link complete" aria-hidden="true"><i></i></span>
         <section class="control-room-column completed-column"><span class="control-column-label">${esc(t("control.completed_work_column_counts", { done: Math.max(0, completedUnits.length - completedWaitingCount), completed: completedUnits.length, waiting: completedWaitingCount }))}</span><div class="control-room-node-list completed-list">${completed}</div></section>
       </div>
@@ -1172,6 +1180,75 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     </section>`;
   }
 
+  function inlineTerminalPanel(session) {
+    if (state.inlineTerminalSessionId !== session.id) return "";
+    const provider = providerInfo(session.provider);
+    const composer = window.LoadToAgentApp?.agentCommandComposer?.(session, {
+      conversation: true,
+      terminal: true,
+      terminalStyle: true,
+      connectionReady: false,
+    }) || "";
+    return `<section id="agentInlineTerminal" class="agent-inline-terminal" data-inline-agent-terminal="${esc(session.id)}" style="${providerStyle(session.provider)}" aria-label="${esc(`${provider.label} PTY`)}">
+      <span class="agent-inline-terminal-link" aria-hidden="true"></span>
+      <header class="agent-inline-terminal-head">
+        <span class="provider-mark">${esc(provider.mark)}</span>
+        <span class="agent-inline-terminal-title"><b>${esc(provider.label)} · PTY</b><small>${esc(t("graph.selected_ai"))} · ${esc(t("graph.current_work"))}</small></span>
+        <span class="agent-inline-terminal-state"><i aria-hidden="true"></i><b data-inline-terminal-status>${esc(t("drawer.terminal_connecting"))}</b><small data-inline-terminal-meta></small></span>
+        <span class="agent-inline-terminal-actions">
+          <button type="button" data-inline-terminal-focus title="${esc(t("drawer.terminal_focus"))}" aria-label="${esc(t("drawer.terminal_focus"))}">⌨</button>
+          <button type="button" data-inline-terminal-reconnect title="${esc(t("drawer.terminal_reconnect"))}" aria-label="${esc(t("drawer.terminal_reconnect"))}">↻</button>
+          <button type="button" data-inline-terminal-close title="${esc(t("common.close"))}" aria-label="${esc(t("common.close"))}">×</button>
+        </span>
+      </header>
+      <div id="agentInlineTerminalViewport" class="agent-inline-terminal-viewport">
+        <div class="agent-inline-terminal-empty" data-inline-terminal-empty aria-live="polite">
+          <span aria-hidden="true">›_</span><b>${esc(t("drawer.terminal_connecting"))}</b><small>${esc(t("drawer.terminal_connecting_help"))}</small>
+          <button class="primary-button hidden" type="button" data-inline-terminal-resume>${esc(t("drawer.terminal_resume_action"))}</button>
+        </div>
+      </div>
+      <div class="agent-inline-terminal-composer" data-inline-terminal-composer>${composer}</div>
+    </section>`;
+  }
+
+  function workflowDetailPanel(session) {
+    const activeTab = ["summary", "lifecycle", "tokens"].includes(state.workflowDetailTab) ? state.workflowDetailTab : "summary";
+    const usage = session.usage || {};
+    const context = session.context || {};
+    const contextPercent = context.window ? Math.max(0, Math.min(100, Number(context.percent || context.used / context.window * 100 || 0))) : 0;
+    const current = readablePreview(latestWorkCopy(session) || session.statusDetail || session.title, 260);
+    const goal = readablePreview(session.taskName || session.title, 260);
+    const checkpoints = Array.isArray(session.progress?.checkpoints) ? session.progress.checkpoints.filter(Boolean).slice(-5).reverse() : [];
+    const lifecycleRows = checkpoints.length
+      ? checkpoints.map((row) => {
+        const label = typeof row === "string" ? row : row.label || row.title || row.name || row.detail || t("graph.progress_current_step");
+        const detail = typeof row === "string" ? "" : row.detail && row.detail !== label ? row.detail : "";
+        const timestamp = typeof row === "string" ? "" : row.timestamp || row.updatedAt || row.completedAt || "";
+        const tone = typeof row === "string" ? "" : row.status || row.state || "";
+        return `<li class="${esc(tone)}"><i aria-hidden="true"></i><span><b>${esc(label)}</b>${detail ? `<small>${esc(detail)}</small>` : ""}</span><time>${esc(timestamp ? timeAgo(timestamp) : "—")}</time></li>`;
+      }).join("")
+      : `<li class="current"><i aria-hidden="true"></i><span><b>${esc(current.full)}</b><small>${esc(t("graph.progress_activity_empty_help"))}</small></span><time>${esc(timeAgo(session.updatedAt))}</time></li>`;
+    const tab = (id, label) => `<button type="button" role="tab" data-workflow-detail-tab="${id}" aria-selected="${activeTab === id ? "true" : "false"}" class="${activeTab === id ? "active" : ""}">${esc(label)}</button>`;
+    const panel = (id, html) => `<div role="tabpanel" data-workflow-detail-panel="${id}" class="workflow-detail-panel ${activeTab === id ? "active" : ""}" ${activeTab === id ? "" : "hidden"}>${html}</div>`;
+    return `<section id="workflowDetail" class="workflow-detail" data-workflow-detail="${esc(session.id)}">
+      <nav class="workflow-detail-tabs" role="tablist" aria-label="${esc(t("control.open_project_progress_short"))}">
+        ${tab("summary", t("drawer.tab_summary_short"))}${tab("lifecycle", t("drawer.tab_progress_short"))}${tab("tokens", t("drawer.tab_usage_short"))}
+      </nav>
+      ${panel("summary", `<div class="workflow-detail-grid">
+        <article><small>${esc(t("graph.current_goal"))}</small><h3 title="${esc(goal.full)}">${esc(goal.text)}</h3><p title="${esc(current.full)}">${esc(current.text)}</p></article>
+        <dl><div><dt>${esc(t("ui.tokens_used_2"))}</dt><dd>${esc(compact(usage.total))}</dd></div><div><dt>${esc(t("graph.memory_usage"))}</dt><dd>${context.window ? `${contextPercent.toFixed(1)}%` : "—"}</dd></div><div><dt>${esc(t("graph.last_activity"))}</dt><dd>${esc(timeAgo(session.updatedAt))}</dd></div></dl>
+      </div>`)}
+      ${panel("lifecycle", `<ol class="workflow-detail-timeline">${lifecycleRows}</ol>`)}
+      ${panel("tokens", `<div class="workflow-token-grid">
+        <article><small>${esc(t("drawer.input"))}</small><b>${esc(compact(usage.input))}</b></article>
+        <article><small>${esc(t("drawer.output"))}</small><b>${esc(compact(usage.output))}</b></article>
+        <article><small>${esc(t("drawer.cached"))}</small><b>${esc(compact(usage.cachedInput))}</b></article>
+        <article><small>${esc(t("drawer.cache_write"))}</small><b>${esc(compact(usage.cacheWrite))}</b></article>
+        <article class="total"><small>${esc(t("drawer.total"))}</small><b>${esc(compact(usage.total))}</b><span>${context.window ? `${esc(compact(context.used))} / ${esc(compact(context.window))} · ${contextPercent.toFixed(1)}%` : "—"}</span></article>
+      </div>`)}
+    </section>`;
+  }
+
   function focusedGraph(focus, model, motionKind = "refresh") {
     const parent = focus.parentId ? model.byId.get(focus.parentId) : null;
     const children = graphChildren(focus, model);
@@ -1250,6 +1327,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="agent-workflow-stack downstream-stack ${shownChildren.length > 3 ? "density-many" : ""}">${downstream}</div>
         </section>
       </div>
+      ${state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}
+      ${workflowDetailPanel(focus)}
       ${workflowCommunicationPanel(focus, parent, model)}
     </div>`;
   }

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { AgentMonitor, buildSummary } = require('./agentMonitor');
 const { TmuxMonitor, linkAgentSessions } = require('./tmuxMonitor');
-const { ProcessMonitor, applyRuntimePresence } = require('./processMonitor');
+const { ProcessMonitor, applyRuntimePresence, inferredBridgeBindings } = require('./processMonitor');
 const { scanCodexAutomationHomes } = require('./automationMonitor');
 const { reportRecoverableError } = require('./diagnostics');
 const { enrichSession } = require('./sessionIntelligence');
@@ -23,8 +23,20 @@ const monitor = new AgentMonitor({
 monitor.setAvailability(workerData.availability || {});
 let lastFingerprint = '';
 let lastPublishedSessions = [];
-let currentBridges = [];
+let currentBridges = Array.isArray(workerData.bridges) ? workerData.bridges : [];
 const discoveryWatchers = [];
+let scheduledScanTimer = null;
+
+monitor.setPinnedSessions(currentBridges);
+
+function scheduleScan(delayMs = 120) {
+  if (scheduledScanTimer) clearTimeout(scheduledScanTimer);
+  scheduledScanTimer = setTimeout(() => {
+    scheduledScanTimer = null;
+    monitor.scanNow();
+  }, Math.max(0, Number(delayMs) || 0));
+  if (typeof scheduledScanTimer.unref === 'function') scheduledScanTimer.unref();
+}
 
 for (const root of [
   path.join(workerData.home, '.claude', 'projects'),
@@ -35,10 +47,11 @@ for (const root of [
   if (!fs.existsSync(root)) continue;
   try {
     const watcher = fs.watch(root, { recursive: process.platform === 'win32' || process.platform === 'darwin' }, (eventType, filename) => {
-      if (eventType === 'rename') return monitor.listCache.clear();
+      if (eventType === 'rename') monitor.listCache.clear();
       const changed = filename ? path.resolve(root, String(filename)) : '';
       const known = changed && [...monitor.listCache.values()].some(entry => (entry.paths || []).some(file => path.resolve(file) === changed));
       if (!known) monitor.listCache.clear();
+      scheduleScan();
     });
     discoveryWatchers.push(watcher);
   } catch (error) {
@@ -295,6 +308,7 @@ monitor.on('snapshot', snapshot => {
   lastPublishedSessions = sessions;
   parentPort.postMessage({
     type: 'snapshot',
+    bridgeBindings: inferredBridgeBindings(observedSessions),
     snapshot: {
       generatedAt: snapshot.generatedAt,
       sessions: sessions.map(cardSession),
@@ -313,12 +327,12 @@ parentPort.on('message', message => {
   if (!message) return;
   if (message.type === 'availability') monitor.setAvailability(message.availability || {});
   if (message.type === 'scan') {
-    monitor.scanNow();
+    scheduleScan(0);
   }
   if (message.type === 'bridge-presence') {
     currentBridges = Array.isArray(message.bridges) ? message.bridges : [];
     monitor.setPinnedSessions(currentBridges);
-    monitor.scanNow();
+    scheduleScan(0);
   }
   if (message.type === 'detail') {
     const runtime = lastPublishedSessions.find(item => item.id === message.sessionId) || null;
@@ -330,6 +344,8 @@ parentPort.on('message', message => {
     parentPort.postMessage({ type: 'detail-result', requestId: message.requestId, session });
   }
   if (message.type === 'stop') {
+    if (scheduledScanTimer) clearTimeout(scheduledScanTimer);
+    scheduledScanTimer = null;
     monitor.stop();
     discoveryWatchers.forEach(watcher => watcher.close());
   }

@@ -36,6 +36,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/i18n.js',
   'renderer/conversation-delivery.js',
   'renderer/shared.js',
+  'renderer/ime-submit.js',
   'renderer/app.js',
   'renderer/app-provider-visibility.js',
   'renderer/app-dashboard.js',
@@ -64,6 +65,7 @@ const SYNTAX_CHECK_FILES = [
   'renderer/terminal-composer.js',
   'renderer/terminal-events.js',
   'renderer/terminal.js',
+  'renderer/inline-agent-terminal.js',
   'renderer/drawer-terminal.js',
   'scripts/bridge-integration-test.js',
   'scripts/runtime-overview-visual.js',
@@ -149,6 +151,7 @@ const REQUIRED_UI_IDS = [
   'drawerTerminalStatus',
   'drawerTerminalFocusBtn',
   'drawerTerminalReconnectBtn',
+  'drawerTerminalResumeBtn',
   'drawerTabSummary',
   'drawerTabChat',
   'sidebarAppVersion',
@@ -224,7 +227,7 @@ const SEMANTIC_UI_COPY = [
   'AI가 한 번에 참고할 수 있는 양을 75% 이상 사용',
   '이 일을 맡긴 담당 AI 정보를 찾지 못함',
   '현재 실행 중인 작업',
-  '전체 {total}건 = 확인 필요 {new}건 + 확인 완료 {reviewed}건',
+  '전체 지난 작업 {total}건 · 작업 완료 {new}건 · 결과 확인 완료 {reviewed}건',
   '실행 횟수',
   '컴퓨터 작업과 AI 대화',
   '다른 컴퓨터의 작업',
@@ -269,7 +272,7 @@ const AMBIGUOUS_KO_MESSAGE_VALUES = [
 
 const MANAGEMENT_SEMANTIC_CONTRACTS = [
   'function matchesManagementFilter',
-  'RESPONSE_ATTENTION_KINDS.has(session.attention.kind)',
+  'EXPLICIT_ATTENTION_SOURCES.has(session.attention.source)',
   'ACTIONABLE_RISK_SIGNALS.has(signal.code)',
   'RECENT_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000',
   'function managementBucket(session, now = Date.now())',
@@ -544,21 +547,24 @@ const TERMINAL_VIEW_CONTRACTS = [
 ];
 
 const DRAWER_TERMINAL_CONTRACTS = [
-  'const terminalTargets = !session.parentId && !subagentMode && !executionMode',
+  'const ptyConversation = conversationTab && !session.parentId && !subagentMode && !executionMode',
   'const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {}',
   'embeddedTerminal.connected',
   'window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id)',
   'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
   'drawer.dataset.conversationShell = conversationTab ? "terminal" : "standard"',
   'terminalSurface.setAttribute("aria-labelledby", "drawerTabChat")',
-  'drawer-terminal-transcript',
   'terminalStyle: conversationTab',
   'window.LoadToAgentDrawerTerminal?.mount?.(session',
   'createIfMissing: true',
   'ensureForAgent',
   'resumeForAgent',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
+  'composer.classList.toggle("hidden", !showComposer)',
+  'composer.dataset.mode = actualTerminalChat ? "terminal" : "conversation"',
   'loadtoagent:drawer-terminal-targets-changed',
+  'window.LoadToAgentTerminal.resumeForAgent(session, \'\', false, { focus: false })',
+  'drawer.terminal_resume_available',
   "markUnavailable(session.id, requestedTargetId, 'mount-failed')",
   'mountForAgent',
   'unmountEmbedded',
@@ -568,13 +574,10 @@ const DRAWER_TERMINAL_CONTRACTS = [
   'state.terminals.delete(session.id)',
   'entry.terminal.dispose()',
   'state.selectedId !== key && state.embeddedTerminalId !== key',
-  'window.LoadToAgentTerminal.dispatchAgentCommand',
-  'const liveDrawerMode = form?.closest?.("#drawerComposer")?.dataset.mode || ""',
-  "if (terminalComposer && input) input.placeholder",
-  "event.detail.deliveryState === 'rejected'",
+  'startAgent',
+  'initialCommandInArgs',
   'drawerTerminalSurface',
   'drawerTerminalViewport',
-  'terminal-conversation',
 ];
 
 const APP_AGENT_CONTRACTS = [
@@ -613,8 +616,10 @@ const STYLE_FILES = [
 ];
 
 const I18N_RUNTIME_CONTRACTS = [
+  "const DEFAULT_LOCALE = 'en'",
   "'ko', 'en', 'zh-CN'",
   'loadtoagent:locale:v1',
+  'return SUPPORTED.has(saved) ? saved : DEFAULT_LOCALE',
   'window.LoadToAgentI18n',
   'loadtoagent:locale-changed',
   'MutationObserver',
@@ -882,8 +887,10 @@ const MAIN_PROCESS_CONTRACTS = [
   'const showFallback = setTimeout(showWindow, 2_000)',
   'function registerIpcHandlers',
   'function createAttentionNotifier',
-  'const ATTENTION_NOTIFICATIONS_ENABLED = false',
-  'enabled: ATTENTION_NOTIFICATIONS_ENABLED',
+  'const DESKTOP_NOTIFICATIONS_ENABLED = true',
+  'enabled: DESKTOP_NOTIFICATIONS_ENABLED',
+  "event === 'completed' ? 'completionTitle' : 'attentionTitle'",
+  'function notifyTerminalPrompt',
   "attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot))",
   "agents:attention-requested",
   "pendingAttentionSessionId",
@@ -909,6 +916,7 @@ const APP_IPC_CHANNELS = [
   'app:background-state',
   'app:show',
   'app:set-locale',
+  'app:notify-attention-prompt',
   'app:update-check',
   'app:update-download',
   'app:update-open',
@@ -936,6 +944,7 @@ const PRELOAD_IPC_CONTRACTS = [
   'backgroundState',
   'showApp',
   'setLocale',
+  'notifyAttentionPrompt',
   'checkForUpdate',
   'downloadUpdate',
   'openDownloadedUpdate',
@@ -1060,6 +1069,13 @@ function registerUiContractTests(context) {
     }
     assert.equal(html.includes('data-view="subagents"'), false);
     assert.equal(html.includes('id="navSubagentCount"'), false);
+    const projectContextTag = html.match(/<section id="projectContextNav"[^>]*>/)?.[0] || '';
+    assert.ok(
+      projectContextTag.includes(' hidden"')
+        && projectContextTag.includes('aria-hidden="true"')
+        && projectContextTag.includes(' inert'),
+      '이번 배포에서 프로젝트 탐색 영역 전체는 여백을 남기지 않고 화면과 보조 기기에서 모두 숨겨야 합니다.',
+    );
     const sidebarBlock = html.slice(html.indexOf('<aside class="sidebar"'), html.indexOf('<main id="mainContent"'));
     const liveBlock = html.slice(html.indexOf('id="liveSection"'), html.indexOf('id="globalStats"'));
     assert.equal(sidebarBlock.includes('id="workspaceList"'), false, '데스크톱 사이드바에 프로젝트 목록이 다시 들어가면 안 됩니다.');
@@ -1080,7 +1096,9 @@ function registerUiContractTests(context) {
     const app = rendererSource(APP_MODULES);
     const terminalIntegration = rendererSource([
       'terminal-workbench.js',
+      'terminal-agent.js',
       'terminal.js',
+      'inline-agent-terminal.js',
       'drawer-terminal.js',
     ]);
     assertIncludesAll(
@@ -1103,6 +1121,8 @@ function registerUiContractTests(context) {
     assert.ok(html.includes('id="drawerTabChat"'), '대화 탭이 없습니다.');
     assert.equal(drawerSource.includes('state.drawerTab === "terminal"'), false, '별도 터미널 탭 상태 분기가 남아 있습니다.');
     assert.equal(drawerSource.includes('tab.dataset.tab === "terminal"'), false, '별도 터미널 탭 렌더링 분기가 남아 있습니다.');
+    assert.equal(drawerSource.includes('transcriptChat'), false, '상위 세션 대화 탭에 transcript fallback이 남아 있습니다.');
+    assert.equal(drawerSource.includes('agentCommandComposer(session'), false, 'PTY 아래에 별도 채팅 composer를 다시 만들면 안 됩니다.');
     assert.doesNotMatch(
       drawerSource,
       /const terminalTargets\s*=[^;]*isLiveSession/s,
@@ -1161,6 +1181,43 @@ function registerUiContractTests(context) {
       contract => `${contract} 상태·행동 의미 일치 계약이 없습니다.`,
     );
     const managementSource = fs.readFileSync(path.join(root, 'renderer', 'app-management.js'), 'utf8');
+    const managementSandbox = {
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: key => key, getLocaleTag: () => 'ko-KR' },
+      },
+      Intl,
+    };
+    vm.runInNewContext(managementSource, managementSandbox, { filename: 'app-management.js' });
+    const management = managementSandbox.window.LoadToAgentAppFactories.createManagement({
+      state: { snapshot: { sessions: [] }, providers: [], availability: {} },
+      isResultReviewComplete: () => false,
+    });
+    const managementNow = Date.parse('2026-08-06T01:00:00.000Z');
+    const managementSession = {
+      id: 'attention-contract', status: 'waiting', updatedAt: '2026-08-06T01:00:00.000Z',
+      attention: { category: 'required', required: true, kind: 'input', requestedAt: '2026-08-06T01:00:00.000Z' },
+      health: { signals: [] },
+    };
+    assert.equal(management.needsManagementInbox({
+      ...managementSession,
+      attention: { ...managementSession.attention, source: 'assistant-message' },
+    }, managementNow), false, '일반 질문 문장 추정은 확인 필요에 들어가면 안 됩니다.');
+    assert.equal(management.needsManagementInbox({
+      ...managementSession,
+      attention: { ...managementSession.attention, source: 'input-tool' },
+    }, managementNow), true, '구조화된 사용자 선택 요청은 확인 필요에 들어가야 합니다.');
+    assert.equal(management.needsManagementInbox({
+      ...managementSession,
+      status: 'running',
+      attention: { ...managementSession.attention, kind: 'approval', source: 'execution-approval' },
+    }, managementNow), true, '실제 권한 승인 대기는 확인 필요에 들어가야 합니다.');
+    assert.equal(management.needsManagementInbox({
+      ...managementSession,
+      status: 'failed',
+      attention: { category: 'risk', kind: 'error', source: 'observed-status' },
+      health: { signals: [{ code: 'run-failed', severity: 'critical' }] },
+    }, managementNow), false, '실패나 위험 신호만으로 확인 필요에 들어가면 안 됩니다.');
     const operationsStart = managementSource.indexOf('function renderOperationsOverview()');
     const operationsEnd = managementSource.indexOf('\n  function outcomeHtml', operationsStart);
     const operationsSource = managementSource.slice(operationsStart, operationsEnd);
@@ -1250,6 +1307,7 @@ function registerUiContractTests(context) {
       'i18n-messages.js',
       'i18n.js',
       'shared.js',
+      'ime-submit.js',
       ...APP_MODULES,
       'terminal-workbench.js',
       'terminal-agent.js',
@@ -1327,6 +1385,12 @@ function registerUiContractTests(context) {
       mainEntry,
       MAIN_PROCESS_CONTRACTS,
       contract => `${contract} 메인 프로세스 계약이 없습니다.`,
+    );
+    assert.ok(
+      mainEntry.includes("const DEFAULT_LOCALE = 'en'")
+        && mainEntry.includes('let appLocale = DEFAULT_LOCALE')
+        && mainEntry.includes("['ko', 'en', 'zh-CN'].includes(locale) ? locale : DEFAULT_LOCALE"),
+      '신규 사용자는 영어로 시작하고 지원되는 기존 언어 선택은 유지되어야 합니다.',
     );
     assert.ok(mainEntry.includes('macPathEntries(os.homedir(), process.env.PATH)'), 'macOS PATH 조회가 검증된 정적 경로 병합기를 사용해야 합니다.');
     assert.ok(!mainEntry.includes('execFileSync(shellPath'), '앱 창 생성 전에 사용자 셸 초기화를 동기 실행하면 안 됩니다.');
@@ -1753,7 +1817,8 @@ function registerUiContractTests(context) {
     assert.equal(html.includes('subagent-assignment-card'), false);
     assert.equal(html.includes('화면에 보이면 안 되는 직전 설명'), false);
     assert.equal(html.includes('drawer.assignment_protected'), false);
-    assert.match(drawerSource, /const showComposer = !session\.parentId\s*&& !executionMode/);
+    assert.match(drawerSource, /const ptyConversation = conversationTab && !session\.parentId && !subagentMode && !executionMode/);
+    assert.match(drawerSource, /composer\.classList\.toggle\("hidden", !showComposer\)/);
   });
 
   test('긴 대화 기록은 최근 요청부터 제한해 렌더링하고 이전 기록을 단계적으로 연다', () => {
@@ -1821,6 +1886,30 @@ function registerUiContractTests(context) {
     assert.ok(source.includes('graph.progress_basis_note'), '기록된 단계 비율을 전체 계획 진척률로 오해하지 않도록 근거 안내가 필요합니다.');
   });
 
+  test('AI 카드는 오른쪽 대화창 대신 바로 아래 PTY를 토글하고 상세 화면에 요약과 토큰을 둔다', () => {
+    const graph = fs.readFileSync(path.join(root, 'renderer', 'app-graph-view.js'), 'utf8');
+    const events = fs.readFileSync(path.join(root, 'renderer', 'app-events-sessions.js'), 'utf8');
+    const orchestration = fs.readFileSync(path.join(root, 'renderer', 'app-graph-orchestration.js'), 'utf8');
+    const inlineTerminal = fs.readFileSync(path.join(root, 'renderer', 'inline-agent-terminal.js'), 'utf8');
+    const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
+    const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-workflow-map.css'), 'utf8');
+
+    assert.ok(graph.includes('data-inline-pty-trigger='), 'AI 카드에 인라인 PTY 토글 대상이 없습니다.');
+    const inlinePanelIndex = graph.indexOf('${state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}');
+    const detailPanelIndex = graph.indexOf('${workflowDetailPanel(focus)}', inlinePanelIndex);
+    assert.ok(inlinePanelIndex >= 0 && detailPanelIndex > inlinePanelIndex, 'PTY가 선택한 AI 영역과 작업 상세 정보 사이에 배치되지 않았습니다.');
+    assert.ok(graph.includes('tab("summary"'), '작업 상세 화면에 요약 탭이 없습니다.');
+    assert.ok(graph.includes('tab("tokens"'), '작업 상세 화면에 토큰 사용량 탭이 없습니다.');
+    assert.ok(events.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger') && events.includes('focus: !inlineTerminal.closest(".control-room-session")'), 'AI 클릭이 현재 화면의 인라인 PTY 토글로 연결되지 않았습니다.');
+    assert.equal(events.includes('if (state.graphFocusId === node.dataset.graphFocus) openDrawer'), false, '같은 AI 재클릭이 오른쪽 드로어를 다시 열고 있습니다.');
+    assert.ok(orchestration.includes('window.LoadToAgentInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
+    assert.ok(inlineTerminal.includes('terminal.mountForAgent(session'), '인라인 PTY가 실제 에이전트 터미널 호스트를 마운트하지 않습니다.');
+    assert.ok(inlineTerminal.includes('instance.state.inlineTerminalSessionId === id'), '같은 AI를 다시 눌렀을 때 닫는 토글 계약이 없습니다.');
+    assert.ok(html.includes('<script src="inline-agent-terminal.js"></script>'), '인라인 PTY 런타임이 로드되지 않습니다.');
+    assert.ok(styles.includes('.agent-inline-terminal-link'), '선택한 AI와 PTY의 시각적 연결 표시가 없습니다.');
+    assert.ok(styles.indexOf('.agent-inline-terminal') < styles.indexOf('.workflow-detail'), 'PTY가 작업 상세보다 먼저 배치된 시각 계약이 없습니다.');
+  });
+
   test('프로젝트 선택 화면은 진행 작업 정보 없이 선택 안내와 지속 모션만 제공한다', () => {
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-studio-shell.css'), 'utf8');
@@ -1846,6 +1935,22 @@ function registerUiContractTests(context) {
         && styles.includes('.project-selection-eyebrow i'),
       '프로젝트 선택 모션은 감소 모션 환경에서 중단되어야 합니다.',
     );
+  });
+
+  test('지난 기록은 대기 상태를 포함하고 마지막 갱신 시각 최신순으로 표시한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
+    const sandbox = { window: { LoadToAgentAppFactories: {}, LoadToAgentI18n: { t: key => key } }, Intl };
+    vm.runInNewContext(source, sandbox, { filename: 'app-dashboard.js' });
+    const sessions = [
+      { id: 'claude:older', provider: 'claude', status: 'idle', updatedAt: '2026-08-06T03:00:00Z' },
+      { id: 'claude:supplier-today', provider: 'claude', status: 'waiting', updatedAt: '2026-08-06T05:04:44Z' },
+      { id: 'claude:running', provider: 'claude', status: 'running', updatedAt: '2026-08-06T06:00:00Z' },
+    ];
+    const state = { view: 'active', workspace: 'all', search: '', sort: 'recent', providerFilters: new Set(), workspaces: [], providers: [] };
+    const dashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({ state, visibleSessions: () => sessions });
+    assert.deepStrictEqual(Array.from(dashboard.filteredSessions(), session => session.id), ['claude:supplier-today', 'claude:older']);
+    assert.equal(dashboard.isPastRecord(sessions[1]), true);
+    assert.equal(dashboard.isPastRecord(sessions[2]), false);
   });
 
   test('설정 화면은 변경 가능한 항목만 읽기 쉬운 순서로 표시한다', () => {

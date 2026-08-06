@@ -2,6 +2,7 @@
 
 (() => {
   const STORAGE_KEY = 'loadtoagent:locale:v1';
+  const DEFAULT_LOCALE = 'en';
   const SUPPORTED_LOCALES = Object.freeze(['ko', 'en', 'zh-CN']);
   const SUPPORTED = new Set(SUPPORTED_LOCALES);
   const LOCALE_TAGS = Object.freeze({ ko: 'ko-KR', en: 'en-US', 'zh-CN': 'zh-CN' });
@@ -88,10 +89,10 @@
   function readLocale() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return SUPPORTED.has(saved) ? saved : 'ko';
+      return SUPPORTED.has(saved) ? saved : DEFAULT_LOCALE;
     } catch (error) {
       window.LoadToAgentRendererUtils?.reportRecoverableError('locale-storage-read', error);
-      return 'ko';
+      return DEFAULT_LOCALE;
     }
   }
 

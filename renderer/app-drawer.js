@@ -11,8 +11,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     readablePreview = value => ({ full: String(value || "").trim(), text: String(value || "").trim(), truncated: false }),
     pendingConversationDelivery = () => null,
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
-    chatHtml, lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml,
-    agentCommandComposer,
+    lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml, agentCommandComposer,
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
   } = context;
   let drawerFocusToken = null;
@@ -40,14 +39,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
     currentForm.className = nextForm.className;
     for (const attribute of [...currentForm.attributes]) {
-      if (attribute.name.startsWith("data-agent-") && !nextForm.hasAttribute(attribute.name)) {
-        currentForm.removeAttribute(attribute.name);
-      }
+      if (attribute.name.startsWith("data-agent-") && !nextForm.hasAttribute(attribute.name)) currentForm.removeAttribute(attribute.name);
     }
     for (const attribute of [...nextForm.attributes]) {
       if (attribute.name.startsWith("data-agent-")) currentForm.setAttribute(attribute.name, attribute.value);
     }
-
     currentInput.placeholder = nextInput.placeholder;
     currentInput.disabled = nextInput.disabled;
     const inputLabel = currentInput.closest(".agent-command-input");
@@ -115,6 +111,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   }
 
   function openDrawerSurface(presentation) {
+    window.LoadToAgentInlineTerminal?.close?.({ render: false });
     clearTimeout(motionState.drawerTimer);
     setDrawerPresentation(presentation);
     $("#detailDrawer").classList.add("open");
@@ -240,7 +237,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     // same provider session into a new app-owned PTY without sending a prompt.
     // Parent-controlled subagents and execution details remain read-only.
     const conversationTab = state.drawerTab === "chat";
-    const terminalTargets = !session.parentId && !subagentMode && !executionMode
+    // A top-level session's conversation is the PTY itself. The terminal
+    // surface stays visible while it connects or reports that no PTY exists;
+    // it must never fall back to a second transcript/chat transport.
+    const ptyConversation = conversationTab && !session.parentId && !subagentMode && !executionMode;
+    const terminalTargets = ptyConversation
       ? (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
       : [];
     const savedTargetId = state.agentCommandTargets.get(session.id) || "";
@@ -265,7 +266,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       && (!terminalId || embeddedTerminal.terminalId === terminalId)
       && Boolean(embeddedInventoryTarget || embeddedJustConnected);
     const actualTerminalChat = conversationTab && !session.parentId && !subagentMode && !executionMode;
-    const transcriptChat = conversationTab && !actualTerminalChat;
+    const readOnlyConversation = conversationTab && !actualTerminalChat;
     const terminalConnectionFailed = actualTerminalChat
       && drawerTerminalState.sessionId === session.id
       && ['error', 'unavailable'].includes(drawerTerminalState.phase);
@@ -418,11 +419,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
           : state.drawerTab === "summary"
             ? outcomeHtml(session)
             : state.drawerTab === "chat"
-            ? chatHtml(session)
+            ? ""
             : state.drawerTab === "lifecycle"
               ? lifecycleHtml(session)
               : tokensHtml(session);
-    if (transcriptChat && externalOrigin && !detailLoading && !detailError) {
+    if (readOnlyConversation && externalOrigin && !detailLoading && !detailError) {
       nextContentHtml = `<aside class="drawer-external-session-note" role="status">
         <span aria-hidden="true">↗</span><div><b>${esc(t("drawer.external_session_running", { provider: externalOrigin.provider }))}</b>
         <small>${esc(t("drawer.external_session_running_help"))}</small></div>
@@ -432,27 +433,6 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       nextContentHtml = `<div class="drawer-history-refreshing" role="status">
         <span aria-hidden="true"></span><small>${esc(t("drawer.loading_history_inline"))}</small>
       </div>${nextContentHtml}`;
-    }
-    if (transcriptChat) {
-      const transcriptTone = ["starting", "running"].includes(presentationStatus)
-        ? "connected"
-        : ["waiting", "paused"].includes(presentationStatus)
-          ? "attention"
-          : presentationStatus === "failed"
-            ? "error"
-            : presentationStatus === "cancelled"
-              ? "unavailable"
-              : "history";
-      const transcriptMeta = externalOrigin?.provider
-        ? `${presentationLabel} · ${externalOrigin.provider}`
-        : presentationLabel;
-      nextContentHtml = `<section class="drawer-terminal-transcript" data-transcript-session="${esc(session.id)}">
-        <header class="drawer-terminal-statusbar drawer-transcript-statusbar" data-tone="${esc(transcriptTone)}">
-          <span class="drawer-terminal-connection"><i aria-hidden="true"></i><span class="drawer-terminal-prompt" aria-hidden="true">›_</span>
-          <b>${esc(t("drawer.conversation"))}</b><small>${esc(transcriptMeta)}</small></span>
-        </header>
-        <div class="drawer-terminal-transcript-body">${nextContentHtml}</div>
-      </section>`;
     }
     if (motionState.drawerContentHtml !== nextContentHtml) {
       content.innerHTML = nextContentHtml;
@@ -469,7 +449,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       && typeof agentCommandComposer === "function"
       && (liveTerminalChat || existingTerminalComposer);
     composer.classList.toggle("hidden", !showComposer);
-    const nextComposerHtml = showComposer ? agentCommandComposer(session, {
+    const nextComposerHtml = showComposer ? agentCommandComposer.call(null, session, {
       conversation: true,
       terminal: actualTerminalChat,
       terminalStyle: conversationTab,

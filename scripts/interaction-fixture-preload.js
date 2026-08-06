@@ -387,7 +387,7 @@ const enrichedSessionRecords = sessionRecords
     attention: {
       category: 'required', required: true, actionable: true, kind: 'approval',
       summary: '바꿀 화면: 왼쪽 메뉴 · 현재 왼쪽 메뉴 이름: “답변·확인” · 새 왼쪽 메뉴 이름: “내 요청” · 바뀌는 위치: 왼쪽 메뉴, 하단 메뉴 · 기능 변경: 없음',
-      requestedAt: now, source: 'assistant-message', confidence: 'high',
+      requestedAt: now, source: 'input-tool', confidence: 'high',
     },
     controlCapabilities: { ...(session.controlCapabilities || {}), sendInstruction: true },
   } : session);

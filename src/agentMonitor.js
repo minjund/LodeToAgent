@@ -30,6 +30,7 @@ const ACTIVE_THRESHOLD_MS = 18_000;
 const STALE_TURN_THRESHOLD_MS = 5 * 60_000;
 const LIST_CACHE_MS = 60_000;
 const PINNED_FILE_CACHE_MS = 60_000;
+const CARD_JSONL_BYTES = 4 * 1024 * 1024;
 
 function asText(value) {
   if (typeof value === 'string') return value;
@@ -500,12 +501,37 @@ function buildSummary(sessions, availability) {
   };
 }
 
+// Parser results are cached and must remain immutable between scans. Hierarchy
+// assembly only mutates session fields plus spawn/communication records, so a
+// targeted copy avoids cloning large message, lifecycle, and execution arrays
+// that are read-only in the scan pipeline.
+function cloneSessionForScan(session) {
+  const collaboration = session.collaboration ? {
+    ...session.collaboration,
+    capacity: session.collaboration.capacity ? { ...session.collaboration.capacity } : session.collaboration.capacity,
+    metrics: session.collaboration.metrics ? { ...session.collaboration.metrics } : session.collaboration.metrics,
+    spawns: (session.collaboration.spawns || []).map(record => ({ ...record })),
+    communications: (session.collaboration.communications || []).map(event => ({ ...event })),
+    retainedAgents: (session.collaboration.retainedAgents || []).map(agent => ({ ...agent })),
+  } : session.collaboration;
+  return {
+    ...session,
+    childIds: [...(session.childIds || [])],
+    runtimePresence: (session.runtimePresence || []).map(item => ({ ...item })),
+    collaboration,
+  };
+}
+
 class AgentMonitor extends EventEmitter {
   constructor(options = {}) {
     super();
     this.home = options.home || os.homedir();
     this.runsDir = options.runsDir;
     this.intervalMs = options.intervalMs || 1200;
+    this.cardJsonlBytes = Math.max(256 * 1024, Math.min(
+      12 * 1024 * 1024,
+      Number(options.cardJsonlBytes) || CARD_JSONL_BYTES,
+    ));
     this.availability = {};
     this.parseCache = new Map();
     this.listCache = new Map();
@@ -710,7 +736,7 @@ class AgentMonitor extends EventEmitter {
           for (const info of uniqueInfos) {
             const value = this.parseFile(info, parser);
             if (!value) continue;
-            const copy = structuredClone(value);
+            const copy = cloneSessionForScan(value);
             // Provider health checks and detached memory extraction turns are
             // implementation details, not user work. Keep them out of the
             // dashboard and runtime-link candidate pool entirely.
@@ -720,10 +746,10 @@ class AgentMonitor extends EventEmitter {
             sessions.push(copy);
           }
         };
-        addSessions('claude', (_f, name) => name.endsWith('.jsonl'), MAX_FILES_PER_PROVIDER, parseClaude);
-        addSessions('codex', (_f, name) => name.endsWith('.jsonl'), MAX_FILES_PER_PROVIDER, parseCodex);
-        addSessions('gemini', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'gemini'));
-        addSessions('grok', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'grok'));
+        addSessions('claude', (_f, name) => name.endsWith('.jsonl'), MAX_FILES_PER_PROVIDER, item => parseClaude(item, { maxBytes: this.cardJsonlBytes }));
+        addSessions('codex', (_f, name) => name.endsWith('.jsonl'), MAX_FILES_PER_PROVIDER, item => parseCodex(item, { maxBytes: this.cardJsonlBytes }));
+        addSessions('gemini', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'gemini', { maxBytes: this.cardJsonlBytes }));
+        addSessions('grok', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'grok', { maxBytes: this.cardJsonlBytes }));
       }
 
       const managed = this.managedSessions();
@@ -779,4 +805,5 @@ module.exports = {
   contextInfo,
   attachHierarchy,
   mergeManagedWithHistory,
+  cloneSessionForScan,
 };

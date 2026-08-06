@@ -1,0 +1,1487 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoadToAgent — Agent Flow Atlas</title>
+  <link id="theme-link" rel="stylesheet" href="../themes/default.css">
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      letter-spacing: -.025em;
+    }
+    body::before {
+      position: fixed;
+      z-index: -1;
+      inset: 0;
+      content: "";
+      background:
+        radial-gradient(circle at 75% 0%, color-mix(in srgb, var(--color-primary) 7%, transparent), transparent 32rem),
+        linear-gradient(color-mix(in srgb, var(--color-text) 2%, transparent) 1px, transparent 1px),
+        linear-gradient(90deg, color-mix(in srgb, var(--color-text) 2%, transparent) 1px, transparent 1px);
+      background-size: auto, 32px 32px, 32px 32px;
+      opacity: .7;
+      pointer-events: none;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 3px;
+    }
+    .hidden { display: none !important; }
+    .mono { font-family: var(--font-mono); letter-spacing: -.035em; }
+    .muted { color: var(--color-text-muted); }
+
+    .variant-nav {
+      position: fixed;
+      z-index: 1000;
+      top: 12px;
+      left: 50%;
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      transform: translateX(-50%);
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-surface) 91%, transparent);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(16px);
+    }
+    .variant-tab {
+      min-height: 40px;
+      padding: 0 15px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all .15s ease;
+      white-space: nowrap;
+    }
+    .variant-tab:hover { color: var(--color-text); }
+    .variant-tab:active { transform: scale(.98); }
+    .variant-tab.active {
+      background: var(--color-text);
+      color: var(--color-bg);
+      box-shadow: var(--shadow-sm);
+    }
+    .variant { display: none; min-height: 100vh; padding-top: 72px; }
+    .variant.active { display: block; }
+
+    .app-frame {
+      width: min(1500px, calc(100vw - 32px));
+      min-height: calc(100vh - 92px);
+      margin: 0 auto 20px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+      box-shadow: var(--shadow-lg);
+      transition: width .2s ease, max-width .2s ease;
+    }
+    .app-bar {
+      min-height: 64px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 760;
+      letter-spacing: -.04em;
+    }
+    .brand-mark {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 12px/1 var(--font-mono);
+    }
+    .view-links { display: flex; align-items: center; gap: 5px; }
+    .view-links button {
+      min-height: 36px;
+      padding: 0 11px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .view-links button:hover, .view-links button.active {
+      background: color-mix(in srgb, var(--color-text) 6%, transparent);
+      color: var(--color-text);
+    }
+    .bar-spacer { flex: 1; }
+    .global-search {
+      width: min(260px, 25vw);
+      min-height: 38px;
+      padding: 0 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text);
+      transition: all .15s ease;
+    }
+    .global-search:focus {
+      border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+      background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+    }
+    .new-task {
+      min-height: 38px;
+      padding: 0 14px;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
+      border-radius: 9px;
+      background: var(--color-primary);
+      color: #07130f;
+      font-weight: 760;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .new-task:hover { background: var(--color-primary-hover); transform: translateY(-1px); }
+    .new-task:active { transform: translateY(0); }
+
+    .headline {
+      padding: 30px 30px 24px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 28px;
+      align-items: end;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .headline p {
+      margin: 0 0 7px;
+      color: var(--color-primary);
+      font-size: 12px;
+      font-weight: 760;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .headline h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(28px, 3vw, 45px);
+      line-height: 1.06;
+      letter-spacing: -.055em;
+    }
+    .headline > span {
+      max-width: 620px;
+      display: block;
+      margin-top: 11px;
+      color: var(--color-text-muted);
+      line-height: 1.55;
+    }
+    .quiet-counts { display: flex; gap: 20px; }
+    .quiet-counts span { min-width: 74px; }
+    .quiet-counts small {
+      display: block;
+      color: var(--color-text-muted);
+      font-size: 11px;
+    }
+    .quiet-counts b {
+      display: block;
+      margin-top: 3px;
+      font-size: 24px;
+      letter-spacing: -.06em;
+    }
+    .quiet-counts .attention b { color: #f0ae45; }
+
+    .section-head {
+      min-height: 58px;
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .section-head > span:first-child {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--color-success);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-success) 11%, transparent);
+    }
+    .section-head b { font-size: 14px; }
+    .section-head small { color: var(--color-text-muted); }
+    .section-head .head-actions { margin-left: auto; display: flex; gap: 8px; }
+    .soft-button {
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .soft-button:hover, .soft-button[aria-pressed="true"] {
+      border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+      background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+      color: var(--color-text);
+    }
+
+    /* Variant A: causal spine */
+    .causal-canvas { position: relative; }
+    .mission-row {
+      padding: 14px 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-primary) 3%, transparent);
+    }
+    .mission-row strong { font-size: 14px; }
+    .mission-row span { color: var(--color-text-muted); font-size: 13px; }
+    .mission-row em {
+      margin-left: auto;
+      color: var(--color-text-muted);
+      font-size: 12px;
+      font-style: normal;
+    }
+    .flow-stage {
+      position: relative;
+      min-height: 540px;
+      padding: 44px 28px 36px;
+      display: grid;
+      grid-template-columns: minmax(190px, .75fr) minmax(480px, 1.8fr) minmax(190px, .75fr);
+      gap: clamp(28px, 4vw, 72px);
+      align-items: center;
+      overflow: hidden;
+    }
+    .flow-stage::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      background-image: radial-gradient(color-mix(in srgb, var(--color-primary) 18%, transparent) 1px, transparent 1px);
+      background-size: 22px 22px;
+      opacity: .28;
+      pointer-events: none;
+    }
+    .flow-lines {
+      position: absolute;
+      z-index: 0;
+      inset: 30px 20px;
+      width: calc(100% - 40px);
+      height: calc(100% - 60px);
+      overflow: visible;
+      pointer-events: none;
+    }
+    .flow-lines path {
+      fill: none;
+      stroke: color-mix(in srgb, var(--color-primary) 48%, transparent);
+      stroke-width: 1.2;
+      vector-effect: non-scaling-stroke;
+    }
+    .flow-lines path.quiet { stroke: color-mix(in srgb, var(--color-text) 20%, transparent); }
+    .flow-lines circle { fill: var(--color-primary); }
+    .flow-column { position: relative; z-index: 2; min-width: 0; }
+    .column-label {
+      margin: 0 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-text-muted);
+      font-size: 11px;
+      font-weight: 740;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .column-label b {
+      min-width: 21px;
+      height: 21px;
+      display: grid;
+      place-items: center;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--color-text) 8%, transparent);
+      color: var(--color-text);
+      font-size: 11px;
+    }
+    .node {
+      width: 100%;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      gap: 11px;
+      align-items: start;
+      text-align: left;
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .node:hover {
+      border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-border));
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .node.active-node {
+      border-color: color-mix(in srgb, var(--color-primary) 68%, var(--color-border));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 9%, transparent);
+    }
+    .node-icon {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      color: var(--color-primary);
+      font: 700 11px/1 var(--font-mono);
+    }
+    .node-copy { min-width: 0; }
+    .node-copy small, .node-copy b, .node-copy em { display: block; }
+    .node-copy small {
+      margin-bottom: 5px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .node-copy b {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .node-copy em {
+      margin-top: 5px;
+      overflow: hidden;
+      color: var(--color-text-muted);
+      font-size: 11px;
+      font-style: normal;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .node-state {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-success);
+      font-size: 10px;
+      font-weight: 720;
+      white-space: nowrap;
+    }
+    .node-state i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 10%, transparent);
+    }
+    .root-node {
+      min-height: 226px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .root-node .node-icon { width: 42px; height: 42px; font-size: 14px; }
+    .root-node .root-title { margin-top: 30px; }
+    .root-node .root-title small {
+      display: block;
+      color: var(--color-primary);
+      font-size: 11px;
+    }
+    .root-node .root-title h2 {
+      margin: 6px 0 8px;
+      font-size: 20px;
+      line-height: 1.12;
+      letter-spacing: -.045em;
+    }
+    .root-node .root-title p {
+      margin: 0;
+      color: var(--color-text-muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .root-meta {
+      margin-top: 20px;
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 11px;
+    }
+    .unit-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .unit-grid .node:nth-child(2), .unit-grid .node:nth-child(3) { transform: translateX(12px); }
+    .unit-grid .node:nth-child(2):hover, .unit-grid .node:nth-child(3):hover { transform: translate(12px, -2px); }
+    .shell-node {
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--color-primary) 6%, transparent), transparent),
+        #050a0e;
+      color: #eef8f4;
+      border-color: rgba(156, 235, 208, .24);
+    }
+    .shell-node .node-icon { border-color: rgba(156, 235, 208, .25); color: #9cebd0; }
+    .shell-node .node-copy small, .shell-node .node-copy em { color: #91a59d; }
+    .shell-node .node-state { color: #8de5c4; }
+    .background-node .node-icon { color: var(--color-accent); }
+    .background-node .node-state { color: var(--color-accent); }
+    .result-stack { display: grid; gap: 9px; }
+    .result-node {
+      min-height: 74px;
+      grid-template-columns: 28px minmax(0, 1fr);
+      align-items: center;
+      opacity: .64;
+    }
+    .result-node:first-child { opacity: 1; }
+    .result-node .node-icon { width: 28px; height: 28px; border-radius: 50%; }
+    .result-node .node-copy em { display: none; }
+    .result-node .node-state { display: none; }
+    .evidence-rail {
+      min-height: 62px;
+      padding: 0 22px;
+      display: grid;
+      grid-template-columns: auto repeat(4, minmax(0, 1fr));
+      align-items: center;
+      gap: 12px;
+      border-top: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-bg) 36%, transparent);
+    }
+    .evidence-rail > b {
+      color: var(--color-text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .evidence-event {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-text-muted);
+      font-size: 11px;
+    }
+    .evidence-event i {
+      width: 6px;
+      height: 6px;
+      flex: 0 0 6px;
+      border-radius: 50%;
+      background: var(--color-primary);
+    }
+    .evidence-event span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* Variant B: flow ledger */
+    .ledger-layout {
+      min-height: calc(100vh - 158px);
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+    }
+    .project-rail {
+      padding: 18px 12px;
+      border-right: 1px solid var(--color-border);
+    }
+    .project-rail h2 {
+      margin: 0 8px 13px;
+      color: var(--color-text-muted);
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    .project-button {
+      width: 100%;
+      min-height: 55px;
+      padding: 9px 11px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .project-button:hover, .project-button.active {
+      background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+    }
+    .project-button i {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--color-success);
+    }
+    .project-button span { min-width: 0; }
+    .project-button b, .project-button small { display: block; }
+    .project-button b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; }
+    .project-button small { margin-top: 3px; color: var(--color-text-muted); font-size: 10px; }
+    .ledger-main { min-width: 0; }
+    .ledger-intro {
+      padding: 26px 26px 20px;
+      display: flex;
+      align-items: end;
+      gap: 24px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .ledger-intro h1 { margin: 0; font-size: 28px; letter-spacing: -.05em; }
+    .ledger-intro p { margin: 7px 0 0; color: var(--color-text-muted); font-size: 12px; }
+    .ledger-intro .head-actions { margin-left: auto; display: flex; gap: 8px; }
+    .ledger-table { padding: 0 18px 22px; }
+    .ledger-columns, .ledger-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.15fr) minmax(230px, 1.65fr) 130px 90px 90px;
+      gap: 14px;
+      align-items: center;
+    }
+    .ledger-columns {
+      min-height: 47px;
+      padding: 0 13px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      font-weight: 720;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .ledger-group-label {
+      padding: 18px 13px 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--color-text-muted);
+      font-size: 11px;
+      font-weight: 720;
+    }
+    .ledger-group-label i { width: 26px; height: 1px; background: var(--color-border); }
+    .ledger-row {
+      width: 100%;
+      min-height: 64px;
+      padding: 10px 13px;
+      border: 0;
+      border-top: 1px solid var(--color-border);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .ledger-row:last-child { border-bottom: 1px solid var(--color-border); }
+    .ledger-row:hover {
+      background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+      transform: translateX(3px);
+    }
+    .ledger-actor { min-width: 0; display: flex; align-items: center; gap: 10px; }
+    .ledger-actor i {
+      width: 31px;
+      height: 31px;
+      flex: 0 0 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 10px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .ledger-actor span, .ledger-now { min-width: 0; }
+    .ledger-actor b, .ledger-actor small, .ledger-now b, .ledger-now small { display: block; }
+    .ledger-actor b, .ledger-now b {
+      overflow: hidden;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ledger-actor small, .ledger-now small {
+      margin-top: 3px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+    }
+    .type-chip, .state-chip {
+      width: fit-content;
+      padding: 5px 8px;
+      border: 1px solid var(--color-border);
+      border-radius: 99px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .type-chip.shell { border-color: rgba(141, 229, 196, .28); color: var(--color-primary); font-family: var(--font-mono); }
+    .state-chip.live { color: var(--color-success); }
+    .state-chip.wait { color: #f0ae45; }
+    .ledger-time { color: var(--color-text-muted); font: 11px/1 var(--font-mono); }
+    body.only-live .ledger-row.is-done { display: none; }
+
+    /* Variant C: temporal lanes */
+    .timeline-main { padding: 26px; }
+    .timeline-intro {
+      margin-bottom: 22px;
+      display: flex;
+      align-items: end;
+      gap: 28px;
+    }
+    .timeline-intro h1 { margin: 0; font-size: 28px; letter-spacing: -.05em; }
+    .timeline-intro p { margin: 7px 0 0; color: var(--color-text-muted); font-size: 12px; }
+    .timeline-intro .head-actions { margin-left: auto; display: flex; gap: 8px; }
+    .timeline-shell {
+      min-width: 880px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+    }
+    .timeline-axis, .timeline-lane {
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+    }
+    .timeline-axis {
+      min-height: 48px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .timeline-axis > b {
+      padding: 16px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .ticks {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      align-items: center;
+      border-left: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font: 10px/1 var(--font-mono);
+    }
+    .ticks span { padding-left: 10px; border-left: 1px solid var(--color-border); }
+    .ticks span:first-child { border-left: 0; }
+    .timeline-lane { min-height: 82px; border-bottom: 1px solid var(--color-border); }
+    .timeline-lane:last-child { border-bottom: 0; }
+    .lane-label {
+      padding: 14px 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .lane-label i {
+      width: 32px;
+      height: 32px;
+      flex: 0 0 32px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 10px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .lane-label b, .lane-label small { display: block; }
+    .lane-label b { font-size: 12px; }
+    .lane-label small { margin-top: 3px; color: var(--color-text-muted); font-size: 10px; }
+    .lane-track {
+      position: relative;
+      overflow: hidden;
+      border-left: 1px solid var(--color-border);
+      background:
+        repeating-linear-gradient(90deg, transparent 0, transparent calc(20% - 1px), var(--color-border) calc(20% - 1px), var(--color-border) 20%);
+    }
+    .lane-track::after {
+      position: absolute;
+      z-index: 3;
+      top: 0;
+      bottom: 0;
+      left: 77%;
+      width: 1px;
+      content: "";
+      background: #f0ae45;
+      box-shadow: 0 0 10px rgba(240, 174, 69, .5);
+    }
+    .time-bar {
+      position: absolute;
+      z-index: 2;
+      top: 17px;
+      min-height: 48px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      overflow: hidden;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--color-border));
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--color-primary) 9%, var(--color-surface));
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .time-bar:hover { filter: brightness(1.08); transform: translateY(-2px); }
+    .time-bar b, .time-bar small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time-bar b { font-size: 11px; }
+    .time-bar small { margin-top: 3px; color: var(--color-text-muted); font-size: 9px; }
+    .time-bar i { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--color-success); }
+    .time-bar.shell {
+      border-color: rgba(141, 229, 196, .27);
+      background: #050a0e;
+      color: #eef8f4;
+    }
+    .time-bar.done { opacity: .5; filter: saturate(.4); }
+    .now-label {
+      position: absolute;
+      z-index: 4;
+      top: 6px;
+      left: calc(77% + 6px);
+      color: #f0ae45;
+      font: 9px/1 var(--font-mono);
+    }
+    .timeline-scroll { overflow-x: auto; }
+
+    /* Shared contextual drawer */
+    .detail-drawer {
+      position: fixed;
+      z-index: 900;
+      top: 0;
+      right: 0;
+      width: min(390px, 92vw);
+      height: 100vh;
+      padding: 22px;
+      overflow-y: auto;
+      border-left: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 98%, transparent);
+      box-shadow: -28px 0 70px rgba(0, 0, 0, .24);
+      transform: translateX(102%);
+      transition: transform .22s ease;
+      backdrop-filter: blur(18px);
+    }
+    .detail-drawer.open { transform: translateX(0); }
+    .drawer-head { display: flex; align-items: center; gap: 12px; }
+    .drawer-head span {
+      width: 34px;
+      height: 34px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      color: var(--color-primary);
+      font: 700 11px/1 var(--font-mono);
+    }
+    .drawer-head div { min-width: 0; }
+    .drawer-head small, .drawer-head b { display: block; }
+    .drawer-head small { color: var(--color-text-muted); font-size: 10px; text-transform: uppercase; }
+    .drawer-head b { margin-top: 3px; font-size: 15px; }
+    .drawer-close {
+      width: 34px;
+      height: 34px;
+      margin-left: auto;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .drawer-close:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+    .drawer-title {
+      margin: 34px 0 9px;
+      font-size: 25px;
+      line-height: 1.16;
+      letter-spacing: -.05em;
+    }
+    .drawer-summary { margin: 0; color: var(--color-text-muted); font-size: 13px; line-height: 1.65; }
+    .drawer-section {
+      margin-top: 24px;
+      padding-top: 18px;
+      border-top: 1px solid var(--color-border);
+    }
+    .drawer-section > b {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .drawer-facts { margin: 0; display: grid; gap: 9px; }
+    .drawer-facts div { display: flex; justify-content: space-between; gap: 18px; }
+    .drawer-facts dt { color: var(--color-text-muted); font-size: 11px; }
+    .drawer-facts dd { margin: 0; font-size: 11px; text-align: right; }
+    .terminal-proof {
+      padding: 13px;
+      overflow: auto;
+      border: 1px solid rgba(141, 229, 196, .2);
+      border-radius: 10px;
+      background: #050a0e;
+      color: #b7d4ca;
+      font: 11px/1.6 var(--font-mono);
+      white-space: pre-wrap;
+    }
+    .drawer-actions { margin-top: 28px; display: flex; gap: 8px; }
+    .drawer-actions button {
+      min-height: 42px;
+      padding: 0 13px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .drawer-actions button:first-child {
+      border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+      background: var(--color-primary);
+      color: #07130f;
+      font-weight: 760;
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 1200;
+      left: 50%;
+      bottom: 26px;
+      padding: 11px 15px;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      background: var(--color-text);
+      color: var(--color-bg);
+      box-shadow: var(--shadow-lg);
+      opacity: 0;
+      transform: translate(-50%, 16px);
+      pointer-events: none;
+      transition: all .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    #sketch-tools {
+      position: fixed;
+      z-index: 1400;
+      right: 12px;
+      bottom: 12px;
+      padding: 8px 10px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 9px;
+      background: rgba(0, 0, 0, .74);
+      color: #fff;
+      font: 11px/1 system-ui, sans-serif;
+      opacity: .38;
+      transition: opacity .2s ease;
+    }
+    #sketch-tools:hover { opacity: 1; }
+    #sketch-tools button, #sketch-tools select {
+      min-height: 26px;
+      padding: 0 7px;
+      border: 1px solid rgba(255, 255, 255, .18);
+      border-radius: 6px;
+      background: rgba(255, 255, 255, .08);
+      color: #fff;
+      cursor: pointer;
+    }
+    #sketch-tools select option { color: #111; }
+    body.annotation [data-note] {
+      position: relative;
+      outline: 1px dashed #ffb457 !important;
+      outline-offset: 3px;
+    }
+    body.annotation [data-note]::after {
+      position: absolute;
+      z-index: 20;
+      top: -18px;
+      left: 4px;
+      padding: 2px 5px;
+      border-radius: 4px;
+      content: attr(data-note);
+      background: #ffb457;
+      color: #17110a;
+      font: 9px/1.2 system-ui, sans-serif;
+      white-space: nowrap;
+    }
+
+    body[data-simulation="attention"] .node-state,
+    body[data-simulation="attention"] .state-chip.live { color: #f0ae45; }
+    body[data-simulation="attention"] .section-head > span { background: #f0ae45; box-shadow: 0 0 0 5px rgba(240, 174, 69, .12); }
+    body[data-simulation="complete"] .node-state,
+    body[data-simulation="complete"] .state-chip.live { color: var(--color-text-muted); }
+    body[data-simulation="complete"] .section-head > span { background: var(--color-text-muted); box-shadow: none; }
+
+    @media (max-width: 920px) {
+      .variant-nav { top: 8px; max-width: calc(100vw - 16px); overflow-x: auto; }
+      .variant-tab { min-height: 38px; padding: 0 11px; font-size: 12px; }
+      .variant { padding-top: 60px; }
+      .app-frame { width: calc(100vw - 12px); min-height: calc(100vh - 68px); margin-bottom: 6px; border-radius: 13px; }
+      .app-bar { min-height: 56px; padding: 0 13px; gap: 9px; }
+      .view-links { display: none; }
+      .global-search { display: none; }
+      .brand { font-size: 13px; }
+      .new-task { min-height: 35px; padding: 0 10px; font-size: 12px; }
+      .headline { padding: 22px 17px 18px; grid-template-columns: 1fr; gap: 18px; }
+      .headline h1 { font-size: 29px; }
+      .headline > span { font-size: 13px; }
+      .quiet-counts { justify-content: space-between; gap: 10px; }
+      .quiet-counts b { font-size: 20px; }
+      .section-head { min-height: auto; padding: 13px; align-items: flex-start; flex-wrap: wrap; }
+      .section-head small { flex-basis: calc(100% - 24px); margin-left: 21px; }
+      .section-head .head-actions { width: 100%; margin-left: 21px; }
+      .mission-row { padding: 12px 14px; align-items: flex-start; flex-wrap: wrap; }
+      .mission-row em { width: 100%; margin-left: 0; }
+      .flow-stage { min-height: 0; padding: 22px 14px; display: block; }
+      .flow-lines { display: none; }
+      .flow-column + .flow-column { margin-top: 23px; }
+      .root-node { min-height: 184px; }
+      .root-node .root-title { margin-top: 18px; }
+      .unit-grid { grid-template-columns: 1fr; }
+      .unit-grid .node:nth-child(2), .unit-grid .node:nth-child(3),
+      .unit-grid .node:nth-child(2):hover, .unit-grid .node:nth-child(3):hover { transform: none; }
+      .evidence-rail { padding: 14px; grid-template-columns: 1fr; }
+      .evidence-event:nth-of-type(n+4) { display: none; }
+      .ledger-layout { grid-template-columns: 1fr; }
+      .project-rail {
+        padding: 8px;
+        display: flex;
+        gap: 5px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--color-border);
+      }
+      .project-rail h2 { display: none; }
+      .project-button { min-width: 150px; }
+      .ledger-intro { padding: 19px 15px; display: block; }
+      .ledger-intro .head-actions { margin-top: 14px; }
+      .ledger-table { padding: 0 8px 16px; }
+      .ledger-columns { display: none; }
+      .ledger-row {
+        grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+        gap: 8px;
+      }
+      .ledger-row > :nth-child(4), .ledger-row > :nth-child(5) { display: none; }
+      .timeline-main { padding: 17px 10px; }
+      .timeline-intro { display: block; }
+      .timeline-intro .head-actions { margin-top: 14px; }
+      .timeline-scroll { padding-bottom: 8px; }
+      #sketch-tools { display: none; }
+    }
+  </style>
+</head>
+<body data-simulation="live">
+  <nav class="variant-nav" aria-label="스케치 변형">
+    <button class="variant-tab active" type="button" data-variant="a">A · 인과선 <span aria-hidden="true">★</span></button>
+    <button class="variant-tab" type="button" data-variant="b">B · 흐름 장부</button>
+    <button class="variant-tab" type="button" data-variant="c">C · 시간 레인</button>
+  </nav>
+
+  <main id="variant-a" class="variant active">
+    <div class="app-frame">
+      <header class="app-bar">
+        <div class="brand"><span class="brand-mark">L</span>LoadToAgent</div>
+        <nav class="view-links" aria-label="주요 보기">
+          <button class="active" type="button" data-view-message="흐름 보기를 유지합니다.">흐름</button>
+          <button type="button" data-view-message="확인 요청 3개를 모아봅니다.">확인 <b>3</b></button>
+          <button type="button" data-view-message="완료된 작업의 증거를 엽니다.">기록</button>
+        </nav>
+        <span class="bar-spacer"></span>
+        <input class="global-search" type="search" placeholder="에이전트·명령 검색" aria-label="에이전트와 명령 검색">
+        <button class="new-task" type="button">＋ 새 작업</button>
+      </header>
+
+      <section class="headline">
+        <div>
+          <p>현재의 의도</p>
+          <h1>한 목표가 네 갈래로 움직입니다.</h1>
+          <span>생각은 에이전트에게, 행위는 PowerShell에게, 증거는 결과에 남습니다. 지금 필요한 개입만 색으로 드러납니다.</span>
+        </div>
+        <div class="quiet-counts" aria-label="현재 작업 요약">
+          <span><small>메인</small><b>1</b></span>
+          <span><small>위임·실행</small><b>4</b></span>
+          <span class="attention"><small>내 판단</small><b>1</b></span>
+        </div>
+      </section>
+
+      <section class="causal-canvas">
+        <header class="section-head">
+          <span aria-hidden="true"></span>
+          <b>살아 있는 흐름</b>
+          <small>모든 실행 단위를 인과관계로 표시합니다.</small>
+          <div class="head-actions">
+            <button class="soft-button" type="button" data-simulate>다음 이벤트</button>
+            <button class="soft-button" type="button" data-view-message="고밀도 장부 보기는 변형 B에서 비교할 수 있습니다.">고밀도 보기</button>
+          </div>
+        </header>
+        <div class="mission-row">
+          <strong>Lodestar</strong>
+          <span>UI의 에이전트 흐름을 한눈에 읽게 개선</span>
+          <em>Codex · 18분째 · 최근 신호 12초 전</em>
+        </div>
+
+        <div class="flow-stage" data-note="관계가 화면의 중심">
+          <svg class="flow-lines" viewBox="0 0 1000 500" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M205 250 C275 250 285 82 360 82"></path>
+            <path d="M205 250 C280 250 290 200 360 200"></path>
+            <path d="M205 250 C280 250 290 318 360 318"></path>
+            <path d="M205 250 C275 250 285 436 360 436"></path>
+            <path class="quiet" d="M650 82 C725 82 730 250 805 250"></path>
+            <path d="M650 200 C730 200 735 250 805 250"></path>
+            <path d="M650 318 C730 318 735 250 805 250"></path>
+            <path class="quiet" d="M650 436 C725 436 730 250 805 250"></path>
+            <circle cx="205" cy="250" r="4"></circle>
+            <circle cx="805" cy="250" r="4"></circle>
+          </svg>
+
+          <section class="flow-column">
+            <p class="column-label">의도 · Main agent <b>1</b></p>
+            <button class="node root-node" type="button" data-node="main" data-search="codex 메인 에이전트 ui 흐름 개선" data-note="의도의 소유자">
+              <span class="node-icon">Cx</span>
+              <span class="root-title">
+                <small>메인 에이전트 · Codex</small>
+                <h2>흐름의 문법을 다시 설계</h2>
+                <p>전체 작업을 조율하고 결과를 하나의 판단으로 정리합니다.</p>
+              </span>
+              <span class="root-meta"><b>작업 중</b><span>서브 2 · 명령 2</span></span>
+            </button>
+          </section>
+
+          <section class="flow-column">
+            <p class="column-label">위임과 행위 · Live units <b>4</b></p>
+            <div class="unit-grid">
+              <button class="node" type="button" data-node="research" data-search="서브에이전트 관계 모델 점검 claude" data-note="생각">
+                <span class="node-icon">C</span>
+                <span class="node-copy"><small>서브에이전트 · Claude</small><b>관계 모델 점검</b><em>부모·자식 연결 규칙 검토 중</em></span>
+                <span class="node-state"><i></i>작업 중</span>
+              </button>
+              <button class="node shell-node" type="button" data-node="visualtest" data-search="powershell npm run test visual 42 48" data-note="행위">
+                <span class="node-icon">›_</span>
+                <span class="node-copy"><small>PowerShell · background</small><b>시각 회귀 검사</b><em class="mono">npm run test:visual · 42/48</em></span>
+                <span class="node-state"><i></i>실행 중</span>
+              </button>
+              <button class="node" type="button" data-node="density" data-search="서브에이전트 밀도 테스트 gpt" data-note="생각">
+                <span class="node-icon">G</span>
+                <span class="node-copy"><small>서브에이전트 · GPT</small><b>고밀도 상태 검증</b><em>30개 실행 단위 배치 비교 중</em></span>
+                <span class="node-state"><i></i>작업 중</span>
+              </button>
+              <button class="node background-node" type="button" data-node="index" data-search="background 검색 인덱스 갱신" data-note="행위">
+                <span class="node-icon">◌</span>
+                <span class="node-copy"><small>Background · Node</small><b>검색 인덱스 갱신</b><em>에이전트 128개 · 78%</em></span>
+                <span class="node-state"><i></i>실행 중</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="flow-column">
+            <p class="column-label">증거 · Results <b>3</b></p>
+            <div class="result-stack">
+              <button class="node result-node" type="button" data-node="result" data-search="결과 정리 대기">
+                <span class="node-icon">→</span>
+                <span class="node-copy"><small>다음</small><b>결과 정리 대기</b><em></em></span>
+              </button>
+              <button class="node result-node" type="button" data-node="contrast" data-search="완료 테마 대비 검사">
+                <span class="node-icon">✓</span>
+                <span class="node-copy"><small>17분 전</small><b>테마 대비 검사</b><em></em></span>
+              </button>
+              <button class="node result-node" type="button" data-node="capture" data-search="완료 모바일 캡처">
+                <span class="node-icon">✓</span>
+                <span class="node-copy"><small>21분 전</small><b>모바일 캡처</b><em></em></span>
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <footer class="evidence-rail">
+          <b>최근 신호</b>
+          <span class="evidence-event"><i></i><span>12초 전 · PowerShell 검사 42/48</span></span>
+          <span class="evidence-event"><i></i><span>1분 전 · 밀도 비교안 생성</span></span>
+          <span class="evidence-event"><i></i><span>4분 전 · 관계 모델 수정</span></span>
+          <span class="evidence-event"><i></i><span>17분 전 · 대비 검사 완료</span></span>
+        </footer>
+      </section>
+    </div>
+  </main>
+
+  <main id="variant-b" class="variant">
+    <div class="app-frame">
+      <header class="app-bar">
+        <div class="brand"><span class="brand-mark">L</span>LoadToAgent</div>
+        <nav class="view-links" aria-label="주요 보기">
+          <button class="active" type="button" data-view-message="흐름 장부를 보고 있습니다.">흐름</button>
+          <button type="button" data-view-message="확인 요청 3개를 모아봅니다.">확인 <b>3</b></button>
+          <button type="button" data-view-message="완료 기록을 엽니다.">기록</button>
+        </nav>
+        <span class="bar-spacer"></span>
+        <input class="global-search" type="search" placeholder="에이전트·명령 검색" aria-label="에이전트와 명령 검색">
+        <button class="new-task" type="button">＋ 새 작업</button>
+      </header>
+
+      <div class="ledger-layout">
+        <aside class="project-rail">
+          <h2>움직이는 일 · 9</h2>
+          <button class="project-button active" type="button" data-project="all"><i></i><span><b>모든 프로젝트</b><small>9개 실행 중</small></span></button>
+          <button class="project-button" type="button" data-project="lodestar"><i></i><span><b>Lodestar</b><small>4개 실행 중</small></span></button>
+          <button class="project-button" type="button" data-project="cras"><i></i><span><b>cras_backend</b><small>3개 실행 중</small></span></button>
+          <button class="project-button" type="button" data-project="cms"><i></i><span><b>CMS_WEB</b><small>2개 실행 중</small></span></button>
+        </aside>
+
+        <section class="ledger-main">
+          <header class="ledger-intro">
+            <div><h1>누가, 무엇을, 어떻게 움직이는가</h1><p>카드 대신 한 줄의 사실로 모든 실행 단위를 비교합니다.</p></div>
+            <div class="head-actions">
+              <button class="soft-button" type="button" data-only-live aria-pressed="false">실행 중만</button>
+              <button class="soft-button" type="button" data-simulate>다음 이벤트</button>
+            </div>
+          </header>
+          <div class="ledger-table">
+            <div class="ledger-columns"><span>주체</span><span>지금 하는 일</span><span>형태</span><span>경과</span><span>상태</span></div>
+            <div class="ledger-group-label"><i></i>Lodestar · 메인 Codex 아래 6개 단위</div>
+
+            <button class="ledger-row" type="button" data-node="main" data-project-row="lodestar" data-search="codex 메인 흐름 문법 설계">
+              <span class="ledger-actor"><i>Cx</i><span><b>메인 Codex</b><small>Lodestar / root</small></span></span>
+              <span class="ledger-now"><b>흐름의 문법을 다시 설계</b><small>전체 위임과 결과를 조율합니다.</small></span>
+              <span class="type-chip">메인</span><span class="ledger-time">18m</span><span class="state-chip live">작업 중</span>
+            </button>
+            <button class="ledger-row" type="button" data-node="research" data-project-row="lodestar" data-search="claude 서브에이전트 관계 모델 점검">
+              <span class="ledger-actor"><i>C</i><span><b>관계 모델 점검</b><small>메인 Codex가 위임</small></span></span>
+              <span class="ledger-now"><b>부모·자식 연결 규칙 검토</b><small>app-graph-model.js</small></span>
+              <span class="type-chip">서브</span><span class="ledger-time">12m</span><span class="state-chip live">작업 중</span>
+            </button>
+            <button class="ledger-row" type="button" data-node="density" data-project-row="lodestar" data-search="gpt 서브에이전트 고밀도 상태 검증">
+              <span class="ledger-actor"><i>G</i><span><b>고밀도 상태 검증</b><small>메인 Codex가 위임</small></span></span>
+              <span class="ledger-now"><b>30개 실행 단위 배치 비교</b><small>desktop / mobile</small></span>
+              <span class="type-chip">서브</span><span class="ledger-time">9m</span><span class="state-chip live">작업 중</span>
+            </button>
+            <button class="ledger-row" type="button" data-node="visualtest" data-project-row="lodestar" data-search="powershell npm run test visual">
+              <span class="ledger-actor"><i>›_</i><span><b>시각 회귀 검사</b><small>메인 Codex가 실행</small></span></span>
+              <span class="ledger-now"><b class="mono">npm run test:visual</b><small>42 / 48 검사 통과</small></span>
+              <span class="type-chip shell">PowerShell</span><span class="ledger-time">4m</span><span class="state-chip live">실행 중</span>
+            </button>
+            <button class="ledger-row" type="button" data-node="index" data-project-row="lodestar" data-search="background 검색 인덱스 갱신">
+              <span class="ledger-actor"><i>◌</i><span><b>검색 인덱스 갱신</b><small>메인 Codex가 실행</small></span></span>
+              <span class="ledger-now"><b>에이전트 128개 다시 읽기</b><small>78% · ETA 34초</small></span>
+              <span class="type-chip">Background</span><span class="ledger-time">2m</span><span class="state-chip live">실행 중</span>
+            </button>
+            <button class="ledger-row is-done" type="button" data-node="contrast" data-project-row="lodestar" data-search="완료 테마 대비 검사">
+              <span class="ledger-actor"><i>›_</i><span><b>테마 대비 검사</b><small>메인 Codex가 실행</small></span></span>
+              <span class="ledger-now"><b class="mono">npm run test:theme</b><small>라이트·다크 20개 화면 통과</small></span>
+              <span class="type-chip shell">PowerShell</span><span class="ledger-time">17m</span><span class="state-chip">완료</span>
+            </button>
+
+            <div class="ledger-group-label"><i></i>cras_backend · 메인 Claude 아래 3개 단위</div>
+            <button class="ledger-row" type="button" data-node="other" data-project-row="cras" data-search="claude 오류 처리 수정">
+              <span class="ledger-actor"><i>C</i><span><b>메인 Claude</b><small>cras_backend / root</small></span></span>
+              <span class="ledger-now"><b>오류 처리 로직 수정</b><small>검증 결과를 기다립니다.</small></span>
+              <span class="type-chip">메인</span><span class="ledger-time">31m</span><span class="state-chip wait">판단 필요</span>
+            </button>
+            <button class="ledger-row" type="button" data-node="visualtest" data-project-row="cras" data-search="powershell npm test">
+              <span class="ledger-actor"><i>›_</i><span><b>단위 테스트</b><small>메인 Claude가 실행</small></span></span>
+              <span class="ledger-now"><b class="mono">npm test -- --watch=false</b><small>1개 실패 · 출력 보존</small></span>
+              <span class="type-chip shell">PowerShell</span><span class="ledger-time">3m</span><span class="state-chip wait">실패</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <main id="variant-c" class="variant">
+    <div class="app-frame">
+      <header class="app-bar">
+        <div class="brand"><span class="brand-mark">L</span>LoadToAgent</div>
+        <nav class="view-links" aria-label="주요 보기">
+          <button class="active" type="button" data-view-message="시간 레인을 보고 있습니다.">흐름</button>
+          <button type="button" data-view-message="확인 요청 3개를 모아봅니다.">확인 <b>3</b></button>
+          <button type="button" data-view-message="완료 기록을 엽니다.">기록</button>
+        </nav>
+        <span class="bar-spacer"></span>
+        <input class="global-search" type="search" placeholder="에이전트·명령 검색" aria-label="에이전트와 명령 검색">
+        <button class="new-task" type="button">＋ 새 작업</button>
+      </header>
+
+      <section class="timeline-main">
+        <header class="timeline-intro">
+          <div><h1>하나의 목표가 시간 속에서 갈라집니다.</h1><p>위임·실행·완료가 언제 겹치고 어디서 멈췄는지 읽습니다.</p></div>
+          <div class="head-actions">
+            <button class="soft-button" type="button" data-view-message="현재 시점으로 이동했습니다.">지금으로</button>
+            <button class="soft-button" type="button" data-simulate>다음 이벤트</button>
+          </div>
+        </header>
+
+        <div class="timeline-scroll">
+          <div class="timeline-shell">
+            <div class="timeline-axis">
+              <b>Lodestar · 최근 30분</b>
+              <div class="ticks"><span>−30m</span><span>−20m</span><span>−10m</span><span>지금</span><span>+10m</span><em class="now-label">NOW</em></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>Cx</i><span><b>메인 Codex</b><small>의도의 소유자</small></span></span>
+              <div class="lane-track"><button class="time-bar" type="button" data-node="main" data-search="메인 codex 흐름 설계" style="left:8%;width:73%"><i></i><span><b>흐름 문법 설계</b><small>조율 · 결과 정리</small></span></button></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>C</i><span><b>관계 모델</b><small>서브에이전트</small></span></span>
+              <div class="lane-track"><button class="time-bar" type="button" data-node="research" data-search="서브 관계 모델 점검" style="left:25%;width:53%"><i></i><span><b>부모·자식 연결 규칙</b><small>12분째</small></span></button></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>G</i><span><b>밀도 검증</b><small>서브에이전트</small></span></span>
+              <div class="lane-track"><button class="time-bar" type="button" data-node="density" data-search="서브 밀도 검증" style="left:38%;width:40%"><i></i><span><b>30개 단위 배치 비교</b><small>9분째</small></span></button></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>›_</i><span><b>시각 검사</b><small>PowerShell</small></span></span>
+              <div class="lane-track"><button class="time-bar shell" type="button" data-node="visualtest" data-search="powershell test visual" style="left:58%;width:25%"><i></i><span><b class="mono">npm run test:visual</b><small>42 / 48</small></span></button></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>◌</i><span><b>인덱스</b><small>Background</small></span></span>
+              <div class="lane-track"><button class="time-bar" type="button" data-node="index" data-search="background index" style="left:67%;width:18%"><i></i><span><b>검색 인덱스 갱신</b><small>78%</small></span></button></div>
+            </div>
+            <div class="timeline-lane">
+              <span class="lane-label"><i>✓</i><span><b>테마 대비</b><small>완료 증거</small></span></span>
+              <div class="lane-track"><button class="time-bar done" type="button" data-node="contrast" data-search="완료 테마 대비" style="left:4%;width:24%"><i></i><span><b>라이트·다크 검사</b><small>17분 전 완료</small></span></button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <aside id="detailDrawer" class="detail-drawer" aria-hidden="true" aria-label="선택한 실행 단위 상세">
+    <header class="drawer-head">
+      <span id="drawerIcon">Cx</span>
+      <div><small id="drawerKind">메인 에이전트</small><b id="drawerName">메인 Codex</b></div>
+      <button id="drawerClose" class="drawer-close" type="button" aria-label="상세 닫기">×</button>
+    </header>
+    <h2 id="drawerTitle" class="drawer-title">흐름의 문법을 다시 설계</h2>
+    <p id="drawerSummary" class="drawer-summary">전체 작업을 조율하고 결과를 하나의 판단으로 정리합니다.</p>
+    <section class="drawer-section">
+      <b>현재 사실</b>
+      <dl class="drawer-facts">
+        <div><dt>부모</dt><dd id="drawerParent">Lodestar 목표</dd></div>
+        <div><dt>상태</dt><dd id="drawerStatus">작업 중</dd></div>
+        <div><dt>최근 신호</dt><dd id="drawerTime">12초 전</dd></div>
+      </dl>
+    </section>
+    <section class="drawer-section">
+      <b id="drawerProofLabel">증거</b>
+      <pre id="drawerProof" class="terminal-proof">관계 모델과 실행 결과를 수집하고 있습니다.</pre>
+    </section>
+    <div class="drawer-actions">
+      <button type="button" data-drawer-action="primary">대화 열기</button>
+      <button type="button" data-drawer-action="secondary">전체 과정</button>
+    </div>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="sketch-tools" onmouseenter="this.style.opacity='1'" onmouseleave="this.style.opacity='.38'">
+    <select id="themeSwitcher" aria-label="테마">
+      <option value="default">Night</option>
+      <option value="quiet-light">Quiet light</option>
+    </select>
+    <button type="button" data-width="390px">M</button>
+    <button type="button" data-width="768px">T</button>
+    <button type="button" data-width="1500px">D</button>
+    <button id="annotationToggle" type="button" aria-pressed="false">Aa</button>
+  </div>
+
+  <script>
+    const details = {
+      main: {
+        icon: "Cx", kind: "메인 에이전트 · Codex", name: "Lodestar / root",
+        title: "흐름의 문법을 다시 설계",
+        summary: "전체 위임과 명령을 조율하고, 흩어진 결과를 사용자가 판단할 수 있는 하나의 결론으로 정리합니다.",
+        parent: "사용자 목표", status: "작업 중 · 4개 단위", time: "12초 전",
+        proofLabel: "최근 판단", proof: "A 인과선과 B 흐름 장부를 비교합니다.\\nPowerShell 검증 1개가 실행 중입니다.",
+        primary: "대화 열기", secondary: "전체 과정"
+      },
+      research: {
+        icon: "C", kind: "서브에이전트 · Claude", name: "관계 모델 점검",
+        title: "부모·자식 연결 규칙 검토",
+        summary: "메인 에이전트가 맡긴 범위 안에서 계층과 실행 노드의 연결 규칙을 독립적으로 검토합니다.",
+        parent: "메인 Codex", status: "작업 중", time: "1분 전",
+        proofLabel: "최근 메시지", proof: "PowerShell은 에이전트와 같은 계층이 아니라\\n에이전트가 만든 행위 노드로 표현해야 합니다.",
+        primary: "메시지 보내기", secondary: "대화 보기"
+      },
+      density: {
+        icon: "G", kind: "서브에이전트 · GPT", name: "고밀도 상태 검증",
+        title: "30개 실행 단위 배치 비교",
+        summary: "에이전트와 PowerShell이 늘어날 때 인과선과 장부가 어디까지 읽히는지 비교합니다.",
+        parent: "메인 Codex", status: "작업 중", time: "36초 전",
+        proofLabel: "최근 메시지", proof: "12개까지는 인과선이 빠릅니다.\\n20개 이상에서는 장부 보기 전환이 필요합니다.",
+        primary: "메시지 보내기", secondary: "대화 보기"
+      },
+      visualtest: {
+        icon: "›_", kind: "PowerShell · Background", name: "시각 회귀 검사",
+        title: "npm run test:visual",
+        summary: "현재 UI가 데스크톱과 모바일에서 흐름, 상세 패널, PowerShell 노드를 잃지 않는지 검사합니다.",
+        parent: "메인 Codex", status: "실행 중 · 42/48", time: "12초 전",
+        proofLabel: "실시간 출력", proof: "> npm run test:visual\\n✓ desktop flow visible\\n✓ subagent nodes 2\\n✓ powershell node visible\\n… checking mobile drawer (42/48)",
+        primary: "터미널 열기", secondary: "중단"
+      },
+      index: {
+        icon: "◌", kind: "Background · Node", name: "검색 인덱스 갱신",
+        title: "에이전트 128개 다시 읽기",
+        summary: "검색 결과에서 세션, 서브에이전트, 실행 명령을 함께 찾을 수 있도록 로컬 인덱스를 갱신합니다.",
+        parent: "메인 Codex", status: "실행 중 · 78%", time: "8초 전",
+        proofLabel: "실시간 출력", proof: "indexed sessions: 84\\nindexed subagents: 32\\nindexed executions: 12\\nprogress: 78%",
+        primary: "출력 열기", secondary: "중단"
+      },
+      result: {
+        icon: "→", kind: "결과 · Next", name: "결과 정리 대기",
+        title: "네 갈래의 일을 하나로 합치기",
+        summary: "실행 중인 단위가 끝나면 메인 에이전트가 변경, 검증, 미해결 질문을 하나의 결과로 정리합니다.",
+        parent: "메인 Codex", status: "대기", time: "예상 4분",
+        proofLabel: "수집 예정", proof: "관계 모델\\n고밀도 비교\\n시각 회귀 결과\\n검색 인덱스 상태",
+        primary: "과정 보기", secondary: "기준 편집"
+      },
+      contrast: {
+        icon: "✓", kind: "완료 증거 · PowerShell", name: "테마 대비 검사",
+        title: "라이트·다크 20개 화면 통과",
+        summary: "텍스트 대비와 상태 색상이 두 테마에서 같은 의미로 읽히는지 검증했습니다.",
+        parent: "메인 Codex", status: "완료", time: "17분 전",
+        proofLabel: "출력", proof: "> npm run test:theme\\n20 screenshots checked\\n0 contrast failures\\nexit code 0",
+        primary: "증거 열기", secondary: "명령 복사"
+      },
+      capture: {
+        icon: "✓", kind: "완료 증거", name: "모바일 캡처",
+        title: "390px 흐름 화면 생성",
+        summary: "모바일에서 메인 에이전트와 네 실행 단위가 세로 인과 순서로 유지되는지 확인했습니다.",
+        parent: "메인 Codex", status: "완료", time: "21분 전",
+        proofLabel: "파일", proof: "agent-flow-atlas-mobile.png\\n390 × 844\\nno horizontal overflow",
+        primary: "이미지 열기", secondary: "경로 복사"
+      },
+      other: {
+        icon: "C", kind: "메인 에이전트 · Claude", name: "cras_backend",
+        title: "오류 처리 로직 수정",
+        summary: "실패한 단위 테스트의 처리 방향을 사용자가 결정하기를 기다리고 있습니다.",
+        parent: "사용자 목표", status: "판단 필요", time: "2분 전",
+        proofLabel: "판단 요청", proof: "1개 테스트가 실패했습니다.\\nA. 기존 동작 보존\\nB. 새 오류 규칙 적용",
+        primary: "검토", secondary: "대화 보기"
+      }
+    };
+
+    const variantTabs = [...document.querySelectorAll(".variant-tab")];
+    const variants = [...document.querySelectorAll(".variant")];
+    const drawer = document.getElementById("detailDrawer");
+    const toast = document.getElementById("toast");
+    let toastTimer;
+    let simulationIndex = 0;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    function showVariant(id) {
+      variantTabs.forEach(tab => tab.classList.toggle("active", tab.dataset.variant === id));
+      variants.forEach(variant => variant.classList.toggle("active", variant.id === `variant-${id}`));
+      drawer.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    variantTabs.forEach(tab => tab.addEventListener("click", () => showVariant(tab.dataset.variant)));
+
+    function openDetail(key, source) {
+      const data = details[key] || details.main;
+      document.getElementById("drawerIcon").textContent = data.icon;
+      document.getElementById("drawerKind").textContent = data.kind;
+      document.getElementById("drawerName").textContent = data.name;
+      document.getElementById("drawerTitle").textContent = data.title;
+      document.getElementById("drawerSummary").textContent = data.summary;
+      document.getElementById("drawerParent").textContent = data.parent;
+      document.getElementById("drawerStatus").textContent = data.status;
+      document.getElementById("drawerTime").textContent = data.time;
+      document.getElementById("drawerProofLabel").textContent = data.proofLabel;
+      document.getElementById("drawerProof").textContent = data.proof;
+      document.querySelector('[data-drawer-action="primary"]').textContent = data.primary;
+      document.querySelector('[data-drawer-action="secondary"]').textContent = data.secondary;
+      document.querySelectorAll(".active-node").forEach(node => node.classList.remove("active-node"));
+      if (source) source.classList.add("active-node");
+      drawer.classList.add("open");
+      drawer.setAttribute("aria-hidden", "false");
+    }
+
+    document.addEventListener("click", event => {
+      const node = event.target.closest("[data-node]");
+      if (node) openDetail(node.dataset.node, node);
+    });
+    document.getElementById("drawerClose").addEventListener("click", () => {
+      drawer.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+      document.querySelectorAll(".active-node").forEach(node => node.classList.remove("active-node"));
+    });
+    document.querySelectorAll("[data-drawer-action]").forEach(button => {
+      button.addEventListener("click", () => showToast(`${button.textContent} 화면으로 이어집니다.`));
+    });
+
+    document.querySelectorAll(".new-task").forEach(button => {
+      button.addEventListener("click", () => showToast("새 작업 작성 창을 엽니다."));
+    });
+    document.querySelectorAll("[data-view-message]").forEach(button => {
+      button.addEventListener("click", () => showToast(button.dataset.viewMessage));
+    });
+
+    document.querySelectorAll("[data-simulate]").forEach(button => {
+      button.addEventListener("click", () => {
+        simulationIndex = (simulationIndex + 1) % 3;
+        const states = ["live", "attention", "complete"];
+        const messages = ["실행 신호가 다시 움직입니다.", "검토가 필요한 신호 1개가 생겼습니다.", "이번 실행 단위가 완료되었습니다."];
+        document.body.dataset.simulation = states[simulationIndex];
+        showToast(messages[simulationIndex]);
+      });
+    });
+
+    document.querySelectorAll("[data-only-live]").forEach(button => {
+      button.addEventListener("click", () => {
+        const active = !document.body.classList.contains("only-live");
+        document.body.classList.toggle("only-live", active);
+        button.setAttribute("aria-pressed", String(active));
+        showToast(active ? "완료된 행을 숨겼습니다." : "완료된 행도 함께 표시합니다.");
+      });
+    });
+
+    document.querySelectorAll(".project-button").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".project-button").forEach(item => item.classList.remove("active"));
+        button.classList.add("active");
+        const project = button.dataset.project;
+        document.querySelectorAll("[data-project-row]").forEach(row => {
+          row.classList.toggle("hidden", project !== "all" && row.dataset.projectRow !== project);
+        });
+        showToast(`${button.querySelector("b").textContent} 흐름만 표시합니다.`);
+      });
+    });
+
+    document.querySelectorAll(".global-search").forEach(input => {
+      input.addEventListener("input", () => {
+        const query = input.value.trim().toLowerCase();
+        const activeVariant = input.closest(".variant");
+        activeVariant.querySelectorAll("[data-search]").forEach(item => {
+          item.classList.toggle("hidden", Boolean(query) && !item.dataset.search.toLowerCase().includes(query));
+        });
+      });
+    });
+
+    document.getElementById("themeSwitcher").addEventListener("change", event => {
+      document.getElementById("theme-link").href = `../themes/${event.target.value}.css`;
+    });
+    document.querySelectorAll("[data-width]").forEach(button => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".app-frame").forEach(frame => {
+          frame.style.width = `min(${button.dataset.width}, calc(100vw - 12px))`;
+        });
+      });
+    });
+    document.getElementById("annotationToggle").addEventListener("click", event => {
+      const active = !document.body.classList.contains("annotation");
+      document.body.classList.toggle("annotation", active);
+      event.currentTarget.setAttribute("aria-pressed", String(active));
+    });
+  </script>
+</body>
+</html>

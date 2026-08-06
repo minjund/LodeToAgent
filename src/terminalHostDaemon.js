@@ -21,6 +21,8 @@ function parseConfig(argv = process.argv.slice(2)) {
 }
 
 async function run(config = parseConfig()) {
+  const existing = await existingHealthyHost(config.discoveryFile);
+  if (existing) return { existing: true, discovery: existing, stop: () => {} };
   process.title = 'LoadToAgent Terminal Host';
   // Acquire the OS-owned cross-process lock before reading the session store or
   // probing tmux. A slow recovery can therefore never let a second daemon race
@@ -115,4 +117,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { parseConfig, run };
+module.exports = { parseConfig, processExists, existingHealthyHost, run };

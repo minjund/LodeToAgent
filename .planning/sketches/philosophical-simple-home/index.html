@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LoadToAgent — 고요한 관제 초안</title>
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    :root {
+      color-scheme: dark;
+      --bg: #071019;
+      --surface: #0b1621;
+      --surface-2: #0f1c28;
+      --line: rgba(174, 198, 220, 0.14);
+      --line-strong: rgba(174, 198, 220, 0.24);
+      --text: #f2f7fa;
+      --muted: #8fa1b2;
+      --dim: #617384;
+      --blue: #38a7ff;
+      --cyan: #34d7f2;
+      --green: #46d98c;
+      --amber: #f3a72f;
+      --shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 72% 12%, rgba(24, 119, 187, 0.10), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+      font-family: Geist, "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+      letter-spacing: -0.025em;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .hidden { display: none !important; }
+
+    .concept-bar {
+      position: fixed;
+      z-index: 20;
+      left: 50%;
+      top: 22px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      border: 1px solid var(--line-strong);
+      border-radius: 14px;
+      background: rgba(8, 17, 26, 0.92);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+    .concept-bar button {
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 16px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .concept-bar button.active {
+      background: var(--text);
+      color: #071019;
+      font-weight: 700;
+    }
+    .concept-tag {
+      position: fixed;
+      z-index: 20;
+      bottom: 24px;
+      right: 24px;
+      padding: 8px 10px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: rgba(8, 17, 26, 0.82);
+      color: var(--muted);
+      font-size: 12px;
+      backdrop-filter: blur(12px);
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 208px minmax(0, 1fr);
+    }
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 27px 18px 20px;
+      border-right: 1px solid var(--line);
+      display: flex;
+      flex-direction: column;
+      background: rgba(6, 15, 23, 0.72);
+    }
+    .brand {
+      margin: 0 12px 40px;
+      font-size: 20px;
+      font-weight: 680;
+      letter-spacing: -0.04em;
+    }
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+    .nav button {
+      width: 100%;
+      min-height: 46px;
+      display: grid;
+      grid-template-columns: 22px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      cursor: pointer;
+    }
+    .nav button.active {
+      background: rgba(56, 167, 255, 0.10);
+      color: var(--text);
+    }
+    .nav .icon {
+      color: currentColor;
+      font-size: 17px;
+      text-align: center;
+    }
+    .nav .count {
+      min-width: 24px;
+      height: 22px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: rgba(143, 161, 178, 0.12);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .nav button.active .count {
+      color: var(--blue);
+      background: rgba(56, 167, 255, 0.14);
+    }
+    .nav .attention .count {
+      color: var(--amber);
+      background: rgba(243, 167, 47, 0.12);
+    }
+    .sidebar-bottom {
+      margin-top: auto;
+      display: grid;
+      gap: 4px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+    .sidebar-bottom button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      padding: 10px 12px;
+      cursor: pointer;
+    }
+
+    .stage {
+      min-width: 0;
+      padding: 0 30px 80px;
+    }
+    .topbar {
+      height: 88px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+    .topbar h1 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 650;
+    }
+    .topbar p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .topbar-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 10px;
+    }
+    .search {
+      width: min(280px, 28vw);
+      height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 9px;
+      background: rgba(6, 15, 23, 0.62);
+      color: var(--text);
+      padding: 0 14px;
+      outline: none;
+    }
+    .search:focus { border-color: var(--blue); }
+    .primary, .secondary {
+      min-height: 42px;
+      border-radius: 9px;
+      padding: 0 17px;
+      cursor: pointer;
+    }
+    .primary {
+      border: 1px solid #54b1f8;
+      background: var(--blue);
+      color: #05111b;
+      font-weight: 740;
+    }
+    .secondary {
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      color: var(--text);
+    }
+
+    .view {
+      display: none;
+      animation: settle .25s ease-out;
+    }
+    .view.active { display: block; }
+    @keyframes settle {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .view-a {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding-top: 56px;
+    }
+    .question {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 28px;
+      margin-bottom: 34px;
+    }
+    .question small {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--cyan);
+      font-weight: 680;
+    }
+    .question h2 {
+      margin: 0;
+      max-width: 720px;
+      font-size: clamp(30px, 3vw, 46px);
+      line-height: 1.16;
+      letter-spacing: -0.055em;
+      font-weight: 610;
+    }
+    .question h2 b { color: var(--amber); font-weight: 610; }
+    .question p {
+      max-width: 320px;
+      margin: 0 0 4px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+    }
+    .home-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(320px, .72fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: rgba(10, 22, 33, 0.70);
+      overflow: hidden;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, .12);
+    }
+    .panel-head {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 22px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-head h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+    .panel-head span {
+      color: var(--dim);
+      font-size: 13px;
+    }
+    .panel-head a {
+      margin-left: auto;
+      color: var(--blue);
+      font-size: 13px;
+      text-decoration: none;
+    }
+    .decision-list { padding: 0 14px 14px; }
+    .decision {
+      border-bottom: 1px solid var(--line);
+    }
+    .decision:last-child { border-bottom: 0; }
+    .decision-summary {
+      width: 100%;
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: 24px 10px minmax(130px, .65fr) minmax(220px, 1.1fr) auto 30px;
+      align-items: center;
+      gap: 12px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .decision-summary .num { color: var(--dim); }
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 16px rgba(70, 217, 140, .40);
+    }
+    .dot.amber {
+      background: var(--amber);
+      box-shadow: 0 0 16px rgba(243, 167, 47, .32);
+    }
+    .decision-summary strong {
+      font-size: 14px;
+      font-weight: 620;
+    }
+    .decision-summary .reason {
+      color: var(--text);
+      font-size: 14px;
+    }
+    .decision-summary time {
+      color: var(--dim);
+      font-size: 12px;
+    }
+    .chevron {
+      color: var(--dim);
+      transform: rotate(0);
+      transition: transform .2s ease;
+    }
+    .decision.open .chevron { transform: rotate(180deg); }
+    .decision-detail {
+      display: none;
+      margin: 0 10px 14px 56px;
+      padding: 18px 20px;
+      border: 1px solid rgba(243, 167, 47, 0.18);
+      border-radius: 11px;
+      background: rgba(243, 167, 47, 0.035);
+    }
+    .decision.open .decision-detail { display: block; }
+    .decision-detail p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .decision-detail p b { color: var(--text); }
+    .decision-actions {
+      display: flex;
+      gap: 9px;
+      margin-top: 17px;
+    }
+    .decision-actions button { height: 38px; }
+
+    .moving-list {
+      display: grid;
+      gap: 0;
+      padding: 8px 18px;
+    }
+    .moving-item {
+      display: grid;
+      grid-template-columns: 10px 1fr auto;
+      gap: 11px;
+      align-items: center;
+      min-height: 72px;
+      border-bottom: 1px solid var(--line);
+    }
+    .moving-item:last-child { border-bottom: 0; }
+    .moving-item strong {
+      display: block;
+      font-size: 14px;
+      font-weight: 580;
+    }
+    .moving-item small {
+      display: block;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .moving-item time {
+      color: var(--dim);
+      font-size: 12px;
+    }
+    .quiet-note {
+      margin-top: 16px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    .quiet-note b { color: var(--green); }
+
+    .view-b {
+      padding-top: 18px;
+      height: calc(100vh - 188px);
+      min-height: 670px;
+    }
+    .workbench {
+      height: 100%;
+      display: grid;
+      grid-template-columns: 250px minmax(500px, 1fr) 270px;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      overflow: hidden;
+      background: rgba(10, 22, 33, 0.62);
+    }
+    .work-list, .inspector {
+      padding: 18px;
+      background: rgba(5, 14, 22, .48);
+    }
+    .work-list { border-right: 1px solid var(--line); }
+    .inspector { border-left: 1px solid var(--line); }
+    .work-list h3, .inspector h3 {
+      margin: 0 0 18px;
+      font-size: 15px;
+      font-weight: 640;
+    }
+    .work-card {
+      padding: 14px;
+      margin-bottom: 8px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .work-card.active {
+      border-color: rgba(56, 167, 255, .7);
+      background: rgba(56, 167, 255, .07);
+      color: var(--text);
+    }
+    .work-card b { display: block; font-size: 14px; }
+    .work-card small { display: block; margin-top: 6px; color: var(--dim); }
+    .flow {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      background-image: radial-gradient(rgba(143, 161, 178, .14) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .flow-header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      height: 58px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(8, 18, 27, .88);
+    }
+    .flow-header b { font-size: 14px; }
+    .flow-header span { margin-left: auto; color: var(--green); font-size: 12px; }
+    .flow-canvas {
+      position: absolute;
+      inset: 58px 0 90px;
+    }
+    .flow-line {
+      position: absolute;
+      left: 18%;
+      top: 50%;
+      right: 14%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--blue), var(--cyan) 62%, var(--green));
+      box-shadow: 0 0 18px rgba(52, 215, 242, .28);
+    }
+    .flow-line.branch {
+      width: 27%;
+      left: 39%;
+      top: 38%;
+      right: auto;
+      transform: rotate(-22deg);
+      transform-origin: left;
+      background: var(--green);
+    }
+    .flow-node {
+      position: absolute;
+      min-width: 128px;
+      padding: 13px 15px;
+      border: 1px solid var(--line-strong);
+      border-radius: 11px;
+      background: rgba(12, 26, 38, .96);
+      box-shadow: 0 12px 38px rgba(0,0,0,.22);
+    }
+    .flow-node b { display: block; font-size: 14px; }
+    .flow-node small { display: block; margin-top: 5px; color: var(--muted); }
+    .node-main { left: 6%; top: calc(50% - 34px); }
+    .node-build {
+      left: 40%;
+      top: calc(50% - 34px);
+      border-color: rgba(52, 215, 242, .72);
+    }
+    .node-explore { left: 55%; top: 18%; }
+    .node-finish { right: 4%; top: calc(50% - 34px); }
+    .flow-timeline {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 18px;
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(7, 16, 25, .84);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .flow-timeline b { color: var(--green); margin-right: 6px; }
+    .inspector label {
+      display: block;
+      margin-top: 24px;
+      color: var(--dim);
+      font-size: 12px;
+    }
+    .inspector p {
+      margin: 8px 0 0;
+      line-height: 1.65;
+      font-size: 14px;
+    }
+    .inspector .primary { width: 100%; margin-top: 28px; }
+
+    .view-c {
+      max-width: 1050px;
+      margin: 0 auto;
+      padding-top: 62px;
+    }
+    .ledger-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: end;
+      margin-bottom: 30px;
+    }
+    .ledger-heading h2 {
+      margin: 0;
+      font-size: 35px;
+      font-weight: 610;
+      letter-spacing: -0.05em;
+    }
+    .ledger-heading p {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .summary-line {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .summary-line b { color: var(--text); margin: 0 5px; }
+    .ledger {
+      border-top: 1px solid var(--line-strong);
+    }
+    .ledger-row {
+      min-height: 76px;
+      display: grid;
+      grid-template-columns: 110px 1.2fr 1.4fr 100px 80px;
+      align-items: center;
+      gap: 20px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      transition: background .15s ease;
+    }
+    .ledger-row:hover { background: rgba(56, 167, 255, .035); }
+    .ledger-row .state {
+      font-size: 12px;
+      color: var(--green);
+    }
+    .ledger-row.attn .state { color: var(--amber); }
+    .ledger-row b { font-size: 14px; font-weight: 580; }
+    .ledger-row span { color: var(--muted); font-size: 14px; }
+    .ledger-row time { color: var(--dim); font-size: 12px; }
+    .ledger-row button {
+      height: 34px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .ledger-row.attn button {
+      border-color: rgba(243, 167, 47, .46);
+      color: var(--amber);
+    }
+    .ledger-foot {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      color: var(--dim);
+      font-size: 12px;
+    }
+
+    @media (max-width: 1050px) {
+      .home-grid { grid-template-columns: 1fr; }
+      .workbench { grid-template-columns: 220px 1fr; }
+      .inspector { display: none; }
+      .question { align-items: start; flex-direction: column; }
+    }
+
+    @media (max-width: 720px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar {
+        position: fixed;
+        z-index: 10;
+        top: auto;
+        bottom: 0;
+        width: 100%;
+        height: 62px;
+        padding: 6px 10px;
+        border: 0;
+        border-top: 1px solid var(--line);
+        background: rgba(5, 14, 22, .96);
+      }
+      .brand, .sidebar-bottom { display: none; }
+      .nav {
+        height: 100%;
+        grid-template-columns: repeat(4, 1fr);
+      }
+      .nav button {
+        min-height: 48px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        padding: 0;
+        text-align: center;
+        font-size: 11px;
+      }
+      .nav .count { display: none; }
+      .stage { padding: 0 16px 128px; }
+      .topbar { height: 72px; }
+      .topbar p, .search { display: none; }
+      .question { margin-bottom: 24px; }
+      .question h2 { font-size: 30px; }
+      .question p { display: none; }
+      .view-a, .view-c { padding-top: 34px; }
+      .decision-summary {
+        grid-template-columns: 10px minmax(0, 1fr) 20px;
+        gap: 9px;
+      }
+      .decision-summary .num, .decision-summary .reason, .decision-summary time { display: none; }
+      .decision-detail { margin-left: 4px; }
+      .workbench { grid-template-columns: 1fr; }
+      .work-list { display: none; }
+      .view-b { min-height: 620px; }
+      .flow-node { min-width: 110px; padding: 11px; }
+      .node-main { left: 3%; }
+      .node-build { left: 38%; }
+      .node-explore { left: 38%; top: 20%; }
+      .node-finish { right: 2%; }
+      .ledger-heading { align-items: start; flex-direction: column; gap: 12px; }
+      .ledger-row {
+        grid-template-columns: 84px 1fr 70px;
+        gap: 10px;
+      }
+      .ledger-row span, .ledger-row time { display: none; }
+      .concept-bar {
+        display: none;
+      }
+      .concept-tag { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="concept-tag">DESIGN SKETCH · 제품 코드와 분리된 초안</div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">LoadToAgent</div>
+      <nav class="nav" aria-label="주요 화면">
+        <button class="active attention" data-nav-switch="a"><span class="icon">!</span><span>확인 요청</span><span class="count">3</span></button>
+        <button data-nav-switch="b"><span class="icon">◷</span><span>실시간 흐름</span><span class="count">9</span></button>
+        <button data-nav-switch="c"><span class="icon">≡</span><span>전체 작업</span><span class="count">48</span></button>
+      </nav>
+      <div class="sidebar-bottom">
+        <button>⌁ &nbsp; 실행 도구</button>
+        <button>⚙ &nbsp; 환경 설정</button>
+      </div>
+    </aside>
+
+    <main class="stage">
+      <header class="topbar">
+        <div>
+          <h1 id="viewTitle">확인 요청</h1>
+          <p id="viewSubtitle">지금 판단할 것만 보여드려요.</p>
+        </div>
+        <div class="topbar-actions">
+          <input class="search" aria-label="작업 검색" placeholder="작업 검색" />
+          <button class="primary">＋ 새 작업</button>
+        </div>
+      </header>
+
+      <section id="reviewPanel" class="view view-a active" data-view="a" role="tabpanel" aria-labelledby="reviewTab">
+        <div class="question">
+          <div>
+            <small>오늘, 당신의 차례</small>
+            <h2>에이전트는 움직이고 있습니다.<br /><b>결정할 일은 3개</b>입니다.</h2>
+          </div>
+          <p>나머지는 조용히 뒤에서 흐릅니다. 필요한 순간에만 화면 앞으로 가져옵니다.</p>
+        </div>
+
+        <div class="home-grid">
+          <section class="panel">
+            <header class="panel-head">
+              <h3>확인 요청</h3>
+              <span>중요한 순서</span>
+              <a href="#">모두 보기</a>
+            </header>
+            <div class="decision-list">
+              <article class="decision open">
+                <button class="decision-summary">
+                  <span class="num">1</span><i class="dot amber"></i>
+                  <strong>cras_backend</strong>
+                  <span class="reason">테스트가 실패했습니다</span>
+                  <time>2분 전</time><span class="chevron">⌃</span>
+                </button>
+                <div class="decision-detail">
+                  <p><b>검증 테스트 12개 중 1개가 실패했습니다.</b><br />코드 변경은 보존되어 있습니다. 수정 후 다시 실행할지 결정해 주세요.</p>
+                  <div class="decision-actions">
+                    <button class="primary">수정 요청</button>
+                    <button class="secondary">다시 실행</button>
+                  </div>
+                </div>
+              </article>
+              <article class="decision">
+                <button class="decision-summary">
+                  <span class="num">2</span><i class="dot amber"></i>
+                  <strong>board-migration-loop</strong>
+                  <span class="reason">작업 방향을 선택해야 합니다</span>
+                  <time>18분 전</time><span class="chevron">⌃</span>
+                </button>
+                <div class="decision-detail">
+                  <p><b>두 가지 마이그레이션 방식이 가능합니다.</b><br />안전한 순차 전환과 빠른 일괄 전환 중 하나를 기다리고 있습니다.</p>
+                  <div class="decision-actions">
+                    <button class="primary">방향 선택</button>
+                    <button class="secondary">대화 보기</button>
+                  </div>
+                </div>
+              </article>
+              <article class="decision">
+                <button class="decision-summary">
+                  <span class="num">3</span><i class="dot amber"></i>
+                  <strong>CMS_WEB</strong>
+                  <span class="reason">오랫동안 새 활동이 없습니다</span>
+                  <time>30분 전</time><span class="chevron">⌃</span>
+                </button>
+                <div class="decision-detail">
+                  <p><b>에이전트 응답을 기다리고 있습니다.</b><br />조금 더 기다리거나 현재 세션을 열어 상태를 확인할 수 있습니다.</p>
+                  <div class="decision-actions">
+                    <button class="primary">상태 확인</button>
+                    <button class="secondary">조금 더 기다리기</button>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <div>
+            <section class="panel">
+              <header class="panel-head">
+                <h3>움직이는 일</h3>
+                <span>9</span>
+                <a href="#">흐름 보기</a>
+              </header>
+              <div class="moving-list">
+                <div class="moving-item"><i class="dot"></i><div><strong>Lodestar</strong><small>구현 결과 정리 중 · 서브 2</small></div><time>12분</time></div>
+                <div class="moving-item"><i class="dot"></i><div><strong>cras_backend</strong><small>오류 처리 수정 중 · 서브 3</small></div><time>18분</time></div>
+                <div class="moving-item"><i class="dot"></i><div><strong>board-migration-loop</strong><small>파일 분석 중 · 서브 1</small></div><time>35분</time></div>
+              </div>
+            </section>
+            <div class="quiet-note"><b>● 연결 정상</b><br />완료된 일 36개는 기록에 정리되어 있습니다.</div>
+          </div>
+        </div>
+      </section>
+
+      <section id="liveFlowPanel" class="view view-b" data-view="b" role="tabpanel" aria-labelledby="liveFlowTab">
+        <div class="workbench">
+          <aside class="work-list">
+            <h3>움직이는 일 &nbsp; 9</h3>
+            <div class="work-card active"><b>cras_backend</b><small>오류 처리 수정 중 · 18분</small></div>
+            <div class="work-card"><b>Lodestar</b><small>결과 정리 중 · 12분</small></div>
+            <div class="work-card"><b>board-migration-loop</b><small>파일 분석 중 · 35분</small></div>
+            <div class="work-card"><b>CMS_WEB</b><small>응답 대기 · 30분</small></div>
+          </aside>
+          <section class="flow">
+            <header class="flow-header"><b>cras_backend · 리뷰 오류 수정과 검증</b><span>● 작업 중</span></header>
+            <div class="flow-canvas">
+              <div class="flow-line"></div>
+              <div class="flow-line branch"></div>
+              <div class="flow-node node-main"><b>메인 GPT</b><small>전체 작업 조율</small></div>
+              <div class="flow-node node-build"><b>구현</b><small>예외 경로 수정 중</small></div>
+              <div class="flow-node node-explore"><b>탐색</b><small>원인 파일 확인 완료</small></div>
+              <div class="flow-node node-finish"><b>결과 정리</b><small>대기</small></div>
+            </div>
+            <div class="flow-timeline">
+              <span><b>●</b> 탐색 완료 · 17분 전</span>
+              <span><b>●</b> 파일 4개 확인 · 15분 전</span>
+              <span><b>●</b> 구현 시작 · 12분 전</span>
+            </div>
+          </section>
+          <aside class="inspector">
+            <h3>구현 에이전트</h3>
+            <label>맡은 일</label>
+            <p>오류 처리 로직 수정</p>
+            <label>지금 하는 일</label>
+            <p>예외 경로를 정리하고 있습니다.</p>
+            <label>최근 활동</label>
+            <p>1분 전</p>
+            <button class="primary">메시지 보내기</button>
+          </aside>
+        </div>
+      </section>
+
+      <section id="allTasksPanel" class="view view-c" data-view="c" role="tabpanel" aria-labelledby="allTasksTab">
+        <header class="ledger-heading">
+          <div>
+            <h2>전체 작업</h2>
+            <p>진행·확인·완료 상태를 한 줄에 모았습니다.</p>
+          </div>
+          <div class="summary-line">진행 <b>9</b> · 확인 <b>3</b> · 완료 <b>36</b></div>
+        </header>
+        <div class="ledger">
+          <div class="ledger-row attn"><span class="state">● 확인 필요</span><b>cras_backend</b><span>테스트가 실패했습니다</span><time>2분 전</time><button>검토</button></div>
+          <div class="ledger-row attn"><span class="state">● 확인 필요</span><b>board-migration-loop</b><span>작업 방향을 선택해야 합니다</span><time>18분 전</time><button>선택</button></div>
+          <div class="ledger-row"><span class="state">● 진행 중</span><b>Lodestar</b><span>구현 결과를 정리하고 있습니다</span><time>12분</time><button>열기</button></div>
+          <div class="ledger-row"><span class="state">● 진행 중</span><b>cras_backend</b><span>오류 처리 로직을 수정하고 있습니다</span><time>18분</time><button>열기</button></div>
+          <div class="ledger-row"><span class="state">● 진행 중</span><b>board-migration-loop</b><span>파일 구조를 분석하고 있습니다</span><time>35분</time><button>열기</button></div>
+          <div class="ledger-row"><span class="state">✓ 완료</span><b>패키지 점검</b><span>Windows 앱 빌드를 확인했습니다</span><time>14분 전</time><button>보기</button></div>
+        </div>
+        <footer class="ledger-foot">
+          <span>연결 정상 · AI 5개 사용 가능</span>
+          <span>나머지 완료 35개는 기록에 있습니다</span>
+        </footer>
+      </section>
+    </main>
+  </div>
+
+  <div class="concept-bar" role="tablist" aria-label="주요 작업 보기">
+    <button id="reviewTab" class="active" role="tab" aria-selected="true" aria-controls="reviewPanel" data-switch="a">확인 요청</button>
+    <button id="liveFlowTab" role="tab" aria-selected="false" aria-controls="liveFlowPanel" data-switch="b">실시간 흐름</button>
+    <button id="allTasksTab" role="tab" aria-selected="false" aria-controls="allTasksPanel" data-switch="c">전체 작업</button>
+  </div>
+
+  <script>
+    const viewMeta = {
+      a: ["확인 요청", "지금 당신의 판단이 필요한 일입니다."],
+      b: ["실시간 흐름", "에이전트의 역할과 현재 위치를 보여드립니다."],
+      c: ["전체 작업", "진행·확인·완료를 한 목록에서 찾습니다."]
+    };
+
+    document.querySelectorAll("[data-switch]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.switch;
+        document.querySelectorAll("[data-switch]").forEach((item) => {
+          const active = item === button;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-selected", active ? "true" : "false");
+        });
+        document.querySelectorAll("[data-nav-switch]").forEach((item) => item.classList.toggle("active", item.dataset.navSwitch === key));
+        document.querySelectorAll(".view").forEach((view) => view.classList.toggle("active", view.dataset.view === key));
+        document.querySelector("#viewTitle").textContent = viewMeta[key][0];
+        document.querySelector("#viewSubtitle").textContent = viewMeta[key][1];
+      });
+    });
+
+    document.querySelectorAll("[data-nav-switch]").forEach((button) => {
+      button.addEventListener("click", () => document.querySelector(`[data-switch="${button.dataset.navSwitch}"]`).click());
+    });
+
+    document.querySelectorAll(".decision-summary").forEach((button) => {
+      button.addEventListener("click", () => {
+        const decision = button.closest(".decision");
+        document.querySelectorAll(".decision").forEach((item) => item.classList.toggle("open", item === decision && !decision.classList.contains("open")));
+      });
+    });
+  </script>
+</body>
+</html>

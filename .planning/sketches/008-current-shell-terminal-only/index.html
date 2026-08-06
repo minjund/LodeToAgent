@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoadToAgent — Current Shell, Terminal Only Change</title>
+  <link rel="stylesheet" href="../themes/default.css">
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    :root {
+      --drawer-width: 640px;
+      --app-bg: #070b12;
+      --app-panel: #0b121a;
+      --app-panel-2: #0f1922;
+      --app-border: #263641;
+      --app-border-soft: rgba(119, 148, 165, .18);
+      --app-text: #e5edf1;
+      --app-muted: #81919c;
+      --app-dim: #566874;
+      --app-cyan: #82dfe7;
+      --app-green: #75e6c4;
+      --app-purple: #a594ff;
+      --app-amber: #f6b84b;
+      --terminal-bg: #05080d;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #05070b;
+      color: var(--app-text);
+      font-family: Geist, "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+    }
+    body[data-variant="wide"] { --drawer-width: 820px; }
+    button, input, textarea, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    button, textarea, select { transition: .15s ease; }
+    button:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid var(--app-cyan);
+      outline-offset: 2px;
+    }
+
+    .canvas {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: #090910;
+    }
+    .scene { position: absolute; inset: 0; display: none; overflow: hidden; }
+    body[data-scene="home"] .scene-home,
+    body[data-scene="project"] .scene-project,
+    body[data-scene="session"] .scene-session,
+    body[data-scene="attention"] .scene-attention { display: block; }
+    .baseline-image { width: 100%; height: 100%; display: block; object-fit: fill; user-select: none; }
+
+    /* The first two scenes are literal screenshots from the current renderer. */
+    .click-target {
+      position: absolute;
+      z-index: 4;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: transparent;
+    }
+    .click-target:hover { background: rgba(126, 222, 231, .035); }
+    .scene-home .click-target { left: .9%; top: 16%; width: 18.4%; height: 6.5%; }
+    .scene-project .click-target { left: 22.4%; top: 63.5%; width: 74.4%; height: 29%; }
+    body[data-annotations="on"] .click-target {
+      border: 2px solid var(--app-cyan);
+      background: rgba(126, 222, 231, .045);
+      box-shadow: 0 0 0 5px rgba(126, 222, 231, .06);
+    }
+    .click-label {
+      position: absolute;
+      z-index: 5;
+      display: none;
+      padding: 7px 9px;
+      border: 1px solid rgba(126,222,231,.35);
+      border-radius: 7px;
+      background: #0b151d;
+      color: var(--app-cyan);
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+      font: 700 11px Consolas, monospace;
+      pointer-events: none;
+    }
+    body[data-annotations="on"] .click-label { display: block; }
+    .scene-home .click-label { left: 19.5%; top: 17.2%; }
+    .scene-project .click-label { right: 4%; top: 60%; }
+
+    /* Scenes three and four retain the selected-project screenshot as the shell. */
+    .frozen-shell { position: absolute; inset: 0; }
+    .shell-dim {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 7, 12, .49);
+      backdrop-filter: blur(1.8px);
+    }
+    .terminal-drawer {
+      position: absolute;
+      z-index: 10;
+      inset: 0 0 0 auto;
+      width: var(--drawer-width);
+      display: grid;
+      grid-template-rows: 190px minmax(0,1fr);
+      border-left: 1px solid #2a3d49;
+      background: #071018;
+      box-shadow: -24px 0 70px rgba(0,0,0,.38);
+      transition: width .22s ease;
+    }
+
+    /* Header dimensions, tabs, pills, and actions mirror the current drawer. */
+    .drawer-header {
+      padding: 18px 22px 0;
+      display: grid;
+      grid-template-rows: auto auto auto;
+      border-bottom: 1px solid #243640;
+      background: #08121b;
+    }
+    .drawer-title-row { display: flex; align-items: flex-start; gap: 13px; }
+    .provider-mark {
+      width: 35px; height: 35px;
+      display: grid; place-items: center;
+      border: 1px solid #365966;
+      border-radius: 9px;
+      background: #0b2630;
+      color: var(--app-green);
+      font: 800 13px Consolas, monospace;
+    }
+    .drawer-title-copy { min-width: 0; flex: 1; }
+    .drawer-title-copy small { display: flex; align-items: center; gap: 6px; color: #a7b5bd; font-size: 12px; font-weight: 700; }
+    .drawer-title-copy small i { width: 7px; height: 7px; border-radius: 50%; background: var(--app-green); }
+    body[data-scene="attention"] .drawer-title-copy small { color: var(--app-amber); }
+    body[data-scene="attention"] .drawer-title-copy small i { background: var(--app-amber); }
+    .drawer-title-copy h1 { margin: 4px 0 0; overflow: hidden; color: #f0f4f6; font-size: 20px; letter-spacing: -.035em; text-overflow: ellipsis; white-space: nowrap; }
+    .drawer-close {
+      width: 48px; height: 48px;
+      display: grid; place-items: center;
+      border: 1px solid #344956;
+      border-radius: 10px;
+      background: #0d1b25;
+      color: #8fa1ac;
+      font-size: 15px;
+    }
+    .drawer-close:hover { border-color: var(--app-cyan); color: #d9f6f8; }
+    .drawer-meta-row { margin-top: 14px; display: flex; align-items: center; gap: 8px; }
+    .meta-pill {
+      height: 42px; padding: 0 11px;
+      display: flex; align-items: center; gap: 5px;
+      border: 1px solid #2b3c47;
+      border-radius: 8px;
+      background: #0a141d;
+      color: #9baab2;
+      font-size: 11px;
+    }
+    .meta-pill b { color: #dbe3e7; font-weight: 700; }
+    .new-chat-button {
+      height: 42px; margin-left: auto; padding: 0 12px;
+      border: 1px solid #315264;
+      border-radius: 8px;
+      background: #10232f;
+      color: #c1d3dd;
+      font-size: 11px;
+    }
+    .new-chat-button:hover { border-color: var(--app-cyan); }
+    .drawer-tabs { align-self: end; height: 45px; display: flex; align-items: stretch; gap: 2px; }
+    .drawer-tab {
+      position: relative;
+      min-width: 69px;
+      border: 0;
+      background: transparent;
+      color: #7f919c;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .drawer-tab:hover { color: #cdd8dd; }
+    .drawer-tab.active { color: #d9edf1; }
+    .drawer-tab.active::after { content: ""; position: absolute; inset: auto 12px 0; height: 2px; background: var(--app-cyan); }
+
+    /* Only this region changes: current structured conversation -> raw PTY. */
+    .terminal-region {
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      grid-template-rows: 39px minmax(0,1fr) auto;
+      background: var(--terminal-bg);
+    }
+    .terminal-controlbar {
+      min-width: 0;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid rgba(126,151,165,.14);
+      background: #081019;
+      color: #758792;
+      font: 10px Consolas, monospace;
+    }
+    .pty-state { display: flex; align-items: center; gap: 6px; color: var(--app-green); white-space: nowrap; }
+    .pty-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .terminal-path { min-width: 0; overflow: hidden; color: #657680; text-overflow: ellipsis; white-space: nowrap; }
+    .terminal-actions { margin-left: auto; display: flex; gap: 3px; }
+    .terminal-action {
+      min-width: 27px; height: 27px; padding: 0 6px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #758792;
+      font: 10px Consolas, monospace;
+    }
+    .terminal-action:hover { border-color: #2a3c47; background: #0e1a23; color: #d2dde2; }
+    .terminal-scroll {
+      min-height: 0;
+      padding: 15px 17px 10px;
+      overflow-y: auto;
+      background: var(--terminal-bg);
+      color: #b8c4ca;
+      font: 11px/1.58 Consolas, "Liberation Mono", monospace;
+      scrollbar-width: thin;
+      scrollbar-color: #32434e transparent;
+    }
+    .terminal-boot { margin-bottom: 14px; color: #61727d; }
+    .terminal-boot strong { color: var(--app-green); }
+    .terminal-turn { margin-bottom: 16px; }
+    .turn-head { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; color: #60717c; font-size: 9px; }
+    .turn-head .user { color: var(--app-cyan); font-weight: 800; }
+    .turn-head .agent { color: var(--app-green); font-weight: 800; }
+    .turn-copy { color: #cbd5da; white-space: pre-wrap; }
+    .turn-copy.user-copy { color: #eef3f5; }
+    .tool-block { margin: 8px 0; padding: 9px 10px; border-left: 2px solid #33434d; background: rgba(255,255,255,.025); color: #8c9ba4; }
+    .tool-row { display: grid; grid-template-columns: 16px minmax(0,1fr) auto; gap: 6px; }
+    .tool-row + .tool-row { margin-top: 5px; }
+    .tool-row .ok { color: var(--app-green); }
+    .tool-row time { color: #50616c; font-size: 9px; }
+    .command { margin: 9px 0; color: #8b9aa3; }
+    .command .prompt { color: var(--app-purple); }
+    .output { color: #6f808a; white-space: pre-wrap; }
+    .cursor { display: inline-block; width: 7px; height: 12px; margin-left: 4px; vertical-align: -2px; background: var(--app-green); animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    .attention-only { display: none; }
+    body[data-scene="attention"] .running-only { display: none; }
+    body[data-scene="attention"] .attention-only { display: block; }
+    .delivery-receipt {
+      margin-bottom: 12px; padding: 8px 9px;
+      border: 1px solid rgba(117,230,196,.18);
+      border-radius: 7px;
+      background: rgba(117,230,196,.035);
+      color: #80a699;
+      font-size: 9px;
+    }
+    .delivery-receipt b { color: var(--app-green); }
+    .question-block {
+      padding: 11px;
+      border: 1px solid rgba(246,184,75,.29);
+      border-radius: 8px;
+      background: rgba(246,184,75,.04);
+      color: #cbd4d8;
+    }
+    .question-block strong { display: block; margin-bottom: 8px; color: var(--app-amber); }
+    .question-block span { display: block; margin-top: 6px; }
+    .question-block em { color: var(--app-amber); font-style: normal; }
+    .terminal-form {
+      margin: 0 13px 13px;
+      padding: 9px 10px 7px;
+      border: 1px solid #2a4650;
+      border-radius: 9px;
+      background: #08111a;
+    }
+    body[data-scene="attention"] .terminal-form { border-color: rgba(246,184,75,.42); box-shadow: 0 0 0 3px rgba(246,184,75,.025); }
+    .terminal-input-row { display: grid; grid-template-columns: 15px minmax(0,1fr) auto; gap: 7px; align-items: start; }
+    .input-prompt { padding-top: 3px; color: var(--app-green); font: 800 12px Consolas, monospace; }
+    body[data-scene="attention"] .input-prompt { color: var(--app-amber); }
+    #terminalInput {
+      width: 100%; min-height: 30px; max-height: 90px;
+      padding: 2px 0;
+      resize: none;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: #edf3f5;
+      caret-color: var(--app-green);
+      font: 11px/1.55 Consolas, monospace;
+    }
+    #terminalInput::placeholder { color: #4f606a; }
+    .send-button {
+      width: 30px; height: 30px;
+      display: grid; place-items: center;
+      border: 1px solid #2f5a61;
+      border-radius: 7px;
+      background: #0d272a;
+      color: var(--app-green);
+    }
+    body[data-scene="attention"] .send-button { border-color: #765b2d; background: #2b2112; color: var(--app-amber); }
+    .input-meta { margin: 5px 0 0 22px; display: flex; gap: 9px; color: #4f616b; font: 8px Consolas, monospace; }
+    .input-meta b { color: #80929c; font-weight: 400; }
+
+    /* Small overlay controls are sketch-only and hidden from captures. */
+    .story-controls {
+      position: fixed;
+      z-index: 100;
+      left: 50%;
+      bottom: 14px;
+      transform: translateX(-50%);
+      padding: 5px;
+      display: flex;
+      gap: 4px;
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 11px;
+      background: rgba(3,7,12,.88);
+      box-shadow: 0 12px 36px rgba(0,0,0,.4);
+      backdrop-filter: blur(16px);
+    }
+    .scene-button {
+      height: 38px; padding: 0 11px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #84939c;
+      font-size: 10px;
+    }
+    .scene-button:hover { background: rgba(255,255,255,.055); color: #e5edf1; }
+    .scene-button.active { border-color: rgba(126,222,231,.28); background: rgba(126,222,231,.1); color: var(--app-cyan); }
+    .sketch-tools {
+      position: fixed;
+      z-index: 101;
+      right: 12px;
+      bottom: 12px;
+      padding: 7px 8px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.72);
+      color: #fff;
+      font: 10px system-ui;
+      opacity: .42;
+    }
+    .sketch-tools:hover { opacity: 1; }
+    .sketch-tools button, .sketch-tools select { height: 27px; border: 1px solid rgba(255,255,255,.16); border-radius: 6px; background: #14171d; color: #d9dde2; font-size: 9px; }
+    .sketch-tools button { padding: 0 7px; }
+    .sketch-tools select { padding: 0 5px; }
+    .variant-switch { position: fixed; z-index: 101; top: 12px; right: 12px; padding: 5px; display: flex; gap: 3px; border-radius: 9px; background: rgba(0,0,0,.7); }
+    .variant-button { height: 31px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #87949d; font-size: 9px; }
+    .variant-button.active { border-color: rgba(126,222,231,.25); background: rgba(126,222,231,.1); color: var(--app-cyan); }
+    body[data-capture="true"] :is(.story-controls,.sketch-tools,.variant-switch,.click-target,.click-label) { display: none !important; }
+
+    .canvas[data-viewport="1280"] { width: 1280px; height: 725px; margin: calc((100vh - 725px)/2) auto 0; border: 1px solid #263641; }
+    .canvas[data-viewport="768"] { width: 768px; height: 435px; margin: calc((100vh - 435px)/2) auto 0; border: 1px solid #263641; }
+    .canvas[data-viewport="375"] { width: 375px; height: 675px; margin: calc((100vh - 675px)/2) auto 0; border: 1px solid #263641; }
+    .canvas[data-viewport="375"] .baseline-image { object-fit: cover; object-position: left top; }
+    .canvas[data-viewport="375"] .terminal-drawer { width: 100%; }
+    .canvas[data-viewport="375"] .frozen-shell, .canvas[data-viewport="375"] .shell-dim { display: none; }
+    .canvas[data-viewport="375"] .drawer-meta-row { overflow-x: auto; }
+  </style>
+</head>
+<body data-scene="home" data-variant="exact" data-annotations="off" data-capture="false">
+  <main class="canvas" id="canvas" data-viewport="full">
+    <section class="scene scene-home">
+      <img class="baseline-image" src="../../../artifacts/loadtoagent-project-selection.png" alt="현재 LoadToAgent 프로젝트 선택 화면">
+      <button class="click-target" data-scene-direct="project" aria-label="설정 개선 프로젝트 선택"></button>
+      <span class="click-label">현재 프로젝트 클릭</span>
+    </section>
+
+    <section class="scene scene-project">
+      <img class="baseline-image" src="../../../artifacts/loadtoagent-project-selected-all-visible.png" alt="현재 LoadToAgent 프로젝트 선택 후 화면">
+      <button class="click-target" data-scene-direct="session" aria-label="실행 중 세션 열기"></button>
+      <span class="click-label">현재 실행 중 세션 클릭</span>
+    </section>
+
+    <section class="scene scene-session">
+      <div class="frozen-shell"><img class="baseline-image" src="../../../artifacts/loadtoagent-project-selected-all-visible.png" alt="현재 프로젝트 화면"><div class="shell-dim"></div></div>
+      <div class="terminal-drawer" data-terminal-drawer></div>
+    </section>
+
+    <section class="scene scene-attention">
+      <div class="frozen-shell"><img class="baseline-image" src="../../../artifacts/loadtoagent-project-selected-all-visible.png" alt="현재 프로젝트 화면"><div class="shell-dim"></div></div>
+      <div class="terminal-drawer" data-terminal-drawer></div>
+    </section>
+  </main>
+
+  <nav class="story-controls" aria-label="스토리 장면">
+    <button class="scene-button active" data-scene-choice="home">01 현재 메인</button>
+    <button class="scene-button" data-scene-choice="project">02 현재 프로젝트</button>
+    <button class="scene-button" data-scene-choice="session">03 터미널 대화</button>
+    <button class="scene-button" data-scene-choice="attention">04 답변 필요</button>
+  </nav>
+
+  <div class="variant-switch" aria-label="터미널 영역 폭 비교">
+    <button class="variant-button active" data-variant-choice="exact">A · 현재 드로어 폭</button>
+    <button class="variant-button" data-variant-choice="wide">B · 넓은 터미널</button>
+  </div>
+
+  <div class="sketch-tools">
+    <select aria-label="테마"><option>현재 앱 테마</option></select>
+    <button data-viewport-choice="full">전체</button>
+    <button data-viewport-choice="1280">1280</button>
+    <button data-viewport-choice="768">768</button>
+    <button data-viewport-choice="375">375</button>
+    <button id="annotationToggle">클릭 영역</button>
+  </div>
+
+  <template id="terminalDrawerTemplate">
+    <header class="drawer-header">
+      <div class="drawer-title-row">
+        <span class="provider-mark">G</span>
+        <div class="drawer-title-copy">
+          <small><i></i><span class="running-only">OpenAI · 실행 중</span><span class="attention-only">OpenAI · 내 답변을 기다리는 중</span></small>
+          <h1>화면 설명 변경 방법 선택</h1>
+        </div>
+        <button class="drawer-close" data-close-drawer aria-label="대화 닫기">×</button>
+      </div>
+      <div class="drawer-meta-row">
+        <span class="meta-pill">사용 중인 AI <b>gpt-fixture</b></span>
+        <span class="meta-pill">작업 시작 폴더 <b>화면 개선</b> ⧉</span>
+        <button class="new-chat-button" data-demo-action="새 대화로 시작">↻ 새 대화로 시작</button>
+      </div>
+      <nav class="drawer-tabs" aria-label="세션 상세 탭">
+        <button class="drawer-tab" data-demo-action="요약 탭">요약</button>
+        <button class="drawer-tab active">대화</button>
+        <button class="drawer-tab" data-demo-action="진행 과정 탭">진행 과정</button>
+        <button class="drawer-tab" data-demo-action="사용량 탭">사용량</button>
+      </nav>
+    </header>
+    <section class="terminal-region">
+      <div class="terminal-controlbar">
+        <span class="pty-state"><i></i>PTY 연결됨</span>
+        <span class="terminal-path">D:\fixture\screen-improvement · scrollback 복원됨</span>
+        <div class="terminal-actions">
+          <button class="terminal-action" data-terminal-action="interrupt" title="중단">■</button>
+          <button class="terminal-action" data-terminal-action="clear" title="화면 지우기">⌫</button>
+          <button class="terminal-action" data-terminal-action="restart" title="다시 연결">↻</button>
+        </div>
+      </div>
+      <div class="terminal-scroll" data-terminal-scroll role="log" aria-live="polite">
+        <div class="terminal-boot"><strong>◆ LoadToAgent</strong> / OpenAI CLI · PTY connected · scrollback restored</div>
+        <div class="terminal-turn"><div class="turn-head"><span class="user">YOU</span><span>오후 02:12:55</span><span>↵ PTY</span></div><div class="turn-copy user-copy">어제도 대화 흐름을 한눈에 읽을 수 있도록 처음 200자까지만 미리 보여주고 나머지는 전체 보기 버튼으로 확인할 수 있게 해줘.</div></div>
+        <div class="terminal-turn"><div class="turn-head"><span class="agent">GPT</span><span>오후 02:13:38</span><span>working</span></div><div class="turn-copy">먼저 상세 대화 구조와 반응형 화면을 확인하겠습니다.</div><div class="tool-block"><div class="tool-row"><span class="ok">✓</span><span>현재 대화 드로어 구조 확인</span><time>0.7s</time></div><div class="tool-row"><span class="ok">✓</span><span>관련 스타일과 반응형 규칙 확인</span><time>0.9s</time></div><div class="tool-row"><span>↳</span><span>같은 PTY 안에서 수정 작업 진행</span><time>now</time></div></div><div class="command"><span class="prompt">PS D:\fixture\screen-improvement&gt;</span> rg "conversation|drawer" renderer</div><div class="output">renderer/app-drawer.js:178       renderConversation(...)
+renderer/app-drawer-content.js:335  conversation detail</div></div>
+        <div class="terminal-turn running-only"><div class="turn-head"><span class="agent">GPT</span><span>오후 02:14:02</span><span>working</span></div><div class="turn-copy">대화 드로어의 외형은 유지하고, 대화 본문만 같은 PTY 터미널로 연결하고 있습니다.<span class="cursor"></span></div></div>
+        <div class="attention-only"><div class="delivery-receipt"><b>✓ 메시지 전달됨</b> · 오후 02:14:20 · PTY 연결은 유지되고 있습니다.</div><div class="terminal-turn"><div class="turn-head"><span class="agent">GPT</span><span>오후 02:14:21</span><span>needs input</span></div><div class="question-block"><strong>? 대화 미리보기 길이를 선택해주세요.</strong><span><em>[1]</em> 처음 200자만 표시하고 전체 보기 제공</span><span><em>[2]</em> 전체 대화를 기본으로 펼쳐서 표시</span></div></div></div>
+      </div>
+      <form class="terminal-form" data-terminal-form>
+        <div class="terminal-input-row"><span class="input-prompt">›</span><textarea id="terminalInput" rows="1" spellcheck="false" placeholder="터미널에 메시지 또는 명령 입력…" aria-label="터미널 입력"></textarea><button class="send-button" type="submit">↵</button></div>
+        <div class="input-meta"><b>agent input · raw PTY</b><span>Enter 전송</span><span>Shift+Enter 줄바꿈</span></div>
+      </form>
+    </section>
+  </template>
+
+  <div id="toast" style="position:fixed;z-index:120;left:50%;bottom:70px;transform:translate(-50%,10px);padding:8px 11px;border:1px solid #344956;border-radius:8px;background:#0c1821;color:#dbe6ea;font-size:10px;opacity:0;pointer-events:none;transition:.18s ease;"></div>
+
+  <script>
+    const body = document.body;
+    const canvas = document.getElementById('canvas');
+    const template = document.getElementById('terminalDrawerTemplate');
+
+    function mountDrawers() {
+      document.querySelectorAll('[data-terminal-drawer]').forEach(drawer => drawer.replaceChildren(template.content.cloneNode(true)));
+      bindDrawerInteractions();
+    }
+
+    function setScene(scene) {
+      body.dataset.scene = scene;
+      document.querySelectorAll('[data-scene-choice]').forEach(button => button.classList.toggle('active', button.dataset.sceneChoice === scene));
+      document.querySelectorAll('[data-terminal-form] textarea').forEach(input => {
+        input.placeholder = scene === 'attention' ? '번호 또는 답변 입력…' : '터미널에 메시지 또는 명령 입력…';
+      });
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translate(-50%,0)';
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translate(-50%,10px)'; }, 1400);
+    }
+
+    function appendMessage(form) {
+      const input = form.querySelector('textarea');
+      const message = input.value.trim();
+      if (!message) return;
+      const safe = message.replace(/[&<>"']/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[character]));
+      const scroll = form.closest('.terminal-region').querySelector('[data-terminal-scroll]');
+      const turn = document.createElement('div');
+      turn.className = 'terminal-turn';
+      turn.innerHTML = `<div class="turn-head"><span class="user">YOU</span><span>now</span><span>↵ PTY</span></div><div class="turn-copy user-copy">${safe}</div>`;
+      scroll.appendChild(turn);
+      input.value = '';
+      scroll.scrollTop = scroll.scrollHeight;
+      setScene('session');
+      showToast('같은 PTY로 전달되어 작업이 재개됐습니다.');
+    }
+
+    function bindDrawerInteractions() {
+      document.querySelectorAll('[data-close-drawer]').forEach(button => button.addEventListener('click', () => setScene('project')));
+      document.querySelectorAll('[data-demo-action]').forEach(button => button.addEventListener('click', () => showToast(button.dataset.demoAction)));
+      document.querySelectorAll('[data-terminal-action]').forEach(button => button.addEventListener('click', () => {
+        const action = button.dataset.terminalAction;
+        if (action === 'clear') button.closest('.terminal-region').querySelector('[data-terminal-scroll]').innerHTML = '<div class="terminal-boot"><strong>◆ 화면을 지웠습니다.</strong> 세션과 기록은 유지됩니다.</div>';
+        else showToast(action === 'interrupt' ? '현재 실행을 중단했습니다. PTY는 유지됩니다.' : 'PTY를 다시 연결하고 scrollback을 복원했습니다.');
+      }));
+      document.querySelectorAll('[data-terminal-form]').forEach(form => form.addEventListener('submit', event => { event.preventDefault(); appendMessage(form); }));
+      document.querySelectorAll('[data-terminal-form] textarea').forEach(input => input.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); event.target.closest('form').requestSubmit(); }
+      }));
+    }
+
+    document.querySelectorAll('[data-scene-choice], [data-scene-direct]').forEach(button => button.addEventListener('click', () => setScene(button.dataset.sceneChoice || button.dataset.sceneDirect)));
+    document.querySelectorAll('[data-variant-choice]').forEach(button => button.addEventListener('click', () => {
+      body.dataset.variant = button.dataset.variantChoice;
+      document.querySelectorAll('[data-variant-choice]').forEach(item => item.classList.toggle('active', item === button));
+    }));
+    document.querySelectorAll('[data-viewport-choice]').forEach(button => button.addEventListener('click', () => canvas.dataset.viewport = button.dataset.viewportChoice));
+    document.getElementById('annotationToggle').addEventListener('click', () => body.dataset.annotations = body.dataset.annotations === 'on' ? 'off' : 'on');
+    mountDrawers();
+  </script>
+</body>
+</html>

@@ -524,7 +524,7 @@ function createClaudeParser(dependencies) {
 
   function finalizeSession(session, state, parsed, fileInfo) {
     session.updatedAt = state.latestTs;
-    session.startedAt = timestamp(parsed.rows[0].timestamp, session.updatedAt);
+    session.startedAt = timestamp(parsed.firstTimestamp, session.updatedAt);
     session.usage = sumUsage([...state.requestUsage.values()]);
     const utilityTitle = session.utilityKind === 'memory-extraction'
       ? 'Claude가 지난 작업 내용을 정리하는 중'
@@ -559,13 +559,6 @@ function createClaudeParser(dependencies) {
       session.statusDetail = state.failure.detail;
       session.completedAt = state.failure.at;
       session.statusObserved = true;
-    } else if (session.depth && state.subagentCompletedAt) {
-      session.status = 'completed';
-      session.statusDetail = '작업 완료';
-      session.completedAt = state.subagentCompletedAt;
-      session.completionObserved = true;
-      session.statusObserved = false;
-      session.result = state.lastAssistantText || session.result;
     } else if (!session.depth && (pendingUserInput || conversationalInput)) {
       session.status = 'waiting';
       session.statusDetail = '내 답변을 기다리는 중';
@@ -574,6 +567,13 @@ function createClaudeParser(dependencies) {
       session.statusDetail = activeSubagents.length === 1
         ? '도움 AI 작업 진행 중'
         : `도움 AI ${activeSubagents.length}개 작업 진행 중`;
+    } else if (state.lastTurnFinished) {
+      session.status = 'completed';
+      session.statusDetail = '작업 완료';
+      session.completedAt = state.subagentCompletedAt || state.latestTs;
+      session.completionObserved = true;
+      session.statusObserved = false;
+      session.result = state.lastAssistantText || session.result;
     } else if (age < STALE_TURN_THRESHOLD_MS && !state.lastTurnFinished) {
       session.status = 'running';
       session.statusDetail = state.lastRole === 'user' ? '응답 생성 중' : '도구 실행 또는 스트리밍 중';
@@ -597,7 +597,7 @@ function createClaudeParser(dependencies) {
   }
 
   return function parseClaude(fileInfo, options = {}) {
-    const parsed = readJsonLines(fileInfo.file);
+    const parsed = readJsonLines(fileInfo.file, options.maxBytes);
     if (!parsed.rows.length) return null;
     const session = initializeSession(fileInfo, parsed, options);
     const state = processRows(session, parsed.rows);

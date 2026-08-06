@@ -1,0 +1,1397 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LoadToAgent — Metaphysical Directions</title>
+  <link rel="stylesheet" href="../themes/default.css" />
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; overflow-x: hidden; }
+    body {
+      margin: 0;
+      color: var(--color-text);
+      background: var(--color-bg);
+      font-family: var(--font-sans);
+      letter-spacing: -.022em;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button, [role="button"] { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: 3px;
+    }
+
+    .variant-nav {
+      position: fixed;
+      z-index: 1000;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 58px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      background: rgba(5, 6, 12, .88);
+      backdrop-filter: blur(20px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.18);
+      font-family: Geist, system-ui, sans-serif;
+      scrollbar-width: none;
+    }
+    .variant-nav::-webkit-scrollbar { display: none; }
+    .variant-nav::before {
+      content: "DIRECTION";
+      margin: 0 9px 0 3px;
+      color: #777b8d;
+      font: 650 10px/1 var(--font-mono);
+      letter-spacing: .18em;
+    }
+    .variant-tab {
+      height: 40px;
+      padding: 0 15px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      background: transparent;
+      color: #989bac;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .variant-tab:hover { color: #fff; background: rgba(255,255,255,.06); }
+    .variant-tab.active {
+      color: #090a11;
+      background: #f2f0e9;
+      font-weight: 700;
+    }
+    .variant-note {
+      margin-left: auto;
+      color: #777b8d;
+      font: 500 11px/1 var(--font-mono);
+      letter-spacing: .05em;
+    }
+
+    .sketch-viewport {
+      width: 100%;
+      max-width: 100%;
+      min-height: 100vh;
+      margin: 0 auto;
+      padding-top: 58px;
+      overflow: hidden;
+      transition: max-width .25s ease;
+      box-shadow: 0 0 0 1px rgba(255,255,255,.08);
+    }
+    .variant { display: none; min-height: calc(100vh - 58px); }
+    .variant.active { display: block; animation: arrive .36s ease-out; }
+    @keyframes arrive {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: none; }
+    }
+
+    .sketch-tools {
+      position: fixed;
+      z-index: 1100;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px;
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 9px;
+      background: rgba(4, 5, 10, .82);
+      color: white;
+      opacity: .36;
+      backdrop-filter: blur(16px);
+      transition: opacity .2s ease;
+      font: 500 11px/1 Geist, system-ui, sans-serif;
+    }
+    .sketch-tools:hover { opacity: 1; }
+    .sketch-tools button, .sketch-tools select {
+      height: 27px;
+      border: 1px solid rgba(255,255,255,.16);
+      border-radius: 5px;
+      background: rgba(255,255,255,.07);
+      color: white;
+      cursor: pointer;
+    }
+    .sketch-tools button { width: 31px; }
+    .sketch-tools select { padding: 0 6px; }
+    .sketch-tools button:hover, .sketch-tools select:hover { background: rgba(255,255,255,.15); }
+
+    body.annotate [data-spec] { position: relative; }
+    body.annotate [data-spec]:hover::after {
+      content: attr(data-spec);
+      position: absolute;
+      z-index: 1500;
+      left: 8px;
+      bottom: calc(100% + 7px);
+      width: max-content;
+      max-width: 230px;
+      padding: 6px 8px;
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 5px;
+      background: #070810;
+      color: #fff;
+      font: 500 11px/1.35 var(--font-mono);
+      letter-spacing: 0;
+      pointer-events: none;
+      box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 1300;
+      left: 50%;
+      bottom: 28px;
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 12px 17px;
+      border: 1px solid rgba(255,255,255,.17);
+      border-radius: 10px;
+      background: rgba(8,9,14,.94);
+      color: #fff;
+      box-shadow: 0 18px 60px rgba(0,0,0,.34);
+      opacity: 0;
+      transform: translate(-50%, 14px);
+      pointer-events: none;
+      transition: all .22s ease;
+      font-size: 13px;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    /* A · Cosmic Observatory */
+    .cosmic {
+      --ink: #f1f3ff;
+      --muted: #8e95ad;
+      --blue: #83b8ff;
+      --mint: #a9ffdb;
+      --violet: #d6baff;
+      --orange: #ffad72;
+      min-height: calc(100vh - 58px);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 53% 47%, rgba(59, 81, 166, .18), transparent 28%),
+        radial-gradient(circle at 78% 18%, rgba(136, 77, 176, .12), transparent 24%),
+        linear-gradient(150deg, #080a16 0%, #070811 55%, #0c0a16 100%);
+      overflow: hidden;
+    }
+    .cosmic::before {
+      content: "";
+      position: absolute;
+      inset: 58px 0 0;
+      pointer-events: none;
+      opacity: .34;
+      background-image:
+        radial-gradient(circle, rgba(255,255,255,.72) 0 1px, transparent 1.4px),
+        radial-gradient(circle, rgba(155,186,255,.5) 0 1px, transparent 1.5px);
+      background-position: 0 0, 41px 67px;
+      background-size: 83px 83px, 137px 137px;
+      mask-image: linear-gradient(to bottom, #000, transparent 82%);
+    }
+    .cosmic-shell {
+      position: relative;
+      z-index: 1;
+      min-height: calc(100vh - 58px);
+      display: grid;
+      grid-template-columns: 92px minmax(0, 1fr) 330px;
+    }
+    .cosmic-rail {
+      min-height: calc(100vh - 58px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 25px 0 22px;
+      border-right: 1px solid rgba(194,207,255,.12);
+      background: rgba(7,8,17,.42);
+      backdrop-filter: blur(12px);
+    }
+    .cosmic-mark {
+      width: 38px;
+      height: 38px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(169,255,219,.4);
+      border-radius: 50%;
+      color: var(--mint);
+      font-size: 17px;
+      box-shadow: 0 0 28px rgba(169,255,219,.11);
+    }
+    .cosmic-nav { display: grid; gap: 15px; margin-top: 54px; }
+    .cosmic-nav button {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border: 1px solid transparent;
+      border-radius: 50%;
+      background: transparent;
+      color: #747b94;
+      cursor: pointer;
+      transition: all .15s ease;
+      font-size: 16px;
+    }
+    .cosmic-nav button:hover, .cosmic-nav button.active {
+      border-color: rgba(131,184,255,.26);
+      background: rgba(131,184,255,.09);
+      color: var(--blue);
+      box-shadow: 0 0 24px rgba(131,184,255,.08);
+    }
+    .cosmic-profile {
+      margin-top: auto;
+      width: 35px;
+      height: 35px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--violet), var(--blue));
+      color: #111222;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .cosmic-main { min-width: 0; padding: 27px 32px 30px; }
+    .cosmic-top {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      min-height: 46px;
+    }
+    .cosmic-top .title small {
+      display: block;
+      color: var(--muted);
+      font: 500 10px/1 var(--font-mono);
+      letter-spacing: .17em;
+      text-transform: uppercase;
+    }
+    .cosmic-top .title b {
+      display: block;
+      margin-top: 7px;
+      font-size: 16px;
+      font-weight: 590;
+    }
+    .cosmic-search {
+      margin-left: auto;
+      width: min(260px, 30vw);
+      height: 39px;
+      border: 1px solid rgba(194,207,255,.15);
+      border-radius: 20px;
+      background: rgba(255,255,255,.025);
+      color: var(--ink);
+      padding: 0 16px;
+    }
+    .cosmic-new {
+      height: 39px;
+      padding: 0 17px;
+      border: 1px solid rgba(169,255,219,.42);
+      border-radius: 20px;
+      background: rgba(169,255,219,.09);
+      color: var(--mint);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .cosmic-new:hover { background: var(--mint); color: #07110d; }
+    .cosmic-heading { margin: 48px 0 8px; }
+    .cosmic-heading .kicker {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--orange);
+      font: 600 10px/1 var(--font-mono);
+      letter-spacing: .15em;
+      text-transform: uppercase;
+    }
+    .cosmic-heading .kicker i {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 14px currentColor;
+    }
+    .cosmic-heading h1 {
+      max-width: 750px;
+      margin: 17px 0 0;
+      font: 400 clamp(35px, 4vw, 58px)/1.04 var(--font-serif);
+      letter-spacing: -.052em;
+    }
+    .cosmic-heading h1 em { color: var(--mint); font-style: italic; }
+    .observatory {
+      position: relative;
+      min-height: 510px;
+      margin-top: 22px;
+      border: 1px solid rgba(194,207,255,.12);
+      border-radius: 26px;
+      background:
+        radial-gradient(circle at 50% 50%, rgba(76,105,214,.14), transparent 36%),
+        rgba(7,9,19,.46);
+      overflow: hidden;
+      box-shadow: inset 0 0 80px rgba(0,0,0,.22), 0 30px 80px rgba(0,0,0,.16);
+    }
+    .orbit {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      border: 1px solid rgba(167,186,255,.13);
+      border-radius: 50%;
+      transform: translate(-50%, -50%) rotate(-10deg);
+      pointer-events: none;
+    }
+    .orbit.one { width: 290px; height: 180px; }
+    .orbit.two { width: 520px; height: 310px; transform: translate(-50%, -50%) rotate(9deg); }
+    .orbit.three { width: 750px; height: 430px; transform: translate(-50%, -50%) rotate(-4deg); }
+    .star-core {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 112px;
+      height: 112px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(169,255,219,.42);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(169,255,219,.19), rgba(84,111,180,.08) 47%, transparent 70%);
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 70px rgba(169,255,219,.13);
+      cursor: pointer;
+    }
+    .star-core::before {
+      content: "";
+      position: absolute;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 34px var(--mint);
+    }
+    .star-core span {
+      position: absolute;
+      top: calc(100% + 14px);
+      width: 180px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--mint);
+    }
+    .celestial {
+      position: absolute;
+      min-width: 132px;
+      padding: 12px 14px;
+      border: 1px solid rgba(194,207,255,.17);
+      border-radius: 13px;
+      background: rgba(13,15,30,.82);
+      text-align: left;
+      cursor: pointer;
+      backdrop-filter: blur(12px);
+      box-shadow: 0 13px 36px rgba(0,0,0,.18);
+      transition: all .18s ease;
+    }
+    .celestial:hover, .celestial.selected {
+      transform: translateY(-3px);
+      border-color: rgba(131,184,255,.56);
+      box-shadow: 0 16px 42px rgba(31,47,99,.28), 0 0 30px rgba(131,184,255,.08);
+    }
+    .celestial b { display: block; font-size: 13px; font-weight: 610; }
+    .celestial small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .celestial i {
+      position: absolute;
+      left: -5px;
+      top: 50%;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 12px currentColor;
+    }
+    .planet-a { left: 8%; top: 42%; }
+    .planet-b { left: 28%; top: 13%; }
+    .planet-c { right: 25%; top: 16%; }
+    .planet-d { right: 7%; top: 44%; }
+    .planet-e { left: 28%; bottom: 10%; }
+    .planet-f { right: 24%; bottom: 8%; }
+    .cosmic-legend {
+      position: absolute;
+      left: 20px;
+      bottom: 18px;
+      display: flex;
+      gap: 15px;
+      color: #737b94;
+      font-size: 10px;
+    }
+    .cosmic-legend span::before { content: "•"; margin-right: 5px; color: var(--blue); }
+    .cosmic-legend span:nth-child(2)::before { color: var(--mint); }
+    .cosmic-legend span:nth-child(3)::before { color: var(--orange); }
+    .signal-panel {
+      min-width: 0;
+      padding: 27px 23px;
+      border-left: 1px solid rgba(194,207,255,.12);
+      background: rgba(8,9,18,.59);
+      backdrop-filter: blur(18px);
+    }
+    .signal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 22px;
+      border-bottom: 1px solid rgba(194,207,255,.11);
+    }
+    .signal-head span {
+      color: var(--muted);
+      font: 500 10px/1 var(--font-mono);
+      letter-spacing: .13em;
+    }
+    .signal-head b { color: var(--orange); font-size: 12px; }
+    .signal-count {
+      padding: 28px 0 22px;
+      border-bottom: 1px solid rgba(194,207,255,.11);
+    }
+    .signal-count strong {
+      display: block;
+      font: 400 72px/.85 var(--font-serif);
+      color: var(--orange);
+    }
+    .signal-count span { display: block; margin-top: 13px; color: var(--muted); font-size: 12px; }
+    .signal-list { display: grid; margin-top: 11px; }
+    .signal {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 10px;
+      align-items: start;
+      padding: 17px 0;
+      border: 0;
+      border-bottom: 1px solid rgba(194,207,255,.1);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .signal:hover strong { color: var(--orange); }
+    .signal .sigil {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(255,173,114,.35);
+      border-radius: 50%;
+      color: var(--orange);
+      font-size: 11px;
+    }
+    .signal strong { display: block; font-size: 13px; transition: color .15s ease; }
+    .signal small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .signal time { color: #646b81; font: 500 10px/1 var(--font-mono); }
+    .observe-card {
+      margin-top: 18px;
+      padding: 17px;
+      border: 1px solid rgba(169,255,219,.17);
+      border-radius: 15px;
+      background: rgba(169,255,219,.035);
+    }
+    .observe-card small { color: var(--mint); font-size: 10px; text-transform: uppercase; letter-spacing: .12em; }
+    .observe-card b { display: block; margin-top: 10px; font-size: 14px; font-weight: 580; }
+    .observe-card p { margin: 8px 0 15px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .observe-card button {
+      width: 100%;
+      height: 38px;
+      border: 1px solid rgba(169,255,219,.35);
+      border-radius: 19px;
+      background: var(--mint);
+      color: #07110d;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    /* B · Ritual Console */
+    .ritual {
+      --ivory: #eee5d2;
+      --ash: #a19787;
+      --red: #d35645;
+      --gold: #d5b26f;
+      --smoke: #171613;
+      min-height: calc(100vh - 58px);
+      color: var(--ivory);
+      background:
+        linear-gradient(rgba(218, 189, 126, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(218, 189, 126, .035) 1px, transparent 1px),
+        radial-gradient(circle at 50% 43%, rgba(141,75,48,.12), transparent 30%),
+        #14130f;
+      background-size: 54px 54px, 54px 54px, auto, auto;
+    }
+    .ritual-shell {
+      min-height: calc(100vh - 58px);
+      display: grid;
+      grid-template-columns: 270px minmax(580px, 1fr) 320px;
+    }
+    .ritual-ledger {
+      min-width: 0;
+      padding: 27px 22px;
+      border-right: 1px solid rgba(213,178,111,.19);
+      background: rgba(13,12,10,.62);
+    }
+    .ritual-brand { display: flex; align-items: center; gap: 12px; }
+    .ritual-seal {
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--gold);
+      border-radius: 50%;
+      color: var(--gold);
+      font-family: var(--font-serif);
+      box-shadow: inset 0 0 0 4px #14130f, inset 0 0 0 5px rgba(213,178,111,.25);
+    }
+    .ritual-brand b { display: block; font: 500 17px/1 var(--font-serif); letter-spacing: .03em; }
+    .ritual-brand small { display: block; margin-top: 6px; color: var(--ash); font: 500 9px/1 var(--font-mono); letter-spacing: .15em; }
+    .ritual-date {
+      margin: 35px 0 11px;
+      color: var(--ash);
+      font: 500 10px/1 var(--font-mono);
+      letter-spacing: .13em;
+    }
+    .rite-list { display: grid; gap: 7px; }
+    .rite-item {
+      width: 100%;
+      display: grid;
+      grid-template-columns: 31px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      padding: 13px 10px;
+      border: 1px solid transparent;
+      border-radius: 2px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .rite-item:hover, .rite-item.active {
+      border-color: rgba(213,178,111,.22);
+      background: rgba(213,178,111,.045);
+    }
+    .rite-item .roman { color: var(--gold); font: 500 11px/1 var(--font-serif); }
+    .rite-item b { display: block; font-size: 12px; font-weight: 590; }
+    .rite-item small { display: block; margin-top: 4px; color: var(--ash); font-size: 10px; }
+    .rite-item em { color: var(--gold); font: normal 500 11px/1 var(--font-mono); }
+    .ritual-rule { height: 1px; margin: 24px 0; background: linear-gradient(90deg, transparent, rgba(213,178,111,.35), transparent); }
+    .ritual-quote {
+      margin-top: auto;
+      padding: 17px 0 0;
+      color: #81796d;
+      font: italic 13px/1.55 var(--font-serif);
+    }
+    .ritual-main { min-width: 0; padding: 27px 37px 40px; }
+    .ritual-top { display: flex; align-items: center; gap: 12px; }
+    .ritual-top p { margin: 0; color: var(--ash); font-size: 11px; }
+    .ritual-top p b { color: var(--ivory); font-weight: 600; }
+    .ritual-actions { display: flex; gap: 9px; margin-left: auto; }
+    .ritual-actions button {
+      height: 36px;
+      padding: 0 13px;
+      border: 1px solid rgba(213,178,111,.25);
+      border-radius: 2px;
+      background: transparent;
+      color: var(--ash);
+      cursor: pointer;
+    }
+    .ritual-actions button:hover { color: var(--ivory); border-color: var(--gold); }
+    .ritual-title { margin: 50px auto 0; text-align: center; }
+    .ritual-title small {
+      color: var(--red);
+      font: 600 10px/1 var(--font-mono);
+      letter-spacing: .22em;
+      text-transform: uppercase;
+    }
+    .ritual-title h1 {
+      margin: 16px 0 0;
+      font: 400 clamp(38px, 4.4vw, 64px)/1 var(--font-serif);
+      letter-spacing: -.04em;
+    }
+    .ritual-title p { margin: 12px auto 0; color: var(--ash); font-size: 12px; }
+    .altar {
+      position: relative;
+      min-height: 460px;
+      max-width: 840px;
+      margin: 36px auto 0;
+    }
+    .altar::before, .altar::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 48%;
+      border: 1px solid rgba(213,178,111,.16);
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+    .altar::before { width: 430px; height: 430px; }
+    .altar::after { width: 295px; height: 295px; border-color: rgba(213,178,111,.22); transform: translate(-50%, -50%) rotate(45deg); border-radius: 1px; }
+    .altar-cross { position: absolute; inset: 0; pointer-events: none; }
+    .altar-cross::before, .altar-cross::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 48%;
+      background: linear-gradient(90deg, transparent, rgba(213,178,111,.22), transparent);
+      transform: translate(-50%, -50%);
+    }
+    .altar-cross::before { width: 92%; height: 1px; }
+    .altar-cross::after { width: 1px; height: 92%; }
+    .ritual-core {
+      position: absolute;
+      z-index: 2;
+      left: 50%;
+      top: 48%;
+      width: 154px;
+      height: 154px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(211,86,69,.7);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(211,86,69,.16), #17130f 67%);
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 70px rgba(211,86,69,.12);
+      text-align: center;
+      cursor: pointer;
+    }
+    .ritual-core b { display: block; font: 500 18px/1.1 var(--font-serif); }
+    .ritual-core small { display: block; margin-top: 7px; color: var(--red); font-size: 10px; letter-spacing: .08em; }
+    .ritual-node {
+      position: absolute;
+      z-index: 3;
+      width: 180px;
+      min-height: 88px;
+      padding: 13px 15px;
+      border: 1px solid rgba(213,178,111,.21);
+      background: rgba(19,17,13,.93);
+      cursor: pointer;
+      text-align: left;
+      transition: all .16s ease;
+    }
+    .ritual-node:hover, .ritual-node.selected {
+      border-color: var(--gold);
+      transform: translateY(-3px);
+      box-shadow: 0 15px 40px rgba(0,0,0,.25);
+    }
+    .ritual-node::before {
+      content: attr(data-mark);
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      padding: 2px 6px;
+      background: #14130f;
+      color: var(--gold);
+      font: 500 10px/1 var(--font-serif);
+    }
+    .ritual-node b { display: block; font: 500 15px/1.1 var(--font-serif); }
+    .ritual-node small { display: block; margin-top: 7px; color: var(--ash); font-size: 10px; line-height: 1.4; }
+    .rite-summon { left: 2%; top: 8%; }
+    .rite-divide { right: 2%; top: 8%; }
+    .rite-act { left: 2%; bottom: 5%; }
+    .rite-seal { right: 2%; bottom: 5%; }
+    .rite-status {
+      position: absolute;
+      z-index: 4;
+      left: 50%;
+      bottom: 9px;
+      transform: translateX(-50%);
+      color: var(--ash);
+      font: 500 9px/1 var(--font-mono);
+      letter-spacing: .12em;
+      white-space: nowrap;
+    }
+    .omens {
+      padding: 27px 23px;
+      border-left: 1px solid rgba(213,178,111,.19);
+      background: rgba(13,12,10,.64);
+    }
+    .omens-head { display: flex; align-items: baseline; justify-content: space-between; }
+    .omens-head h2 { margin: 0; font: 500 24px/1 var(--font-serif); }
+    .omens-head span { color: var(--red); font: 500 11px/1 var(--font-mono); }
+    .omens > p { margin: 10px 0 23px; color: var(--ash); font-size: 11px; line-height: 1.5; }
+    .omen-card {
+      position: relative;
+      padding: 17px 16px 16px 38px;
+      border-top: 1px solid rgba(213,178,111,.18);
+      cursor: pointer;
+    }
+    .omen-card::before {
+      content: attr(data-number);
+      position: absolute;
+      left: 4px;
+      top: 18px;
+      color: var(--red);
+      font: 500 12px/1 var(--font-serif);
+    }
+    .omen-card:hover { background: rgba(213,178,111,.035); }
+    .omen-card small { color: var(--ash); font-size: 9px; text-transform: uppercase; letter-spacing: .09em; }
+    .omen-card b { display: block; margin-top: 7px; font: 500 15px/1.3 var(--font-serif); }
+    .omen-card p { margin: 7px 0 0; color: var(--ash); font-size: 10px; line-height: 1.45; }
+    .omen-card .omen-actions { display: none; gap: 7px; margin-top: 13px; }
+    .omen-card.open .omen-actions { display: flex; }
+    .omen-actions button {
+      height: 31px;
+      padding: 0 10px;
+      border: 1px solid rgba(213,178,111,.28);
+      border-radius: 2px;
+      background: transparent;
+      color: var(--ivory);
+      cursor: pointer;
+      font-size: 10px;
+    }
+    .omen-actions button.primary { background: var(--red); border-color: var(--red); }
+    .ritual-summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      margin-top: 24px;
+      border: 1px solid rgba(213,178,111,.18);
+    }
+    .ritual-summary div { padding: 13px 8px; text-align: center; border-right: 1px solid rgba(213,178,111,.18); }
+    .ritual-summary div:last-child { border-right: 0; }
+    .ritual-summary b { display: block; font: 500 21px/1 var(--font-serif); }
+    .ritual-summary span { display: block; margin-top: 6px; color: var(--ash); font-size: 9px; }
+
+    /* C · Ontology Archive */
+    .ontology {
+      --paper: #ece9df;
+      --paper-deep: #dfdbcf;
+      --black: #1b1b18;
+      --gray: #686860;
+      --blue: #314f77;
+      --rust: #9e4f37;
+      min-height: calc(100vh - 58px);
+      color: var(--black);
+      background:
+        linear-gradient(rgba(36,36,31,.04) 1px, transparent 1px),
+        var(--paper);
+      background-size: 100% 32px;
+      font-family: var(--font-serif);
+    }
+    .ontology-shell { min-height: calc(100vh - 58px); }
+    .ontology-top {
+      height: 84px;
+      display: grid;
+      grid-template-columns: 250px 1fr 250px;
+      align-items: center;
+      padding: 0 30px;
+      border-bottom: 1px solid rgba(27,27,24,.26);
+      font-family: var(--font-sans);
+    }
+    .ontology-brand b { font-size: 17px; letter-spacing: -.03em; }
+    .ontology-brand small { display: block; margin-top: 4px; color: var(--gray); font-size: 9px; letter-spacing: .13em; text-transform: uppercase; }
+    .ontology-index { text-align: center; color: var(--gray); font: 500 10px/1 var(--font-mono); letter-spacing: .14em; }
+    .ontology-tools { display: flex; justify-content: flex-end; gap: 8px; }
+    .ontology-tools button {
+      height: 34px;
+      padding: 0 11px;
+      border: 1px solid rgba(27,27,24,.32);
+      border-radius: 0;
+      background: transparent;
+      color: var(--black);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 11px;
+    }
+    .ontology-tools button:hover { background: var(--black); color: var(--paper); }
+    .ontology-intro {
+      display: grid;
+      grid-template-columns: minmax(300px, 1.3fr) 1fr 220px;
+      gap: 30px;
+      padding: 34px 30px 29px;
+      border-bottom: 1px solid rgba(27,27,24,.24);
+    }
+    .ontology-intro .edition {
+      color: var(--rust);
+      font: 600 9px/1 var(--font-mono);
+      letter-spacing: .17em;
+      text-transform: uppercase;
+    }
+    .ontology-intro h1 {
+      margin: 12px 0 0;
+      font: 400 clamp(37px, 4.4vw, 64px)/.95 var(--font-serif);
+      letter-spacing: -.052em;
+    }
+    .ontology-intro h1 em { color: var(--blue); font-style: italic; }
+    .ontology-thesis {
+      align-self: end;
+      margin: 0;
+      color: var(--gray);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+    .ontology-state {
+      align-self: stretch;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1px solid rgba(27,27,24,.26);
+    }
+    .ontology-state div { display: grid; place-items: center; padding: 15px 5px; text-align: center; border-right: 1px solid rgba(27,27,24,.22); }
+    .ontology-state div:nth-child(2n) { border-right: 0; }
+    .ontology-state div:nth-child(-n+2) { border-bottom: 1px solid rgba(27,27,24,.22); }
+    .ontology-state b { display: block; font: 400 25px/1 var(--font-serif); }
+    .ontology-state span { display: block; margin-top: 5px; color: var(--gray); font: 500 8px/1 var(--font-sans); text-transform: uppercase; letter-spacing: .08em; }
+    .ontology-columns {
+      min-height: 520px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+    }
+    .ontological-field {
+      min-width: 0;
+      border-right: 1px solid rgba(27,27,24,.25);
+    }
+    .ontological-field:last-child { border-right: 0; }
+    .field-head {
+      min-height: 92px;
+      display: flex;
+      align-items: flex-start;
+      gap: 13px;
+      padding: 21px 24px;
+      border-bottom: 1px solid rgba(27,27,24,.22);
+    }
+    .field-head .symbol { color: var(--blue); font: italic 400 32px/1 var(--font-serif); }
+    .field-head b { display: block; font-size: 16px; font-weight: 500; }
+    .field-head small { display: block; margin-top: 7px; color: var(--gray); font: 500 9px/1.35 var(--font-sans); }
+    .field-body { padding: 0 24px; }
+    .ontology-entry {
+      position: relative;
+      width: 100%;
+      min-height: 104px;
+      display: block;
+      padding: 18px 27px 17px 0;
+      border: 0;
+      border-bottom: 1px solid rgba(27,27,24,.18);
+      background: transparent;
+      color: var(--black);
+      text-align: left;
+      cursor: pointer;
+    }
+    .ontology-entry:hover { padding-left: 8px; background: rgba(27,27,24,.035); }
+    .ontology-entry::after {
+      content: "↗";
+      position: absolute;
+      top: 19px;
+      right: 2px;
+      color: var(--gray);
+      font-family: var(--font-sans);
+      font-size: 11px;
+    }
+    .ontology-entry .meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gray);
+      font: 500 8px/1 var(--font-mono);
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .ontology-entry .meta i {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .ontology-entry.attention .meta i { background: var(--rust); }
+    .ontology-entry b { display: block; margin-top: 10px; font-size: 15px; font-weight: 500; line-height: 1.25; }
+    .ontology-entry p { margin: 7px 0 0; color: var(--gray); font-size: 11px; line-height: 1.45; }
+    .field-foot {
+      display: flex;
+      justify-content: space-between;
+      padding: 19px 24px;
+      color: var(--gray);
+      font: 500 9px/1 var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .ontology-drawer {
+      position: fixed;
+      z-index: 900;
+      top: 58px;
+      right: 0;
+      bottom: 0;
+      width: min(420px, 90vw);
+      padding: 30px;
+      border-left: 1px solid rgba(27,27,24,.42);
+      background: #e5e1d5;
+      color: var(--black);
+      box-shadow: -24px 0 70px rgba(27,27,24,.15);
+      transform: translateX(102%);
+      transition: transform .25s ease;
+    }
+    .ontology-drawer.open { transform: none; }
+    .ontology-drawer .close {
+      float: right;
+      width: 34px;
+      height: 34px;
+      border: 1px solid rgba(27,27,24,.28);
+      background: transparent;
+      color: var(--black);
+      cursor: pointer;
+    }
+    .ontology-drawer small { display: block; margin-top: 64px; color: var(--rust); font: 600 9px/1 var(--font-mono); letter-spacing: .13em; text-transform: uppercase; }
+    .ontology-drawer h2 { margin: 14px 0 0; font: 400 37px/1.04 var(--font-serif); letter-spacing: -.04em; }
+    .ontology-drawer p { margin: 20px 0 0; color: var(--gray); font-size: 14px; line-height: 1.7; }
+    .ontology-drawer dl { margin: 28px 0 0; border-top: 1px solid rgba(27,27,24,.24); }
+    .ontology-drawer dl div { display: grid; grid-template-columns: 100px 1fr; padding: 13px 0; border-bottom: 1px solid rgba(27,27,24,.18); }
+    .ontology-drawer dt { color: var(--gray); font: 500 10px/1 var(--font-sans); }
+    .ontology-drawer dd { margin: 0; font-size: 12px; }
+    .ontology-drawer .drawer-actions { display: flex; gap: 8px; margin-top: 28px; }
+    .ontology-drawer .drawer-actions button {
+      height: 39px;
+      padding: 0 14px;
+      border: 1px solid var(--black);
+      background: transparent;
+      color: var(--black);
+      cursor: pointer;
+      font-family: var(--font-sans);
+      font-size: 11px;
+    }
+    .ontology-drawer .drawer-actions button:first-child { background: var(--black); color: var(--paper); }
+
+    @media (max-width: 1180px) {
+      .cosmic-shell { grid-template-columns: 78px 1fr; }
+      .signal-panel {
+        grid-column: 2;
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 24px;
+        border-top: 1px solid rgba(194,207,255,.12);
+        border-left: 0;
+      }
+      .signal-head, .observe-card { display: none; }
+      .signal-count { border-bottom: 0; }
+      .signal-list { grid-template-columns: repeat(3, 1fr); gap: 15px; }
+      .signal { border: 1px solid rgba(194,207,255,.1); border-radius: 12px; padding: 14px; }
+      .ritual-shell { grid-template-columns: 220px minmax(0, 1fr); }
+      .omens {
+        grid-column: 2;
+        border-top: 1px solid rgba(213,178,111,.19);
+        border-left: 0;
+      }
+      .omens > p { margin-bottom: 10px; }
+      .omen-card { display: inline-block; width: 32%; vertical-align: top; }
+    }
+
+    @media (max-width: 760px) {
+      .variant-nav { overflow-x: auto; padding-right: 8px; }
+      .variant-nav::before, .variant-note { display: none; }
+      .variant-tab { flex: 0 0 auto; padding: 0 11px; font-size: 11px; }
+      .sketch-tools { display: none; }
+      .cosmic-shell { grid-template-columns: 1fr; }
+      .cosmic-rail {
+        min-height: auto;
+        height: 58px;
+        flex-direction: row;
+        padding: 8px 15px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(194,207,255,.12);
+      }
+      .cosmic-nav { grid-template-columns: repeat(4, 38px); gap: 5px; margin: 0 0 0 auto; }
+      .cosmic-nav button { width: 38px; height: 38px; }
+      .cosmic-profile { display: none; }
+      .cosmic-main { padding: 20px 16px; }
+      .cosmic-search { display: none; }
+      .cosmic-heading { margin-top: 30px; }
+      .cosmic-heading h1 { font-size: 38px; }
+      .observatory { min-height: 460px; border-radius: 18px; }
+      .orbit.one { width: 210px; height: 150px; }
+      .orbit.two { width: 330px; height: 280px; }
+      .orbit.three { width: 470px; height: 400px; }
+      .celestial { min-width: 110px; padding: 9px 10px; }
+      .celestial small { display: none; }
+      .planet-a { left: 2%; top: 38%; }
+      .planet-b { left: 11%; top: 12%; }
+      .planet-c { right: 7%; top: 15%; }
+      .planet-d { right: 1%; top: 43%; }
+      .planet-e { left: 7%; bottom: 12%; }
+      .planet-f { right: 8%; bottom: 10%; }
+      .cosmic-legend { display: none; }
+      .signal-panel { grid-column: 1; grid-template-columns: 1fr; padding: 22px 16px 90px; }
+      .signal-count { display: flex; align-items: center; gap: 13px; padding: 0; }
+      .signal-count strong { font-size: 45px; }
+      .signal-count span { margin: 0; }
+      .signal-list { grid-template-columns: 1fr; }
+
+      .ritual-shell { grid-template-columns: 1fr; }
+      .ritual-ledger {
+        padding: 14px 16px;
+        border-right: 0;
+        border-bottom: 1px solid rgba(213,178,111,.19);
+      }
+      .ritual-date, .ritual-rule, .ritual-quote { display: none; }
+      .rite-list { grid-template-columns: repeat(4, 1fr); margin-top: 15px; }
+      .rite-item { grid-template-columns: 1fr; text-align: center; padding: 9px 4px; }
+      .rite-item .roman, .rite-item small, .rite-item em { display: none; }
+      .ritual-main { padding: 18px 15px 25px; }
+      .ritual-top p { display: none; }
+      .ritual-title { margin-top: 30px; }
+      .ritual-title h1 { font-size: 42px; }
+      .altar { min-height: 480px; margin-top: 20px; }
+      .altar::before { width: 310px; height: 310px; }
+      .altar::after { width: 215px; height: 215px; }
+      .ritual-core { width: 120px; height: 120px; }
+      .ritual-node { width: 145px; min-height: 75px; }
+      .rite-summon { left: 0; top: 8%; }
+      .rite-divide { right: 0; top: 8%; }
+      .rite-act { left: 0; bottom: 6%; }
+      .rite-seal { right: 0; bottom: 6%; }
+      .omens { grid-column: 1; padding: 22px 16px 90px; }
+      .omen-card { display: block; width: 100%; }
+
+      .ontology-top { height: 70px; grid-template-columns: 1fr auto; padding: 0 16px; }
+      .ontology-index { display: none; }
+      .ontology-intro { grid-template-columns: 1fr; padding: 27px 16px; }
+      .ontology-intro h1 { font-size: 43px; }
+      .ontology-state { grid-template-columns: repeat(4, 1fr); }
+      .ontology-state div { border-bottom: 0 !important; }
+      .ontology-state div:nth-child(2) { border-right: 1px solid rgba(27,27,24,.22); }
+      .ontology-columns { grid-template-columns: 1fr; }
+      .ontological-field { border-right: 0; border-bottom: 1px solid rgba(27,27,24,.28); }
+      .field-body { padding: 0 16px; }
+      .field-head { padding: 20px 16px; }
+      .field-foot { padding: 17px 16px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation: none !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="variant-nav" role="tablist" aria-label="형이상학적 디자인 방향">
+    <button class="variant-tab active" role="tab" aria-selected="true" data-variant-target="cosmic">A · Cosmic Observatory</button>
+    <button class="variant-tab" role="tab" aria-selected="false" data-variant-target="ritual">B · Ritual Console</button>
+    <button class="variant-tab" role="tab" aria-selected="false" data-variant-target="ontology">C · Ontology Archive</button>
+    <span class="variant-note">같은 데이터 · 다른 세계관</span>
+  </nav>
+
+  <main id="sketchViewport" class="sketch-viewport">
+    <section id="variant-cosmic" class="variant cosmic active" data-variant="cosmic">
+      <div class="cosmic-shell">
+        <aside class="cosmic-rail">
+          <div class="cosmic-mark" aria-label="LoadToAgent">✦</div>
+          <nav class="cosmic-nav" aria-label="관측소 화면">
+            <button class="active" title="성도">◉</button>
+            <button title="신호">⌁</button>
+            <button title="기록">◌</button>
+            <button title="설정">⋮</button>
+          </nav>
+          <div class="cosmic-profile">AX</div>
+        </aside>
+
+        <div class="cosmic-main">
+          <header class="cosmic-top">
+            <div class="title"><small>LoadToAgent / Observatory</small><b>오늘의 작업 성도</b></div>
+            <input class="cosmic-search" type="search" placeholder="작업 신호 검색" aria-label="작업 신호 검색" />
+            <button class="cosmic-new" data-toast="새 작업 궤도를 만들 준비가 되었습니다.">＋ 새 궤도</button>
+          </header>
+
+          <div class="cosmic-heading">
+            <div class="kicker"><i></i> human signal required</div>
+            <h1>아홉 개의 의지가 움직이고,<br /><em>세 개의 신호</em>가 당신을 기다립니다.</h1>
+          </div>
+
+          <section class="observatory" aria-label="에이전트 궤도" data-spec="관계 중심 캔버스 · 최소 높이 510px">
+            <div class="orbit one"></div><div class="orbit two"></div><div class="orbit three"></div>
+            <button class="star-core" data-node-detail="메인 GPT|전체 작업을 조율하고 있습니다.|최근 활동 12초 전"><span>메인 GPT · 조율 중</span></button>
+            <button class="celestial planet-a selected" data-node-detail="탐색 에이전트|관련 파일 42개를 읽고 원인 범위를 좁혔습니다.|완료 · 4분 전"><i></i><b>탐색</b><small>원인 범위 확인 완료</small></button>
+            <button class="celestial planet-b" data-node-detail="구현 에이전트|예외 처리 경로 4곳을 수정하고 있습니다.|작업 중 · 1분 전"><i></i><b>구현</b><small>오류 처리 수정 중</small></button>
+            <button class="celestial planet-c" data-node-detail="검증 에이전트|구현 결과를 기다린 뒤 12개 테스트를 실행합니다.|대기 · 8분"><i></i><b>검증</b><small>수정 결과 대기</small></button>
+            <button class="celestial planet-d" data-node-detail="결과 정리|모든 실행이 끝나면 변경 내용과 검증 결과를 정리합니다.|예정"><i></i><b>결과 정리</b><small>완료 신호 대기</small></button>
+            <button class="celestial planet-e" data-node-detail="PowerShell|npm test 명령이 백그라운드에서 실행 중입니다.|작업 중 · 48초"><i></i><b>PowerShell</b><small>npm test 실행 중</small></button>
+            <button class="celestial planet-f" data-node-detail="문서 에이전트|변경된 동작을 README에 반영할 준비가 되었습니다.|대기"><i></i><b>문서</b><small>업데이트 준비</small></button>
+            <div class="cosmic-legend"><span>진행 중 9</span><span>완료 36</span><span>확인 필요 3</span></div>
+          </section>
+        </div>
+
+        <aside class="signal-panel">
+          <header class="signal-head"><span>INCOMING SIGNALS</span><b>● LIVE</b></header>
+          <div class="signal-count"><strong>03</strong><span>당신의 판단을 기다리는 신호</span></div>
+          <div class="signal-list">
+            <button class="signal" data-toast="cras_backend의 검토 화면을 열었습니다."><span class="sigil">!</span><span><strong>cras_backend</strong><small>테스트 12개 중 1개가 실패했습니다.</small></span><time>02m</time></button>
+            <button class="signal" data-toast="마이그레이션 방향 선택지를 열었습니다."><span class="sigil">⌁</span><span><strong>board-migration-loop</strong><small>두 경로 중 하나를 선택해야 합니다.</small></span><time>18m</time></button>
+            <button class="signal" data-toast="CMS_WEB의 마지막 활동을 확인합니다."><span class="sigil">◷</span><span><strong>CMS_WEB</strong><small>30분 동안 새 활동이 없습니다.</small></span><time>30m</time></button>
+          </div>
+          <section class="observe-card" data-spec="선택된 궤도의 상세 컨텍스트">
+            <small id="cosmicDetailState">selected orbit</small>
+            <b id="cosmicDetailTitle">탐색 에이전트</b>
+            <p id="cosmicDetailText">관련 파일 42개를 읽고 원인 범위를 좁혔습니다.</p>
+            <button data-toast="선택한 에이전트의 대화를 열었습니다.">대화 관측하기</button>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="variant-ritual" class="variant ritual" data-variant="ritual">
+      <div class="ritual-shell">
+        <aside class="ritual-ledger">
+          <div class="ritual-brand"><div class="ritual-seal">L</div><div><b>LoadToAgent</b><small>RITUAL LEDGER · IX</small></div></div>
+          <div class="ritual-date">THE TWENTY-EIGHTH DAY · 2026</div>
+          <nav class="rite-list" aria-label="의식 단계">
+            <button class="rite-item active"><span class="roman">I</span><span><b>소환된 요청</b><small>사용자의 의지가 들어옴</small></span><em>48</em></button>
+            <button class="rite-item"><span class="roman">II</span><span><b>수행 중인 일</b><small>에이전트가 움직임</small></span><em>09</em></button>
+            <button class="rite-item"><span class="roman">III</span><span><b>징조와 응답</b><small>판단을 기다리는 일</small></span><em>03</em></button>
+            <button class="rite-item"><span class="roman">IV</span><span><b>봉인된 기록</b><small>완료된 결과</small></span><em>36</em></button>
+          </nav>
+          <div class="ritual-rule"></div>
+          <nav class="rite-list" aria-label="도구">
+            <button class="rite-item"><span class="roman">⌘</span><span><b>실행 도구</b><small>터미널과 예약 작업</small></span></button>
+            <button class="rite-item"><span class="roman">○</span><span><b>환경 설정</b><small>공급자와 기록 보존</small></span></button>
+          </nav>
+          <blockquote class="ritual-quote">“일은 보이지 않는 곳에서 움직이고,<br />판단만이 문 앞에 도착한다.”</blockquote>
+        </aside>
+
+        <div class="ritual-main">
+          <header class="ritual-top">
+            <p>현재 의식 <b>cras_backend / 검증 오류 수정</b></p>
+            <div class="ritual-actions"><button data-toast="의식 기록을 검색합니다.">기록 찾기</button><button data-toast="새로운 작업 의식을 시작합니다.">＋ 새 의식</button></div>
+          </header>
+          <div class="ritual-title">
+            <small>the rite is in motion</small>
+            <h1>의지는 수행되고 있습니다.</h1>
+            <p>네 단계 중 세 번째 · 검증의 응답을 기다리는 중</p>
+          </div>
+          <section class="altar" aria-label="에이전트 실행 의식" data-spec="4단계 실행 구조 · 중앙 조율자">
+            <div class="altar-cross"></div>
+            <button class="ritual-core" data-toast="메인 에이전트의 전체 기록을 열었습니다."><span><b>메인<br />에이전트</b><small>조율 중</small></span></button>
+            <button class="ritual-node rite-summon selected" data-mark="I · VOCATIO" data-toast="요청 원문과 제약을 확인합니다."><b>소환</b><small>오류 처리 수정과 검증을 요청받았습니다.</small></button>
+            <button class="ritual-node rite-divide" data-mark="II · DIVISIO" data-toast="분해된 하위 작업 3개를 펼쳤습니다."><b>분해</b><small>탐색, 구현, 검증의 세 역할로 나뉘었습니다.</small></button>
+            <button class="ritual-node rite-act" data-mark="III · OPUS" data-toast="현재 수행 중인 에이전트 대화를 엽니다."><b>수행</b><small>구현 에이전트가 예외 경로를 수정합니다.</small></button>
+            <button class="ritual-node rite-seal" data-mark="IV · SIGILLUM" data-toast="완료 후 생성될 결과 기록을 미리 봅니다."><b>봉인</b><small>검증을 통과하면 변경과 근거를 기록합니다.</small></button>
+            <div class="rite-status">OPUS III · 18분 경과 · 마지막 활동 1분 전</div>
+          </section>
+        </div>
+
+        <aside class="omens">
+          <header class="omens-head"><h2>세 가지 징조</h2><span>03</span></header>
+          <p>자동 수행을 멈춘 것이 아니라, 당신만이 정할 수 있는 경계에 도착했습니다.</p>
+          <article class="omen-card open" data-number="I">
+            <small>검증의 균열 · 2분 전</small><b>테스트 하나가 붉게 남았습니다.</b>
+            <p>변경은 보존되어 있습니다. 수정 후 다시 검증할 수 있습니다.</p>
+            <div class="omen-actions"><button class="primary" data-toast="수정 요청을 메인 에이전트에게 전달했습니다.">수정 명령</button><button data-toast="검증 의식을 다시 시작합니다.">다시 검증</button></div>
+          </article>
+          <article class="omen-card" data-number="II">
+            <small>갈림길 · 18분 전</small><b>두 경로가 같은 문 앞에 섰습니다.</b>
+            <p>안전한 순차 전환과 빠른 일괄 전환 중 하나를 선택합니다.</p>
+            <div class="omen-actions"><button class="primary" data-toast="경로 선택 화면을 열었습니다.">경로 선택</button><button data-toast="판단 근거를 확인합니다.">근거 읽기</button></div>
+          </article>
+          <article class="omen-card" data-number="III">
+            <small>침묵 · 30분 전</small><b>한 수행자가 오래 응답하지 않습니다.</b>
+            <p>조금 더 기다리거나 현재 세션의 마지막 기록을 확인할 수 있습니다.</p>
+            <div class="omen-actions"><button class="primary" data-toast="CMS_WEB 세션 상태를 확인합니다.">상태 확인</button><button data-toast="10분 후 다시 알리도록 표시했습니다.">기다리기</button></div>
+          </article>
+          <div class="ritual-summary"><div><b>09</b><span>수행 중</span></div><div><b>03</b><span>응답 필요</span></div><div><b>36</b><span>봉인 완료</span></div></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="variant-ontology" class="variant ontology" data-variant="ontology">
+      <div class="ontology-shell">
+        <header class="ontology-top">
+          <div class="ontology-brand"><b>LoadToAgent</b><small>an index of delegated intention</small></div>
+          <div class="ontology-index">VOLUME 07 · STATE OF WORK · 09:41</div>
+          <div class="ontology-tools"><button data-toast="전체 기록 검색을 시작합니다.">찾기</button><button data-toast="새 의도를 기록할 준비가 되었습니다.">＋ 새 의도</button></div>
+        </header>
+        <section class="ontology-intro">
+          <div>
+            <span class="edition">today's proposition · 001</span>
+            <h1>일은 어디에 <em>존재</em>하는가?</h1>
+          </div>
+          <p class="ontology-thesis">에이전트에게 맡긴 일은 사라진 것이 아니다. 시간 속에서 변하고, 의식의 경계에서 다시 당신에게 모습을 드러낸다.</p>
+          <div class="ontology-state" data-spec="동일한 운영 수치 · 편집적 표현">
+            <div><span><b>09</b><span>존재함</span></span></div><div><span><b>03</b><span>판단함</span></span></div>
+            <div><span><b>36</b><span>기록됨</span></span></div><div><span><b>48</b><span>전체</span></span></div>
+          </div>
+        </section>
+
+        <section class="ontology-columns">
+          <article class="ontological-field">
+            <header class="field-head"><span class="symbol">E</span><span><b>존재 · Entity</b><small>지금 움직이는 주체와 그 관계</small></span></header>
+            <div class="field-body">
+              <button class="ontology-entry" data-entry="메인 GPT|전체 작업의 방향을 조율하는 중심 주체입니다.|조율 중|최근 활동 12초 전">
+                <span class="meta"><i></i> primary agent · active</span><b>메인 GPT는 여섯 개의 실행을 하나의 결과로 묶고 있다.</b><p>탐색 1 · 구현 1 · 검증 1 · 실행 1 · 대기 2</p>
+              </button>
+              <button class="ontology-entry" data-entry="구현 에이전트|예외 경로 네 곳을 수정하는 독립된 실행 주체입니다.|작업 중|최근 활동 1분 전">
+                <span class="meta"><i></i> subagent · active</span><b>구현 에이전트는 오류의 경계를 다시 쓰고 있다.</b><p>변경 파일 4 · 도구 호출 18 · 경과 12분</p>
+              </button>
+              <button class="ontology-entry" data-entry="PowerShell|테스트를 실행하며 코드의 상태를 외부 세계에서 확인합니다.|실행 중|48초 경과">
+                <span class="meta"><i></i> execution · active</span><b>PowerShell은 수정된 세계가 성립하는지 묻고 있다.</b><p>npm test · 출력 142줄 · 종료 코드 대기</p>
+              </button>
+            </div>
+            <footer class="field-foot"><span>주체 09</span><span>전체 관계 보기 ↗</span></footer>
+          </article>
+
+          <article class="ontological-field">
+            <header class="field-head"><span class="symbol">T</span><span><b>시간 · Temporality</b><small>시작, 지속, 침묵, 완료의 기록</small></span></header>
+            <div class="field-body">
+              <button class="ontology-entry" data-entry="cras_backend|18분 동안 수행 중이며 마지막 변화는 1분 전에 있었습니다.|현재|18분 경과">
+                <span class="meta"><i></i> present · 18m</span><b>cras_backend는 아직 ‘되어 가는 중’에 속한다.</b><p>탐색 완료 → 구현 중 → 검증 대기</p>
+              </button>
+              <button class="ontology-entry attention" data-entry="CMS_WEB|30분 동안 관측 가능한 새 활동이 없습니다.|침묵|확인 필요">
+                <span class="meta"><i></i> silence · 30m</span><b>CMS_WEB의 시간은 삼십 분째 새로운 사건을 만들지 않았다.</b><p>기다리기 또는 상태 확인이 필요합니다.</p>
+              </button>
+              <button class="ontology-entry" data-entry="패키지 점검|Windows 앱 빌드와 산출물 검증을 마쳤습니다.|완료|14분 전">
+                <span class="meta"><i></i> completed · 14m ago</span><b>패키지 점검은 과거가 되어 기록으로 남았다.</b><p>검증 통과 · 산출물 2 · 경고 0</p>
+              </button>
+            </div>
+            <footer class="field-foot"><span>완료 36</span><span>시간순 기록 보기 ↗</span></footer>
+          </article>
+
+          <article class="ontological-field">
+            <header class="field-head"><span class="symbol">C</span><span><b>의식 · Consciousness</b><small>자동 수행이 인간 판단과 만나는 경계</small></span></header>
+            <div class="field-body">
+              <button class="ontology-entry attention" data-entry="검증의 모순|테스트 12개 중 하나가 실패했습니다. 변경은 보존되어 있습니다.|판단 필요|2분 전">
+                <span class="meta"><i></i> contradiction · urgent</span><b>성공이라 부르기에는 하나의 반례가 남아 있다.</b><p>수정 요청 또는 다시 실행</p>
+              </button>
+              <button class="ontology-entry attention" data-entry="경로의 선택|안전한 순차 전환과 빠른 일괄 전환은 서로 다른 비용을 가집니다.|선택 필요|18분 전">
+                <span class="meta"><i></i> choice · waiting</span><b>두 가능성 중 어느 미래를 실제로 만들 것인가?</b><p>순차 전환 또는 일괄 전환</p>
+              </button>
+              <button class="ontology-entry attention" data-entry="침묵의 해석|CMS_WEB이 멈춘 것인지 생각 중인지 현재 근거만으로는 단정할 수 없습니다.|확인 필요|30분 전">
+                <span class="meta"><i></i> ambiguity · waiting</span><b>침묵은 기다림인가, 멈춤인가?</b><p>세션 열기 또는 10분 더 기다리기</p>
+              </button>
+            </div>
+            <footer class="field-foot"><span>판단 03</span><span>우선순위순 보기 ↗</span></footer>
+          </article>
+        </section>
+      </div>
+
+      <aside id="ontologyDrawer" class="ontology-drawer" aria-hidden="true">
+        <button class="close" aria-label="상세 닫기">×</button>
+        <small id="ontologyDrawerState">entity · active</small>
+        <h2 id="ontologyDrawerTitle">메인 GPT</h2>
+        <p id="ontologyDrawerText">전체 작업의 방향을 조율하는 중심 주체입니다.</p>
+        <dl>
+          <div><dt>현재 상태</dt><dd id="ontologyDrawerStatus">조율 중</dd></div>
+          <div><dt>마지막 변화</dt><dd id="ontologyDrawerTime">최근 활동 12초 전</dd></div>
+          <div><dt>작업 폴더</dt><dd>Lodestar</dd></div>
+          <div><dt>연결</dt><dd>서브에이전트 3 · 실행 1</dd></div>
+        </dl>
+        <div class="drawer-actions"><button data-toast="선택한 항목의 전체 맥락을 열었습니다.">맥락 열기</button><button data-toast="대화 기록을 열었습니다.">대화 보기</button></div>
+      </aside>
+    </section>
+  </main>
+
+  <div class="sketch-tools" aria-label="스케치 도구">
+    <select id="themeSwitcher" aria-label="테마"><option value="default">Metaphysical</option></select>
+    <button type="button" data-width="375" title="모바일 375px">M</button>
+    <button type="button" data-width="768" title="태블릿 768px">T</button>
+    <button type="button" data-width="100%" title="데스크톱 전체">D</button>
+    <button type="button" id="annotationToggle" title="디자인 주석">i</button>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const viewport = document.querySelector("#sketchViewport");
+    const toast = document.querySelector("#toast");
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    function showVariant(name, source) {
+      document.querySelectorAll(".variant").forEach((variant) => {
+        variant.classList.toggle("active", variant.dataset.variant === name);
+      });
+      document.querySelectorAll(".variant-tab").forEach((tab) => {
+        const active = tab.dataset.variantTarget === name;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      if (source) source.blur();
+      window.scrollTo(0, 0);
+    }
+
+    document.querySelectorAll(".variant-tab").forEach((tab) => {
+      tab.addEventListener("click", () => showVariant(tab.dataset.variantTarget, tab));
+    });
+
+    document.querySelectorAll("[data-toast]").forEach((control) => {
+      control.addEventListener("click", (event) => {
+        event.stopPropagation();
+        showToast(control.dataset.toast);
+      });
+    });
+
+    document.querySelectorAll(".celestial, .star-core").forEach((node) => {
+      node.addEventListener("click", () => {
+        document.querySelectorAll(".celestial").forEach((item) => item.classList.toggle("selected", item === node));
+        const [title, text, state] = node.dataset.nodeDetail.split("|");
+        document.querySelector("#cosmicDetailTitle").textContent = title;
+        document.querySelector("#cosmicDetailText").textContent = text;
+        document.querySelector("#cosmicDetailState").textContent = state;
+      });
+    });
+
+    document.querySelectorAll(".cosmic-nav button").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.querySelectorAll(".cosmic-nav button").forEach((item) => item.classList.toggle("active", item === button));
+        showToast(`${button.title} 관측 화면으로 전환했습니다.`);
+      });
+    });
+
+    document.querySelector(".cosmic-search").addEventListener("input", (event) => {
+      const query = event.target.value.trim().toLowerCase();
+      document.querySelectorAll(".celestial").forEach((node) => {
+        node.hidden = query && !node.textContent.toLowerCase().includes(query);
+      });
+    });
+
+    document.querySelectorAll(".rite-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        document.querySelectorAll(".rite-item").forEach((candidate) => candidate.classList.toggle("active", candidate === item));
+        showToast(`${item.querySelector("b").textContent} 장을 펼쳤습니다.`);
+      });
+    });
+
+    document.querySelectorAll(".omen-card").forEach((card) => {
+      card.addEventListener("click", (event) => {
+        if (event.target.closest("button")) return;
+        document.querySelectorAll(".omen-card").forEach((item) => item.classList.toggle("open", item === card && !card.classList.contains("open")));
+      });
+    });
+
+    const drawer = document.querySelector("#ontologyDrawer");
+    document.querySelectorAll(".ontology-entry").forEach((entry) => {
+      entry.addEventListener("click", () => {
+        const [title, text, status, time] = entry.dataset.entry.split("|");
+        document.querySelector("#ontologyDrawerTitle").textContent = title;
+        document.querySelector("#ontologyDrawerText").textContent = text;
+        document.querySelector("#ontologyDrawerStatus").textContent = status;
+        document.querySelector("#ontologyDrawerTime").textContent = time;
+        document.querySelector("#ontologyDrawerState").textContent = entry.querySelector(".meta").textContent.trim();
+        drawer.classList.add("open");
+        drawer.setAttribute("aria-hidden", "false");
+      });
+    });
+    drawer.querySelector(".close").addEventListener("click", () => {
+      drawer.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+    });
+
+    document.querySelectorAll("[data-width]").forEach((button) => {
+      button.addEventListener("click", () => {
+        viewport.style.maxWidth = button.dataset.width === "100%" ? "100%" : `${button.dataset.width}px`;
+        showToast(button.dataset.width === "100%" ? "데스크톱 전체 너비" : `${button.dataset.width}px 뷰포트`);
+      });
+    });
+    document.querySelector("#annotationToggle").addEventListener("click", () => {
+      document.body.classList.toggle("annotate");
+      showToast(document.body.classList.contains("annotate") ? "디자인 주석을 켰습니다." : "디자인 주석을 껐습니다.");
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        drawer.classList.remove("open");
+        drawer.setAttribute("aria-hidden", "true");
+      }
+      if (event.key === "1") showVariant("cosmic");
+      if (event.key === "2") showVariant("ritual");
+      if (event.key === "3") showVariant("ontology");
+    });
+  </script>
+</body>
+</html>

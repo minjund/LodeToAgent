@@ -64,7 +64,7 @@ function createGenericParser(dependencies) {
   function readSessionFile(fileInfo, options = {}) {
     const isJsonl = /\.jsonl$/i.test(fileInfo.file);
     return isJsonl
-      ? readJsonLines(fileInfo.file)
+      ? readJsonLines(fileInfo.file, options.maxBytes)
       : {
         rows: [readJson(fileInfo.file, {})],
         truncated: Number(fileInfo.size || 0) > MAX_JSON_BYTES,
@@ -136,6 +136,8 @@ function createGenericParser(dependencies) {
   function processEvents(session, events) {
     const state = {
       running: false,
+      completed: false,
+      completedAt: null,
       failed: false,
       pendingUserInputCalls: new Set(),
       toolCalls: new Map(),
@@ -143,6 +145,11 @@ function createGenericParser(dependencies) {
     };
     for (const event of events) {
       const type = String(event.type || event.event || event.kind || '').toLowerCase();
+      if (state.completed && (TOOL_START_PATTERN.test(type)
+        || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type))) {
+        state.completed = false;
+        state.completedAt = null;
+      }
       if (type === 'init') {
         session.model = event.model || session.model;
         session.externalId = event.session_id || event.sessionId || session.externalId;
@@ -164,7 +171,11 @@ function createGenericParser(dependencies) {
         recordToolEnd(session, state, event);
         state.pendingUserInputCalls.delete(String(event.tool_call_id || event.tool_use_id || event.id || ''));
       }
-      if (type === 'result' || /session_end|completed/.test(type)) state.running = false;
+      if (type === 'result' || /session_end|completed/.test(type)) {
+        state.running = false;
+        state.completed = true;
+        state.completedAt = timestamp(event.timestamp, session.updatedAt);
+      }
       if (type === 'error' || event.error) state.failed = true;
       const usage = normalizeUsage(event);
       if (usage.total) session.usage = usage;
@@ -263,15 +274,24 @@ function createGenericParser(dependencies) {
       ? 'failed'
       : (pendingUserInput || (!eventState.running && conversationalInput)
         ? 'waiting'
-        : ((eventState.running && age < STALE_TURN_THRESHOLD_MS) || age < ACTIVE_THRESHOLD_MS
-        ? 'running'
-        : 'idle'));
+        : (eventState.completed
+          ? 'completed'
+          : ((eventState.running && age < STALE_TURN_THRESHOLD_MS) || age < ACTIVE_THRESHOLD_MS
+            ? 'running'
+            : 'idle')));
     session.statusDetail = eventState.failed
       ? '오류 발생'
       : (session.status === 'waiting'
         ? '내 답변을 기다리는 중'
-        : (session.status === 'running' ? '실시간 이벤트 수신 중' : '다음 요청 대기'));
-    session.statusObserved = eventState.running || session.status === 'waiting';
+        : (session.status === 'completed'
+          ? '작업 완료'
+          : (session.status === 'running' ? '실시간 이벤트 수신 중' : '다음 요청 대기')));
+    if (session.status === 'completed') {
+      session.completedAt = eventState.completedAt || session.updatedAt;
+      session.completionObserved = true;
+      session.result = messageState.lastAssistantText || session.result;
+    }
+    session.statusObserved = eventState.running || session.status === 'waiting' || session.status === 'failed';
     session.executions = eventState.executionTracker.finalize();
     trimSession(session);
     return session;

@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lodestar — Intent Lineage</title>
+  <link id="theme-link" rel="stylesheet" href="../themes/default.css">
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 16% 0%, color-mix(in srgb, var(--color-primary) 5%, transparent), transparent 30%),
+        var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+    }
+    button, input, select { color: inherit; font: inherit; }
+    button { -webkit-tap-highlight-color: transparent; }
+    .mono { font-family: var(--font-mono); }
+    .serif { font-family: var(--font-serif); }
+
+    .variant-nav {
+      position: fixed;
+      z-index: 100;
+      top: 10px;
+      left: 50%;
+      padding: 5px;
+      display: flex;
+      gap: 4px;
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(16px);
+      transform: translateX(-50%);
+    }
+    .variant-tab {
+      min-height: 35px;
+      padding: 0 13px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text-muted);
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .variant-tab.active { background: var(--color-text); color: var(--color-bg); font-weight: 760; }
+
+    .shell {
+      width: calc(100vw - 42px);
+      height: calc(100vh - 78px);
+      min-height: 720px;
+      margin: 64px 21px 14px;
+      display: grid;
+      grid-template-columns: 184px minmax(0, 1fr);
+      grid-template-rows: 60px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--color-surface) 86%, var(--color-bg));
+      box-shadow: var(--shadow-lg);
+    }
+    .sidebar {
+      grid-row: 1 / 3;
+      padding: 18px 13px 14px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+    }
+    .brand {
+      height: 39px;
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 11px;
+      font-weight: 780;
+      letter-spacing: -.02em;
+    }
+    .brand i {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 800 10px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .side-kicker {
+      margin: 23px 9px 8px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      font-weight: 760;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .side-nav { display: grid; gap: 4px; }
+    .side-nav button {
+      min-height: 40px;
+      padding: 0 10px;
+      display: grid;
+      grid-template-columns: 24px 1fr auto;
+      align-items: center;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text-muted);
+      text-align: left;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .side-nav button:hover { color: var(--color-text); }
+    .side-nav button.active {
+      background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+      color: var(--color-text);
+      box-shadow: inset 2px 0 var(--color-primary);
+    }
+    .side-nav i { color: var(--color-primary); font: 700 10px/1 var(--font-mono); font-style: normal; }
+    .side-nav b {
+      min-width: 20px;
+      padding: 3px 6px;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--color-text) 7%, transparent);
+      font-size: 8px;
+      text-align: center;
+    }
+    .side-philosophy {
+      margin-top: auto;
+      padding: 14px 11px 12px;
+      border-top: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font: 14px/1.38 var(--font-serif);
+    }
+    .side-philosophy small {
+      margin-top: 8px;
+      display: block;
+      color: color-mix(in srgb, var(--color-text-muted) 70%, transparent);
+      font: 8px/1.4 var(--font-sans);
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+
+    .topbar {
+      grid-column: 2;
+      padding: 0 18px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .crumb { color: var(--color-text-muted); font-size: 9px; }
+    .crumb b { color: var(--color-text); }
+    .top-spacer { flex: 1; }
+    .quiet-button, .intent-button {
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      font-size: 9px;
+      cursor: pointer;
+    }
+    .quiet-button:hover { border-color: color-mix(in srgb, var(--color-primary) 38%, var(--color-border)); }
+    .intent-button {
+      border-color: transparent;
+      background: var(--color-primary);
+      color: #06140f;
+      font-weight: 780;
+    }
+    .presence {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--color-text-muted);
+      font-size: 9px;
+    }
+    .presence i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 8%, transparent); }
+
+    .world {
+      position: relative;
+      grid-column: 2;
+      overflow: hidden;
+    }
+    .variant-panel {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: auto;
+    }
+    .variant-panel.active { display: block; }
+
+    /* A — Intent lineage */
+    .lineage-page { min-height: 100%; padding: 23px 24px 20px; }
+    .philosophy-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 280px;
+      align-items: end;
+      gap: 30px;
+    }
+    .overline {
+      margin: 0 0 9px;
+      color: var(--color-primary);
+      font-size: 8px;
+      font-weight: 780;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+    .philosophy-head h1 {
+      max-width: 720px;
+      margin: 0;
+      font: 38px/.98 var(--font-serif);
+      letter-spacing: -.045em;
+    }
+    .philosophy-head h1 em { color: var(--color-primary); font-style: normal; }
+    .philosophy-head > p {
+      margin: 0;
+      color: var(--color-text-muted);
+      font: 13px/1.58 var(--font-serif);
+    }
+    .now-divider {
+      margin: 20px 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .now-divider::after { height: 1px; flex: 1; content: ""; background: var(--color-border); }
+    .now-divider span { margin-left: auto; letter-spacing: normal; text-transform: none; }
+    .lineage-stack { display: grid; gap: 9px; }
+    .lineage {
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--color-bg) 36%, transparent);
+      transition: border-color .15s ease;
+    }
+    .lineage:hover { border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border)); }
+    .lineage.primary {
+      border-color: color-mix(in srgb, var(--color-primary) 38%, var(--color-border));
+      box-shadow: inset 3px 0 var(--color-primary);
+    }
+    .lineage-head {
+      min-height: 64px;
+      padding: 11px 14px 10px 17px;
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) auto auto;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .lineage:not(.primary) .lineage-head { border-bottom: 0; }
+    .lineage-purpose { min-width: 0; }
+    .lineage-purpose small, .lineage-purpose b { display: block; }
+    .lineage-purpose small { margin-bottom: 5px; color: var(--color-text-muted); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .lineage-purpose b { overflow: hidden; font: 15px/1.2 var(--font-serif); text-overflow: ellipsis; white-space: nowrap; }
+    .lineage-meta {
+      display: flex;
+      gap: 14px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      white-space: nowrap;
+    }
+    .lineage-meta b { color: var(--color-text); font-weight: 700; }
+    .human-call {
+      min-height: 29px;
+      padding: 0 9px;
+      border: 1px solid rgba(240,174,69,.24);
+      border-radius: 8px;
+      background: rgba(240,174,69,.07);
+      color: #f0ae45;
+      font-size: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .causal-stage {
+      position: relative;
+      min-height: 198px;
+      padding: 19px 18px 17px;
+      display: grid;
+      grid-template-columns: minmax(155px, .78fr) 34px minmax(425px, 2fr) 34px minmax(145px, .72fr);
+      align-items: center;
+      gap: 7px;
+      background-image: radial-gradient(color-mix(in srgb, var(--color-primary) 12%, transparent) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .meaning-node {
+      min-width: 0;
+      min-height: 116px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--color-surface) 90%, transparent);
+      text-align: left;
+      cursor: pointer;
+    }
+    .meaning-node:hover { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); }
+    .meaning-node .kind { color: var(--color-text-muted); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .meaning-node h3 { margin: 13px 0 4px; font: 14px/1.18 var(--font-serif); }
+    .meaning-node p { margin: 0; color: var(--color-text-muted); font-size: 8px; line-height: 1.45; }
+    .meaning-node footer { margin-top: 10px; padding-top: 8px; display: flex; justify-content: space-between; border-top: 1px solid var(--color-border); font-size: 8px; }
+    .meaning-node.evidence { border-color: color-mix(in srgb, var(--color-primary) 25%, var(--color-border)); }
+    .line-arrow {
+      position: relative;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--color-primary));
+    }
+    .line-arrow::after {
+      position: absolute;
+      top: -3px;
+      right: 0;
+      width: 7px;
+      height: 7px;
+      content: "";
+      border-top: 1px solid var(--color-primary);
+      border-right: 1px solid var(--color-primary);
+      transform: rotate(45deg);
+    }
+    .actors { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 7px; }
+    .actor {
+      min-width: 0;
+      min-height: 59px;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 27px minmax(0,1fr) auto;
+      gap: 7px;
+      align-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+      text-align: left;
+      cursor: pointer;
+    }
+    .actor.command { border-color: rgba(133,245,199,.17); background: #050a0e; }
+    .actor > i {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+      color: var(--color-primary);
+      font: 700 8px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .actor span { min-width: 0; }
+    .actor b, .actor small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .actor b { font-size: 9px; }
+    .actor small { margin-top: 4px; color: var(--color-text-muted); font-size: 8px; }
+    .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--color-success); animation: breathe 1.8s ease-in-out infinite; }
+    @keyframes breathe { 50% { opacity: .35; transform: scale(.72); } }
+    .compact-lineage {
+      min-height: 64px;
+      padding: 10px 14px 10px 17px;
+      display: grid;
+      grid-template-columns: minmax(250px, .9fr) minmax(480px, 2fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+    .compact-path {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .compact-path span {
+      min-width: 0;
+      padding: 7px 9px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .compact-path span.live { border-color: rgba(133,245,199,.17); color: var(--color-text); }
+    .compact-path i { width: 18px; height: 1px; flex: 0 0 auto; background: var(--color-border); font-style: normal; }
+    .quiet-memory {
+      margin-top: 13px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-top: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 8px;
+    }
+    .quiet-memory b { color: var(--color-text); }
+    .quiet-memory button { margin-left: auto; border: 0; background: transparent; color: var(--color-primary); font-size: 8px; cursor: pointer; }
+
+    /* B — Constellation */
+    .constellation-page {
+      min-height: 100%;
+      padding: 26px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      gap: 19px;
+    }
+    .constellation-field {
+      position: relative;
+      min-height: 670px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 18px;
+      background:
+        radial-gradient(circle at center, color-mix(in srgb, var(--color-primary) 7%, transparent), transparent 38%),
+        radial-gradient(color-mix(in srgb, var(--color-text) 10%, transparent) 1px, transparent 1px);
+      background-size: auto, 28px 28px;
+    }
+    .constellation-title { position: absolute; z-index: 3; top: 22px; left: 24px; }
+    .constellation-title h1 { margin: 0; font: 32px/1 var(--font-serif); letter-spacing: -.04em; }
+    .constellation-title p { margin: 7px 0 0; color: var(--color-text-muted); font-size: 9px; }
+    .intent-sun {
+      position: absolute;
+      z-index: 3;
+      top: 50%;
+      left: 50%;
+      width: 230px;
+      height: 230px;
+      padding: 34px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+      box-shadow: 0 0 0 24px color-mix(in srgb, var(--color-primary) 2.5%, transparent), 0 0 0 70px color-mix(in srgb, var(--color-primary) 1.5%, transparent);
+      text-align: center;
+      transform: translate(-50%, -45%);
+      cursor: pointer;
+    }
+    .intent-sun small { color: var(--color-primary); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+    .intent-sun b { margin-top: 12px; font: 20px/1.2 var(--font-serif); }
+    .intent-sun span { margin-top: 11px; color: var(--color-text-muted); font-size: 8px; line-height: 1.45; }
+    .orbit {
+      position: absolute;
+      z-index: 2;
+      width: 130px;
+      min-height: 64px;
+      padding: 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+      cursor: pointer;
+    }
+    .orbit b, .orbit small { display: block; }
+    .orbit b { font-size: 9px; }
+    .orbit small { margin-top: 5px; color: var(--color-text-muted); font-size: 8px; }
+    .orbit i { position: absolute; top: 10px; right: 10px; width: 5px; height: 5px; border-radius: 50%; background: var(--color-success); font-style: normal; }
+    .orbit.one { top: 18%; left: 18%; }
+    .orbit.two { top: 20%; right: 15%; }
+    .orbit.three { bottom: 16%; left: 14%; }
+    .orbit.four { right: 13%; bottom: 15%; }
+    .orbit.five { top: 47%; left: 8%; }
+    .constellation-lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .constellation-lines line { stroke: color-mix(in srgb, var(--color-primary) 30%, transparent); stroke-width: 1; stroke-dasharray: 3 6; }
+    .meaning-rail { display: grid; align-content: start; gap: 10px; }
+    .meaning-rail > header { padding: 3px 2px 12px; border-bottom: 1px solid var(--color-border); }
+    .meaning-rail h2 { margin: 0; font: 23px/1.05 var(--font-serif); }
+    .meaning-rail header p { margin: 8px 0 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.5; }
+    .meaning-card { padding: 13px; border: 1px solid var(--color-border); border-radius: 12px; }
+    .meaning-card small { color: var(--color-primary); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .meaning-card b { margin-top: 8px; display: block; font: 15px/1.25 var(--font-serif); }
+    .meaning-card p { margin: 7px 0 0; color: var(--color-text-muted); font-size: 8px; line-height: 1.5; }
+    .meaning-card.warning { border-color: rgba(240,174,69,.24); background: rgba(240,174,69,.05); }
+    .meaning-card.warning small { color: #f0ae45; }
+
+    /* C — Causal ledger */
+    .ledger-page { min-height: 100%; padding: 25px 27px; }
+    .ledger-head {
+      padding-bottom: 18px;
+      display: flex;
+      align-items: end;
+      gap: 22px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .ledger-head h1 { margin: 0; font: 34px/1 var(--font-serif); letter-spacing: -.04em; }
+    .ledger-head p { max-width: 450px; margin: 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.5; }
+    .ledger-head .ledger-proof { margin-left: auto; color: var(--color-primary); font: 9px/1 var(--font-mono); }
+    .ledger-body { display: grid; grid-template-columns: 180px minmax(0,1fr) 225px; }
+    .ledger-column { min-width: 0; border-right: 1px solid var(--color-border); }
+    .ledger-column:last-child { border-right: 0; }
+    .ledger-column > header {
+      min-height: 45px;
+      padding: 0 13px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 8px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .ledger-purpose { padding: 16px 13px; }
+    .ledger-purpose blockquote { margin: 0; font: 17px/1.35 var(--font-serif); }
+    .ledger-purpose small { margin-top: 10px; display: block; color: var(--color-text-muted); font-size: 8px; line-height: 1.5; }
+    .ledger-events { position: relative; padding: 4px 18px 15px 40px; }
+    .ledger-events::before { position: absolute; top: 18px; bottom: 25px; left: 22px; width: 1px; content: ""; background: var(--color-border); }
+    .ledger-event {
+      position: relative;
+      width: 100%;
+      min-height: 66px;
+      padding: 12px 13px;
+      display: grid;
+      grid-template-columns: 55px minmax(0,1fr) auto;
+      gap: 9px;
+      align-items: center;
+      border: 0;
+      border-bottom: 1px solid var(--color-border);
+      background: transparent;
+      color: var(--color-text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .ledger-event::before {
+      position: absolute;
+      left: -22px;
+      width: 7px;
+      height: 7px;
+      content: "";
+      border: 2px solid var(--color-surface);
+      border-radius: 50%;
+      background: var(--color-primary);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    }
+    .ledger-event time { color: var(--color-text-muted); font: 8px/1 var(--font-mono); }
+    .ledger-event b, .ledger-event small { display: block; }
+    .ledger-event b { font-size: 9px; }
+    .ledger-event small { margin-top: 4px; color: var(--color-text-muted); font-size: 8px; }
+    .ledger-event code { color: var(--color-primary); font: 8px/1.3 var(--font-mono); }
+    .proof-stack { padding: 12px; display: grid; gap: 8px; }
+    .proof-card { padding: 11px; border: 1px solid var(--color-border); border-radius: 10px; }
+    .proof-card small, .proof-card b { display: block; }
+    .proof-card small { color: var(--color-text-muted); font-size: 8px; }
+    .proof-card b { margin-top: 6px; font-size: 9px; }
+    .proof-card code { margin-top: 8px; display: block; color: var(--color-primary); font: 8px/1.4 var(--font-mono); }
+    .proof-card.warning { border-color: rgba(240,174,69,.24); color: #f0ae45; }
+
+    /* Memory — completed causal records */
+    .memory-screen {
+      position: absolute;
+      z-index: 20;
+      inset: 0;
+      display: none;
+      overflow: auto;
+      background: color-mix(in srgb, var(--color-surface) 86%, var(--color-bg));
+    }
+    .memory-screen.active { display: block; }
+    .memory-page { min-height: 100%; padding: 24px 26px 28px; }
+    .memory-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 390px;
+      gap: 36px;
+      align-items: end;
+    }
+    .memory-head h1 {
+      max-width: 760px;
+      margin: 0;
+      font: 38px/.98 var(--font-serif);
+      letter-spacing: -.045em;
+    }
+    .memory-head h1 em { color: var(--color-primary); font-style: normal; }
+    .memory-definition {
+      padding-left: 18px;
+      border-left: 1px solid var(--color-border);
+    }
+    .memory-definition p { margin: 0; color: var(--color-text-muted); font: 13px/1.55 var(--font-serif); }
+    .memory-definition small { margin-top: 10px; display: block; color: var(--color-primary); font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
+    .memory-summary {
+      margin: 20px 0 15px;
+      padding: 12px 0;
+      display: flex;
+      align-items: center;
+      gap: 30px;
+      border-top: 1px solid var(--color-border);
+      border-bottom: 1px solid var(--color-border);
+    }
+    .memory-stat small, .memory-stat b { display: block; }
+    .memory-stat small { color: var(--color-text-muted); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+    .memory-stat b { margin-top: 5px; font: 17px/1 var(--font-serif); }
+    .memory-search {
+      margin-left: auto;
+      min-width: 280px;
+      min-height: 34px;
+      padding: 0 11px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      outline: none;
+      background: transparent;
+      color: var(--color-text);
+      font-size: 9px;
+    }
+    .memory-search:focus { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border)); }
+    .memory-filter {
+      min-height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text);
+      font-size: 9px;
+    }
+    .memory-layout { display: grid; grid-template-columns: minmax(0,1fr) 280px; gap: 18px; }
+    .memory-list { min-width: 0; display: grid; gap: 8px; align-content: start; }
+    .memory-day {
+      min-height: 26px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+    .memory-day::after { height: 1px; flex: 1; content: ""; background: var(--color-border); }
+    .memory-record {
+      width: 100%;
+      min-height: 118px;
+      padding: 13px 14px;
+      display: grid;
+      grid-template-columns: 28px minmax(245px, .85fr) minmax(390px, 1.55fr) auto;
+      gap: 13px;
+      align-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-bg) 32%, transparent);
+      color: var(--color-text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .memory-record:hover { border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border)); }
+    .memory-record > i {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 30%, var(--color-border));
+      border-radius: 50%;
+      color: var(--color-primary);
+      font-size: 9px;
+      font-style: normal;
+    }
+    .memory-intent { min-width: 0; }
+    .memory-intent small, .memory-intent b, .memory-intent em { display: block; }
+    .memory-intent small { color: var(--color-text-muted); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+    .memory-intent b { margin-top: 7px; font: 14px/1.25 var(--font-serif); }
+    .memory-intent em { margin-top: 7px; color: var(--color-text-muted); font-size: 8px; font-style: normal; }
+    .memory-chain { min-width: 0; }
+    .memory-chain small { color: var(--color-text-muted); font-size: 8px; }
+    .memory-chain-track {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .memory-chain-track span {
+      min-width: 0;
+      padding: 7px 8px;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .memory-chain-track span.proof { border-color: rgba(133,245,199,.18); color: var(--color-primary); }
+    .memory-chain-track i { width: 13px; height: 1px; flex: 0 0 auto; background: var(--color-border); font-style: normal; }
+    .memory-outcome {
+      min-width: 112px;
+      padding-left: 12px;
+      border-left: 1px solid var(--color-border);
+    }
+    .memory-outcome small, .memory-outcome b, .memory-outcome em { display: block; }
+    .memory-outcome small { color: var(--color-text-muted); font-size: 8px; }
+    .memory-outcome b { margin-top: 7px; color: var(--color-primary); font-size: 10px; }
+    .memory-outcome em { margin-top: 6px; color: var(--color-text-muted); font-size: 8px; font-style: normal; }
+    .wisdom-rail { min-width: 0; align-self: start; }
+    .wisdom-head { padding: 2px 2px 13px; border-bottom: 1px solid var(--color-border); }
+    .wisdom-head h2 { margin: 0; font: 22px/1.05 var(--font-serif); }
+    .wisdom-head p { margin: 8px 0 0; color: var(--color-text-muted); font-size: 8px; line-height: 1.5; }
+    .wisdom-list { padding-top: 9px; display: grid; gap: 8px; }
+    .wisdom {
+      padding: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--color-bg) 25%, transparent);
+    }
+    .wisdom small { color: var(--color-primary); font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+    .wisdom blockquote { margin: 9px 0 0; font: 14px/1.35 var(--font-serif); }
+    .wisdom p { margin: 8px 0 0; color: var(--color-text-muted); font-size: 8px; line-height: 1.5; }
+    .wisdom footer { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--color-border); color: var(--color-text-muted); font-size: 8px; }
+    .memory-empty { display: none; padding: 50px 20px; border: 1px dashed var(--color-border); border-radius: 13px; color: var(--color-text-muted); text-align: center; font: 16px/1.5 var(--font-serif); }
+
+    .detail-drawer {
+      position: absolute;
+      z-index: 30;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: min(370px, 100%);
+      padding: 21px;
+      overflow: auto;
+      border-left: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 97%, transparent);
+      box-shadow: -24px 0 70px rgba(0,0,0,.3);
+      transform: translateX(105%);
+      transition: transform .22s ease;
+    }
+    .detail-drawer.open { transform: translateX(0); }
+    .drawer-head { display: flex; align-items: center; }
+    .drawer-head small { color: var(--color-primary); font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
+    .drawer-head button { margin-left: auto; width: 29px; height: 29px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .detail-drawer h2 { margin: 23px 0 8px; font: 25px/1.05 var(--font-serif); letter-spacing: -.03em; }
+    .detail-drawer > p { margin: 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.6; }
+    .why-chain { margin-top: 22px; display: grid; gap: 7px; }
+    .why-chain div { padding: 11px; border: 1px solid var(--color-border); border-radius: 10px; }
+    .why-chain small, .why-chain b { display: block; }
+    .why-chain small { color: var(--color-text-muted); font-size: 8px; text-transform: uppercase; }
+    .why-chain b { margin-top: 6px; font-size: 10px; }
+    .drawer-actions { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .drawer-actions button { min-height: 37px; border: 1px solid var(--color-border); border-radius: 9px; background: transparent; font-size: 9px; cursor: pointer; }
+    .drawer-actions button:first-child { border-color: transparent; background: var(--color-primary); color: #06140f; font-weight: 760; }
+    .toast {
+      position: fixed;
+      z-index: 200;
+      bottom: 26px;
+      left: 50%;
+      padding: 10px 14px;
+      border-radius: 9px;
+      background: var(--color-text);
+      color: var(--color-bg);
+      box-shadow: var(--shadow-lg);
+      font-size: 9px;
+      opacity: 0;
+      transform: translate(-50%, 10px);
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 820px) {
+      body { overflow: hidden; }
+      .variant-nav { top: 6px; max-width: calc(100vw - 12px); overflow-x: auto; }
+      .variant-tab { min-width: max-content; padding: 0 10px; }
+      .shell {
+        width: 100vw;
+        height: calc(100vh - 50px);
+        min-height: 0;
+        margin: 50px 0 0;
+        grid-template-columns: 1fr;
+        grid-template-rows: 50px minmax(0,1fr) 57px;
+        border: 0;
+        border-radius: 0;
+      }
+      .sidebar {
+        grid-column: 1;
+        grid-row: 3;
+        padding: 3px 7px;
+        flex-direction: row;
+        justify-content: space-around;
+        border-top: 1px solid var(--color-border);
+        border-right: 0;
+      }
+      .brand, .side-kicker, .side-philosophy { display: none; }
+      .side-nav { width: 100%; grid-template-columns: repeat(4,1fr); gap: 2px; }
+      .side-nav button { min-height: 48px; padding: 0 4px; display: flex; flex-direction: column; justify-content: center; gap: 5px; text-align: center; }
+      .side-nav button.active { box-shadow: inset 0 -2px var(--color-primary); }
+      .side-nav b { display: none; }
+      .topbar { grid-column: 1; grid-row: 1; padding: 0 10px; }
+      .crumb span, .presence, .quiet-button { display: none; }
+      .world { grid-column: 1; grid-row: 2; }
+      .lineage-page { padding: 18px 12px 15px; }
+      .philosophy-head { grid-template-columns: 1fr; gap: 10px; }
+      .philosophy-head h1 { font-size: 31px; }
+      .philosophy-head > p { font-size: 11px; }
+      .lineage-head, .compact-lineage { padding: 10px 11px; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+      .lineage-meta { display: none; }
+      .lineage-purpose b { font-size: 13px; white-space: normal; }
+      .causal-stage { padding: 12px; grid-template-columns: 1fr; gap: 9px; }
+      .line-arrow { display: none; }
+      .actors { grid-template-columns: 1fr; }
+      .compact-lineage .compact-path { grid-column: 1 / -1; overflow: hidden; }
+      .compact-path span:nth-of-type(n+3), .compact-path i:nth-of-type(n+2) { display: none; }
+      .compact-lineage .human-call { grid-column: 2; grid-row: 1; }
+      .quiet-memory { flex-wrap: wrap; }
+      .constellation-page { padding: 13px; grid-template-columns: 1fr; }
+      .constellation-field { min-height: 620px; }
+      .meaning-rail { display: none; }
+      .intent-sun { width: 190px; height: 190px; padding: 26px; }
+      .orbit { width: 112px; }
+      .orbit.one { top: 18%; left: 4%; }
+      .orbit.two { top: 20%; right: 3%; }
+      .orbit.three { bottom: 12%; left: 3%; }
+      .orbit.four { right: 3%; bottom: 12%; }
+      .orbit.five { display: none; }
+      .ledger-page { padding: 17px 12px; }
+      .ledger-head { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .ledger-head .ledger-proof { margin-left: 0; }
+      .ledger-body { grid-template-columns: 1fr; }
+      .ledger-column { border-right: 0; }
+      .ledger-column:first-child, .ledger-column:last-child { display: none; }
+      .ledger-events { padding-left: 34px; }
+      .memory-page { padding: 18px 12px; }
+      .memory-head { grid-template-columns: 1fr; gap: 14px; }
+      .memory-head h1 { font-size: 31px; }
+      .memory-definition { padding-left: 0; border-left: 0; }
+      .memory-summary { gap: 19px; flex-wrap: wrap; }
+      .memory-search { width: 100%; min-width: 0; margin-left: 0; order: 5; }
+      .memory-filter { margin-left: auto; }
+      .memory-layout { grid-template-columns: 1fr; }
+      .memory-record { grid-template-columns: 25px minmax(0,1fr) auto; gap: 9px; }
+      .memory-chain { grid-column: 2 / -1; }
+      .memory-chain-track span:nth-of-type(n+4), .memory-chain-track i:nth-of-type(n+3) { display: none; }
+      .memory-outcome { grid-column: 2 / -1; padding: 9px 0 0; border-top: 1px solid var(--color-border); border-left: 0; }
+      .wisdom-rail { margin-top: 8px; }
+      .detail-drawer { top: 0; width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="variant-nav" aria-label="철학적 UI 변형">
+    <button class="variant-tab active" type="button" data-variant-choice="a">A · 의도의 계보 ★</button>
+    <button class="variant-tab" type="button" data-variant-choice="b">B · 에이전트 성좌</button>
+    <button class="variant-tab" type="button" data-variant-choice="c">C · 인과 장부</button>
+  </nav>
+
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><i>L</i><span>LODESTAR</span></div>
+      <p class="side-kicker">Orientation</p>
+      <nav class="side-nav">
+        <button class="active" type="button" data-space-choice="now"><i>◆</i><span>지금</span><b>3</b></button>
+        <button type="button" data-space-choice="memory"><i>○</i><span>기억</span><b>84</b></button>
+        <button type="button" data-toast="당신의 판단이 필요한 지점만 모읍니다."><i>!</i><span>판단</span><b>1</b></button>
+        <button type="button" data-toast="터미널·tmux·예약 도구를 엽니다."><i>›_</i><span>도구</span></button>
+      </nav>
+      <blockquote class="side-philosophy">모든 행위는<br>하나의 의도로 돌아가야 한다.<small>Every action needs a why.</small></blockquote>
+    </aside>
+
+    <header class="topbar">
+      <span class="crumb"><b id="crumbMain">지금</b><span id="crumbSub"> · 살아 있는 작업의 계보</span></span>
+      <span class="top-spacer"></span>
+      <span class="presence"><i></i>AI 5개 연결</span>
+      <button class="quiet-button" type="button" data-toast="의도·행위·증거 전체를 검색합니다.">⌘ K</button>
+      <button class="intent-button" type="button" data-toast="새 작업은 먼저 ‘왜’를 묻습니다.">＋ 새 의도</button>
+    </header>
+
+    <main class="world">
+      <section class="variant-panel active" data-variant-panel="a">
+        <div class="lineage-page">
+          <header class="philosophy-head">
+            <div>
+              <p class="overline">The living work · 2026.07.28</p>
+              <h1>무엇이 실행되는가보다,<br><em>왜 움직이는가</em>를 먼저 봅니다.</h1>
+            </div>
+            <p>세션은 창이 아니라 하나의 약속입니다. 인간의 의도에서 출발해 에이전트의 위임과 실제 행위를 지나, 검증 가능한 증거로 돌아옵니다.</p>
+          </header>
+
+          <div class="now-divider">살아 있는 의도 · 3 <span>정상 진행은 조용하게, 불확실성은 선명하게</span></div>
+          <div class="lineage-stack">
+            <article class="lineage primary">
+              <header class="lineage-head">
+                <span class="lineage-purpose"><small>의도 01 · Lodestar</small><b>여러 AI의 움직임을 사람이 한눈에 이해한다.</b></span>
+                <span class="lineage-meta"><span>시작 <b>18분 전</b></span><span>행위 <b>6</b></span><span>최근 <b>12초</b></span></span>
+                <button class="human-call" type="button" data-detail="judgement">◆ 곧 판단 1</button>
+              </header>
+              <div class="causal-stage">
+                <button class="meaning-node" type="button" data-detail="intent">
+                  <span class="kind">Why · 인간의 의도</span>
+                  <span><h3>흐름을 이해 가능하게</h3><p>“서브에이전트와 PowerShell을 모두 한눈에 보고 싶다.”</p></span>
+                  <footer><b>사용자</b><span>원문 보존</span></footer>
+                </button>
+                <i class="line-arrow"></i>
+                <div class="actors">
+                  <button class="actor" type="button" data-detail="codex"><i>Cx</i><span><b>의도를 구조로 번역</b><small>Codex · 메인 에이전트</small></span><em class="pulse"></em></button>
+                  <button class="actor" type="button" data-detail="claude"><i>C</i><span><b>관계 문법을 반증</b><small>Claude · 서브에이전트</small></span><em class="pulse"></em></button>
+                  <button class="actor command" type="button" data-detail="shell"><i>›_</i><span><b>보이는 것을 검증</b><small>PowerShell · 42/48</small></span><em class="pulse"></em></button>
+                  <button class="actor command" type="button" data-detail="index"><i>›_</i><span><b>코드의 흔적을 수집</b><small>Node · 84 files</small></span><em class="pulse"></em></button>
+                </div>
+                <i class="line-arrow"></i>
+                <button class="meaning-node evidence" type="button" data-detail="evidence">
+                  <span class="kind">Proof · 돌아온 증거</span>
+                  <span><h3>한 화면으로 읽힌다</h3><p>에이전트·명령·결과의 연결이 48개 화면에서 검증 중</p></span>
+                  <footer><b>42 통과</b><span>6 남음</span></footer>
+                </button>
+              </div>
+            </article>
+
+            <article class="lineage">
+              <div class="compact-lineage">
+                <span class="lineage-purpose"><small>의도 02 · cras_backend</small><b>결제 실패가 다시는 조용히 사라지지 않게 한다.</b></span>
+                <span class="compact-path"><span>Claude · 원인</span><i></i><span class="live">서브 2 · 검증</span><i></i><span class="live">pytest · 1 failed</span><i></i><span>수정안</span></span>
+                <button class="human-call" type="button" data-detail="judgement">◆ 적용 판단</button>
+              </div>
+            </article>
+
+            <article class="lineage">
+              <div class="compact-lineage">
+                <span class="lineage-purpose"><small>의도 03 · CMS_WEB</small><b>낯선 페이지의 구조를 설명 가능한 지도로 남긴다.</b></span>
+                <span class="compact-path"><span>Gemini · 해석</span><i></i><span class="live">서브 3 · 수집</span><i></i><span class="live">AST · 실행</span><i></i><span>문서 3개</span></span>
+                <span class="lineage-meta"><span>최근 <b>36초</b></span></span>
+              </div>
+            </article>
+          </div>
+          <footer class="quiet-memory"><span>✓</span><b>오늘 7개의 의도가 증거와 함께 기억되었습니다.</b><span>완료는 사라지지 않고 조용해집니다.</span><button type="button" data-toast="오늘 완료된 7개 인과 기록을 엽니다.">기억에서 보기 →</button></footer>
+        </div>
+      </section>
+
+      <section class="variant-panel" data-variant-panel="b">
+        <div class="constellation-page">
+          <div class="constellation-field">
+            <header class="constellation-title"><p class="overline">Variant B · Constellation</p><h1>의도가 중심을 잃지 않게</h1><p>모든 에이전트와 실행은 하나의 목적 주위를 돕니다.</p></header>
+            <svg class="constellation-lines" viewBox="0 0 900 670" preserveAspectRatio="none" aria-hidden="true">
+              <line x1="450" y1="350" x2="220" y2="150"></line><line x1="450" y1="350" x2="710" y2="160"></line>
+              <line x1="450" y1="350" x2="190" y2="545"></line><line x1="450" y1="350" x2="725" y2="545"></line>
+              <line x1="450" y1="350" x2="115" y2="350"></line>
+            </svg>
+            <button class="intent-sun" type="button" data-detail="intent"><small>Human intent</small><b>여러 AI의 움직임을<br>한눈에 이해한다.</b><span>모든 행위는 이 문장에 기여하거나, 멈춰야 합니다.</span></button>
+            <button class="orbit one" type="button" data-detail="codex"><i></i><b>Codex</b><small>의도를 구조로 번역</small></button>
+            <button class="orbit two" type="button" data-detail="claude"><i></i><b>Claude</b><small>관계 문법을 반증</small></button>
+            <button class="orbit three" type="button" data-detail="shell"><i></i><b>PowerShell</b><small>npm visual · 42/48</small></button>
+            <button class="orbit four" type="button" data-detail="evidence"><i></i><b>증거</b><small>캡처 6개 남음</small></button>
+            <button class="orbit five" type="button" data-detail="index"><i></i><b>Node index</b><small>84 files · 78%</small></button>
+          </div>
+          <aside class="meaning-rail">
+            <header><p class="overline">Reading the field</p><h2>통제가 아니라<br>방향 감각</h2><p>가까움은 기여도, 선은 인과, 밝기는 현재 활동을 뜻합니다.</p></header>
+            <article class="meaning-card"><small>중심</small><b>인간의 의도는 움직이지 않습니다.</b><p>도구와 모델이 바뀌어도 이 작업이 존재하는 이유는 화면의 중심에 남습니다.</p></article>
+            <article class="meaning-card"><small>주변</small><b>에이전트는 역할로 보입니다.</b><p>모델 이름보다 의도에 어떤 기여를 하고 있는지가 먼저 읽힙니다.</p></article>
+            <article class="meaning-card warning"><small>당신의 자리</small><b>불확실성이 생긴 곳에서만 등장합니다.</b><p>정상 실행을 계속 지켜보게 하지 않고, 판단이 필요한 순간에만 호출합니다.</p></article>
+          </aside>
+        </div>
+      </section>
+
+      <section class="variant-panel" data-variant-panel="c">
+        <div class="ledger-page">
+          <header class="ledger-head">
+            <div><p class="overline">Variant C · Causal ledger</p><h1>AI의 모든 행위에는 이유와 증거가 남습니다.</h1></div>
+            <p>세션이 끝나도 인과관계는 사라지지 않습니다. 무엇이 왜 실행됐고 무엇을 바꿨는지 한 줄의 장부로 보존합니다.</p>
+            <span class="ledger-proof">chain verified · 09:42:18</span>
+          </header>
+          <div class="ledger-body">
+            <section class="ledger-column">
+              <header>Origin · 의도</header>
+              <div class="ledger-purpose"><blockquote>“여러 AI의 움직임을 사람이 한눈에 이해한다.”</blockquote><small>Lodestar<br>사용자 원문 · 수정되지 않음<br>2026.07.28 09:24</small></div>
+            </section>
+            <section class="ledger-column">
+              <header>Lineage · 인과 기록</header>
+              <div class="ledger-events">
+                <button class="ledger-event" type="button" data-detail="intent"><time>09:24:03</time><span><b>의도를 수신하고 작업의 기준으로 고정</b><small>사용자 요청 → Codex 메인</small></span><code>intent/01</code></button>
+                <button class="ledger-event" type="button" data-detail="codex"><time>09:26:41</time><span><b>시각 언어와 기능 구조를 분리</b><small>메인 에이전트의 해석</small></span><code>decision/a7f</code></button>
+                <button class="ledger-event" type="button" data-detail="claude"><time>09:29:18</time><span><b>관계 문법 반증을 서브에이전트에 위임</b><small>Codex → Claude · 읽기 전용</small></span><code>delegate/c12</code></button>
+                <button class="ledger-event" type="button" data-detail="shell"><time>09:35:07</time><span><b>시각 회귀 검사를 PowerShell에서 실행</b><small>npm run test:visual · 42/48</small></span><code>exec/ps91</code></button>
+                <button class="ledger-event" type="button" data-detail="evidence"><time>09:42:18</time><span><b>검증 증거 42개를 의도에 연결</b><small>스크린샷·viewport·overflow 검사</small></span><code>proof/e42</code></button>
+              </div>
+            </section>
+            <section class="ledger-column">
+              <header>Proof · 증거</header>
+              <div class="proof-stack">
+                <article class="proof-card"><small>변경</small><b>UI 초안 1개</b><code>004-intent-lineage</code></article>
+                <article class="proof-card"><small>검증</small><b>42 / 48 통과</b><code>visual · mobile · overflow</code></article>
+                <article class="proof-card"><small>위임</small><b>서브에이전트 1</b><code>read-only · returned</code></article>
+                <article class="proof-card warning"><small>인간 판단</small><b>6개 실패를 고칠 것인가?</b><code>awaiting decision</code></article>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="memoryScreen" class="memory-screen">
+        <div class="memory-page">
+          <header class="memory-head">
+            <div><p class="overline">Causal memory · 84 records</p><h1>끝난 일은 사라지지 않고,<br><em>다음 판단의 근거</em>가 됩니다.</h1></div>
+            <div class="memory-definition"><p>기억은 과거 세션의 창고가 아닙니다. 어떤 의도가 어떤 행위를 낳았고, 무엇이 증명되었으며, 이후의 선택을 어떻게 바꾸는지 보존하는 곳입니다.</p><small>Memory changes the next action.</small></div>
+          </header>
+
+          <div class="memory-summary">
+            <span class="memory-stat"><small>인과 기억</small><b>84</b></span>
+            <span class="memory-stat"><small>검증된 증거</small><b>312</b></span>
+            <span class="memory-stat"><small>다시 쓰인 판단</small><b>18</b></span>
+            <input id="memorySearch" class="memory-search" type="search" placeholder="의도·에이전트·명령·증거 검색">
+            <select class="memory-filter" aria-label="기억 필터"><option>모든 프로젝트</option><option>Lodestar</option><option>cras_backend</option><option>CMS_WEB</option></select>
+          </div>
+
+          <div class="memory-layout">
+            <div>
+              <div id="memoryList" class="memory-list">
+                <div class="memory-day">오늘 · 7개의 의도</div>
+                <button class="memory-record" type="button" data-memory-search="테마 대비 접근성 codex powershell 20개 화면" data-detail="memoryTheme">
+                  <i>✓</i>
+                  <span class="memory-intent"><small>의도 · Lodestar · 17분 전</small><b>어떤 테마에서도 같은 의미가 같은 힘으로 읽히게 한다.</b><em>완료까지 4분 · 인간 개입 없음</em></span>
+                  <span class="memory-chain"><small>남겨진 인과</small><span class="memory-chain-track"><span>의도</span><i></i><span>Codex</span><i></i><span>PowerShell</span><i></i><span>20개 화면</span><i></i><span class="proof">대비 통과</span></span></span>
+                  <span class="memory-outcome"><small>돌아온 증거</small><b>20 / 20 통과</b><em>다시 쓰임 3회</em></span>
+                </button>
+                <button class="memory-record" type="button" data-memory-search="모바일 첫 에이전트 수평 넘침 playwright gemini" data-detail="memoryMobile">
+                  <i>✓</i>
+                  <span class="memory-intent"><small>의도 · Lodestar · 21분 전</small><b>작은 화면에서도 첫 에이전트와 현재 위험을 놓치지 않는다.</b><em>완료까지 7분 · 레이아웃 결정 1개</em></span>
+                  <span class="memory-chain"><small>남겨진 인과</small><span class="memory-chain-track"><span>의도</span><i></i><span>Gemini</span><i></i><span>Playwright</span><i></i><span>390px</span><i></i><span class="proof">overflow 없음</span></span></span>
+                  <span class="memory-outcome"><small>돌아온 증거</small><b>모바일 통과</b><em>다시 쓰임 5회</em></span>
+                </button>
+                <button class="memory-record" type="button" data-memory-search="릴리스 빌드 아티팩트 npm codex desktop" data-detail="memoryRelease">
+                  <i>✓</i>
+                  <span class="memory-intent"><small>의도 · Desktop · 47분 전</small><b>배포할 수 있다는 말을 재현 가능한 빌드로 증명한다.</b><em>완료까지 12분 · 오류 1회 복구</em></span>
+                  <span class="memory-chain"><small>남겨진 인과</small><span class="memory-chain-track"><span>의도</span><i></i><span>Codex</span><i></i><span>npm build</span><i></i><span>package</span><i></i><span class="proof">artifact</span></span></span>
+                  <span class="memory-outcome"><small>돌아온 증거</small><b>exit 0</b><em>아티팩트 3개</em></span>
+                </button>
+                <div class="memory-day">어제 · 12개의 의도</div>
+                <button class="memory-record" type="button" data-memory-search="결제 실패 오류 사용자 메시지 pytest claude cras_backend" data-detail="memoryPayment">
+                  <i>✓</i>
+                  <span class="memory-intent"><small>의도 · cras_backend · 어제 18:42</small><b>결제 실패가 다시는 사용자에게 설명 없이 사라지지 않게 한다.</b><em>완료까지 31분 · 인간 판단 1회</em></span>
+                  <span class="memory-chain"><small>남겨진 인과</small><span class="memory-chain-track"><span>의도</span><i></i><span>Claude</span><i></i><span>pytest</span><i></i><span>승인</span><i></i><span class="proof">12 tests</span></span></span>
+                  <span class="memory-outcome"><small>돌아온 증거</small><b>회귀 없음</b><em>판단 보존됨</em></span>
+                </button>
+              </div>
+              <div id="memoryEmpty" class="memory-empty">이 단어와 연결된 기억이 없습니다.<br>검색어를 지우면 모든 인과 기록이 돌아옵니다.</div>
+            </div>
+
+            <aside class="wisdom-rail">
+              <header class="wisdom-head"><p class="overline">Distilled wisdom</p><h2>기억에서 남은<br>세 가지 판단</h2><p>반복된 결과에서 추출되어 다음 에이전트가 시작할 때 함께 전달됩니다.</p></header>
+              <div class="wisdom-list">
+                <article class="wisdom"><small>시각 검증 · 8회 반복</small><blockquote>“첫 에이전트와 위험 신호가 보이면 작은 화면도 이해 가능하다.”</blockquote><p>모바일에서 모든 흐름을 축소하지 말고 첫 인과와 판단 지점을 우선한다.</p><footer>Lodestar · 최근 사용 21분 전</footer></article>
+                <article class="wisdom"><small>실패 처리 · 5회 반복</small><blockquote>“실패는 증거가 없을 때만 조용해진다.”</blockquote><p>오류 배지보다 실패한 명령·출력·다음 선택을 하나의 인과로 남긴다.</p><footer>3개 프로젝트 · 신뢰도 높음</footer></article>
+                <article class="wisdom"><small>인간 경계 · 4회 반복</small><blockquote>“되돌리기 어려운 변화는 속도보다 이유를 요구한다.”</blockquote><p>파괴적 실행 전에는 승인뿐 아니라 선택 이유도 기억에 보존한다.</p><footer>승인 기록 4개에서 추출</footer></article>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <aside id="detailDrawer" class="detail-drawer" aria-hidden="true">
+        <header class="drawer-head"><small id="drawerKind">Why · 인간의 의도</small><button type="button" data-close-detail>×</button></header>
+        <h2 id="drawerTitle">흐름을 이해 가능하게</h2>
+        <p id="drawerText">이 노드가 무엇을 하는지보다, 왜 존재하며 다음 행위에 어떤 책임을 남기는지 보여줍니다.</p>
+        <div class="why-chain">
+          <div><small>왜 존재하는가</small><b id="drawerWhy">사용자가 여러 AI의 움직임을 이해하기 위해</b></div>
+          <div><small>무엇을 바꾸는가</small><b id="drawerChange">세션을 목록이 아닌 인과관계로 보이게 함</b></div>
+          <div><small>어떤 증거가 남는가</small><b id="drawerProof">원문 요청 · 실행 기록 · 검증 결과</b></div>
+        </div>
+        <div class="drawer-actions"><button type="button" data-toast="이 노드의 실제 출력과 증거를 엽니다.">증거 열기</button><button type="button" data-toast="같은 인과선의 터미널을 엽니다.">터미널</button></div>
+      </aside>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script>
+    const details = {
+      intent: ["Why · 인간의 의도", "흐름을 이해 가능하게", "세션 이름보다 먼저 보존되는 작업의 이유입니다.", "사용자가 여러 AI의 움직임을 이해하기 위해", "모든 실행의 정당성을 판단하는 기준", "사용자 원문 · 생성 시각"],
+      codex: ["Interpret · 메인 에이전트", "의도를 구조로 번역", "메인 에이전트는 답을 소유하지 않고 의도와 결과 사이의 책임을 소유합니다.", "모호한 요청을 실행 가능한 구조로 바꾸기 위해", "위임의 범위와 결과의 형태", "결정 기록 · 위임 관계"],
+      claude: ["Delegate · 서브에이전트", "관계 문법을 반증", "서브에이전트는 별도 세션이 아니라 메인 의도를 검증하는 역할로 나타납니다.", "한 관점의 확신을 줄이기 위해", "부모·자식 관계 규칙의 오류 가능성", "반증 메모 · 반환 상태"],
+      shell: ["Act · PowerShell", "보이는 것을 실제로 검증", "명령은 에이전트의 말이 현실에 닿는 순간입니다.", "주장이 실제 화면에서도 성립하는지 확인하기 위해", "48개 viewport의 렌더 결과", "명령 원문 · exit code · 출력"],
+      index: ["Act · Background", "코드의 흔적을 수집", "보이지 않는 백그라운드 행위도 같은 인과선 안에서 책임을 가집니다.", "에이전트가 추측 대신 코드에서 근거를 찾기 위해", "검색 가능한 세션·파일 인덱스", "84 files · 진행률 78%"],
+      evidence: ["Proof · 돌아온 증거", "한 화면으로 읽힌다", "결과는 완료 배지가 아니라 의도에 되돌아온 검증 가능한 증거입니다.", "처음의 의도가 실제로 달성됐는지 판단하기 위해", "에이전트·명령·결과의 연결 화면", "42개 통과 · 캡처 · overflow 검사"],
+      judgement: ["Judgement · 인간의 자리", "불확실한 곳에만 개입", "인간은 모든 실행을 감시하지 않고 가치 판단이 필요한 경계에서 등장합니다.", "자동화가 결정할 수 없는 위험과 가치를 선택하기 위해", "수정안 적용 또는 재검증", "결정 시각 · 선택 이유"],
+      memoryTheme: ["Memory · 검증된 기억", "같은 의미는 같은 힘으로", "테마 대비 검사는 완료됐지만 그 판단과 증거는 다음 화면의 기준으로 남습니다.", "어떤 테마에서도 의미의 우선순위를 지키기 위해", "20개 화면의 색 대비 기준", "20/20 캡처 · 대비 검사 · 재사용 3회"],
+      memoryMobile: ["Memory · 재사용된 판단", "첫 인과와 위험을 먼저", "모바일 검증에서 얻은 배치 원칙이 이후 다섯 번의 화면 설계에 재사용됐습니다.", "작은 화면에서 전체 축소로 의미가 사라지는 것을 막기 위해", "첫 에이전트와 판단 신호의 우선순위", "390px 캡처 · overflow 없음 · 재사용 5회"],
+      memoryRelease: ["Memory · 재현 가능한 증거", "배포 가능성을 빌드로 증명", "완료라는 말 대신 동일하게 다시 만들 수 있는 명령과 아티팩트를 보존합니다.", "다음 배포도 같은 조건으로 검증하기 위해", "빌드·패키징의 재현 가능한 경로", "exit 0 · 아티팩트 3개"],
+      memoryPayment: ["Memory · 인간의 판단", "실패를 설명 가능한 상태로", "오류 수정뿐 아니라 수정안을 적용하기로 한 인간의 이유까지 함께 보존합니다.", "같은 종류의 결제 실패를 다음에는 더 빨리 판단하기 위해", "오류 메시지·회귀 테스트·승인 기준", "12 tests · 회귀 없음 · 판단 1개"]
+    };
+    const drawer = document.getElementById("detailDrawer");
+    const toast = document.getElementById("toast");
+    let toastTimer;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+    function openDetail(key) {
+      const detail = details[key] || details.intent;
+      ["drawerKind","drawerTitle","drawerText","drawerWhy","drawerChange","drawerProof"].forEach((id, index) => {
+        document.getElementById(id).textContent = detail[index];
+      });
+      drawer.classList.add("open");
+      drawer.setAttribute("aria-hidden", "false");
+    }
+    function closeDetail() {
+      drawer.classList.remove("open");
+      drawer.setAttribute("aria-hidden", "true");
+    }
+
+    function showSpace(space) {
+      const memory = space === "memory";
+      document.getElementById("memoryScreen").classList.toggle("active", memory);
+      document.querySelectorAll("[data-variant-panel]").forEach(panel => {
+        panel.classList.toggle("active", !memory && panel.dataset.variantPanel === document.querySelector("[data-variant-choice].active").dataset.variantChoice);
+      });
+      document.querySelectorAll("[data-space-choice]").forEach(button => button.classList.toggle("active", button.dataset.spaceChoice === space));
+      document.getElementById("crumbMain").textContent = memory ? "기억" : "지금";
+      document.getElementById("crumbSub").textContent = memory ? " · 끝난 의도와 남은 증거" : " · 살아 있는 작업의 계보";
+      closeDetail();
+    }
+
+    document.querySelectorAll("[data-variant-choice]").forEach(button => button.addEventListener("click", () => {
+      const choice = button.dataset.variantChoice;
+      document.querySelectorAll("[data-variant-choice]").forEach(item => item.classList.toggle("active", item === button));
+      document.querySelectorAll("[data-variant-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.variantPanel === choice));
+      document.getElementById("memoryScreen").classList.remove("active");
+      document.querySelectorAll("[data-space-choice]").forEach(item => item.classList.toggle("active", item.dataset.spaceChoice === "now"));
+      document.getElementById("crumbMain").textContent = "지금";
+      document.getElementById("crumbSub").textContent = " · 살아 있는 작업의 계보";
+      closeDetail();
+    }));
+    document.querySelectorAll("[data-space-choice]").forEach(button => button.addEventListener("click", () => showSpace(button.dataset.spaceChoice)));
+    document.querySelectorAll("[data-detail]").forEach(button => button.addEventListener("click", () => openDetail(button.dataset.detail)));
+    document.querySelector("[data-close-detail]").addEventListener("click", closeDetail);
+    document.querySelectorAll("[data-toast]").forEach(button => button.addEventListener("click", () => showToast(button.dataset.toast)));
+    document.getElementById("memorySearch").addEventListener("input", event => {
+      const query = event.target.value.trim().toLowerCase();
+      let visible = 0;
+      document.querySelectorAll("[data-memory-search]").forEach(record => {
+        const match = !query || record.dataset.memorySearch.toLowerCase().includes(query) || record.textContent.toLowerCase().includes(query);
+        record.style.display = match ? "grid" : "none";
+        if (match) visible += 1;
+      });
+      document.querySelectorAll(".memory-day").forEach(day => day.style.display = query ? "none" : "flex");
+      document.getElementById("memoryEmpty").style.display = visible ? "none" : "block";
+    });
+    document.addEventListener("keydown", event => { if (event.key === "Escape") closeDetail(); });
+  </script>
+</body>
+</html>

@@ -660,6 +660,7 @@ class TerminalHostClient extends EventEmitter {
   async connectLoop(generation) {
     const deadline = Date.now() + this.connectTimeoutMs;
     let lastError = null;
+    let compatibleHostFailures = 0;
     while (!this.disposed && generation === this.connectGeneration && Date.now() < deadline) {
       try {
         await this.connectExisting();
@@ -712,6 +713,7 @@ class TerminalHostClient extends EventEmitter {
   }
 
   connectExisting() {
+    this.discovery = null;
     const discovery = readHostDiscovery(this.discoveryFile, fs, this.expectedRuntime);
     this.discovery = discovery;
     return new Promise((resolve, reject) => {

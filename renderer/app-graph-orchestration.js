@@ -44,6 +44,13 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     const focus =
       state.graphFocusId && model.byId.get(state.graphFocusId) && model.included.has(state.graphFocusId) ? model.byId.get(state.graphFocusId) : null;
     if (state.graphFocusId && !focus) state.graphFocusId = null;
+    const inlineSession = state.inlineTerminalSessionId && model.byId.get(state.inlineTerminalSessionId) && model.included.has(state.inlineTerminalSessionId)
+      ? model.byId.get(state.inlineTerminalSessionId)
+      : null;
+    if (state.inlineTerminalSessionId && (!inlineSession || (focus && state.inlineTerminalSessionId !== focus.id))) {
+      state.inlineTerminalSessionId = null;
+      window.LoadToAgentTerminal?.unmountEmbedded?.();
+    }
     const rootSessions = model.nodes.filter((session) => !session.parentId || !model.included.has(session.parentId));
     const roots = state.controlRoomSort === "tokens"
       ? [...rootSessions].sort((a, b) => Number((b.usage && b.usage.total) || 0) - Number((a.usage && a.usage.total) || 0))
@@ -79,6 +86,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
         .join("")}`;
       $("#graphResetBtn").classList.remove("hidden");
       scheduleAgentWorkflowConnections();
+      requestAnimationFrame(() => window.LoadToAgentInlineTerminal?.sync?.());
     } else {
       const runtime = runtimeAgentSummary(model, tmuxEntries);
       if (!preserveFocusedComposer) liveSessionGrid.innerHTML = runtimeSeparatedOverview(roots, model, roots, tmuxEntries);
@@ -89,6 +97,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#controlRoomListToolbar")?.classList.remove("hidden");
       syncControlRoomDisclosureButtons();
       $("#graphResetBtn").classList.add("hidden");
+      requestAnimationFrame(() => window.LoadToAgentInlineTerminal?.sync?.());
       return runtime.activeCount + tmuxEntries.length;
     }
     return model.nodes.filter(isControlRoomSession).length;

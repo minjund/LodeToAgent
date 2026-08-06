@@ -613,6 +613,14 @@
   line-height: 1.55;
 }
 
+.drawer-terminal-empty #drawerTerminalResumeBtn {
+  min-height: 36px;
+  margin-top: 6px;
+  padding: 0 16px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
 .detail-drawer[data-conversation-shell="terminal"] #drawerComposer {
   padding: 8px 12px 12px;
   border-top-color: rgba(109, 153, 173, .24);

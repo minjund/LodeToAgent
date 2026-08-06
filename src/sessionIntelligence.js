@@ -3,9 +3,6 @@
 const LIVE_STATUSES = new Set(['starting', 'running']);
 const COMPLETE_STATUSES = new Set(['completed', 'cancelled', 'failed']);
 const FAILURE_PATTERN = /(?:error|failed|failure|fatal|exception|오류|실패)/i;
-const PERMISSION_PATTERN = /(?:permission|approve|approval|권한|승인)/i;
-const DECISION_PATTERN = /(?:choose|select|decision|선택|결정|골라)/i;
-const INPUT_PATTERN = /(?:input|reply|answer|confirm|provide|입력|답변|확인|알려|제공)/i;
 const TEST_PATTERN = /(?:^|[^A-Za-z0-9])(?:tests?|testing|specs?|pytest|vitest|jest|mocha)(?=$|[^A-Za-z0-9])|검증|테스트/i;
 const FAILED_CHECK_STATUSES = new Set(['failed', 'failure', 'error', 'errored']);
 const RUNNING_CHECK_STATUSES = new Set(['running', 'pending', 'started', 'starting', 'in-progress', 'in_progress']);
@@ -25,6 +22,7 @@ function latestActivity(session) {
   const values = [session.updatedAt, session.startedAt];
   for (const row of session.messages || []) values.push(row && row.timestamp);
   for (const row of session.lifecycle || []) values.push(row && (row.completedAt || row.timestamp));
+  for (const row of session.executions || []) values.push(row && (row.updatedAt || row.startedAt));
   const millis = Math.max(0, ...values.map(timestamp));
   return millis ? new Date(millis).toISOString() : null;
 }
@@ -176,7 +174,14 @@ function attentionFor(session) {
   const latest = latestMeaningfulText(session);
   const responseIntent = session.responseIntent || {};
   const requestText = text(responseIntent.requestText || '', 420);
-  const combined = requestText || (session.status === 'waiting' ? `${session.statusDetail || ''} ${latest}` : '');
+  const permissionExecution = [...(session.executions || [])].reverse().find(execution => (
+    execution
+    && execution.approvalRequired === true
+    && ['running', 'pending', 'awaiting-approval'].includes(String(execution.status || '').toLowerCase())
+  ));
+  const permissionRequest = permissionExecution
+    ? text(permissionExecution.label || permissionExecution.command || '명령 실행', 320)
+    : '';
   let category = 'none';
   let kind = 'none';
   if (session.status === 'failed' || (session.status === 'waiting' && FAILURE_PATTERN.test(session.statusDetail || ''))) {
@@ -185,23 +190,24 @@ function attentionFor(session) {
   } else if (session.status === 'paused') {
     category = 'risk';
     kind = 'paused';
+  } else if (permissionExecution) {
+    category = 'required';
+    kind = 'approval';
+  } else if (session.status === 'waiting' && responseIntent.source === 'input-tool') {
+    category = 'required';
+    kind = 'input';
   } else if (responseIntent.category === 'optional') {
     category = 'optional';
     kind = 'optional';
-  } else if (session.status === 'waiting') {
-    category = 'required';
-    if (responseIntent.source === 'input-tool') kind = 'input';
-    else if (PERMISSION_PATTERN.test(combined)) kind = 'approval';
-    else if (DECISION_PATTERN.test(combined)) kind = 'decision';
-    else if (INPUT_PATTERN.test(combined)) kind = 'input';
-    else kind = 'response';
   }
   const required = category === 'required';
   const actionable = required || category === 'risk';
   const summaries = {
     error: session.statusDetail || latest || 'The run failed and needs review.',
     paused: session.statusDetail || 'The run is paused.',
-    approval: requestText || latest || session.statusDetail || 'Approval is required.',
+    approval: permissionExecution
+      ? permissionRequest || session.statusDetail || latest || 'Approval is required.'
+      : requestText || latest || session.statusDetail || 'Approval is required.',
     decision: requestText || latest || session.statusDetail || 'A decision is required.',
     input: requestText || latest || session.statusDetail || 'Input is required.',
     response: requestText || latest || session.statusDetail || 'A response is required.',
@@ -214,12 +220,16 @@ function attentionFor(session) {
     kind,
     summary: category !== 'none' ? text(summaries[kind], 420) : '',
     requestedAt: category !== 'none' ? latestActivity(session) : null,
-    source: responseIntent.source && responseIntent.source !== 'none'
-      ? responseIntent.source
-      : session.statusObserved || session.runId ? 'observed-status' : 'message-inference',
-    confidence: responseIntent.confidence && responseIntent.category !== 'none'
-      ? responseIntent.confidence
-      : session.statusObserved || session.runId ? 'high' : actionable ? 'medium' : 'low',
+    source: permissionExecution
+      ? 'execution-approval'
+      : responseIntent.source && responseIntent.source !== 'none'
+        ? responseIntent.source
+        : session.statusObserved || session.runId ? 'observed-status' : 'message-inference',
+    confidence: permissionExecution
+      ? 'high'
+      : responseIntent.confidence && responseIntent.category !== 'none'
+        ? responseIntent.confidence
+        : session.statusObserved || session.runId ? 'high' : actionable ? 'medium' : 'low',
   };
 }
 

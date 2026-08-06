@@ -586,10 +586,12 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#detailDrawer").addEventListener("keydown", (event) => {
       const input = event.target.closest("[data-agent-command-draft]");
       if (!input || handleConversationSlashKeydown(event, input)) return;
-      if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
-      event.preventDefault();
-      if (!input.value.trim()) return;
-      input.closest("form")?.requestSubmit();
+      window.LoadToAgentImeSubmit?.handleKeydown(event, input);
+    });
+    $("#detailDrawer").addEventListener("compositionend", (event) => {
+      if (event.target.closest?.("[data-agent-command-draft]")) {
+        window.LoadToAgentImeSubmit?.handleCompositionEnd(event);
+      }
     });
     $("#detailDrawer").addEventListener("focusout", (event) => {
       const input = event.target.closest("[data-agent-command-routing='conversation'] [data-agent-command-draft]");
@@ -602,6 +604,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();
+      window.LoadToAgentImeSubmit?.handleSubmit(form);
       dispatchAgentCommand(form.dataset.agentCommandForm, form);
     });
     document.addEventListener("keydown", (event) => {

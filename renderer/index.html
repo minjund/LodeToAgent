@@ -68,7 +68,7 @@
         </div>
       </header>
 
-      <section id="projectContextNav" class="project-context-nav" aria-labelledby="projectContextName">
+      <section id="projectContextNav" class="project-context-nav hidden" aria-labelledby="projectContextName" aria-hidden="true" inert>
         <div class="project-context-identity">
           <span class="project-context-mark" aria-hidden="true">□</span>
           <div>
@@ -441,15 +441,15 @@
             <p class="eyebrow" data-i18n="memory.eyebrow">지난 작업</p>
              <h2><span data-i18n="memory.title_line1">지난 작업</span><br><em data-i18n="memory.title_line2"></em></h2>
           </div>
-           <p data-i18n="memory.description">끝난 작업과 아직 결과 확인이 남은 지난 요청을 확인하세요.</p>
+           <p data-i18n="memory.description">완료된 작업을 다시 보고, 아직 확인하지 않은 결과를 검토하세요.</p>
         </header>
         <div class="memory-metrics" aria-label="지난 작업 요약" data-i18n-aria-label="memory.metrics_label">
           <span><small data-i18n="memory.records">전체 작업</small><b id="memoryRecordCount">0건</b></span>
-           <span><small id="memoryEvidenceLabel" data-i18n="memory.evidence" data-i18n-params='{"total":0}'>아직 확인하지 않은 결과</small><b id="memoryEvidenceCount">0건</b></span>
+           <span><small id="memoryEvidenceLabel" data-i18n="memory.evidence" data-i18n-params='{"total":0}'>작업 완료</small><b id="memoryEvidenceCount">0건</b></span>
            <span><small id="memoryDecisionLabel" data-i18n="memory.reviewed_results" data-i18n-params='{"evidence":0}'>확인한 결과</small><b id="memoryDecisionCount">0건</b></span>
-          <p id="memoryPrinciple" data-i18n="memory.principle" data-i18n-params='{"total":"0","new":"0","reviewed":"0"}'>전체 0건을 조건별로 센 수치입니다(서로 합산하지 않음): 아직 확인하지 않은 결과 0건 · 확인한 결과 0건</p>
+          <p id="memoryPrinciple" data-i18n="memory.principle" data-i18n-params='{"total":"0","new":"0","reviewed":"0"}'>전체 지난 작업 0건 · 작업 완료 0건 · 결과 확인 완료 0건</p>
         </div>
-        <a id="memoryPriorityAction" class="memory-priority-action hidden" href="#sessionGrid">확인 전 결과 1건 확인하기</a>
+        <a id="memoryPriorityAction" class="memory-priority-action hidden" href="#sessionGrid">완료된 작업 보기</a>
         <div class="memory-layout">
           <div class="memory-records">
         <div class="sessions-heading">
@@ -467,7 +467,7 @@
                 <p id="providerFilterStatus" class="sr-only" role="status" aria-live="polite"></p>
                 <label class="memory-filter-field memory-sort-filter" for="sortSelect">
                   <span data-i18n="ui.sort">정렬</span>
-                  <select id="sortSelect" aria-label="정렬" data-i18n-aria-label="ui.sort"><option value="recent" data-i18n="ui.most_recently_active">정렬: 내가 정한 카드 순서</option><option value="tokens" data-i18n="ui.highest_usage">AI가 처리한 텍스트가 많은 순서</option><option value="context" data-i18n="ui.highest_context_usage">AI가 한 번에 참고하는 내용이 많은 순서</option></select>
+                  <select id="sortSelect" aria-label="정렬" data-i18n-aria-label="ui.sort"><option value="recent" data-i18n="ui.most_recently_active">최근 변경 순</option><option value="tokens" data-i18n="ui.highest_usage">AI가 처리한 텍스트가 많은 순서</option><option value="context" data-i18n="ui.highest_context_usage">AI가 한 번에 참고하는 내용이 많은 순서</option></select>
                 </label>
                 <button id="resetFiltersBtn" class="filter-reset hidden" type="button" data-i18n="filter.reset_all">고른 조건 지우기</button>
               </div>
@@ -522,7 +522,7 @@
     <div id="drawerMeta" class="drawer-meta"></div>
     <div class="drawer-tabs" role="tablist" aria-orientation="horizontal">
       <button id="drawerTabSummary" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="summary" aria-label="관리 요약">요약</button>
-      <button id="drawerTabChat" class="drawer-tab active" type="button" role="tab" aria-selected="true" aria-controls="drawerContent" tabindex="0" data-tab="chat" aria-label="대화 내용">대화</button>
+      <button id="drawerTabChat" class="drawer-tab active" type="button" role="tab" aria-selected="true" aria-controls="drawerTerminalSurface" tabindex="0" data-tab="chat" aria-label="대화 내용">대화</button>
       <button id="drawerTabLifecycle" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="lifecycle" aria-label="진행 과정">진행 과정</button>
       <button id="drawerTabTokens" class="drawer-tab" type="button" role="tab" aria-selected="false" aria-controls="drawerContent" tabindex="-1" data-tab="tokens" aria-label="사용량">사용량</button>
     </div>
@@ -537,11 +537,12 @@
       <div id="drawerTerminalViewport" class="drawer-terminal-viewport" aria-label="현재 AI 작업의 실제 PTY 출력 및 스크롤 기록" data-i18n-aria-label="drawer.terminal_viewport">
         <div id="drawerTerminalEmpty" class="drawer-terminal-empty" role="status">
           <span aria-hidden="true">›_</span><b data-i18n="drawer.terminal_connecting">PTY 연결 중</b><small data-i18n="drawer.terminal_connecting_help">같은 세션의 실행 화면과 scrollback을 불러오고 있습니다.</small>
+          <button id="drawerTerminalResumeBtn" class="primary-button hidden" type="button" data-i18n="drawer.terminal_resume_action">같은 대화 이어서 열기</button>
         </div>
       </div>
     </section>
     <div id="drawerContent" class="drawer-content" role="tabpanel" aria-labelledby="drawerTabChat" tabindex="0"></div>
-    <div id="drawerComposer" class="drawer-composer hidden" aria-label="대화 참여"></div>
+    <div id="drawerComposer" class="drawer-composer hidden" aria-hidden="true"></div>
   </aside>
 
   <div id="sessionResetModal" class="modal-backdrop session-reset-modal hidden" role="dialog" aria-modal="true"
@@ -631,6 +632,7 @@
   <script src="conversation-delivery.js"></script>
   <script src="i18n.js"></script>
   <script src="shared.js"></script>
+  <script src="ime-submit.js"></script>
   <script src="app.js"></script>
   <script src="app-provider-visibility.js"></script>
   <script src="app-dashboard.js"></script>
@@ -660,6 +662,7 @@
   <script src="terminal-events.js"></script>
   <script src="terminal-prompt.js"></script>
   <script src="terminal.js"></script>
+  <script src="inline-agent-terminal.js"></script>
   <script src="drawer-terminal.js"></script>
 </body>
 </html>
