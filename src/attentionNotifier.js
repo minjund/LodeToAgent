@@ -1,40 +1,106 @@
 'use strict';
 
+const ACTIVE_STATUSES = new Set(['starting', 'running', 'waiting']);
+const EXPLICIT_ATTENTION_SOURCES = new Set(['execution-approval', 'input-tool']);
+
+function timestamp(value) {
+  const parsed = Date.parse(value || '');
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function explicitAttentionFingerprint(session) {
+  const attention = session && session.attention || {};
+  if (attention.category !== 'required' || !EXPLICIT_ATTENTION_SOURCES.has(attention.source)) return '';
+  return [
+    attention.source,
+    attention.requestedAt || session.updatedAt || '',
+    attention.summary || '',
+  ].join(':');
+}
+
+function observedCompletionAt(session) {
+  if (!session || session.status !== 'completed' || session.parentId) return 0;
+  if (!session.completionObserved && !session.runId) return 0;
+  return timestamp(session.completedAt || session.endedAt || session.updatedAt);
+}
+
 class AttentionNotifier {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
     this.Notification = options.Notification;
     this.isSupported = options.isSupported || (() => Boolean(this.Notification));
-    this.copy = options.copy || (() => ({ title: '내 답변이나 확인이 필요합니다', body: '응답이나 선택을 기다리는 AI 작업이 있습니다.' }));
+    this.copy = options.copy || ((_session, event) => ({
+      title: event === 'completed' ? '작업 완료' : '확인 필요',
+      body: event === 'completed' ? 'AI 작업이 완료되었습니다.' : '선택 또는 권한 승인을 기다리고 있습니다.',
+    }));
     this.onOpen = options.onOpen || (() => {});
     this.onFallback = options.onFallback || (() => {});
-    this.attentionIds = null;
+    this.attentionFingerprints = null;
+    this.sessionStatuses = null;
+    this.lastSnapshotAt = 0;
+    this.promptFingerprints = new Set();
     this.notifications = new Set();
   }
 
   sync(snapshot) {
     if (!this.enabled) return [];
-    const needsAttention = (snapshot && Array.isArray(snapshot.sessions) ? snapshot.sessions : [])
-      .filter(session => session && session.id && (
-        session.attention?.actionable
-        || session.attention?.required
-        || session.health?.level === 'critical'
-        || session.status === 'waiting'
-      ));
-    const nextIds = new Set(needsAttention.map(session => String(session.id)));
+    const sessions = snapshot && Array.isArray(snapshot.sessions) ? snapshot.sessions.filter(Boolean) : [];
+    const nextAttention = new Map();
+    const nextStatuses = new Map();
+    for (const session of sessions) {
+      if (!session.id) continue;
+      const id = String(session.id);
+      const fingerprint = explicitAttentionFingerprint(session);
+      if (fingerprint) nextAttention.set(id, fingerprint);
+      nextStatuses.set(id, String(session.status || ''));
+    }
 
-    if (this.attentionIds === null) {
-      this.attentionIds = nextIds;
+    const snapshotAt = timestamp(snapshot && snapshot.generatedAt) || Date.now();
+    if (this.attentionFingerprints === null || this.sessionStatuses === null) {
+      this.attentionFingerprints = nextAttention;
+      this.sessionStatuses = nextStatuses;
+      this.lastSnapshotAt = snapshotAt;
       return [];
     }
 
-    const newlyActionable = needsAttention.filter(session => !this.attentionIds.has(String(session.id)));
-    this.attentionIds = nextIds;
-    newlyActionable.forEach(session => this.notify(session));
-    return newlyActionable.map(session => String(session.id));
+    const notifiedIds = [];
+    for (const session of sessions) {
+      if (!session.id) continue;
+      const id = String(session.id);
+      const fingerprint = nextAttention.get(id);
+      if (fingerprint && this.attentionFingerprints.get(id) !== fingerprint) {
+        this.notify(session, 'attention');
+        notifiedIds.push(id);
+      }
+
+      const completedAt = observedCompletionAt(session);
+      const previousStatus = this.sessionStatuses.get(id);
+      const transitionedFromActive = ACTIVE_STATUSES.has(previousStatus);
+      const completedSinceLastSnapshot = !previousStatus && completedAt > this.lastSnapshotAt;
+      if (completedAt && (transitionedFromActive || completedSinceLastSnapshot)) {
+        this.notify(session, 'completed');
+        notifiedIds.push(id);
+      }
+    }
+
+    this.attentionFingerprints = nextAttention;
+    this.sessionStatuses = nextStatuses;
+    this.lastSnapshotAt = snapshotAt;
+    return notifiedIds;
   }
 
-  notify(session) {
+  notifyExplicitPrompt(session, prompt = {}) {
+    if (!this.enabled || !session || !session.id) return null;
+    const kind = String(prompt.kind || '');
+    if (!/(?:approval|permission)/i.test(kind)) return null;
+    const fingerprint = `${session.id}:${String(prompt.fingerprint || kind)}`;
+    if (this.promptFingerprints.has(fingerprint)) return null;
+    this.promptFingerprints.add(fingerprint);
+    if (this.promptFingerprints.size > 500) this.promptFingerprints.delete(this.promptFingerprints.values().next().value);
+    return this.notify({ ...session, notificationDetail: prompt.title || prompt.question || '' }, 'attention');
+  }
+
+  notify(session, event = 'attention') {
     if (!this.enabled) return null;
     let supported = false;
     try {
@@ -43,23 +109,23 @@ class AttentionNotifier {
       supported = false;
     }
     if (!supported) {
-      this.onFallback(session);
+      this.onFallback(session, event);
       return null;
     }
     try {
-      const copy = this.copy(session) || {};
+      const copy = this.copy(session, event) || {};
       const notification = new this.Notification({
-        title: String(copy.title || '내 답변이나 확인이 필요합니다'),
-        body: String(copy.body || session.title || 'AI 작업이 응답을 기다리고 있습니다.'),
+        title: String(copy.title || (event === 'completed' ? '작업 완료' : '확인 필요')),
+        body: String(copy.body || session.title || 'AI 작업 상태가 변경되었습니다.'),
         silent: false,
       });
       this.notifications.add(notification);
-      notification.once('click', () => this.onOpen(session));
+      notification.once('click', () => this.onOpen(session, event));
       notification.once('close', () => this.notifications.delete(notification));
       notification.show();
       return notification;
     } catch (_notificationFailure) {
-      this.onFallback(session);
+      this.onFallback(session, event);
       return null;
     }
   }
@@ -72,4 +138,4 @@ class AttentionNotifier {
   }
 }
 
-module.exports = { AttentionNotifier };
+module.exports = { AttentionNotifier, explicitAttentionFingerprint, observedCompletionAt };

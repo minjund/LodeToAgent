@@ -1258,3 +1258,215 @@
   font-size: 12px;
   text-align: right;
 }
+
+/* The selected AI owns the PTY directly below the active workflow row. */
+.agent-inline-terminal {
+  position: relative;
+  z-index: 3;
+  margin: 24px 0 18px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb,var(--provider,var(--green)) 42%,var(--line));
+  border-radius: 13px;
+  background: #05090d;
+  box-shadow: 0 16px 40px rgba(0,0,0,.24);
+}
+
+.agent-inline-terminal-link {
+  position: absolute;
+  top: -25px;
+  left: 38%;
+  width: 2px;
+  height: 25px;
+  border-radius: 999px;
+  background: var(--provider,var(--green));
+  box-shadow: 0 0 10px color-mix(in srgb,var(--provider,var(--green)) 56%,transparent);
+}
+
+.agent-inline-terminal-head {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border-bottom: 1px solid color-mix(in srgb,var(--provider,var(--green)) 24%,var(--line));
+  background: color-mix(in srgb,var(--provider,var(--green)) 5%,#091119);
+}
+
+.agent-inline-terminal-head .provider-mark { width: 32px; height: 32px; flex: 0 0 auto; }
+.agent-inline-terminal-title { min-width: 0; }
+.agent-inline-terminal-title b,
+.agent-inline-terminal-title small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-inline-terminal-title b { color: var(--text); font-size: 13px; }
+.agent-inline-terminal-title small { margin-top: 3px; color: var(--dim); font-size: 11px; }
+
+.agent-inline-terminal-state {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 7px auto;
+  align-items: center;
+  gap: 3px 7px;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.agent-inline-terminal-state i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.agent-inline-terminal-state b { font-size: 11px; white-space: nowrap; }
+.agent-inline-terminal-state small { grid-column: 2; max-width: 260px; overflow: hidden; color: var(--dim); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.agent-inline-terminal[data-connection="connected"] .agent-inline-terminal-state { color: var(--green); }
+.agent-inline-terminal[data-connection="connected"] .agent-inline-terminal-state i { box-shadow: 0 0 9px color-mix(in srgb,var(--green) 60%,transparent); }
+.agent-inline-terminal[data-connection="error"] .agent-inline-terminal-state { color: var(--red); }
+.agent-inline-terminal[data-connection="unavailable"] .agent-inline-terminal-state { color: var(--amber); }
+
+.agent-inline-terminal-actions { display: flex; gap: 5px; }
+.agent-inline-terminal-actions button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #2b424c;
+  border-radius: 8px;
+  background: #0c171d;
+  color: #8ca2ab;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) ease,color var(--motion-fast) ease,background var(--motion-fast) ease;
+}
+.agent-inline-terminal-actions button:hover { border-color: var(--provider,var(--green)); background: #122129; color: var(--text); }
+
+.agent-inline-terminal-viewport {
+  position: relative;
+  min-height: 440px;
+  overflow: hidden;
+  background: #030609;
+}
+
+#agentInlineTerminalViewport > .terminal-screen { position: absolute; z-index: 1; inset: 0; overflow: hidden; }
+#agentInlineTerminalViewport > .terminal-screen .xterm { height: 100%; padding: 12px 14px; }
+#agentInlineTerminalViewport > .terminal-screen .xterm-viewport { background: transparent !important; }
+
+.agent-inline-terminal-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+}
+.agent-inline-terminal-empty > span { color: var(--green); font: 750 18px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.agent-inline-terminal-empty b { color: var(--text); font-size: 14px; }
+.agent-inline-terminal-empty small { max-width: 520px; color: var(--dim); font-size: 12px; line-height: 1.55; }
+.agent-inline-terminal-empty button { min-height: 36px; margin-top: 5px; }
+
+.agent-inline-terminal-composer {
+  padding: 10px;
+  border-top: 1px solid color-mix(in srgb,var(--provider,var(--green)) 24%,var(--line));
+  background: #071016;
+}
+
+.agent-inline-terminal-composer .terminal-conversation {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-inline-terminal-composer .agent-command-input { min-width: 0; }
+.agent-inline-terminal-composer textarea {
+  width: 100%;
+  min-height: 48px;
+  max-height: 126px;
+  resize: vertical;
+  padding: 11px 12px;
+  border: 1px solid #29414c;
+  border-radius: 9px;
+  background: #03070a;
+  color: var(--text);
+  font: 500 13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;
+}
+.agent-inline-terminal-composer textarea:focus { border-color: var(--provider,var(--green)); outline: 2px solid color-mix(in srgb,var(--provider,var(--green)) 18%,transparent); }
+.agent-inline-terminal-composer .drawer-terminal-input-hint { grid-column: 1; display: flex; gap: 12px; color: var(--dim); font-size: 10px; }
+.agent-inline-terminal-composer .agent-command-actions { grid-column: 2; grid-row: 1 / span 2; display: flex; gap: 7px; align-items: center; }
+.agent-inline-terminal-composer .agent-command-actions button { min-height: 38px; }
+.agent-inline-terminal-composer .conversation-draft-count { color: var(--dim); font-size: 10px; }
+.agent-inline-terminal-composer .agent-command-target { grid-column: 1 / -1; }
+
+.workflow-detail {
+  position: relative;
+  z-index: 2;
+  margin-top: 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: color-mix(in srgb,var(--panel) 92%,transparent);
+}
+
+.workflow-detail-tabs { display: flex; gap: 3px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel-2); }
+.workflow-detail-tabs button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.workflow-detail-tabs button:hover { color: var(--text); }
+.workflow-detail-tabs button.active { border-bottom-color: var(--green); color: var(--green); }
+
+.workflow-detail-panel { padding: 15px; }
+.workflow-detail-panel[hidden] { display: none; }
+.workflow-detail-grid { display: grid; grid-template-columns: minmax(0,1.25fr) minmax(320px,.75fr); gap: 12px; }
+.workflow-detail-grid > article,
+.workflow-detail-grid > dl,
+.workflow-token-grid > article {
+  margin: 0;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+.workflow-detail-grid article > small { color: var(--dim); font-size: 11px; }
+.workflow-detail-grid article h3 { margin: 7px 0 5px; color: var(--text); font-size: 15px; line-height: 1.4; }
+.workflow-detail-grid article p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.workflow-detail-grid dl { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 1px; padding: 0; overflow: hidden; background: var(--line-soft); }
+.workflow-detail-grid dl div { min-width: 0; padding: 13px; background: var(--panel-2); }
+.workflow-detail-grid dt { color: var(--dim); font-size: 10px; }
+.workflow-detail-grid dd { margin: 7px 0 0; color: var(--green); font: 750 15px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+
+.workflow-detail-timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.workflow-detail-timeline li { display: grid; grid-template-columns: 10px minmax(0,1fr) auto; gap: 11px; min-height: 56px; align-items: start; padding: 10px 4px; border-bottom: 1px solid var(--line-soft); }
+.workflow-detail-timeline li:last-child { border-bottom: 0; }
+.workflow-detail-timeline li > i { width: 8px; height: 8px; margin-top: 4px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px color-mix(in srgb,var(--green) 50%,transparent); }
+.workflow-detail-timeline b,
+.workflow-detail-timeline small { display: block; }
+.workflow-detail-timeline b { color: var(--text); font-size: 12px; }
+.workflow-detail-timeline small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.workflow-detail-timeline time { color: var(--dim); font-size: 10px; }
+
+.workflow-token-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
+.workflow-token-grid article small,
+.workflow-token-grid article b,
+.workflow-token-grid article span { display: block; }
+.workflow-token-grid article small { color: var(--dim); font-size: 10px; }
+.workflow-token-grid article b { margin-top: 8px; color: var(--text); font: 750 17px/1 ui-monospace,SFMono-Regular,Consolas,monospace; }
+.workflow-token-grid article.total { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr auto; align-items: end; }
+.workflow-token-grid article.total small { grid-column: 1 / -1; }
+.workflow-token-grid article.total b { color: var(--green); font-size: 22px; }
+.workflow-token-grid article.total span { color: var(--muted); font: 600 11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace; text-align: right; }
+
+@media (max-width: 900px) {
+  .agent-inline-terminal-link { left: 50%; }
+  .agent-inline-terminal-head { flex-wrap: wrap; }
+  .agent-inline-terminal-state { order: 3; width: 100%; margin-left: 42px; }
+  .agent-inline-terminal-actions { margin-left: auto; }
+  .agent-inline-terminal-viewport { min-height: 360px; }
+  .agent-inline-terminal-composer .terminal-conversation { grid-template-columns: 1fr; }
+  .agent-inline-terminal-composer .agent-command-actions { grid-column: 1; grid-row: auto; justify-content: flex-end; }
+  .workflow-detail-grid { grid-template-columns: 1fr; }
+  .workflow-token-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}

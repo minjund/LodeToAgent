@@ -1,0 +1,2253 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoadToAgent — Causal Spine Workbench</title>
+  <link id="theme-link" rel="stylesheet" href="../themes/default.css">
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      letter-spacing: -.025em;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+    .hidden { display: none !important; }
+    .mono { font-family: var(--font-mono); letter-spacing: -.035em; }
+    .muted { color: var(--color-text-muted); }
+
+    .variant-nav {
+      position: fixed;
+      z-index: 3000;
+      top: 10px;
+      left: 50%;
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      transform: translateX(-50%);
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-surface) 93%, transparent);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+    }
+    .variant-tab {
+      min-height: 38px;
+      padding: 0 14px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all .15s ease;
+      white-space: nowrap;
+    }
+    .variant-tab:hover { color: var(--color-text); }
+    .variant-tab.active { background: var(--color-text); color: var(--color-bg); }
+
+    .workbench {
+      position: relative;
+      width: min(1540px, calc(100vw - 24px));
+      height: calc(100vh - 76px);
+      min-height: 700px;
+      margin: 64px auto 12px;
+      display: grid;
+      grid-template-columns: 78px minmax(0, 1fr);
+      grid-template-rows: 62px minmax(0, 1fr);
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 18px;
+      background: color-mix(in srgb, var(--color-surface) 97%, transparent);
+      box-shadow: var(--shadow-lg);
+      transition: width .2s ease, height .2s ease;
+    }
+
+    .topbar {
+      grid-column: 2;
+      grid-row: 1;
+      min-width: 0;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-size: 14px;
+      font-weight: 780;
+    }
+    .brand i {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 11px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .crumb {
+      min-width: 0;
+      padding-left: 12px;
+      border-left: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 12px;
+    }
+    .crumb b { color: var(--color-text); }
+    .top-spacer { flex: 1; }
+    .top-search {
+      width: min(250px, 22vw);
+      min-height: 36px;
+      padding: 0 11px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text);
+      transition: all .15s ease;
+    }
+    .top-search:focus {
+      border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+      background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+    }
+    .icon-btn, .new-task, .soft-btn, .danger-btn {
+      min-height: 36px;
+      padding: 0 11px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .icon-btn { min-width: 36px; padding: 0; }
+    .icon-btn:hover, .soft-btn:hover {
+      border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-border));
+      background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+    }
+    .new-task {
+      border-color: color-mix(in srgb, var(--color-primary) 65%, transparent);
+      background: var(--color-primary);
+      color: #06140f;
+      font-weight: 780;
+    }
+    .new-task:hover { background: var(--color-primary-hover); transform: translateY(-1px); }
+    .connection {
+      position: relative;
+      min-height: 36px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .connection i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-success);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 10%, transparent);
+    }
+    .connection span { font-size: 11px; }
+
+    .rail {
+      z-index: 20;
+      grid-column: 1;
+      grid-row: 1 / 3;
+      padding: 13px 9px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 5px;
+      border-right: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+    }
+    .rail-logo {
+      height: 36px;
+      margin-bottom: 9px;
+      display: grid;
+      place-items: center;
+      color: var(--color-primary);
+      font: 800 15px/1 var(--font-mono);
+    }
+    .nav-btn {
+      min-height: 56px;
+      padding: 7px 4px;
+      display: grid;
+      place-items: center;
+      gap: 3px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .nav-btn:hover, .nav-btn.active {
+      background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+      color: var(--color-text);
+    }
+    .nav-btn.active { box-shadow: inset 2px 0 var(--color-primary); }
+    .nav-btn i {
+      min-width: 25px;
+      height: 23px;
+      display: grid;
+      place-items: center;
+      font: 700 13px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .nav-btn span { font-size: 10px; }
+    .nav-btn b {
+      position: absolute;
+      margin: -25px 0 0 28px;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 4px;
+      display: grid;
+      place-items: center;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--color-text) 10%, var(--color-surface));
+      color: var(--color-text);
+      font-size: 9px;
+    }
+    .nav-btn.review b { background: #9c691d; color: #fff1d6; }
+    .rail-spacer { flex: 1; }
+    .mobile-more { display: none; }
+
+    .stage {
+      position: relative;
+      grid-column: 2;
+      grid-row: 2;
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 72% 5%, color-mix(in srgb, var(--color-primary) 6%, transparent), transparent 28rem),
+        var(--color-surface);
+    }
+    .app-view {
+      position: absolute;
+      inset: 0;
+      display: none;
+      overflow: auto;
+      background: var(--color-surface);
+    }
+    .app-view.active { display: block; }
+
+    .view-head {
+      min-height: 80px;
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .view-head > div:first-child { min-width: 0; }
+    .eyebrow {
+      margin: 0 0 4px;
+      color: var(--color-primary);
+      font-size: 10px;
+      font-weight: 760;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .view-head h1 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -.05em;
+    }
+    .view-head p:last-child {
+      margin: 5px 0 0;
+      color: var(--color-text-muted);
+      font-size: 11px;
+    }
+    .view-actions { margin-left: auto; display: flex; gap: 7px; align-items: center; }
+    .view-actions select, .view-actions input {
+      min-height: 34px;
+      padding: 0 9px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text);
+    }
+
+    /* Flow home */
+    .attention-strip {
+      min-height: 52px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      border-bottom: 1px solid color-mix(in srgb, #f0ae45 28%, var(--color-border));
+      background: color-mix(in srgb, #f0ae45 5%, transparent);
+    }
+    .attention-strip > i {
+      width: 27px;
+      height: 27px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: color-mix(in srgb, #f0ae45 15%, transparent);
+      color: #f0ae45;
+      font-style: normal;
+      font-weight: 800;
+    }
+    .attention-strip b { font-size: 12px; }
+    .attention-strip span {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--color-text-muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .attention-strip button {
+      margin-left: auto;
+      min-height: 30px;
+      padding: 0 9px;
+      border: 1px solid rgba(240, 174, 69, .28);
+      border-radius: 8px;
+      background: transparent;
+      color: #f0ae45;
+      cursor: pointer;
+    }
+    .flow-intro {
+      min-height: 98px;
+      padding: 20px 22px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 24px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .flow-intro h1 {
+      max-width: 680px;
+      margin: 0;
+      font-size: clamp(27px, 2.4vw, 38px);
+      line-height: 1.04;
+      letter-spacing: -.055em;
+    }
+    .flow-intro p { margin: 8px 0 0; color: var(--color-text-muted); font-size: 12px; }
+    .flow-counts { display: flex; gap: 22px; }
+    .flow-counts span { min-width: 60px; }
+    .flow-counts small, .flow-counts b { display: block; }
+    .flow-counts small { color: var(--color-text-muted); font-size: 9px; }
+    .flow-counts b { margin-top: 2px; font-size: 20px; }
+    .flow-counts .warn b { color: #f0ae45; }
+
+    .project-line {
+      min-height: 45px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--color-border);
+      font-size: 11px;
+    }
+    .project-line b { font-size: 12px; }
+    .project-line span { color: var(--color-text-muted); }
+    .project-line em { margin-left: auto; color: var(--color-text-muted); font-style: normal; }
+    .project-line button {
+      min-height: 29px;
+      padding: 0 8px;
+      border: 1px solid var(--color-border);
+      border-radius: 7px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .flow-canvas {
+      position: relative;
+      min-height: 430px;
+      padding: 36px 22px 28px;
+      display: grid;
+      grid-template-columns: minmax(190px, .72fr) minmax(470px, 1.75fr) minmax(180px, .68fr);
+      gap: clamp(25px, 4vw, 65px);
+      align-items: center;
+      overflow: hidden;
+    }
+    .flow-canvas::before {
+      position: absolute;
+      inset: 0;
+      content: "";
+      background-image: radial-gradient(color-mix(in srgb, var(--color-primary) 18%, transparent) 1px, transparent 1px);
+      background-size: 22px 22px;
+      opacity: .28;
+    }
+    .connectors {
+      position: absolute;
+      z-index: 0;
+      inset: 16px;
+      width: calc(100% - 32px);
+      height: calc(100% - 32px);
+      pointer-events: none;
+    }
+    .connectors path { fill: none; stroke: color-mix(in srgb, var(--color-primary) 46%, transparent); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
+    .connectors path.quiet { stroke: color-mix(in srgb, var(--color-text) 19%, transparent); }
+    .connectors circle { fill: var(--color-primary); }
+    .flow-col { position: relative; z-index: 2; min-width: 0; }
+    .col-label {
+      margin: 0 0 9px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--color-text-muted);
+      font-size: 9px;
+      font-weight: 760;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+    .col-label b {
+      min-width: 18px;
+      height: 18px;
+      display: grid;
+      place-items: center;
+      border-radius: 99px;
+      background: color-mix(in srgb, var(--color-text) 8%, transparent);
+      color: var(--color-text);
+      font-size: 9px;
+    }
+    .agent-node {
+      width: 100%;
+      min-height: 79px;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 31px minmax(0, 1fr) auto;
+      gap: 9px;
+      align-items: start;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+      box-shadow: var(--shadow-sm);
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .agent-node:hover {
+      border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border));
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+    }
+    .agent-node.active {
+      border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-border));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 9%, transparent);
+    }
+    .agent-node .mark {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 10px/1 var(--font-mono);
+    }
+    .node-copy { min-width: 0; }
+    .node-copy small, .node-copy b, .node-copy em { display: block; }
+    .node-copy small { margin-bottom: 4px; color: var(--color-text-muted); font-size: 9px; text-transform: uppercase; }
+    .node-copy b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .node-copy em { margin-top: 4px; overflow: hidden; color: var(--color-text-muted); font-size: 10px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+    .node-state { display: flex; align-items: center; gap: 5px; color: var(--color-success); font-size: 9px; white-space: nowrap; }
+    .node-state i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .root-node {
+      min-height: 210px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .root-node .mark { width: 40px; height: 40px; }
+    .root-node h2 { margin: 20px 0 7px; font-size: 19px; line-height: 1.12; letter-spacing: -.045em; }
+    .root-node p { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.5; }
+    .root-node footer { padding-top: 11px; display: flex; justify-content: space-between; border-top: 1px solid var(--color-border); font-size: 10px; }
+    .unit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .shell-node { border-color: rgba(141, 229, 196, .24); background: #050a0e; color: #eef8f4; }
+    .shell-node .mark { border-color: rgba(141, 229, 196, .23); color: #8de5c4; }
+    .shell-node .node-copy small, .shell-node .node-copy em { color: #8ca198; }
+    .result-list { display: grid; gap: 8px; }
+    .result-node { min-height: 63px; opacity: .58; }
+    .result-node:first-child { opacity: 1; }
+    .result-node .node-state { display: none; }
+    .signal-rail {
+      min-height: 50px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border-top: 1px solid var(--color-border);
+      color: var(--color-text-muted);
+      font-size: 10px;
+    }
+    .signal-rail b { color: var(--color-text); font-size: 10px; text-transform: uppercase; }
+    .signal-rail span { display: flex; align-items: center; gap: 6px; }
+    .signal-rail i { width: 5px; height: 5px; border-radius: 50%; background: var(--color-primary); }
+    .signal-rail button { margin-left: auto; min-height: 29px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; cursor: pointer; }
+
+    /* Multi-session causal overview */
+    .session-toolbar {
+      min-height: 49px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .session-toolbar > b { margin-right: 4px; font-size: 11px; }
+    .session-filter {
+      min-height: 28px;
+      padding: 0 9px;
+      border: 1px solid var(--color-border);
+      border-radius: 99px;
+      background: transparent;
+      color: var(--color-text-muted);
+      font-size: 9px;
+      cursor: pointer;
+    }
+    .session-filter.active {
+      border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+      background: color-mix(in srgb, var(--color-primary) 9%, transparent);
+      color: var(--color-primary);
+    }
+    .session-toolbar .session-sort {
+      margin-left: auto;
+      min-height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text);
+      font-size: 9px;
+    }
+    .session-board {
+      position: relative;
+      padding: 16px 18px 18px;
+      display: grid;
+      gap: 9px;
+      background-image: radial-gradient(color-mix(in srgb, var(--color-primary) 16%, transparent) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .session-lane {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-surface) 97%, transparent);
+      box-shadow: var(--shadow-sm);
+    }
+    .session-lane.selected {
+      border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-border));
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 6%, transparent), var(--shadow-md);
+    }
+    .session-lane.selected::before {
+      position: absolute;
+      z-index: 4;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: 3px;
+      content: "";
+      background: var(--color-primary);
+    }
+    .session-lane-head {
+      min-height: 53px;
+      padding: 9px 12px 9px 14px;
+      display: grid;
+      grid-template-columns: 22px minmax(180px, 1fr) auto auto auto;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .session-lane:not(.selected) .session-lane-head {
+      min-height: 76px;
+      grid-template-columns: 22px minmax(210px, .8fr) minmax(420px, 2fr) auto;
+      border-bottom: 0;
+    }
+    .session-status {
+      width: 10px;
+      height: 10px;
+      border: 2px solid color-mix(in srgb, var(--color-success) 27%, transparent);
+      border-radius: 50%;
+      background: var(--color-success);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-success) 8%, transparent);
+    }
+    .session-status.warn { border-color: rgba(240,174,69,.28); background: #f0ae45; box-shadow: 0 0 0 4px rgba(240,174,69,.08); }
+    .session-status.idle { border-color: color-mix(in srgb, var(--color-text-muted) 25%, transparent); background: var(--color-text-muted); box-shadow: none; }
+    .session-identity { min-width: 0; }
+    .session-identity b, .session-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .session-identity b { font-size: 12px; }
+    .session-identity small { margin-top: 4px; color: var(--color-text-muted); font-size: 9px; }
+    .session-meta {
+      display: flex;
+      gap: 13px;
+      color: var(--color-text-muted);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .session-meta b { color: var(--color-text); font-weight: 700; }
+    .session-alert {
+      min-height: 27px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 7px;
+      background: rgba(240,174,69,.09);
+      color: #f0ae45;
+      font-size: 9px;
+      white-space: nowrap;
+    }
+    .session-lane-toggle {
+      min-width: 28px;
+      min-height: 28px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+    }
+    .expanded-causal {
+      position: relative;
+      min-height: 210px;
+      padding: 15px 15px 16px 24px;
+      display: grid;
+      grid-template-columns: minmax(185px, .9fr) 32px minmax(420px, 1.65fr) 32px minmax(175px, .8fr);
+      gap: 7px;
+      align-items: center;
+    }
+    .causal-group { min-width: 0; }
+    .causal-label {
+      margin: 0 0 7px;
+      color: var(--color-text-muted);
+      font-size: 8px;
+      font-weight: 760;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+    .causal-arrow {
+      position: relative;
+      height: 1px;
+      background: color-mix(in srgb, var(--color-primary) 48%, transparent);
+    }
+    .causal-arrow::after {
+      position: absolute;
+      top: -3px;
+      right: -1px;
+      width: 7px;
+      height: 7px;
+      content: "";
+      border-top: 1px solid var(--color-primary);
+      border-right: 1px solid var(--color-primary);
+      transform: rotate(45deg);
+    }
+    .causal-root, .causal-result {
+      min-height: 124px;
+      padding: 13px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      border: 1px solid var(--color-border);
+      border-radius: 11px;
+      background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+      text-align: left;
+      cursor: pointer;
+    }
+    .causal-root:hover, .causal-result:hover, .causal-unit:hover { border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-border)); }
+    .causal-root header, .causal-result header { display: flex; justify-content: space-between; gap: 8px; }
+    .causal-root .mark, .causal-result .mark {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 9px/1 var(--font-mono);
+    }
+    .causal-root h3, .causal-result h3 { margin: 14px 0 4px; font-size: 13px; letter-spacing: -.02em; }
+    .causal-root p, .causal-result p { margin: 0; color: var(--color-text-muted); font-size: 9px; line-height: 1.45; }
+    .causal-root footer, .causal-result footer { margin-top: 11px; padding-top: 8px; display: flex; justify-content: space-between; border-top: 1px solid var(--color-border); font-size: 8px; }
+    .causal-units { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+    .causal-unit {
+      min-height: 65px;
+      padding: 9px;
+      display: grid;
+      grid-template-columns: 28px minmax(0,1fr) auto;
+      gap: 7px;
+      align-items: start;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--color-bg) 42%, transparent);
+      text-align: left;
+      cursor: pointer;
+    }
+    .causal-unit.shell { border-color: rgba(141,229,196,.2); background: #050a0e; color: #edf8f4; }
+    .causal-unit > i {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      color: var(--color-primary);
+      font: 700 8px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .causal-unit span { min-width: 0; }
+    .causal-unit b, .causal-unit small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .causal-unit b { font-size: 10px; }
+    .causal-unit small { margin-top: 4px; color: var(--color-text-muted); font-size: 8px; }
+    .live-dot { width: 6px; height: 6px; margin-top: 3px; border-radius: 50%; background: var(--color-success); }
+    .mini-causal {
+      min-width: 0;
+      display: grid;
+      grid-template-columns: minmax(110px, .7fr) 22px minmax(260px, 1.55fr) 22px minmax(110px, .7fr);
+      align-items: center;
+      gap: 6px;
+    }
+    .mini-causal > i {
+      width: 100%;
+      height: 1px;
+      position: relative;
+      background: color-mix(in srgb, var(--color-text) 18%, transparent);
+    }
+    .mini-causal > i::after { position: absolute; top: -2px; right: 0; content: "›"; color: var(--color-text-muted); font-style: normal; line-height: 5px; }
+    .mini-node {
+      min-width: 0;
+      min-height: 39px;
+      padding: 7px 9px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: color-mix(in srgb, var(--color-bg) 38%, transparent);
+      color: var(--color-text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .mini-node.shell { border-color: rgba(141,229,196,.18); background: #050a0e; }
+    .mini-node > i {
+      width: 23px;
+      height: 23px;
+      flex: 0 0 auto;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+      color: var(--color-primary);
+      font: 700 8px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .mini-node span { min-width: 0; }
+    .mini-node b, .mini-node small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-node b { font-size: 9px; }
+    .mini-node small { margin-top: 3px; color: var(--color-text-muted); font-size: 8px; }
+    .mini-units { min-width: 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; }
+
+    /* Generic full views */
+    .panel-body { padding: 18px 20px 26px; }
+    .toolbar {
+      margin-bottom: 14px;
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+    .toolbar input, .toolbar select {
+      min-height: 34px;
+      padding: 0 9px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--color-text);
+    }
+    .toolbar input { width: 260px; }
+    .toolbar .soft-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--color-primary) 9%, transparent); color: var(--color-primary); }
+
+    .task-table { border: 1px solid var(--color-border); border-radius: 13px; overflow: hidden; }
+    .task-row {
+      width: 100%;
+      min-height: 63px;
+      padding: 9px 13px;
+      display: grid;
+      grid-template-columns: 36px minmax(160px, 1fr) minmax(210px, 1.5fr) 100px 90px 80px;
+      gap: 11px;
+      align-items: center;
+      border: 0;
+      border-bottom: 1px solid var(--color-border);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: all .15s ease;
+    }
+    .task-row:last-child { border-bottom: 0; }
+    .task-row:hover { background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
+    .task-row > i {
+      width: 31px;
+      height: 31px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      color: var(--color-primary);
+      font: 700 10px/1 var(--font-mono);
+      font-style: normal;
+    }
+    .task-row span { min-width: 0; }
+    .task-row b, .task-row small { display: block; }
+    .task-row b { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+    .task-row small { margin-top: 3px; color: var(--color-text-muted); font-size: 9px; }
+    .pill { width: fit-content; padding: 5px 8px; border: 1px solid var(--color-border); border-radius: 99px; color: var(--color-text-muted); font-size: 9px; white-space: nowrap; }
+    .pill.live { color: var(--color-success); }
+    .pill.warn { color: #f0ae45; }
+    .load-more { width: 100%; min-height: 38px; margin-top: 10px; border: 1px solid var(--color-border); border-radius: 9px; background: transparent; cursor: pointer; }
+
+    .review-tabs { display: flex; gap: 6px; }
+    .review-tabs button {
+      min-height: 33px;
+      padding: 0 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .review-tabs button[aria-pressed="true"] { border-color: rgba(240,174,69,.35); background: rgba(240,174,69,.07); color: #f0ae45; }
+    .review-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .review-card {
+      min-height: 285px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--color-border);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--color-bg) 30%, transparent);
+    }
+    .review-card.resolved { opacity: .45; filter: saturate(.4); }
+    .review-card header { display: flex; gap: 10px; align-items: center; }
+    .review-card header i { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; background: rgba(240,174,69,.12); color: #f0ae45; font-style: normal; }
+    .review-card header b, .review-card header small { display: block; }
+    .review-card header b { font-size: 12px; }
+    .review-card header small { margin-top: 2px; color: var(--color-text-muted); font-size: 9px; }
+    .review-card h3 { margin: 19px 0 7px; font-size: 17px; letter-spacing: -.04em; }
+    .review-card p { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.55; }
+    .decision-flow { margin-top: 16px; padding: 10px; display: flex; gap: 8px; align-items: center; border: 1px solid var(--color-border); border-radius: 10px; font-size: 9px; }
+    .decision-flow i { color: var(--color-text-muted); font-style: normal; }
+    .review-actions { margin-top: auto; padding-top: 15px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .review-actions button { min-height: 33px; padding: 0 9px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .review-actions button.primary { background: var(--color-primary); color: #06140f; font-weight: 740; }
+
+    .runtime-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 14px; }
+    .schedule-list, .loop-panel { border: 1px solid var(--color-border); border-radius: 13px; overflow: hidden; }
+    .schedule-list header, .loop-panel > header { min-height: 53px; padding: 0 14px; display: flex; align-items: center; border-bottom: 1px solid var(--color-border); }
+    .schedule-list header b, .loop-panel > header b { font-size: 12px; }
+    .schedule-list header span, .loop-panel > header span { margin-left: auto; color: var(--color-text-muted); font-size: 10px; }
+    .schedule-item {
+      width: 100%;
+      min-height: 67px;
+      padding: 10px 13px;
+      display: block;
+      border: 0;
+      border-bottom: 1px solid var(--color-border);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .schedule-item:hover, .schedule-item.active { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .schedule-item b, .schedule-item small { display: block; }
+    .schedule-item b { font-size: 11px; }
+    .schedule-item small { margin-top: 4px; color: var(--color-text-muted); font-size: 9px; }
+    .phase-route { padding: 22px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+    .phase {
+      position: relative;
+      min-height: 90px;
+      padding: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 11px;
+    }
+    .phase:not(:last-child)::after {
+      position: absolute;
+      top: 44px;
+      right: -17px;
+      width: 16px;
+      height: 1px;
+      content: "";
+      background: var(--color-border);
+    }
+    .phase small, .phase b, .phase span { display: block; }
+    .phase small { color: var(--color-text-muted); font-size: 9px; }
+    .phase b { margin-top: 12px; font-size: 12px; }
+    .phase span { margin-top: 5px; color: var(--color-text-muted); font-size: 9px; }
+    .phase.done { border-color: color-mix(in srgb, var(--color-success) 25%, var(--color-border)); opacity: .65; }
+    .phase.current { border-color: color-mix(in srgb, var(--color-primary) 60%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+    .runtime-now { margin: 0 22px 22px; padding: 14px; display: flex; gap: 14px; align-items: center; border: 1px solid var(--color-border); border-radius: 11px; }
+    .runtime-now i { width: 9px; height: 9px; border-radius: 50%; background: var(--color-success); }
+    .runtime-now b { font-size: 12px; }
+    .runtime-now span { color: var(--color-text-muted); font-size: 10px; }
+    .runtime-now button { margin-left: auto; }
+
+    /* Terminal */
+    .terminal-view, .tmux-view { overflow: hidden; }
+    .terminal-shell {
+      height: calc(100% - 80px);
+      min-height: 520px;
+      display: grid;
+      grid-template-columns: 210px 260px minmax(0, 1fr);
+    }
+    .terminal-resources, .conversation-panel {
+      min-width: 0;
+      overflow: auto;
+      border-right: 1px solid var(--color-border);
+    }
+    .subhead { min-height: 48px; padding: 0 12px; display: flex; align-items: center; border-bottom: 1px solid var(--color-border); }
+    .subhead b { font-size: 11px; }
+    .subhead button { margin-left: auto; min-height: 28px; padding: 0 7px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; cursor: pointer; }
+    .terminal-create { padding: 9px; display: flex; gap: 5px; border-bottom: 1px solid var(--color-border); }
+    .terminal-create button { flex: 1; min-height: 31px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; font-size: 9px; cursor: pointer; }
+    .session-item {
+      width: 100%;
+      min-height: 61px;
+      padding: 9px 11px;
+      display: block;
+      border: 0;
+      border-bottom: 1px solid var(--color-border);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .session-item:hover, .session-item.active { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+    .session-item b, .session-item small { display: block; }
+    .session-item b { font-size: 11px; }
+    .session-item small { margin-top: 4px; color: var(--color-text-muted); font-size: 9px; }
+    .conversation-list { padding: 12px; display: grid; gap: 10px; }
+    .bubble { padding: 10px; border-radius: 10px; background: color-mix(in srgb, var(--color-text) 5%, transparent); font-size: 10px; line-height: 1.5; }
+    .bubble.user { margin-left: 22px; border: 1px solid color-mix(in srgb, var(--color-primary) 25%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .terminal-console {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 48px minmax(0, 1fr) auto;
+      background: #05090c;
+      color: #d9e8e2;
+    }
+    .terminal-head { padding: 0 13px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid rgba(190,220,210,.12); }
+    .terminal-head b { font-size: 11px; }
+    .terminal-head span { color: #7f948d; font-size: 9px; }
+    .terminal-head .terminal-controls { margin-left: auto; display: flex; gap: 5px; }
+    .terminal-controls button { min-height: 28px; padding: 0 7px; border: 1px solid rgba(190,220,210,.16); border-radius: 7px; background: transparent; color: #a9bbb5; font-size: 9px; cursor: pointer; }
+    .terminal-output { margin: 0; padding: 14px; overflow: auto; color: #a9c8bd; font: 10px/1.65 var(--font-mono); white-space: pre-wrap; }
+    .command-form { padding: 9px; display: flex; gap: 7px; border-top: 1px solid rgba(190,220,210,.12); }
+    .command-form textarea {
+      flex: 1;
+      min-height: 44px;
+      max-height: 100px;
+      padding: 9px 10px;
+      resize: vertical;
+      border: 1px solid rgba(190,220,210,.16);
+      border-radius: 8px;
+      background: #081016;
+      color: #e8f2ee;
+      font: 10px/1.45 var(--font-mono);
+    }
+    .command-form button { width: 72px; border: 0; border-radius: 8px; background: #8de5c4; color: #06130f; font-weight: 760; cursor: pointer; }
+
+    /* tmux */
+    .tmux-body { height: calc(100% - 80px); padding: 14px; display: grid; grid-template-rows: 160px minmax(0, 1fr); gap: 12px; }
+    .tmux-map { padding: 12px; display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 12px; border: 1px solid var(--color-border); border-radius: 13px; }
+    .tmux-session-card { padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; }
+    .tmux-session-card b, .tmux-session-card small { display: block; }
+    .tmux-session-card b { font-size: 12px; }
+    .tmux-session-card small { margin-top: 5px; color: var(--color-text-muted); font-size: 9px; }
+    .tmux-window { min-width: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .pane-card { padding: 10px; border: 1px solid var(--color-border); border-radius: 9px; background: transparent; text-align: left; cursor: pointer; }
+    .pane-card:hover, .pane-card.active { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .pane-card b, .pane-card small { display: block; }
+    .pane-card b { font-size: 10px; }
+    .pane-card small { margin-top: 5px; color: var(--color-text-muted); font-size: 8px; }
+    .tmux-control { min-height: 0; display: grid; grid-template-columns: 185px minmax(0, 1fr); gap: 12px; }
+    .tmux-actions { padding: 10px; display: grid; align-content: start; gap: 6px; border: 1px solid var(--color-border); border-radius: 11px; }
+    .tmux-actions button { min-height: 31px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; text-align: left; font-size: 9px; cursor: pointer; }
+    .tmux-actions button:hover { background: color-mix(in srgb, var(--color-primary) 6%, transparent); }
+    .tmux-actions button.danger { color: #dc796d; }
+    .tmux-terminal { min-width: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr) auto; overflow: hidden; border: 1px solid rgba(190,220,210,.15); border-radius: 11px; background: #05090c; color: #cde1d9; }
+    .tmux-terminal header { padding: 0 11px; display: flex; align-items: center; border-bottom: 1px solid rgba(190,220,210,.12); }
+    .tmux-terminal header b { font-size: 10px; }
+    .tmux-terminal pre { margin: 0; padding: 12px; overflow: auto; font: 10px/1.55 var(--font-mono); color: #9fc1b5; white-space: pre-wrap; }
+
+    /* Settings */
+    .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .setting-card { min-height: 150px; padding: 16px; border: 1px solid var(--color-border); border-radius: 13px; }
+    .setting-card.wide { grid-column: 1 / -1; }
+    .setting-card header { display: flex; align-items: center; gap: 10px; }
+    .setting-card header i { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid var(--color-border); border-radius: 9px; color: var(--color-primary); font-style: normal; }
+    .setting-card h3 { margin: 0; font-size: 13px; }
+    .setting-card p { margin: 7px 0 14px; color: var(--color-text-muted); font-size: 10px; line-height: 1.5; }
+    .setting-card select { min-height: 35px; padding: 0 9px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; color: var(--color-text); }
+    .choice-row, .provider-toggles { display: flex; gap: 7px; flex-wrap: wrap; }
+    .choice-row button, .provider-toggle {
+      min-height: 35px;
+      padding: 0 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 8px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .choice-row button[aria-checked="true"], .provider-toggle[aria-pressed="true"] { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 7%, transparent); color: var(--color-primary); }
+    .version-route { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 14px; align-items: center; }
+    .version-node { padding: 13px; border: 1px solid var(--color-border); border-radius: 10px; }
+    .version-node small, .version-node b { display: block; }
+    .version-node small { color: var(--color-text-muted); font-size: 9px; }
+    .version-node b { margin-top: 5px; font-size: 16px; }
+    .update-progress { grid-column: 1 / -1; height: 4px; overflow: hidden; border-radius: 99px; background: color-mix(in srgb, var(--color-text) 8%, transparent); }
+    .update-progress i { display: block; width: 0; height: 100%; background: var(--color-primary); transition: width .25s ease; }
+
+    /* Popovers */
+    .popover {
+      position: fixed;
+      z-index: 1800;
+      width: 310px;
+      padding: 13px;
+      border: 1px solid var(--color-border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--color-surface) 98%, transparent);
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(18px);
+    }
+    .provider-popover { top: 122px; right: max(28px, calc((100vw - min(1540px, calc(100vw - 24px))) / 2 + 70px)); }
+    .filter-popover { top: 310px; right: max(28px, calc((100vw - min(1540px, calc(100vw - 24px))) / 2 + 24px)); }
+    .popover header { margin-bottom: 10px; display: flex; align-items: center; }
+    .popover header b { font-size: 11px; }
+    .popover header button { margin-left: auto; border: 0; background: transparent; cursor: pointer; }
+    .provider-line { min-height: 41px; display: grid; grid-template-columns: 23px 1fr auto; gap: 8px; align-items: center; border-top: 1px solid var(--color-border); }
+    .provider-line i { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); font: 700 9px/1 var(--font-mono); font-style: normal; }
+    .provider-line b, .provider-line small { display: block; }
+    .provider-line b { font-size: 10px; }
+    .provider-line small { margin-top: 2px; color: var(--color-text-muted); font-size: 8px; }
+    .provider-line em { color: var(--color-success); font-size: 9px; font-style: normal; }
+    .filter-grid { display: grid; gap: 10px; }
+    .filter-grid label { display: grid; gap: 5px; color: var(--color-text-muted); font-size: 9px; }
+    .filter-grid select { min-height: 33px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; color: var(--color-text); }
+
+    /* Context dock */
+    .context-dock {
+      position: absolute;
+      z-index: 1200;
+      top: 0;
+      right: 0;
+      width: 410px;
+      height: 100%;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      border-left: 1px solid var(--color-border);
+      background: color-mix(in srgb, var(--color-surface) 98%, transparent);
+      box-shadow: -28px 0 65px rgba(0,0,0,.24);
+      transform: translateX(102%);
+      transition: transform .22s ease, width .22s ease, height .22s ease;
+      backdrop-filter: blur(18px);
+    }
+    .context-dock.open { transform: translateX(0); }
+    .dock-head { padding: 14px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-border); }
+    .dock-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid var(--color-border); border-radius: 10px; color: var(--color-primary); font: 700 10px/1 var(--font-mono); }
+    .dock-title { min-width: 0; }
+    .dock-title small, .dock-title b { display: block; }
+    .dock-title small { color: var(--color-text-muted); font-size: 9px; text-transform: uppercase; }
+    .dock-title b { margin-top: 3px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+    .dock-close { width: 31px; height: 31px; margin-left: auto; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .dock-tabs { padding: 7px; display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--color-border); }
+    .dock-tab { min-height: 31px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent; color: var(--color-text-muted); font-size: 9px; cursor: pointer; white-space: nowrap; }
+    .dock-tab.active { background: color-mix(in srgb, var(--color-primary) 8%, transparent); color: var(--color-primary); }
+    .dock-content { padding: 16px; overflow: auto; }
+    .dock-content h2 { margin: 0 0 8px; font-size: 21px; line-height: 1.17; letter-spacing: -.045em; }
+    .dock-content > p { margin: 0; color: var(--color-text-muted); font-size: 11px; line-height: 1.6; }
+    .fact-grid { margin-top: 18px; display: grid; gap: 8px; }
+    .fact-grid div { display: flex; justify-content: space-between; gap: 16px; }
+    .fact-grid dt { color: var(--color-text-muted); font-size: 9px; }
+    .fact-grid dd { margin: 0; font-size: 9px; text-align: right; }
+    .dock-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--color-border); }
+    .dock-section > b { display: block; margin-bottom: 9px; color: var(--color-text-muted); font-size: 9px; text-transform: uppercase; }
+    .chat-thread { display: grid; gap: 9px; }
+    .chat-msg { padding: 9px; border-radius: 9px; background: color-mix(in srgb, var(--color-text) 5%, transparent); font-size: 10px; line-height: 1.5; }
+    .chat-msg.user { margin-left: 22px; border: 1px solid color-mix(in srgb, var(--color-primary) 25%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 5%, transparent); }
+    .timeline-list { display: grid; gap: 10px; }
+    .timeline-item { padding-left: 13px; border-left: 1px solid var(--color-border); }
+    .timeline-item b, .timeline-item small { display: block; }
+    .timeline-item b { font-size: 10px; }
+    .timeline-item small { margin-top: 4px; color: var(--color-text-muted); font-size: 9px; }
+    .usage-bars { display: grid; gap: 10px; }
+    .usage-bars div > span { display: flex; justify-content: space-between; color: var(--color-text-muted); font-size: 9px; }
+    .usage-bars i { margin-top: 5px; height: 4px; display: block; border-radius: 99px; background: color-mix(in srgb, var(--color-text) 8%, transparent); overflow: hidden; }
+    .usage-bars i::after { display: block; width: var(--usage, 50%); height: 100%; content: ""; background: var(--color-primary); }
+    .proof {
+      padding: 10px;
+      overflow: auto;
+      border: 1px solid rgba(141,229,196,.18);
+      border-radius: 9px;
+      background: #05090c;
+      color: #9fc1b5;
+      font: 9px/1.55 var(--font-mono);
+      white-space: pre-wrap;
+    }
+    .dock-actions { padding: 10px; display: flex; gap: 6px; border-top: 1px solid var(--color-border); }
+    .dock-actions button { flex: 1; min-height: 36px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; font-size: 9px; cursor: pointer; }
+    .dock-actions button.primary { background: var(--color-primary); color: #06140f; font-weight: 760; }
+    .dock-composer { margin-top: 12px; display: flex; gap: 6px; }
+    .dock-composer textarea { flex: 1; min-height: 58px; padding: 8px; border: 1px solid var(--color-border); border-radius: 8px; resize: vertical; background: transparent; color: var(--color-text); font-size: 10px; }
+    .dock-composer button { width: 56px; border: 0; border-radius: 8px; background: var(--color-primary); color: #06140f; cursor: pointer; }
+
+    /* Layout variants */
+    body[data-layout="b"] .workbench {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: 62px minmax(0, 1fr) 64px;
+    }
+    body[data-layout="b"] .topbar { grid-column: 1; }
+    body[data-layout="b"] .stage { grid-column: 1; grid-row: 2; }
+    body[data-layout="b"] .rail {
+      grid-column: 1;
+      grid-row: 3;
+      padding: 5px 12px;
+      flex-direction: row;
+      justify-content: center;
+      border-top: 1px solid var(--color-border);
+      border-right: 0;
+    }
+    body[data-layout="b"] .rail-logo, body[data-layout="b"] .rail-spacer { display: none; }
+    body[data-layout="b"] .nav-btn { width: 88px; min-height: 52px; grid-template-columns: 24px auto; gap: 5px; }
+    body[data-layout="b"] .nav-btn.active { box-shadow: inset 0 -2px var(--color-primary); }
+    body[data-layout="b"] .app-view[data-overlay="true"].active {
+      z-index: 50;
+      top: auto;
+      height: 58%;
+      display: block;
+      border-top: 1px solid var(--color-border);
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -26px 60px rgba(0,0,0,.28);
+    }
+    body[data-layout="b"] #view-flow { display: block; }
+    body[data-layout="b"] .context-dock {
+      top: auto;
+      bottom: 0;
+      width: 100%;
+      height: 52%;
+      grid-template-columns: 250px minmax(0,1fr) auto;
+      grid-template-rows: auto minmax(0,1fr);
+      border-top: 1px solid var(--color-border);
+      border-left: 0;
+      box-shadow: 0 -28px 65px rgba(0,0,0,.28);
+      transform: translateY(102%);
+    }
+    body[data-layout="b"] .context-dock.open { transform: translateY(0); }
+    body[data-layout="b"] .dock-head { grid-column: 1; grid-row: 1 / 3; align-items: flex-start; }
+    body[data-layout="b"] .dock-tabs { grid-column: 2 / 4; }
+    body[data-layout="b"] .dock-content { grid-column: 2; grid-row: 2; }
+    body[data-layout="b"] .dock-actions { grid-column: 3; grid-row: 2; width: 170px; flex-direction: column; border-top: 0; border-left: 1px solid var(--color-border); }
+
+    body[data-layout="c"] .stage { padding-right: 46%; }
+    body[data-layout="c"] #view-flow { display: block; }
+    body[data-layout="c"] .app-view[data-overlay="true"].active {
+      z-index: 50;
+      left: auto;
+      width: 46%;
+      display: block;
+      border-left: 1px solid var(--color-border);
+      box-shadow: -24px 0 55px rgba(0,0,0,.22);
+    }
+    body[data-layout="c"] .flow-canvas {
+      grid-template-columns: 1fr;
+      align-content: start;
+      overflow: auto;
+    }
+    body[data-layout="c"] .connectors { display: none; }
+    body[data-layout="c"] .flow-col + .flow-col { margin-top: 18px; }
+    body[data-layout="c"] .context-dock { width: 46%; }
+    body[data-layout="c"] .review-grid, body[data-layout="c"] .settings-grid { grid-template-columns: 1fr; }
+    body[data-layout="c"] .review-card { min-height: 250px; }
+    body[data-layout="c"] .runtime-layout { grid-template-columns: 1fr; }
+    body[data-layout="c"] .phase-route { grid-template-columns: 1fr; }
+    body[data-layout="c"] .terminal-shell { grid-template-columns: 170px minmax(0,1fr); }
+    body[data-layout="c"] .conversation-panel { display: none; }
+    body[data-layout="c"] .task-row { grid-template-columns: 32px minmax(0,1fr) auto; }
+    body[data-layout="c"] .task-row > :nth-child(n+4) { display: none; }
+
+    /* Dialogs */
+    .backdrop {
+      position: fixed;
+      z-index: 4000;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(2,5,8,.7);
+      backdrop-filter: blur(8px);
+    }
+    .dialog {
+      width: min(620px, 96vw);
+      max-height: 90vh;
+      padding: 20px;
+      overflow: auto;
+      border: 1px solid var(--color-border);
+      border-radius: 16px;
+      background: var(--color-surface);
+      box-shadow: var(--shadow-lg);
+    }
+    .dialog.small { width: min(460px, 96vw); }
+    .dialog-head { display: flex; align-items: flex-start; gap: 12px; }
+    .dialog-head h2 { margin: 0; font-size: 23px; letter-spacing: -.05em; }
+    .dialog-head p { margin: 5px 0 0; color: var(--color-text-muted); font-size: 10px; }
+    .dialog-head button { width: 32px; height: 32px; margin-left: auto; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .form-field { margin-top: 16px; display: grid; gap: 6px; }
+    .form-field > span { color: var(--color-text-muted); font-size: 9px; }
+    .form-field input, .form-field textarea, .form-field select {
+      width: 100%;
+      padding: 9px;
+      border: 1px solid var(--color-border);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text);
+    }
+    .form-field textarea { min-height: 100px; resize: vertical; }
+    .quick-prompts { margin-top: 8px; display: flex; gap: 6px; }
+    .quick-prompts button { min-height: 29px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; font-size: 9px; cursor: pointer; }
+    .provider-choice { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }
+    .provider-choice button { min-height: 43px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .provider-choice button.active { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border)); background: color-mix(in srgb, var(--color-primary) 7%, transparent); color: var(--color-primary); }
+    .form-check { margin-top: 13px; display: flex; gap: 8px; align-items: center; color: var(--color-text-muted); font-size: 10px; }
+    .form-error { margin-top: 11px; padding: 9px; border: 1px solid rgba(226,100,86,.28); border-radius: 8px; background: rgba(226,100,86,.06); color: #e9897e; font-size: 10px; }
+    .dialog-actions { margin-top: 18px; display: flex; justify-content: flex-end; gap: 7px; }
+    .dialog-actions button { min-height: 37px; padding: 0 12px; border: 1px solid var(--color-border); border-radius: 8px; background: transparent; cursor: pointer; }
+    .dialog-actions button.primary { background: var(--color-primary); color: #06140f; font-weight: 760; }
+    .palette-input { width: 100%; min-height: 42px; margin-top: 14px; padding: 0 11px; border: 1px solid var(--color-border); border-radius: 9px; background: transparent; color: var(--color-text); }
+    .palette-list { margin-top: 8px; display: grid; gap: 4px; }
+    .palette-item { min-height: 43px; padding: 0 10px; display: flex; align-items: center; border: 0; border-radius: 8px; background: transparent; text-align: left; cursor: pointer; }
+    .palette-item:hover { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+    .palette-item i { width: 30px; color: var(--color-primary); font: 700 10px/1 var(--font-mono); font-style: normal; }
+    .palette-item b { font-size: 11px; }
+    .palette-item small { margin-left: auto; color: var(--color-text-muted); font-size: 9px; }
+    .shortcut-list { margin-top: 15px; display: grid; gap: 8px; }
+    .shortcut-list div { display: flex; justify-content: space-between; align-items: center; }
+    .shortcut-list dt { display: flex; gap: 4px; }
+    kbd { padding: 3px 6px; border: 1px solid var(--color-border); border-radius: 5px; background: color-mix(in srgb, var(--color-text) 5%, transparent); font: 9px/1 var(--font-mono); }
+    .shortcut-list dd { margin: 0; color: var(--color-text-muted); font-size: 10px; }
+    .guide-steps { margin-top: 14px; display: grid; gap: 8px; }
+    .guide-step { padding: 11px; display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 9px; border: 1px solid var(--color-border); border-radius: 9px; }
+    .guide-step i { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--color-primary) 9%, transparent); color: var(--color-primary); font-style: normal; font-size: 10px; }
+    .guide-step b, .guide-step small { display: block; }
+    .guide-step b { font-size: 11px; }
+    .guide-step small { margin-top: 3px; color: var(--color-text-muted); font-size: 9px; }
+    .guide-step button { min-height: 29px; padding: 0 8px; border: 1px solid var(--color-border); border-radius: 7px; background: transparent; font-size: 9px; cursor: pointer; }
+
+    .mobile-sheet { display: none; }
+    .toast {
+      position: fixed;
+      z-index: 5000;
+      left: 50%;
+      bottom: 24px;
+      padding: 10px 14px;
+      border-radius: 9px;
+      background: var(--color-text);
+      color: var(--color-bg);
+      box-shadow: var(--shadow-lg);
+      font-size: 11px;
+      opacity: 0;
+      transform: translate(-50%, 14px);
+      pointer-events: none;
+      transition: all .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translate(-50%,0); }
+
+    #sketch-tools {
+      position: fixed;
+      z-index: 6000;
+      right: 10px;
+      bottom: 10px;
+      padding: 7px 9px;
+      display: flex;
+      gap: 4px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.75);
+      color: #fff;
+      font: 10px/1 system-ui, sans-serif;
+      opacity: .35;
+      transition: opacity .2s ease;
+    }
+    #sketch-tools:hover { opacity: 1; }
+    #sketch-tools button, #sketch-tools select { min-height: 25px; padding: 0 6px; border: 1px solid rgba(255,255,255,.18); border-radius: 5px; background: rgba(255,255,255,.08); color: #fff; cursor: pointer; }
+    #sketch-tools option { color: #111; }
+    body.annotation [data-note] { outline: 1px dashed #f0ae45 !important; outline-offset: 3px; }
+
+    @media (max-width: 820px) {
+      body { overflow: hidden; }
+      .variant-nav { top: 6px; max-width: calc(100vw - 12px); overflow-x: auto; }
+      .variant-tab { min-height: 35px; padding: 0 10px; font-size: 10px; }
+      .workbench, body[data-layout="b"] .workbench {
+        width: 100vw !important;
+        height: calc(100vh - 52px) !important;
+        min-height: 0;
+        margin: 52px 0 0;
+        grid-template-columns: 1fr;
+        grid-template-rows: 52px minmax(0,1fr) 57px;
+        border: 0;
+        border-radius: 0;
+        transition: none;
+      }
+      .topbar { grid-column: 1; padding: 0 10px; }
+      .brand span, .crumb, .top-search, .connection span, .topbar .help-btn { display: none; }
+      .top-spacer { flex: 1; }
+      .new-task { min-height: 34px; padding: 0 9px; font-size: 10px; }
+      .rail, body[data-layout="b"] .rail {
+        grid-column: 1;
+        grid-row: 3;
+        padding: 3px 6px;
+        flex-direction: row;
+        justify-content: space-around;
+        border-top: 1px solid var(--color-border);
+        border-right: 0;
+      }
+      .rail-logo, .rail-spacer { display: none; }
+      .nav-btn { width: 25%; min-height: 50px; grid-template-columns: none; box-shadow: none !important; }
+      .nav-btn span { font-size: 9px; }
+      .nav-btn b { margin: -23px 0 0 26px; }
+      .nav-btn.runtime, .nav-btn.terminal, .nav-btn.tmux, .nav-btn.settings { display: none; }
+      .nav-btn.mobile-more { display: grid; }
+      .stage, body[data-layout="c"] .stage { grid-column: 1; grid-row: 2; padding-right: 0; }
+      .app-view, body[data-layout="b"] .app-view[data-overlay="true"].active, body[data-layout="c"] .app-view[data-overlay="true"].active {
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+      .app-view.active { display: block !important; }
+      body[data-layout="b"] #view-flow, body[data-layout="c"] #view-flow { display: none; }
+      body[data-layout="b"] #view-flow.active, body[data-layout="c"] #view-flow.active { display: block; }
+      .attention-strip { padding: 8px 12px; align-items: flex-start; }
+      .attention-strip span { white-space: normal; }
+      .flow-intro { padding: 16px 13px; grid-template-columns: 1fr; gap: 13px; }
+      .flow-intro h1 { font-size: 28px; }
+      .flow-counts { justify-content: space-between; }
+      .project-line { padding: 8px 12px; align-items: flex-start; flex-wrap: wrap; }
+      .project-line em { width: 100%; margin-left: 0; }
+      .flow-canvas { padding: 18px 12px; display: block; }
+      .connectors { display: none; }
+      .flow-col + .flow-col { margin-top: 20px; }
+      .unit-grid { grid-template-columns: 1fr; }
+      .session-toolbar { padding: 8px 12px; overflow-x: auto; }
+      .session-toolbar > b { min-width: max-content; }
+      .session-filter { min-width: max-content; }
+      .session-toolbar .session-sort { min-width: 105px; }
+      .session-board { padding: 11px; }
+      .session-lane-head, .session-lane:not(.selected) .session-lane-head {
+        min-height: 64px;
+        padding: 9px 10px 9px 12px;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        gap: 7px;
+      }
+      .session-lane-head .session-meta { display: none; }
+      .session-lane-head .mini-causal { display: none; }
+      .session-lane-head .session-alert { max-width: 105px; overflow: hidden; text-overflow: ellipsis; }
+      .session-lane-toggle { display: none; }
+      .expanded-causal { padding: 13px; grid-template-columns: 1fr; gap: 12px; }
+      .causal-arrow { display: none; }
+      .causal-root, .causal-result { min-height: 108px; }
+      .causal-units { grid-template-columns: 1fr; }
+      .signal-rail { padding: 10px 12px; align-items: flex-start; flex-wrap: wrap; }
+      .signal-rail span:nth-of-type(n+3) { display: none; }
+      .view-head { padding: 13px; display: block; }
+      .view-head h1 { font-size: 20px; }
+      .view-actions { margin-top: 10px; overflow-x: auto; }
+      .panel-body { padding: 12px; }
+      .toolbar { flex-wrap: wrap; }
+      .toolbar input { width: 100%; }
+      .task-row { grid-template-columns: 31px minmax(0,1fr) auto; }
+      .task-row > :nth-child(n+4) { display: none; }
+      .review-grid, .settings-grid { grid-template-columns: 1fr; }
+      .review-card { min-height: 250px; }
+      .runtime-layout { grid-template-columns: 1fr; }
+      .phase-route { grid-template-columns: 1fr; }
+      .phase:not(:last-child)::after { display: none; }
+      .terminal-shell { height: calc(100% - 99px); grid-template-columns: 1fr; }
+      .terminal-resources, .conversation-panel { display: none; }
+      .tmux-body { height: calc(100% - 99px); grid-template-rows: auto minmax(0,1fr); }
+      .tmux-map { grid-template-columns: 1fr; }
+      .tmux-window { grid-template-columns: 1fr 1fr; }
+      .tmux-control { grid-template-columns: 1fr; }
+      .tmux-actions { display: flex; overflow-x: auto; }
+      .tmux-actions button { min-width: 100px; }
+      .setting-card.wide { grid-column: auto; }
+      .version-route { grid-template-columns: 1fr; }
+      .context-dock, body[data-layout="b"] .context-dock, body[data-layout="c"] .context-dock {
+        position: fixed;
+        z-index: 2600;
+        inset: 52px 0 0;
+        width: 100%;
+        height: calc(100vh - 52px);
+        grid-template-columns: none;
+        grid-template-rows: auto auto minmax(0,1fr) auto;
+        transform: translateX(102%);
+      }
+      .context-dock.open, body[data-layout="b"] .context-dock.open { transform: translateX(0); }
+      body[data-layout="b"] .dock-head, body[data-layout="b"] .dock-tabs, body[data-layout="b"] .dock-content, body[data-layout="b"] .dock-actions { grid-column: auto; grid-row: auto; width: auto; }
+      body[data-layout="b"] .dock-actions { flex-direction: row; border-left: 0; border-top: 1px solid var(--color-border); }
+      .mobile-sheet {
+        position: fixed;
+        z-index: 2700;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        padding: 13px;
+        display: grid;
+        gap: 7px;
+        border-top: 1px solid var(--color-border);
+        border-radius: 16px 16px 0 0;
+        background: var(--color-surface);
+        box-shadow: 0 -24px 60px rgba(0,0,0,.3);
+        transform: translateY(110%);
+        transition: transform .2s ease;
+      }
+      .mobile-sheet.open { transform: translateY(0); }
+      .mobile-sheet header { display: flex; align-items: center; }
+      .mobile-sheet header b { font-size: 12px; }
+      .mobile-sheet header button { margin-left: auto; border: 0; background: transparent; }
+      .mobile-sheet > button { min-height: 45px; padding: 0 11px; display: flex; align-items: center; gap: 10px; border: 1px solid var(--color-border); border-radius: 9px; background: transparent; text-align: left; }
+      .provider-choice { grid-template-columns: 1fr 1fr; }
+      #sketch-tools { display: none; }
+    }
+  </style>
+</head>
+<body data-layout="a">
+  <nav class="variant-nav" aria-label="스케치 변형">
+    <button class="variant-tab active" type="button" data-layout-choice="a">A · 컨텍스트 도크 ★</button>
+    <button class="variant-tab" type="button" data-layout-choice="b">B · 하단 명령 데크</button>
+    <button class="variant-tab" type="button" data-layout-choice="c">C · 분할 관제</button>
+  </nav>
+
+  <div id="workbench" class="workbench">
+    <aside class="rail" aria-label="기능 탐색">
+      <div class="rail-logo">L</div>
+      <button class="nav-btn active" type="button" data-view="flow"><i>⌁</i><span>흐름</span><b>9</b></button>
+      <button class="nav-btn tasks" type="button" data-view="tasks"><i>≡</i><span>전체 작업</span><b>48</b></button>
+      <button class="nav-btn review" type="button" data-view="review"><i>!</i><span>확인</span><b id="reviewCount">3</b></button>
+      <button class="nav-btn runtime" type="button" data-view="runtime"><i>↻</i><span>예약</span><b>2</b></button>
+      <button class="nav-btn terminal" type="button" data-view="terminal"><i>›_</i><span>터미널</span><b>4</b></button>
+      <button class="nav-btn tmux" type="button" data-view="tmux"><i>▦</i><span>tmux</span><b>1</b></button>
+      <span class="rail-spacer"></span>
+      <button class="nav-btn settings" type="button" data-view="settings"><i>⚙</i><span>설정</span></button>
+      <button class="nav-btn mobile-more" type="button" data-mobile-more><i>•••</i><span>더보기</span></button>
+    </aside>
+
+    <header class="topbar">
+      <div class="brand"><i>L</i><span>LoadToAgent</span></div>
+      <div class="crumb"><b id="crumbTitle">실시간 흐름</b> · Lodestar</div>
+      <span class="top-spacer"></span>
+      <input id="topSearch" class="top-search" type="search" placeholder="에이전트·명령·작업 검색" aria-label="전체 검색">
+      <button class="connection" type="button" data-popover="providers" aria-expanded="false"><i></i><span>AI 5개 연결</span></button>
+      <button class="icon-btn help-btn" type="button" data-open-palette aria-label="빠른 이동">⌘</button>
+      <button class="icon-btn help-btn" type="button" data-open-help aria-label="도움말">?</button>
+      <button class="new-task" type="button" data-open-run>＋ 새 작업</button>
+    </header>
+
+    <main class="stage">
+      <section id="view-flow" class="app-view active" data-view-panel="flow">
+        <div class="attention-strip">
+          <i>!</i><b>지금 볼 것 3개</b><span>오류 1 · 승인 대기 1 · 30분 동안 멈춘 세션 1</span>
+          <button type="button" data-view-jump="review">차례로 확인 →</button>
+        </div>
+        <div class="flow-intro">
+          <div><h1>4개 세션이 지금 이렇게 움직입니다.</h1><p>각 줄은 하나의 작업입니다. 메인 에이전트에서 서브에이전트·PowerShell·결과까지 끊김 없이 읽습니다.</p></div>
+          <div class="flow-counts"><span><small>활성 세션</small><b>4</b></span><span><small>에이전트</small><b>9</b></span><span><small>PowerShell</small><b>6</b></span><span class="warn"><small>내 판단</small><b>2</b></span></div>
+        </div>
+        <div class="session-toolbar">
+          <b>모든 세션</b>
+          <button class="session-filter active" type="button">전체 4</button>
+          <button class="session-filter" type="button">실행 중 3</button>
+          <button class="session-filter" type="button">확인 필요 2</button>
+          <button class="session-filter" type="button">완료</button>
+          <select class="session-sort" aria-label="세션 정렬"><option>주의 필요한 순</option><option>최근 활동 순</option><option>프로젝트 순</option></select>
+        </div>
+
+        <div class="session-board" data-note="여러 세션은 병렬 인과선으로 읽는다">
+          <article class="session-lane selected">
+            <header class="session-lane-head">
+              <i class="session-status"></i>
+              <span class="session-identity"><b>에이전트 흐름 UI 재설계</b><small>Lodestar · Codex · 18분째</small></span>
+              <span class="session-meta"><span>서브 <b>2</b></span><span>명령 <b>2</b></span><span>최근 <b>12초</b></span></span>
+              <span class="session-alert">● 시각 테스트 6개 남음</span>
+              <button class="session-lane-toggle" type="button" aria-label="세션 접기">⌃</button>
+            </header>
+            <div class="expanded-causal">
+              <section class="causal-group">
+                <p class="causal-label">01 · Main agent</p>
+                <button class="causal-root" type="button" data-node="main" data-search-item="codex 메인 흐름 설계">
+                  <header><span class="mark">Cx</span><span class="node-state"><i></i>작업 중</span></header>
+                  <span><h3>흐름의 문법 재설계</h3><p>모든 세션의 상태와 인과관계를 한 화면에 배치</p></span>
+                  <footer><b>Codex</b><span>28.4k tokens</span></footer>
+                </button>
+              </section>
+              <i class="causal-arrow"></i>
+              <section class="causal-group">
+                <p class="causal-label">02 · Subagents & PowerShell</p>
+                <div class="causal-units">
+                  <button class="causal-unit" type="button" data-node="research" data-search-item="claude 서브 관계 모델"><i>C</i><span><b>관계 모델 점검</b><small>Claude · 부모/자식 규칙</small></span><i class="live-dot"></i></button>
+                  <button class="causal-unit shell" type="button" data-node="visualtest" data-search-item="powershell npm visual test"><i>›_</i><span><b>시각 회귀 검사</b><small>PowerShell · 42/48</small></span><i class="live-dot"></i></button>
+                  <button class="causal-unit" type="button" data-node="density" data-search-item="gpt 서브 밀도 검증"><i>G</i><span><b>밀도 비교</b><small>GPT · 30개 단위</small></span><i class="live-dot"></i></button>
+                  <button class="causal-unit shell" type="button" data-node="index" data-search-item="background 검색 인덱스"><i>›_</i><span><b>인덱스 갱신</b><small>Node · 진행률 78%</small></span><i class="live-dot"></i></button>
+                </div>
+              </section>
+              <i class="causal-arrow"></i>
+              <section class="causal-group">
+                <p class="causal-label">03 · Result</p>
+                <button class="causal-result" type="button" data-node="result">
+                  <header><span class="mark">→</span><span class="session-alert">수집 중</span></header>
+                  <span><h3>UI 초안 통합</h3><p>4개 실행 결과를 하나의 판단 가능한 화면으로 정리</p></span>
+                  <footer><b>다음 판단</b><span>예상 2분</span></footer>
+                </button>
+              </section>
+            </div>
+          </article>
+
+          <article class="session-lane">
+            <header class="session-lane-head">
+              <i class="session-status warn"></i>
+              <span class="session-identity"><b>결제 오류 처리 로직 수정</b><small>cras_backend · Claude · 31분째</small></span>
+              <div class="mini-causal">
+                <button class="mini-node" type="button" data-node="other"><i>C</i><span><b>메인 Claude</b><small>원인 분석</small></span></button><i></i>
+                <span class="mini-units"><button class="mini-node" type="button" data-node="research"><i>A</i><span><b>서브 2</b><small>테스트·리뷰</small></span></button><button class="mini-node shell" type="button" data-node="visualtest"><i>›_</i><span><b>pytest</b><small>1 failed</small></span></button><button class="mini-node shell" type="button" data-node="index"><i>›_</i><span><b>로그</b><small>exit 1</small></span></button></span><i></i>
+                <button class="mini-node" type="button" data-view-jump="review"><i>!</i><span><b>승인 필요</b><small>수정안 적용</small></span></button>
+              </div>
+              <span class="session-alert">● 내 판단 대기</span>
+            </header>
+          </article>
+
+          <article class="session-lane">
+            <header class="session-lane-head">
+              <i class="session-status"></i>
+              <span class="session-identity"><b>CMS 페이지 구조 분석</b><small>CMS_WEB · Gemini · 9분째</small></span>
+              <div class="mini-causal">
+                <button class="mini-node" type="button" data-node="capture"><i>Ge</i><span><b>메인 Gemini</b><small>구조 수집</small></span></button><i></i>
+                <span class="mini-units"><button class="mini-node" type="button" data-node="research"><i>A</i><span><b>서브 3</b><small>컴포넌트</small></span></button><button class="mini-node shell" type="button" data-node="index"><i>›_</i><span><b>rg 검색</b><small>84 files</small></span></button><button class="mini-node shell" type="button" data-node="visualtest"><i>›_</i><span><b>AST</b><small>실행 중</small></span></button></span><i></i>
+                <button class="mini-node" type="button" data-node="result"><i>→</i><span><b>문서 3개</b><small>작성 중</small></span></button>
+              </div>
+              <span class="session-meta"><span>최근 <b>36초</b></span></span>
+            </header>
+          </article>
+
+          <article class="session-lane">
+            <header class="session-lane-head">
+              <i class="session-status idle"></i>
+              <span class="session-identity"><b>릴리스 빌드 검증</b><small>Desktop · Codex · 47분째</small></span>
+              <div class="mini-causal">
+                <button class="mini-node" type="button" data-node="main"><i>Cx</i><span><b>메인 Codex</b><small>검증 계획</small></span></button><i></i>
+                <span class="mini-units"><button class="mini-node" type="button" data-node="density"><i>A</i><span><b>서브 1</b><small>완료</small></span></button><button class="mini-node shell" type="button" data-node="contrast"><i>›_</i><span><b>npm build</b><small>exit 0</small></span></button><button class="mini-node shell" type="button" data-node="capture"><i>›_</i><span><b>package</b><small>멈춤</small></span></button></span><i></i>
+                <button class="mini-node" type="button" data-node="result"><i>Ⅱ</i><span><b>신호 없음</b><small>30분 경과</small></span></button>
+              </div>
+              <span class="session-alert">● 멈춤 확인</span>
+            </header>
+          </article>
+        </div>
+        <footer class="signal-rail">
+          <b>전체 신호</b><span><i></i>12초 전 · Lodestar PowerShell 42/48</span><span><i></i>36초 전 · CMS AST 분석</span><span><i></i>2분 전 · 결제 오류 승인 요청</span>
+          <button type="button" data-cycle-state>상태 순환</button>
+        </footer>
+      </section>
+
+      <section id="view-tasks" class="app-view" data-view-panel="tasks" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">기록과 검색</p><h1>전체 작업</h1><p>진행·확인·완료 작업을 한 목록에서 찾습니다.</p></div>
+          <div class="view-actions"><button class="soft-btn" type="button" data-open-run>＋ 새 작업</button></div>
+        </header>
+        <div class="panel-body">
+          <div class="toolbar">
+            <input id="taskSearch" type="search" placeholder="작업·AI·폴더 검색">
+            <select id="taskProvider"><option value="all">모든 AI</option><option>Claude</option><option>Codex</option><option>Gemini</option><option>Grok</option></select>
+            <select><option>최근 활동 순</option><option>사용량 많은 순</option><option>컨텍스트 높은 순</option></select>
+            <button class="soft-btn" type="button" data-task-filter="live" aria-pressed="false">진행 중만</button>
+          </div>
+          <div id="taskTable" class="task-table">
+            <button class="task-row" type="button" data-node="main" data-task-row="live codex lodestar"><i>Cx</i><span><b>흐름의 문법을 다시 설계</b><small>Lodestar · Codex</small></span><span><b>인과선과 전체 기능 배치</b><small>서브 2 · 명령 2</small></span><span class="pill live">진행 중</span><span><b>18분</b><small>최근 12초</small></span><span><b>28.4k</b><small>토큰</small></span></button>
+            <button class="task-row" type="button" data-node="other" data-task-row="review claude cras"><i>C</i><span><b>오류 처리 로직 수정</b><small>cras_backend · Claude</small></span><span><b>단위 테스트 1개 실패</b><small>사용자 판단 대기</small></span><span class="pill warn">확인 필요</span><span><b>31분</b><small>최근 2분</small></span><span><b>16.1k</b><small>토큰</small></span></button>
+            <button class="task-row" type="button" data-node="density" data-task-row="live gpt lodestar"><i>G</i><span><b>고밀도 상태 검증</b><small>Lodestar · GPT</small></span><span><b>30개 실행 단위 배치 비교</b><small>메인 Codex가 위임</small></span><span class="pill live">진행 중</span><span><b>9분</b><small>최근 36초</small></span><span><b>8.7k</b><small>토큰</small></span></button>
+            <button class="task-row" type="button" data-node="contrast" data-task-row="done powershell lodestar"><i>›_</i><span><b>테마 대비 검사</b><small>Lodestar · PowerShell</small></span><span><b>라이트·다크 20개 화면</b><small>exit code 0</small></span><span class="pill">완료</span><span><b>4분</b><small>17분 전</small></span><span><b>—</b><small>명령</small></span></button>
+            <button class="task-row" type="button" data-node="capture" data-task-row="done gemini cms"><i>Ge</i><span><b>CMS 페이지 구조 분석</b><small>CMS_WEB · Gemini</small></span><span><b>컴포넌트 관계 문서화</b><small>산출물 3개</small></span><span class="pill">완료</span><span><b>22분</b><small>21분 전</small></span><span><b>12.3k</b><small>토큰</small></span></button>
+          </div>
+          <button id="loadMoreTasks" class="load-more" type="button">작업 더 보기</button>
+        </div>
+      </section>
+
+      <section id="view-review" class="app-view" data-view-panel="review" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">사람의 판단</p><h1>확인할 일</h1><p>진행 차단, 선택적 제안, 실행 위험을 분리합니다.</p></div>
+          <div class="view-actions review-tabs">
+            <button type="button" data-review-filter="all" aria-pressed="true">전체 3</button>
+            <button type="button" data-review-filter="required" aria-pressed="false">진행 차단 1</button>
+            <button type="button" data-review-filter="risk" aria-pressed="false">실행 위험 1</button>
+            <button type="button" data-review-filter="optional" aria-pressed="false">선택 사항 1</button>
+          </div>
+        </header>
+        <div class="panel-body">
+          <div class="review-grid">
+            <article class="review-card" data-review-card="required">
+              <header><i>!</i><span><b>진행 차단 · Gemini</b><small>사용자 승인 대기 · 방금 전</small></span></header>
+              <h3>데이터 마이그레이션을 적용할까요?</h3><p>스키마 변경 파일은 준비됐지만 실행 전 승인이 필요합니다.</p>
+              <div class="decision-flow"><span>변경 준비</span><i>→</i><b>사용자 승인</b><i>→</i><span>적용·검증</span></div>
+              <div class="review-actions"><button class="primary" type="button" data-review-action="approve">승인</button><button type="button" data-review-action="deny">거절</button><button type="button" data-review-action="reassign">재할당</button><button type="button" data-node="other">상세</button></div>
+            </article>
+            <article class="review-card" data-review-card="risk">
+              <header><i>!</i><span><b>실행 위험 · Claude</b><small>테스트 실패 · 2분 전</small></span></header>
+              <h3>단위 테스트 1개가 실패했습니다.</h3><p>변경 내용은 보존되어 있습니다. 수정 후 재시도하거나 기존 동작을 유지할 수 있습니다.</p>
+              <div class="decision-flow"><span>12개 실행</span><i>→</i><b>1개 실패</b><i>→</i><span>수정·재시도</span></div>
+              <div class="review-actions"><button class="primary" type="button" data-review-action="retry">수정 후 재시도</button><button type="button" data-review-action="keep">기존 동작 유지</button><button type="button" data-view-jump="terminal">출력 보기</button></div>
+            </article>
+            <article class="review-card" data-review-card="optional">
+              <header><i>?</i><span><b>선택 사항 · Codex</b><small>후속 제안 · 18분 전</small></span></header>
+              <h3>성능 측정도 이어서 할까요?</h3><p>핵심 작업은 완료됐습니다. 원한다면 렌더링 성능을 추가로 측정할 수 있습니다.</p>
+              <div class="decision-flow"><span>핵심 완료</span><i>→</i><b>선택</b><i>→</i><span>성능 측정</span></div>
+              <div class="review-actions"><button class="primary" type="button" data-review-action="continue">계속</button><button type="button" data-review-action="dismiss">나중에</button><button type="button" data-node="main">대화 보기</button></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-runtime" class="app-view" data-view-panel="runtime" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">예약과 반복 실행</p><h1>예약·실행 단계</h1><p>예약 작업과 현재 AI의 반복 단계를 구분해 봅니다.</p></div>
+          <div class="view-actions"><button class="soft-btn" type="button" data-toast="예약 작업은 Codex 자동화에서 관리합니다.">예약 관리</button></div>
+        </header>
+        <div class="panel-body runtime-layout">
+          <aside class="schedule-list">
+            <header><b>예약 작업</b><span>2</span></header>
+            <button class="schedule-item active" type="button" data-schedule="nightly"><b>매일 밤 회귀 검사</b><small>매일 23:30 · Lodestar</small></button>
+            <button class="schedule-item" type="button" data-schedule="weekly"><b>주간 의존성 점검</b><small>매주 월요일 · 09:00</small></button>
+            <button class="schedule-item" type="button" data-schedule="paused"><b>릴리스 노트 생성</b><small>일시정지 · 수동 재개</small></button>
+          </aside>
+          <article class="loop-panel">
+            <header><b id="loopTitle">매일 밤 회귀 검사</b><span>Codex · 18분째</span></header>
+            <div class="phase-route">
+              <div class="phase done"><small>01</small><b>계획</b><span>검증됨</span></div>
+              <div class="phase done"><small>02</small><b>분석</b><span>완료</span></div>
+              <div class="phase current"><small>03</small><b>구현</b><span>현재 단계</span></div>
+              <div class="phase"><small>04</small><b>검증</b><span>대기</span></div>
+              <div class="phase"><small>05</small><b>정리</b><span>대기</span></div>
+            </div>
+            <div class="runtime-now"><i></i><b>지금 하는 일</b><span>PowerShell 시각 회귀 검사를 기다립니다.</span><button class="soft-btn" type="button" data-node="main">작업 열기</button></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="view-terminal" class="app-view terminal-view" data-view-panel="terminal" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">대화와 실행을 한곳에서</p><h1>AI 세션 터미널</h1><p>이전 대화와 실시간 PowerShell·PTY 화면을 이어서 조작합니다.</p></div>
+          <div class="view-actions"><button class="soft-btn" type="button" data-terminal-new="windows">＋ Windows 세션</button><button class="soft-btn" type="button" data-terminal-new="wsl">＋ Linux 세션</button></div>
+        </header>
+        <div class="terminal-shell">
+          <aside class="terminal-resources">
+            <div class="subhead"><b>연결된 세션</b><button type="button" data-toast="세션 목록을 새로고침했습니다.">↻</button></div>
+            <div id="terminalSessions">
+              <button class="session-item active" type="button" data-terminal-session="codex"><b>Codex · Lodestar</b><small>직접 입력 가능 · 실행 중</small></button>
+              <button class="session-item" type="button" data-terminal-session="claude"><b>Claude · cras_backend</b><small>브리지 연결 · 확인 필요</small></button>
+              <button class="session-item" type="button" data-terminal-session="gemini"><b>Gemini · CMS_WEB</b><small>보기 전용 · 완료</small></button>
+            </div>
+          </aside>
+          <aside class="conversation-panel">
+            <div class="subhead"><b>이전 대화</b><button type="button" data-toast="대화 영역을 접었습니다.">‹</button></div>
+            <div id="terminalConversation" class="conversation-list">
+              <div class="bubble user">A 인과선에 현재 기능을 전부 붙여줘.</div>
+              <div class="bubble">기능을 관찰·판단·개입·관리의 네 층으로 분리해 작업 중입니다.</div>
+            </div>
+          </aside>
+          <section class="terminal-console">
+            <header class="terminal-head"><b id="terminalTitle">PowerShell · Lodestar</b><span>직접 입력 가능</span><div class="terminal-controls"><button type="button" data-terminal-control="interrupt">중단</button><button type="button" data-terminal-control="clear">정리</button><button type="button" data-terminal-control="restart">재시작</button><button type="button" data-terminal-control="focus">집중</button><button type="button" data-terminal-control="end">종료</button></div></header>
+            <pre id="terminalOutput" class="terminal-output">PS D:\winCudeProject\oneForAll\Lodestar&gt; npm run test:visual
+
+✓ control-room graph visible
+✓ main agent node: 1
+✓ subagent nodes: 2
+✓ PowerShell nodes: 2
+… checking responsive drawer (42/48)</pre>
+            <form id="terminalCommandForm" class="command-form"><textarea id="terminalCommand" placeholder="터미널에 명령 보내기"></textarea><button type="submit">보내기 ↑</button></form>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-tmux" class="app-view tmux-view" data-view-panel="tmux" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">지속형 다중 터미널</p><h1>tmux 터미널 관리</h1><p>세션 → 창 → pane → AI 프로세스 관계를 조작합니다.</p></div>
+          <div class="view-actions"><button class="soft-btn" type="button" data-tmux-action="new-session">＋ tmux 세션</button><button class="soft-btn" type="button" data-toast="tmux 상태를 새로고침했습니다.">↻ 새로고침</button></div>
+        </header>
+        <div class="tmux-body">
+          <section class="tmux-map">
+            <article class="tmux-session-card"><b>loadtoagent / lodestar</b><small>window 1 · pane <span id="paneCount">3</span> · WSL Ubuntu</small><small>메인 Codex와 서브에이전트 2개 연결</small></article>
+            <div id="tmuxPanes" class="tmux-window">
+              <button class="pane-card active" type="button" data-pane="0"><b>0 · Codex</b><small>메인 에이전트 · 실행 중</small></button>
+              <button class="pane-card" type="button" data-pane="1"><b>1 · test:visual</b><small>PowerShell · background</small></button>
+              <button class="pane-card" type="button" data-pane="2"><b>2 · index</b><small>Node · 78%</small></button>
+            </div>
+          </section>
+          <section class="tmux-control">
+            <aside class="tmux-actions">
+              <button type="button" data-tmux-action="rename">세션 이름 바꾸기</button>
+              <button type="button" data-tmux-action="new-window">창 추가</button>
+              <button type="button" data-tmux-action="split-h">좌우로 나누기</button>
+              <button type="button" data-tmux-action="split-v">상하로 나누기</button>
+              <button type="button" data-tmux-action="layout">레이아웃 선택</button>
+              <button class="danger" type="button" data-tmux-action="kill-pane">선택한 pane 닫기</button>
+              <button class="danger" type="button" data-tmux-action="kill-window">창 전체 닫기</button>
+              <button class="danger" type="button" data-tmux-action="kill-session">세션 종료</button>
+            </aside>
+            <section class="tmux-terminal">
+              <header><b id="tmuxTerminalTitle">pane 0 · Codex</b></header>
+              <pre id="tmuxOutput">codex: working
+goal: causal spine workbench
+children: 2
+executions: 2
+last signal: 12s ago</pre>
+              <form id="tmuxCommandForm" class="command-form"><textarea id="tmuxCommand" placeholder="선택한 pane에 명령 보내기"></textarea><button type="submit">전송 ↑</button></form>
+            </section>
+          </section>
+        </div>
+      </section>
+
+      <section id="view-settings" class="app-view" data-view-panel="settings" data-overlay="true">
+        <header class="view-head">
+          <div><p class="eyebrow">환경 설정</p><h1>프로그램 설정</h1><p>언어·화면·AI 표시·업데이트를 관리합니다.</p></div>
+        </header>
+        <div class="panel-body settings-grid">
+          <section class="setting-card"><header><i>文</i><h3>표시 언어</h3></header><p>변경 사항은 바로 적용되고 다음 실행에도 유지됩니다.</p><select id="languageSelect"><option>한국어</option><option>English</option><option>简体中文</option></select></section>
+          <section class="setting-card"><header><i>◐</i><h3>화면 밝기</h3></header><p>라이트와 다크 테마를 선택합니다.</p><div class="choice-row"><button type="button" data-theme-choice="quiet-light" aria-checked="false">☀ 라이트</button><button type="button" data-theme-choice="default" aria-checked="true">☾ 다크</button></div></section>
+          <section class="setting-card"><header><i>AI</i><h3>화면에 표시할 AI</h3></header><p>끄면 현황, 필터, 세션, 실행 항목에서 함께 숨겨집니다.</p><div class="provider-toggles"><button class="provider-toggle" type="button" aria-pressed="true">Claude</button><button class="provider-toggle" type="button" aria-pressed="true">Codex</button><button class="provider-toggle" type="button" aria-pressed="true">Gemini</button><button class="provider-toggle" type="button" aria-pressed="true">Grok</button></div></section>
+          <section class="setting-card"><header><i>⌁</i><h3>AI CLI 연결</h3></header><p>설치 상태를 다시 확인합니다. 대화 기록은 이 PC에서만 읽습니다.</p><button class="soft-btn" type="button" data-probe>설치 상태 다시 확인</button></section>
+          <section class="setting-card wide"><header><i>↟</i><h3>프로그램 업데이트</h3></header><p>GitHub 정식 릴리스와 비교하고 SHA-256·파일 크기를 검증합니다.</p><div class="version-route"><div class="version-node"><small>현재 설치 버전</small><b>v1.4.2</b></div><span>→</span><div class="version-node"><small>최신 정식 버전</small><b id="latestVersion">확인 전</b></div><button id="checkUpdate" class="soft-btn" type="button">업데이트 확인</button><div class="update-progress"><i id="updateBar"></i></div></div></section>
+        </div>
+      </section>
+
+      <aside id="contextDock" class="context-dock" aria-hidden="true">
+        <header class="dock-head"><span id="dockMark" class="dock-mark">Cx</span><div class="dock-title"><small id="dockKind">메인 에이전트 · Codex</small><b id="dockName">흐름의 문법을 다시 설계</b></div><button id="dockClose" class="dock-close" type="button" aria-label="상세 닫기">×</button></header>
+        <nav id="dockTabs" class="dock-tabs" aria-label="상세 탭">
+          <button class="dock-tab active" type="button" data-dock-tab="summary">요약</button>
+          <button class="dock-tab" type="button" data-dock-tab="chat">대화</button>
+          <button class="dock-tab" type="button" data-dock-tab="lifecycle">과정</button>
+          <button class="dock-tab" type="button" data-dock-tab="usage">사용량</button>
+          <button class="dock-tab" type="button" data-dock-tab="evidence">증거</button>
+        </nav>
+        <div id="dockContent" class="dock-content"></div>
+        <footer id="dockActions" class="dock-actions"></footer>
+      </aside>
+    </main>
+  </div>
+
+  <div id="providerPopover" class="popover provider-popover hidden">
+    <header><b>연결과 사용량</b><button type="button" data-close-popover>×</button></header>
+    <div class="provider-line"><i>C</i><span><b>Claude</b><small>5시간 한도 38% 사용</small></span><em>연결</em></div>
+    <div class="provider-line"><i>Cx</i><span><b>Codex</b><small>주간 한도 24% 사용</small></span><em>연결</em></div>
+    <div class="provider-line"><i>Ge</i><span><b>Gemini</b><small>오늘 12개 작업</small></span><em>연결</em></div>
+    <div class="provider-line"><i>X</i><span><b>Grok</b><small>오늘 3개 작업</small></span><em>연결</em></div>
+    <button class="load-more" type="button" data-provider-refresh>사용량 새로고침</button>
+  </div>
+
+  <div id="filterPopover" class="popover filter-popover hidden">
+    <header><b>흐름 필터·정렬</b><button type="button" data-close-popover>×</button></header>
+    <div class="filter-grid">
+      <label>프로젝트<select><option>모든 프로젝트</option><option selected>Lodestar</option><option>cras_backend</option><option>CMS_WEB</option></select></label>
+      <label>정렬<select><option>최근 활동 순</option><option>확인 필요 우선</option><option>직접 정렬</option></select></label>
+      <label>표시<select><option>실행·완료 함께</option><option>실행 중만</option><option>PowerShell만</option></select></label>
+      <button class="soft-btn" type="button" data-toast="모든 프로젝트 그룹을 펼쳤습니다.">프로젝트 모두 열기</button>
+    </div>
+  </div>
+
+  <div id="runModal" class="backdrop hidden" role="dialog" aria-modal="true">
+    <form id="runForm" class="dialog">
+      <header class="dialog-head"><div><p class="eyebrow">AI 작업 시작</p><h2>무슨 일을 맡길까요?</h2><p>할 일을 적고 AI와 작업 폴더를 선택하세요.</p></div><button type="button" data-close-dialog="runModal">×</button></header>
+      <label class="form-field"><span>1 · 할 일 적기</span><textarea id="runPrompt" placeholder="예: 로그인 오류를 고치고 관련 테스트까지 실행해줘"></textarea></label>
+      <div class="quick-prompts"><button type="button" data-prompt="오류를 찾아 수정하고 관련 테스트까지 실행해줘.">오류 수정</button><button type="button" data-prompt="변경된 코드를 검토하고 위험한 부분을 알려줘.">코드 검토</button><button type="button" data-prompt="현재 기능을 검증하는 테스트를 추가해줘.">테스트 추가</button></div>
+      <div class="form-field"><span>2 · 어떤 AI에게 맡길까요?</span><div class="provider-choice"><button class="active" type="button" data-run-provider="Codex">Codex</button><button type="button" data-run-provider="Claude">Claude</button><button type="button" data-run-provider="Gemini">Gemini</button><button type="button" data-run-provider="Grok">Grok</button></div></div>
+      <label class="form-field"><span>작업 폴더</span><input id="runCwd" value="D:\winCudeProject\oneForAll\Lodestar"></label>
+      <label class="form-field"><span>사용 모델 · 선택 사항</span><input id="runModel" placeholder="비워두면 AI가 선택"></label>
+      <label class="form-check"><input id="allowWrites" type="checkbox" checked> AI가 선택한 폴더의 파일을 수정할 수 있게 허용</label>
+      <div id="runError" class="form-error hidden"></div>
+      <div class="dialog-actions"><button type="button" data-clear-run>초안 지우기</button><button type="button" data-close-dialog="runModal">취소</button><button class="primary" type="submit">AI에게 맡기기</button></div>
+    </form>
+  </div>
+
+  <div id="paletteModal" class="backdrop hidden" role="dialog" aria-modal="true">
+    <section class="dialog small">
+      <header class="dialog-head"><div><p class="eyebrow">빠른 이동</p><h2>어디로 이동할까요?</h2></div><button type="button" data-close-dialog="paletteModal">×</button></header>
+      <input id="paletteInput" class="palette-input" type="search" placeholder="화면 또는 작업 검색">
+      <div id="paletteList" class="palette-list">
+        <button class="palette-item" type="button" data-command-view="flow" data-command-search="실시간 흐름 홈"><i>⌁</i><b>실시간 흐름</b><small>⌘1</small></button>
+        <button class="palette-item" type="button" data-command-view="review" data-command-search="확인할 일 판단"><i>!</i><b>확인할 일</b><small>⌘3</small></button>
+        <button class="palette-item" type="button" data-command-view="terminal" data-command-search="ai 세션 터미널 powershell"><i>›_</i><b>AI 세션 터미널</b><small>⌘5</small></button>
+        <button class="palette-item" type="button" data-command-view="tmux" data-command-search="tmux 터미널"><i>▦</i><b>tmux 관리</b><small>⌘6</small></button>
+        <button class="palette-item" type="button" data-command-view="settings" data-command-search="설정 언어 테마 업데이트"><i>⚙</i><b>프로그램 설정</b><small>⌘7</small></button>
+      </div>
+    </section>
+  </div>
+
+  <div id="helpModal" class="backdrop hidden" role="dialog" aria-modal="true">
+    <section class="dialog small">
+      <header class="dialog-head"><div><p class="eyebrow">처음 10분</p><h2>흐름을 따라 시작하세요.</h2><p>네 단계만 알면 모든 기능의 위치를 이해할 수 있습니다.</p></div><button type="button" data-close-dialog="helpModal">×</button></header>
+      <div class="guide-steps">
+        <div class="guide-step"><i>1</i><span><b>AI에게 일 맡기기</b><small>요청·AI·폴더 선택</small></span><button type="button" data-open-run>해보기</button></div>
+        <div class="guide-step"><i>2</i><span><b>인과선에서 움직임 보기</b><small>메인·서브·명령·결과</small></span><button type="button" data-view-jump="flow">보기</button></div>
+        <div class="guide-step"><i>3</i><span><b>내 판단 처리하기</b><small>진행 차단과 실행 위험</small></span><button type="button" data-view-jump="review">보기</button></div>
+        <div class="guide-step"><i>4</i><span><b>노드 상세와 터미널</b><small>대화·과정·사용량·증거</small></span><button type="button" data-node="main">열기</button></div>
+      </div>
+      <dl class="shortcut-list">
+        <div><dt><kbd>⌘/Ctrl</kbd><kbd>K</kbd></dt><dd>빠른 이동</dd></div>
+        <div><dt><kbd>⌘/Ctrl</kbd><kbd>N</kbd></dt><dd>새 AI 작업</dd></div>
+        <div><dt><kbd>?</kbd></dt><dd>이 도움말</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>열린 패널 닫기</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <aside id="mobileSheet" class="mobile-sheet">
+    <header><b>고급 기능</b><button type="button" data-close-mobile>×</button></header>
+    <button type="button" data-mobile-view="runtime">↻ 예약·실행 단계</button>
+    <button type="button" data-mobile-view="terminal">›_ AI 세션 터미널</button>
+    <button type="button" data-mobile-view="tmux">▦ tmux 터미널 관리</button>
+    <button type="button" data-mobile-view="settings">⚙ 프로그램 설정</button>
+  </aside>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="sketch-tools">
+    <select id="sketchTheme"><option value="default">Night</option><option value="quiet-light">Light</option></select>
+    <button type="button" data-sketch-width="390px">M</button><button type="button" data-sketch-width="768px">T</button><button type="button" data-sketch-width="1540px">D</button>
+    <button id="annotationToggle" type="button">Aa</button>
+  </div>
+
+  <script>
+    const nodeData = {
+      main: {
+        icon: "Cx", kind: "메인 에이전트 · Codex", name: "흐름의 문법을 다시 설계",
+        title: "전체 위임과 결과를 하나로 조율",
+        summary: "메인 에이전트는 사용자 목표를 소유하고 서브에이전트와 실행 명령의 결과를 하나의 판단으로 정리합니다.",
+        parent: "사용자 목표", status: "작업 중 · 4개 단위", time: "12초 전", input: true,
+        chat: [["user","A 인과선에 현재 기능을 전부 붙여줘."],["agent","관찰·판단·개입·관리의 네 층으로 기능을 배치하고 있습니다."]],
+        timeline: [["18분 전","목표 수신"],["15분 전","서브에이전트 2개 위임"],["4분 전","PowerShell 시각 검사 시작"],["12초 전","42/48 검사 통과"]],
+        proof: "goal: causal spine workbench\\nsubagents: 2\\nexecutions: 2\\nreview items: 1\\nlast signal: 12s ago",
+        usage: [68,42,31,76]
+      },
+      research: {
+        icon: "C", kind: "서브에이전트 · Claude", name: "관계 모델 점검",
+        title: "부모·자식 연결 규칙 검토",
+        summary: "메인 Codex가 맡긴 범위 안에서 에이전트 계층과 실행 노드의 연결 규칙을 독립적으로 검토합니다.",
+        parent: "메인 Codex", status: "작업 중", time: "1분 전", input: true,
+        chat: [["user","PowerShell 노드는 어떤 계층이 자연스러울까?"],["agent","에이전트와 동급이 아니라 에이전트가 시작한 행위 노드로 표현해야 합니다."]],
+        timeline: [["12분 전","메인 Codex가 위임"],["8분 전","현재 코드 구조 분석"],["1분 전","관계 규칙 제안"]],
+        proof: "source: app-graph-model.js\\nparentId: codex-root\\nrole: architecture-review\\nstatus: running",
+        usage: [41,23,18,46]
+      },
+      density: {
+        icon: "G", kind: "서브에이전트 · GPT", name: "고밀도 상태 검증",
+        title: "30개 실행 단위 배치 비교",
+        summary: "에이전트와 PowerShell이 늘어날 때 인과선과 보조 목록이 어디까지 읽히는지 비교합니다.",
+        parent: "메인 Codex", status: "작업 중", time: "36초 전", input: true,
+        chat: [["user","인과선은 몇 개까지 읽힐까?"],["agent","12개까지는 빠릅니다. 20개 이상에서는 전체 작업 장부로 전환하는 편이 안전합니다."]],
+        timeline: [["9분 전","밀도 검증 위임"],["5분 전","데스크톱 30개 상태 생성"],["36초 전","보조 보기 제안"]],
+        proof: "desktop: 30 units\\nmobile: 12 units\\nrecommendation: causal map + list fallback",
+        usage: [36,19,12,39]
+      },
+      visualtest: {
+        icon: "›_", kind: "PowerShell · Background", name: "시각 회귀 검사",
+        title: "npm run test:visual",
+        summary: "현재 UI가 데스크톱과 모바일에서 메인·서브에이전트·PowerShell 노드와 상세 패널을 잃지 않는지 검사합니다.",
+        parent: "메인 Codex", status: "실행 중 · 42/48", time: "12초 전", input: false, execution: true,
+        chat: [],
+        timeline: [["4분 전","명령 시작"],["2분 전","데스크톱 흐름 통과"],["12초 전","모바일 drawer 검사"]],
+        proof: "> npm run test:visual\\n✓ main agent node: 1\\n✓ subagent nodes: 2\\n✓ powershell nodes: 2\\n… responsive drawer (42/48)",
+        usage: [0,0,0,0]
+      },
+      index: {
+        icon: "◌", kind: "Background · Node", name: "검색 인덱스 갱신",
+        title: "에이전트 128개 다시 읽기",
+        summary: "세션, 서브에이전트, 실행 명령을 함께 검색할 수 있도록 로컬 인덱스를 갱신합니다.",
+        parent: "메인 Codex", status: "실행 중 · 78%", time: "8초 전", input: false, execution: true,
+        chat: [], timeline: [["2분 전","인덱스 시작"],["48초 전","세션 84개"],["8초 전","실행 12개"]],
+        proof: "sessions: 84\\nsubagents: 32\\nexecutions: 12\\nprogress: 78%\\nETA: 34s", usage: [0,0,0,0]
+      },
+      result: {
+        icon: "→", kind: "결과 · Next", name: "결과 정리 대기",
+        title: "네 갈래의 일을 하나로 합치기",
+        summary: "실행 중인 단위가 끝나면 메인 에이전트가 변경, 검증, 미해결 질문을 하나의 결과로 정리합니다.",
+        parent: "메인 Codex", status: "대기", time: "예상 4분", input: false,
+        chat: [], timeline: [["현재","4개 실행 단위 수집 중"]], proof: "waiting for: relationship, density, visual test, index", usage: [0,0,0,0]
+      },
+      contrast: {
+        icon: "✓", kind: "완료 증거 · PowerShell", name: "테마 대비 검사",
+        title: "라이트·다크 20개 화면 통과",
+        summary: "텍스트 대비와 상태 색상이 두 테마에서 같은 의미로 읽히는지 검증했습니다.",
+        parent: "메인 Codex", status: "완료", time: "17분 전", input: false, execution: true,
+        chat: [], timeline: [["21분 전","검사 시작"],["17분 전","20개 화면 통과"]], proof: "> npm run test:theme\\n20 screenshots checked\\n0 contrast failures\\nexit code 0", usage: [0,0,0,0]
+      },
+      capture: {
+        icon: "✓", kind: "완료 증거", name: "모바일 캡처",
+        title: "390px 흐름 화면 생성",
+        summary: "모바일에서 인과선이 세로 순서로 유지되고 상세 drawer가 화면 안에 들어오는지 확인했습니다.",
+        parent: "메인 Codex", status: "완료", time: "21분 전", input: false,
+        chat: [], timeline: [["22분 전","모바일 렌더 시작"],["21분 전","캡처 완료"]], proof: "viewport: 390x844\\noverflow-x: none\\nfirst agent: visible", usage: [0,0,0,0]
+      },
+      other: {
+        icon: "C", kind: "메인 에이전트 · Claude", name: "오류 처리 로직 수정",
+        title: "단위 테스트 1개가 실패했습니다.",
+        summary: "변경 내용은 보존되어 있으며 수정 후 재시도하거나 기존 동작을 유지할 수 있습니다.",
+        parent: "사용자 목표", status: "판단 필요", time: "2분 전", input: true,
+        chat: [["agent","검증 테스트 12개 중 1개가 실패했습니다."],["user","실패 출력을 먼저 보여줘."]],
+        timeline: [["31분 전","작업 시작"],["5분 전","테스트 실행"],["2분 전","사용자 판단 요청"]], proof: "11 passed\\n1 failed\\nAssertionError: expected 200, got 409", usage: [52,28,17,58]
+      }
+    };
+
+    const viewNames = { flow:"실시간 흐름", tasks:"전체 작업", review:"확인할 일", runtime:"예약·실행 단계", terminal:"AI 세션 터미널", tmux:"tmux 관리", settings:"프로그램 설정" };
+    const dock = document.getElementById("contextDock");
+    const toast = document.getElementById("toast");
+    let currentNode = "main";
+    let currentDockTab = "summary";
+    let toastTimer;
+    let stateCycle = 0;
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+
+    function setLayout(layout) {
+      document.body.dataset.layout = layout;
+      document.querySelectorAll("[data-layout-choice]").forEach(button => button.classList.toggle("active", button.dataset.layoutChoice === layout));
+      closeDock();
+    }
+
+    function activateView(name) {
+      document.querySelectorAll(".nav-btn[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === name));
+      document.querySelectorAll("[data-view-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.viewPanel === name));
+      document.getElementById("crumbTitle").textContent = viewNames[name] || name;
+      document.getElementById("mobileSheet").classList.remove("open");
+      closeDock();
+    }
+
+    function summaryHtml(data) {
+      return `<h2>${data.title}</h2><p>${data.summary}</p>
+        <dl class="fact-grid"><div><dt>부모</dt><dd>${data.parent}</dd></div><div><dt>상태</dt><dd>${data.status}</dd></div><div><dt>최근 신호</dt><dd>${data.time}</dd></div></dl>
+        <section class="dock-section"><b>현재 사실</b><pre class="proof">${data.proof}</pre></section>`;
+    }
+
+    function chatHtml(data) {
+      if (data.execution) return `<h2>실행 노드에는 대화가 없습니다.</h2><p>명령과 출력은 증거 탭에서 확인하고, 실행을 시작한 부모 에이전트의 대화로 이동할 수 있습니다.</p>`;
+      const messages = data.chat.map(([role,text]) => `<div class="chat-msg ${role === "user" ? "user" : ""}">${text}</div>`).join("");
+      const composer = data.input ? `<form class="dock-composer"><textarea placeholder="이 에이전트에게 메시지 보내기"></textarea><button type="submit">전송</button></form>` : "";
+      return `<h2>시간순 대화</h2><div class="chat-thread">${messages}</div>${composer}`;
+    }
+
+    function lifecycleHtml(data) {
+      return `<h2>관측된 진행 과정</h2><p>추측하지 않고 로컬 세션 파일과 실행 신호로 확인된 단계만 표시합니다.</p><section class="dock-section"><div class="timeline-list">${data.timeline.map(([time,label]) => `<div class="timeline-item"><b>${label}</b><small>${time}</small></div>`).join("")}</div></section>`;
+    }
+
+    function usageHtml(data) {
+      if (data.execution) return `<h2>명령 실행</h2><p>PowerShell과 백그라운드 명령에는 모델 토큰 사용량이 없습니다.</p>`;
+      const labels = ["입력 토큰","출력 토큰","캐시·추론","컨텍스트 점유"];
+      return `<h2>모델 사용량</h2><p>보고된 사용량과 컨텍스트 점유율입니다.</p><section class="dock-section usage-bars">${labels.map((label,i) => `<div><span><b>${label}</b><em>${data.usage[i]}%</em></span><i style="--usage:${data.usage[i]}%"></i></div>`).join("")}</section>`;
+    }
+
+    function evidenceHtml(data) {
+      return `<h2>명령과 증거</h2><p>작업 폴더, 실행 ID, 명령, 출력과 산출물 후보를 보존합니다.</p><section class="dock-section"><b>검증 가능한 출력</b><pre class="proof">${data.proof}</pre></section>`;
+    }
+
+    function renderDock() {
+      const data = nodeData[currentNode] || nodeData.main;
+      document.getElementById("dockMark").textContent = data.icon;
+      document.getElementById("dockKind").textContent = data.kind;
+      document.getElementById("dockName").textContent = data.name;
+      document.querySelectorAll(".dock-tab").forEach(button => {
+        const disabled = data.execution && button.dataset.dockTab === "chat";
+        button.classList.toggle("hidden", disabled);
+        button.classList.toggle("active", button.dataset.dockTab === currentDockTab);
+      });
+      if (data.execution && currentDockTab === "chat") currentDockTab = "summary";
+      const renderers = { summary:summaryHtml, chat:chatHtml, lifecycle:lifecycleHtml, usage:usageHtml, evidence:evidenceHtml };
+      document.getElementById("dockContent").innerHTML = renderers[currentDockTab](data);
+      document.getElementById("dockActions").innerHTML = data.execution
+        ? `<button class="primary" type="button" data-dock-action="terminal">터미널 열기</button><button type="button" data-dock-action="interrupt">실행 중단</button><button type="button" data-dock-action="copy">명령 복사</button>`
+        : `<button class="primary" type="button" data-dock-action="chat">메시지 보내기</button><button type="button" data-dock-action="flow">전체 흐름</button><button type="button" data-dock-action="pause">일시정지</button>`;
+      document.querySelectorAll(".agent-node").forEach(node => node.classList.toggle("active", node.dataset.node === currentNode));
+    }
+
+    function openNode(key) {
+      currentNode = key in nodeData ? key : "main";
+      currentDockTab = nodeData[currentNode].execution ? "summary" : "summary";
+      renderDock();
+      dock.classList.add("open");
+      dock.setAttribute("aria-hidden", "false");
+    }
+
+    function closeDock() {
+      dock.classList.remove("open");
+      dock.setAttribute("aria-hidden", "true");
+      document.querySelectorAll(".agent-node").forEach(node => node.classList.remove("active"));
+    }
+
+    document.querySelectorAll("[data-layout-choice]").forEach(button => button.addEventListener("click", () => setLayout(button.dataset.layoutChoice)));
+    document.querySelectorAll(".nav-btn[data-view]").forEach(button => button.addEventListener("click", () => activateView(button.dataset.view)));
+    document.querySelectorAll("[data-view-jump]").forEach(button => button.addEventListener("click", () => activateView(button.dataset.viewJump)));
+    document.querySelectorAll("[data-node]").forEach(button => button.addEventListener("click", event => { event.stopPropagation(); openNode(button.dataset.node); }));
+    document.getElementById("dockClose").addEventListener("click", closeDock);
+    document.querySelectorAll(".dock-tab").forEach(button => button.addEventListener("click", () => { currentDockTab = button.dataset.dockTab; renderDock(); }));
+
+    document.addEventListener("submit", event => {
+      if (event.target.matches(".dock-composer")) {
+        event.preventDefault();
+        const textarea = event.target.querySelector("textarea");
+        if (!textarea.value.trim()) return;
+        showToast("같은 에이전트 세션에 메시지를 전달했습니다.");
+        textarea.value = "";
+      }
+    });
+    document.getElementById("dockActions").addEventListener("click", event => {
+      const action = event.target.closest("[data-dock-action]")?.dataset.dockAction;
+      if (!action) return;
+      if (action === "terminal") activateView("terminal");
+      else if (action === "chat") { currentDockTab = "chat"; renderDock(); }
+      else if (action === "flow") { closeDock(); showToast("전체 인과선을 유지합니다."); }
+      else showToast({ interrupt:"실행 중단 요청을 보냈습니다.", copy:"명령을 복사했습니다.", pause:"에이전트 일시정지를 요청했습니다." }[action] || "처리했습니다.");
+    });
+
+    document.querySelectorAll("[data-popover]").forEach(button => button.addEventListener("click", () => {
+      const target = button.dataset.popover === "providers" ? document.getElementById("providerPopover") : document.getElementById("filterPopover");
+      document.querySelectorAll(".popover").forEach(popover => { if (popover !== target) popover.classList.add("hidden"); });
+      target.classList.toggle("hidden");
+      button.setAttribute("aria-expanded", String(!target.classList.contains("hidden")));
+    }));
+    document.querySelectorAll("[data-close-popover]").forEach(button => button.addEventListener("click", () => button.closest(".popover").classList.add("hidden")));
+    document.querySelector("[data-provider-refresh]").addEventListener("click", event => {
+      event.currentTarget.textContent = "새로고침 중…";
+      setTimeout(() => { event.currentTarget.textContent = "방금 갱신됨"; showToast("AI 사용량을 갱신했습니다."); }, 650);
+    });
+
+    document.getElementById("topSearch").addEventListener("input", event => {
+      const query = event.target.value.trim().toLowerCase();
+      document.querySelectorAll("[data-search-item]").forEach(node => node.classList.toggle("hidden", query && !node.dataset.searchItem.includes(query)));
+    });
+    document.getElementById("taskSearch").addEventListener("input", filterTasks);
+    document.getElementById("taskProvider").addEventListener("change", filterTasks);
+    document.querySelector("[data-task-filter]").addEventListener("click", event => {
+      const pressed = event.currentTarget.getAttribute("aria-pressed") !== "true";
+      event.currentTarget.setAttribute("aria-pressed", String(pressed));
+      filterTasks();
+    });
+    function filterTasks() {
+      const query = document.getElementById("taskSearch").value.trim().toLowerCase();
+      const provider = document.getElementById("taskProvider").value.toLowerCase();
+      const liveOnly = document.querySelector("[data-task-filter]").getAttribute("aria-pressed") === "true";
+      document.querySelectorAll("[data-task-row]").forEach(row => {
+        const value = row.dataset.taskRow.toLowerCase();
+        row.classList.toggle("hidden", (query && !row.textContent.toLowerCase().includes(query)) || (provider !== "all" && !value.includes(provider)) || (liveOnly && !value.includes("live")));
+      });
+    }
+    document.getElementById("loadMoreTasks").addEventListener("click", event => {
+      const row = document.querySelector(".task-row").cloneNode(true);
+      row.querySelector("b").textContent = "추가로 불러온 작업 기록";
+      row.dataset.taskRow = "done codex archive";
+      document.getElementById("taskTable").appendChild(row);
+      event.currentTarget.textContent = "추가 작업을 불러왔습니다";
+    });
+
+    document.querySelectorAll("[data-review-filter]").forEach(button => button.addEventListener("click", () => {
+      const filter = button.dataset.reviewFilter;
+      document.querySelectorAll("[data-review-filter]").forEach(item => item.setAttribute("aria-pressed", String(item === button)));
+      document.querySelectorAll("[data-review-card]").forEach(card => card.classList.toggle("hidden", filter !== "all" && card.dataset.reviewCard !== filter));
+    }));
+    document.querySelectorAll("[data-review-action]").forEach(button => button.addEventListener("click", () => {
+      const card = button.closest(".review-card");
+      card.classList.add("resolved");
+      card.querySelector("h3").textContent = "처리 완료";
+      const count = Math.max(0, Number(document.getElementById("reviewCount").textContent) - 1);
+      document.getElementById("reviewCount").textContent = count;
+      showToast(`${button.textContent} 결정을 전달했습니다.`);
+    }));
+
+    document.querySelectorAll(".schedule-item").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll(".schedule-item").forEach(item => item.classList.toggle("active", item === button));
+      document.getElementById("loopTitle").textContent = button.querySelector("b").textContent;
+    }));
+
+    document.querySelectorAll("[data-terminal-session]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll("[data-terminal-session]").forEach(item => item.classList.toggle("active", item === button));
+      const name = button.querySelector("b").textContent;
+      document.getElementById("terminalTitle").textContent = `PowerShell · ${name.split("·")[1]?.trim() || name}`;
+      document.getElementById("terminalOutput").textContent = `${name}\\n세션 기록을 복구했습니다.\\n입력을 기다립니다.`;
+    }));
+    document.querySelectorAll("[data-terminal-new]").forEach(button => button.addEventListener("click", () => {
+      const item = document.createElement("button");
+      item.className = "session-item";
+      item.type = "button";
+      item.innerHTML = `<b>새 ${button.dataset.terminalNew === "wsl" ? "Linux" : "Windows"} 세션</b><small>준비됨 · 직접 입력 가능</small>`;
+      document.getElementById("terminalSessions").appendChild(item);
+      showToast("새 터미널 세션을 만들었습니다.");
+    }));
+    document.getElementById("terminalCommandForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const input = document.getElementById("terminalCommand");
+      if (!input.value.trim()) return;
+      document.getElementById("terminalOutput").textContent += `\\nPS> ${input.value.trim()}\\n명령을 전송했습니다.`;
+      input.value = "";
+    });
+    document.querySelectorAll("[data-terminal-control]").forEach(button => button.addEventListener("click", () => {
+      const action = button.dataset.terminalControl;
+      if (action === "clear") document.getElementById("terminalOutput").textContent = "";
+      else if (action === "end" && !window.confirm("선택한 AI 세션을 종료할까요?")) return;
+      else showToast(`${button.textContent} 요청을 처리했습니다.`);
+    }));
+
+    document.querySelectorAll("[data-pane]").forEach(button => button.addEventListener("click", selectPane));
+    function selectPane(event) {
+      const button = event.currentTarget;
+      document.querySelectorAll("[data-pane]").forEach(item => item.classList.toggle("active", item === button));
+      document.getElementById("tmuxTerminalTitle").textContent = `pane ${button.dataset.pane} · ${button.querySelector("b").textContent.split("·")[1]?.trim()}`;
+    }
+    document.querySelectorAll("[data-tmux-action]").forEach(button => button.addEventListener("click", () => {
+      const action = button.dataset.tmuxAction;
+      if (action === "split-h" || action === "split-v") {
+        const pane = document.createElement("button");
+        const next = document.querySelectorAll("[data-pane]").length;
+        pane.className = "pane-card";
+        pane.type = "button";
+        pane.dataset.pane = String(next);
+        pane.innerHTML = `<b>${next} · shell</b><small>새 pane · 준비됨</small>`;
+        pane.addEventListener("click", selectPane);
+        document.getElementById("tmuxPanes").appendChild(pane);
+        document.getElementById("paneCount").textContent = String(next + 1);
+        showToast("새 tmux pane을 만들었습니다.");
+      } else if (action.startsWith("kill") && !window.confirm(`${button.textContent} 작업을 진행할까요?`)) {
+        return;
+      } else {
+        showToast(`${button.textContent} 기능을 열었습니다.`);
+      }
+    }));
+    document.getElementById("tmuxCommandForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const input = document.getElementById("tmuxCommand");
+      if (!input.value.trim()) return;
+      document.getElementById("tmuxOutput").textContent += `\\n> ${input.value.trim()}\\nsent to selected pane`;
+      input.value = "";
+    });
+
+    document.querySelectorAll("[data-theme-choice]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll("[data-theme-choice]").forEach(item => item.setAttribute("aria-checked", String(item === button)));
+      document.getElementById("theme-link").href = `../themes/${button.dataset.themeChoice}.css`;
+    }));
+    document.querySelectorAll(".provider-toggle").forEach(button => button.addEventListener("click", () => {
+      button.setAttribute("aria-pressed", String(button.getAttribute("aria-pressed") !== "true"));
+      showToast(`${button.textContent} 표시 설정을 저장했습니다.`);
+    }));
+    document.querySelector("[data-probe]").addEventListener("click", event => {
+      event.currentTarget.textContent = "확인 중…";
+      setTimeout(() => { event.currentTarget.textContent = "5개 CLI 감지됨"; showToast("AI CLI 설치 상태를 확인했습니다."); }, 700);
+    });
+    document.getElementById("checkUpdate").addEventListener("click", event => {
+      event.currentTarget.disabled = true;
+      event.currentTarget.textContent = "확인 중…";
+      document.getElementById("latestVersion").textContent = "읽는 중";
+      let progress = 0;
+      const timer = setInterval(() => {
+        progress += 20;
+        document.getElementById("updateBar").style.width = `${progress}%`;
+        if (progress >= 100) {
+          clearInterval(timer);
+          document.getElementById("latestVersion").textContent = "v1.4.2 · 최신";
+          event.currentTarget.textContent = "최신 버전";
+          showToast("현재 최신 버전을 사용 중입니다.");
+        }
+      }, 100);
+    });
+
+    document.querySelectorAll("[data-open-run]").forEach(button => button.addEventListener("click", () => document.getElementById("runModal").classList.remove("hidden")));
+    document.querySelectorAll("[data-close-dialog]").forEach(button => button.addEventListener("click", () => document.getElementById(button.dataset.closeDialog).classList.add("hidden")));
+    document.querySelectorAll("[data-prompt]").forEach(button => button.addEventListener("click", () => document.getElementById("runPrompt").value = button.dataset.prompt));
+    document.querySelectorAll("[data-run-provider]").forEach(button => button.addEventListener("click", () => {
+      document.querySelectorAll("[data-run-provider]").forEach(item => item.classList.toggle("active", item === button));
+    }));
+    document.querySelector("[data-clear-run]").addEventListener("click", () => {
+      document.getElementById("runPrompt").value = "";
+      document.getElementById("runModel").value = "";
+    });
+    document.getElementById("runForm").addEventListener("submit", event => {
+      event.preventDefault();
+      const prompt = document.getElementById("runPrompt").value.trim();
+      const cwd = document.getElementById("runCwd").value.trim();
+      if (!prompt || !cwd) {
+        document.getElementById("runError").textContent = "할 일과 작업 폴더를 입력하세요.";
+        document.getElementById("runError").classList.remove("hidden");
+        return;
+      }
+      document.getElementById("runError").classList.add("hidden");
+      document.getElementById("runModal").classList.add("hidden");
+      activateView("flow");
+      showToast("새 AI 작업을 시작했습니다.");
+    });
+
+    document.querySelectorAll("[data-open-palette]").forEach(button => button.addEventListener("click", () => document.getElementById("paletteModal").classList.remove("hidden")));
+    document.querySelectorAll("[data-open-help]").forEach(button => button.addEventListener("click", () => document.getElementById("helpModal").classList.remove("hidden")));
+    document.getElementById("paletteInput").addEventListener("input", event => {
+      const query = event.target.value.trim().toLowerCase();
+      document.querySelectorAll("[data-command-search]").forEach(item => item.classList.toggle("hidden", query && !item.dataset.commandSearch.includes(query)));
+    });
+    document.querySelectorAll("[data-command-view]").forEach(button => button.addEventListener("click", () => {
+      activateView(button.dataset.commandView);
+      document.getElementById("paletteModal").classList.add("hidden");
+    }));
+
+    document.querySelectorAll("[data-toast]").forEach(button => button.addEventListener("click", () => showToast(button.dataset.toast)));
+    document.querySelector("[data-cycle-state]").addEventListener("click", () => {
+      stateCycle = (stateCycle + 1) % 3;
+      showToast(["실행 중 상태를 표시합니다.","판단 필요 신호가 강조됩니다.","모든 실행이 완료된 상태입니다."][stateCycle]);
+    });
+
+    document.querySelector("[data-mobile-more]").addEventListener("click", () => document.getElementById("mobileSheet").classList.add("open"));
+    document.querySelector("[data-close-mobile]").addEventListener("click", () => document.getElementById("mobileSheet").classList.remove("open"));
+    document.querySelectorAll("[data-mobile-view]").forEach(button => button.addEventListener("click", () => activateView(button.dataset.mobileView)));
+
+    document.addEventListener("keydown", event => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        document.getElementById("paletteModal").classList.remove("hidden");
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        document.getElementById("runModal").classList.remove("hidden");
+      }
+      if (event.key === "?" && !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)) document.getElementById("helpModal").classList.remove("hidden");
+      if (event.key === "Escape") {
+        document.querySelectorAll(".backdrop").forEach(dialog => dialog.classList.add("hidden"));
+        document.querySelectorAll(".popover").forEach(popover => popover.classList.add("hidden"));
+        document.getElementById("mobileSheet").classList.remove("open");
+        closeDock();
+      }
+    });
+
+    document.getElementById("sketchTheme").addEventListener("change", event => document.getElementById("theme-link").href = `../themes/${event.target.value}.css`);
+    document.querySelectorAll("[data-sketch-width]").forEach(button => button.addEventListener("click", () => {
+      document.getElementById("workbench").style.width = `min(${button.dataset.sketchWidth}, 100vw)`;
+    }));
+    document.getElementById("annotationToggle").addEventListener("click", () => document.body.classList.toggle("annotation"));
+  </script>
+</body>
+</html>

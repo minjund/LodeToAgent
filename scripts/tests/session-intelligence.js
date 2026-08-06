@@ -12,6 +12,10 @@ function registerSessionIntelligenceTests(context) {
       id: 'child', provider: 'codex', parentId: 'missing-parent', status: 'waiting', statusObserved: false,
       updatedAt: '2026-07-21T04:00:00.000Z', statusDetail: '권한 승인과 선택이 필요합니다.',
       externalId: 'thread-1', cwd: 'D:\\project', title: '결제 검토', context: { percent: 82 },
+      responseIntent: {
+        category: 'required', required: true, requestText: '배포 방식을 선택해 주세요?',
+        confidence: 'high', source: 'input-tool',
+      },
       messages: [{ role: 'assistant', text: '배포 방식을 선택해 주세요?', timestamp: '2026-07-21T04:00:00.000Z' }],
       lifecycle: [
         { id: 'a', label: '분석 완료', status: 'done', timestamp: '2026-07-21T03:58:00.000Z' },
@@ -20,7 +24,8 @@ function registerSessionIntelligenceTests(context) {
     };
     const result = enrichSession(waiting, [waiting], now);
     assert.equal(result.attention.required, true);
-    assert.equal(result.attention.kind, 'approval');
+    assert.equal(result.attention.kind, 'input');
+    assert.equal(result.attention.source, 'input-tool');
     assert.equal(result.progress.totalSteps, 2);
     assert.equal(result.progress.completedSteps, 1);
     assert.equal(result.progress.failedSteps, 1);
@@ -43,8 +48,13 @@ function registerSessionIntelligenceTests(context) {
       ...waiting, id: 'clean-waiting', parentId: null, context: { percent: 10 }, lifecycle: [],
       updatedAt: '2026-07-21T04:20:00.000Z', statusDetail: '권한 승인이 필요합니다.',
       messages: [{ role: 'assistant', text: '이 작업을 계속 진행하도록 승인해 주세요.', timestamp: '2026-07-21T04:20:00.000Z' }],
+      responseIntent: {
+        category: 'required', required: true, requestText: '이 작업을 계속 진행하도록 승인해 주세요.',
+        confidence: 'high', source: 'assistant-message',
+      },
     }, [], now);
-    assert.equal(cleanWaiting.attention.kind, 'approval');
+    assert.equal(cleanWaiting.attention.category, 'none', '일반 문장의 질문·승인 추정은 확인 필요로 분류하지 않아야 합니다.');
+    assert.equal(cleanWaiting.attention.required, false);
     assert.equal(cleanWaiting.health.level, 'healthy', '응답 요청은 실제 상태 위험 신호와 분리해야 합니다.');
     assert.equal(cleanWaiting.health.signals.length, 0);
 
@@ -60,6 +70,34 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(optional.attention.required, false);
     assert.equal(optional.attention.actionable, false);
     assert.equal(optional.attention.summary, 'OPS 파일로 저장할까요?');
+
+    const permissionCheck = enrichSession({
+      ...waiting, id: 'permission-check', parentId: null, status: 'running', statusObserved: true,
+      updatedAt: '2026-07-21T04:20:00.000Z', statusDetail: '도구 실행 준비 중', lifecycle: [], context: { percent: 10 },
+      messages: [],
+      responseIntent: { category: 'optional', requestText: '완료 후 로그도 정리할까요?', confidence: 'high' },
+      executions: [{
+        id: 'permission-command', status: 'running', approvalRequired: true,
+        label: '개발 서버 다시 시작', command: 'npm run dev',
+        startedAt: '2026-07-21T04:20:00.000Z', updatedAt: '2026-07-21T04:20:00.000Z',
+      }],
+    }, [], now);
+    assert.equal(permissionCheck.attention.category, 'required');
+    assert.equal(permissionCheck.attention.required, true);
+    assert.equal(permissionCheck.attention.kind, 'approval');
+    assert.equal(permissionCheck.attention.source, 'execution-approval');
+    assert.equal(permissionCheck.attention.summary, '개발 서버 다시 시작');
+    assert.equal(permissionCheck.attention.requestedAt, '2026-07-21T04:20:00.000Z');
+
+    const approvedPermission = enrichSession({
+      ...permissionCheck,
+      id: 'permission-approved',
+      attention: undefined,
+      responseIntent: { category: 'none', requestText: '' },
+      executions: permissionCheck.executions.map(execution => ({ ...execution, status: 'completed' })),
+    }, [], now);
+    assert.equal(approvedPermission.attention.category, 'none');
+    assert.equal(approvedPermission.attention.required, false);
 
     const failed = enrichSession({
       ...waiting, id: 'failed-risk', parentId: null, status: 'failed', statusObserved: true,

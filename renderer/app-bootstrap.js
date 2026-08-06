@@ -89,7 +89,7 @@
       return;
     }
     const bootstrap = await window.LoadToAgentRendererUtils.bootstrap();
-    if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || "ko");
+    if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || "en");
     state.providers = bootstrap.providers || [];
     state.providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
     loadProviderVisibility(bootstrap.providerVisibility);
@@ -103,9 +103,10 @@
     state.update = bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
     const handleAttentionRequested = (payload) => {
       const sessionId = String(payload && payload.sessionId || '');
+      const event = payload && payload.event === 'completed' ? 'completed' : 'attention';
       const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
       if (session && !isProviderVisible(session.provider)) return;
-      selectView('waiting');
+      selectView(event === 'completed' ? 'active' : 'waiting');
       if (session) {
         if (session.parentId) openSubagentConversation(session.id);
         else openDrawer(session.id);

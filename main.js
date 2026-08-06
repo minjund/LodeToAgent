@@ -6,7 +6,7 @@ const path = require('path');
 const os = require('os');
 const { fileURLToPath, pathToFileURL } = require('url');
 const { Worker } = require('worker_threads');
-const { execFileSync } = require('child_process');
+const { execFile } = require('child_process');
 const { AgentRunner, probeProviders } = require('./src/agentRunner');
 const { providerList, blankUsage } = require('./src/providerRegistry');
 const { collectProviderUsage } = require('./src/providerUsage');
@@ -43,6 +43,9 @@ delete process.env[READY_PATH_ENV];
 delete process.env[READY_TOKEN_ENV];
 
 const PRODUCT_NAME = 'LoadToAgent';
+const DEFAULT_LOCALE = 'en';
+const MONITOR_INTERVAL_MS = 5_000;
+const WSL_DISTRO_CACHE_MS = 60_000;
 const ALLOW_UNSIGNED_WINDOWS_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
   && packageMetadata.loadToAgent?.allowUnsignedWindowsUpdates === true;
 const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
@@ -52,8 +55,7 @@ process.title = PRODUCT_NAME;
 if (process.platform === 'win32') app.setAppUserModelId('com.wincube.loadtoagent');
 
 const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
-// 사용자 메시지와 실제 개입 요청을 안정적으로 구분할 때까지 알림 발송을 중지한다.
-const ATTENTION_NOTIFICATIONS_ENABLED = false;
+const DESKTOP_NOTIFICATIONS_ENABLED = true;
 const UPDATE_HELPER_CANCELLATION_GUARD_MS = 65_000;
 let mainWindow = null;
 let monitorWorker = null;
@@ -73,10 +75,12 @@ let updateHelperCancellationGuardUntil = 0;
 let updateHelperCancellationNoticePending = false;
 let quitCleanupPromise = null;
 let quitCleanupComplete = false;
-let appLocale = 'ko';
+let appLocale = DEFAULT_LOCALE;
 let providerVisibilityStore = null;
 let pendingAttentionSessionId = '';
+let pendingAttentionEvent = 'attention';
 let rendererBootstrapped = false;
+let wslDistroCache = { checkedAt: 0, values: [], pending: null };
 const tmuxController = new TmuxController({
   platform: process.platform,
   deliveryStoreFile: () => userFile('tmux-deliveries.json'),
@@ -93,8 +97,9 @@ const MAIN_COPY = {
     trayQuit: '프로그램 끝내기 · 명령창은 유지, 직접 실행은 중지',
     addWorkspaces: '추가할 프로젝트 폴더 선택',
     pickWorkspace: '작업 폴더 선택',
-    attentionTitle: '내 답변이나 확인이 필요합니다',
+    attentionTitle: '확인 필요',
     attentionBody: '{provider} · {title}',
+    completionTitle: '작업 완료',
     terminalHostReconnecting: '명령창 연결을 자동으로 복구하는 중입니다.',
     terminalHostReconnected: '명령창 연결을 복구했습니다.',
     terminalHostReconnectFailed: '명령창 연결을 복구하지 못했습니다. 명령창을 다시 열어 주세요.',
@@ -115,8 +120,9 @@ const MAIN_COPY = {
     trayQuit: 'Quit · Keep terminals, stop direct runs',
     addWorkspaces: 'Choose a project folder to add',
     pickWorkspace: 'Choose workspace',
-    attentionTitle: 'Your review is needed',
+    attentionTitle: 'Confirmation needed',
     attentionBody: '{provider} · {title}',
+    completionTitle: 'Task completed',
     terminalHostReconnecting: 'Restoring the terminal connection automatically.',
     terminalHostReconnected: 'Terminal connection restored.',
     terminalHostReconnectFailed: 'Could not restore the terminal connection: {reason}',
@@ -139,6 +145,7 @@ const MAIN_COPY = {
     pickWorkspace: '选择工作文件夹',
     attentionTitle: '需要你的确认',
     attentionBody: '{provider} · {title}',
+    completionTitle: '任务已完成',
     terminalHostReconnecting: '正在自动恢复终端连接。',
     terminalHostReconnected: '终端连接已恢复。',
     terminalHostReconnectFailed: '无法恢复终端连接：{reason}',
@@ -204,7 +211,7 @@ function setAppearanceTheme(value) {
 }
 
 function mainText(key, values = {}) {
-  const source = MAIN_COPY[appLocale]?.[key] || MAIN_COPY.ko[key] || key;
+  const source = MAIN_COPY[appLocale]?.[key] || MAIN_COPY[DEFAULT_LOCALE][key] || key;
   return Object.entries(values).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), source);
 }
 
@@ -264,19 +271,34 @@ function saveWorkspaces(items) {
   return writeWorkspaces(userFile('workspaces.json'), items);
 }
 
-function listWslDistros() {
-  if (process.platform === 'darwin') return ['macOS'];
-  if (process.platform !== 'win32') return ['로컬'];
-  try {
-    return normalizeWslList(execFileSync('wsl.exe', ['--list', '--quiet'], {
+function listWslDistros(force = false) {
+  if (process.platform === 'darwin') return Promise.resolve(['macOS']);
+  if (process.platform !== 'win32') return Promise.resolve(['로컬']);
+  const now = Date.now();
+  if (!force && wslDistroCache.checkedAt && now - wslDistroCache.checkedAt < WSL_DISTRO_CACHE_MS) {
+    return Promise.resolve([...wslDistroCache.values]);
+  }
+  if (wslDistroCache.pending) return wslDistroCache.pending;
+  const pending = new Promise(resolve => {
+    execFile('wsl.exe', ['--list', '--quiet'], {
+      encoding: 'buffer',
       windowsHide: true,
       timeout: 5_000,
       maxBuffer: 256 * 1024,
-    }));
-  } catch (error) {
-    reportRecoverableError('wsl-distro-list', error);
-    return [];
-  }
+    }, (error, stdout) => {
+      if (error) {
+        reportRecoverableError('wsl-distro-list', error);
+        wslDistroCache = { checkedAt: Date.now(), values: [], pending: null };
+        resolve([]);
+        return;
+      }
+      const values = normalizeWslList(stdout);
+      wslDistroCache = { checkedAt: Date.now(), values, pending: null };
+      resolve([...values]);
+    });
+  });
+  wslDistroCache.pending = pending;
+  return pending;
 }
 
 function hydratePlatformPath() {
@@ -533,10 +555,9 @@ function scheduleMonitorWorkerRestart() {
 function startMonitorWorker() {
   if (isQuitting || demoCapture || !monitorWorkerConfig) return null;
   const worker = new Worker(path.join(__dirname, 'src', 'monitorWorker.js'), {
-    workerData: monitorWorkerConfig,
+    workerData: { ...monitorWorkerConfig, bridges: bridgePresence() },
   });
   monitorWorker = worker;
-  worker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
   worker.on('message', message => {
     if (message && message.type === 'snapshot') {
       monitorWorkerRestartAttempts = 0;
@@ -570,16 +591,21 @@ function startMonitorWorker() {
   return worker;
 }
 
-function openAttentionSession(session) {
+function openAttentionSession(session, event = 'attention') {
   if (!isProviderVisible(session && session.provider)) return;
   pendingAttentionSessionId = String(session && session.id || '');
+  pendingAttentionEvent = event === 'completed' ? 'completed' : 'attention';
   showMainWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.flashFrame(false);
   if (!rendererBootstrapped || mainWindow.webContents.isLoadingMainFrame()) return;
   try {
-    mainWindow.webContents.send('agents:attention-requested', { sessionId: pendingAttentionSessionId });
+    mainWindow.webContents.send('agents:attention-requested', {
+      sessionId: pendingAttentionSessionId,
+      event: pendingAttentionEvent,
+    });
     pendingAttentionSessionId = '';
+    pendingAttentionEvent = 'attention';
   } catch (error) {
     reportRecoverableError('ipc-send:agents:attention-requested', error);
   }
@@ -590,9 +616,11 @@ async function markRendererReady() {
   if (pendingUpdateRelaunch) showMainWindow();
   if (pendingAttentionSessionId && mainWindow && !mainWindow.isDestroyed()) {
     const sessionId = pendingAttentionSessionId;
+    const event = pendingAttentionEvent;
     try {
-      mainWindow.webContents.send('agents:attention-requested', { sessionId });
+      mainWindow.webContents.send('agents:attention-requested', { sessionId, event });
       pendingAttentionSessionId = '';
+      pendingAttentionEvent = 'attention';
     } catch (error) {
       reportRecoverableError('ipc-send:agents:attention-requested', error);
     }
@@ -607,13 +635,13 @@ async function markRendererReady() {
 
 function createAttentionNotifier() {
   return new AttentionNotifier({
-    enabled: ATTENTION_NOTIFICATIONS_ENABLED,
+    enabled: DESKTOP_NOTIFICATIONS_ENABLED,
     Notification,
     isSupported: () => Notification.isSupported(),
-    copy: session => {
+    copy: (session, event) => {
       const provider = providerList().find(item => item.id === session.provider);
       return {
-        title: mainText('attentionTitle'),
+        title: mainText(event === 'completed' ? 'completionTitle' : 'attentionTitle'),
         body: mainText('attentionBody', {
           provider: provider && provider.label || session.provider || 'AI',
           title: session.title || '이름 없는 작업',
@@ -626,6 +654,21 @@ function createAttentionNotifier() {
       openAttentionSession(session);
     },
   });
+}
+
+function notifyTerminalPrompt(payload = {}) {
+  const sessionId = String(payload.sessionId || '').slice(0, 500);
+  const fingerprint = String(payload.fingerprint || '').slice(0, 1_000);
+  const kind = String(payload.kind || '').slice(0, 120);
+  if (!attentionNotifier || !sessionId || !fingerprint) return { ok: false, notified: false };
+  const session = (lastSnapshot.sessions || []).find(item => String(item.id || '') === sessionId);
+  if (!session || !isProviderVisible(session.provider)) return { ok: false, notified: false };
+  const notification = attentionNotifier.notifyExplicitPrompt(session, {
+    fingerprint,
+    kind,
+    title: String(payload.title || '').slice(0, 240),
+  });
+  return { ok: true, notified: Boolean(notification) };
 }
 
 function sendUpdateState(update) {
@@ -693,9 +736,8 @@ async function connectTerminalForStartup(timeoutMs = 4_000) {
   let timedOut = false;
   let timer = null;
   connection.then(() => {
-    if (!timedOut) return;
     const sessions = visibleTerminalSessions(terminalManager.list());
-    sendTerminal('terminals:state', { change: 'reconnected', session: null, sessions });
+    sendTerminal('terminals:state', { change: timedOut ? 'reconnected' : 'connected', session: null, sessions });
     sendTerminal('terminals:connection', { state: 'connected', message: mainText('terminalHostReconnected') });
     updateBackgroundTrayMenu();
   }).catch(error => {
@@ -826,6 +868,35 @@ async function setupRuntime() {
         bridgeHome,
       }),
     });
+  if (!demoCapture) {
+    terminalManager.on('data', payload => sendTerminal('terminals:data', payload));
+    terminalManager.on('state', payload => {
+      if (!payload.session || (!payload.session.transient && (payload.session.type !== 'agent' || isProviderVisible(payload.session.provider)))) {
+        sendTerminal('terminals:state', { ...payload, sessions: visibleTerminalSessions(payload.sessions) });
+      }
+      updateBackgroundTrayMenu();
+      if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
+    });
+    terminalManager.on('disconnect', () => {
+      sendTerminal('terminals:connection', { state: 'reconnecting', message: mainText('terminalHostReconnecting') });
+    });
+    terminalManager.on('reconnect', payload => {
+      const sessions = visibleTerminalSessions(payload?.sessions || terminalManager.list());
+      sendTerminal('terminals:state', { change: 'reconnected', session: null, sessions });
+      sendTerminal('terminals:connection', { state: 'connected', message: mainText('terminalHostReconnected') });
+      updateBackgroundTrayMenu();
+      if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
+    });
+    terminalManager.on('reconnect-error', error => {
+      sendTerminal('terminals:connection', {
+        state: 'failed',
+        message: mainText('terminalHostReconnectFailed', { reason: error?.message || String(error) }),
+      });
+    });
+    // Start the host before update discovery and provider probing. Terminal IPC
+    // can reuse this same in-flight connection without delaying the first window.
+    connectTerminalForStartup();
+  }
   const installPlan = await updateInstallPlan();
   let updateCurrentVersion = app.getVersion();
   let updateCurrentVersionKnown = true;
@@ -876,33 +947,8 @@ async function setupRuntime() {
     bridgeLauncher = null;
     reportRecoverableError('bridge-launcher-install', error);
   }
-  terminalManager.on('data', payload => sendTerminal('terminals:data', payload));
-  terminalManager.on('state', payload => {
-    if (!payload.session || (!payload.session.transient && (payload.session.type !== 'agent' || isProviderVisible(payload.session.provider)))) {
-      sendTerminal('terminals:state', { ...payload, sessions: visibleTerminalSessions(payload.sessions) });
-    }
-    updateBackgroundTrayMenu();
-    if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
-  });
-  terminalManager.on('disconnect', () => {
-    sendTerminal('terminals:connection', { state: 'reconnecting', message: mainText('terminalHostReconnecting') });
-  });
-  terminalManager.on('reconnect', payload => {
-    const sessions = visibleTerminalSessions(payload?.sessions || terminalManager.list());
-    sendTerminal('terminals:state', { change: 'reconnected', session: null, sessions });
-    sendTerminal('terminals:connection', { state: 'connected', message: mainText('terminalHostReconnected') });
-    updateBackgroundTrayMenu();
-    if (monitorWorker) monitorWorker.postMessage({ type: 'bridge-presence', bridges: bridgePresence() });
-  });
-  terminalManager.on('reconnect-error', error => {
-    sendTerminal('terminals:connection', {
-      state: 'failed',
-      message: mainText('terminalHostReconnectFailed', { reason: error?.message || String(error) }),
-    });
-  });
-  await connectTerminalForStartup();
   availability = probeProviders();
-  monitorWorkerConfig = { runsDir, home: os.homedir(), intervalMs: 1200, availability };
+  monitorWorkerConfig = { runsDir, home: os.homedir(), intervalMs: MONITOR_INTERVAL_MS, availability };
   startMonitorWorker();
   runner.on('changed', () => {
     if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
@@ -989,12 +1035,13 @@ function registerIpcHandlers() {
     }),
     show: () => { showMainWindow(); return { ok: true }; },
     setLocale: locale => {
-      appLocale = ['ko', 'en', 'zh-CN'].includes(locale) ? locale : 'ko';
+      appLocale = ['ko', 'en', 'zh-CN'].includes(locale) ? locale : DEFAULT_LOCALE;
       updateBackgroundTrayMenu();
       return { locale: appLocale };
     },
     setThemeAppearance: setAppearanceTheme,
     setProviderVisibility: saveProviderVisibility,
+    notifyAttentionPrompt: notifyTerminalPrompt,
     updateManager: () => updateManager,
     installUpdate: installDownloadedUpdate,
   });
@@ -1089,8 +1136,9 @@ registerIpcHandlers();
 
 app.whenReady().then(async () => {
   hydratePlatformPath();
-  await setupRuntime();
+  const runtimeSetup = setupRuntime();
   createWindow();
+  await runtimeSetup;
   app.on('activate', showMainWindow);
 }).catch(error => {
   console.error(error);

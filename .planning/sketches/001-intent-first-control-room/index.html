@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoadToAgent — Intent-first Control Room</title>
+  <link id="theme-link" rel="stylesheet" href="../themes/default.css">
+  <style>
+    @font-face {
+      font-family: Geist;
+      src: url("../../../renderer/fonts/geist.woff2") format("woff2");
+      font-display: swap;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 74% 8%, rgba(60, 168, 245, 0.09), transparent 30rem),
+        var(--color-bg);
+      color: var(--color-text);
+      font-family: var(--font-sans);
+      letter-spacing: -0.025em;
+    }
+    button, input, select { font: inherit; }
+    button { color: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 3px;
+    }
+    .muted { color: var(--color-text-muted); }
+    .dim { color: var(--color-text-dim); }
+    .mono { font-family: var(--font-mono); letter-spacing: -0.02em; }
+
+    .variant-nav {
+      position: fixed;
+      z-index: 100;
+      top: 18px;
+      left: 50%;
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      transform: translateX(-50%);
+      border: 1px solid var(--color-border-strong);
+      border-radius: 14px;
+      background: rgba(8, 17, 26, 0.91);
+      box-shadow: var(--shadow-md);
+      backdrop-filter: blur(18px);
+    }
+    .variant-tab {
+      min-height: 42px;
+      padding: 0 16px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+      transition: background .15s ease, color .15s ease, transform .15s ease;
+      white-space: nowrap;
+    }
+    .variant-tab:hover { color: var(--color-text); }
+    .variant-tab:active { transform: scale(.98); }
+    .variant-tab.active {
+      background: var(--color-text);
+      color: var(--color-bg);
+      font-weight: 720;
+    }
+
+    .variant { display: none; min-height: 100vh; }
+    .variant.active {
+      display: block;
+      animation: enter .28s ease-out;
+    }
+    @keyframes enter {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 214px minmax(0, 1fr);
+    }
+    .rail {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 26px 18px 20px;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--color-border);
+      background: rgba(6, 15, 23, 0.72);
+    }
+    .brand {
+      margin: 0 12px 42px;
+      font-size: 20px;
+      font-weight: 750;
+      letter-spacing: -0.05em;
+    }
+    .rail nav { display: grid; gap: 6px; }
+    .rail-link {
+      width: 100%;
+      min-height: 46px;
+      padding: 0 12px;
+      display: grid;
+      grid-template-columns: 20px 1fr auto;
+      align-items: center;
+      gap: 10px;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--color-text-muted);
+      text-align: left;
+      cursor: pointer;
+      transition: background .15s ease, color .15s ease;
+    }
+    .rail-link:hover { background: rgba(143, 163, 181, .06); color: var(--color-text); }
+    .rail-link.active { background: rgba(60, 168, 245, .11); color: var(--color-text); }
+    .rail-link .count {
+      min-width: 24px;
+      height: 22px;
+      padding: 0 7px;
+      display: grid;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(143, 163, 181, .12);
+      font-size: var(--text-xs);
+    }
+    .rail-link.attention .count { color: var(--color-warning); }
+    .rail-foot {
+      margin-top: auto;
+      padding-top: 14px;
+      display: grid;
+      gap: 4px;
+      border-top: 1px solid var(--color-border);
+    }
+    .rail-foot button {
+      padding: 10px 12px;
+      border: 0;
+      background: transparent;
+      color: var(--color-text-muted);
+      text-align: left;
+      cursor: pointer;
+    }
+    .page {
+      min-width: 0;
+      padding: 0 30px 72px;
+    }
+    .topbar {
+      height: 88px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .topbar-title { display: grid; gap: 5px; }
+    .topbar-title b { font-size: 19px; }
+    .topbar-title span { color: var(--color-text-muted); font-size: var(--text-sm); }
+    .top-actions { margin-left: auto; display: flex; gap: 10px; }
+    .search {
+      width: min(280px, 26vw);
+      height: 42px;
+      padding: 0 14px;
+      border: 1px solid var(--color-border-strong);
+      border-radius: 9px;
+      background: rgba(6, 15, 23, .6);
+      color: var(--color-text);
+    }
+    .btn {
+      min-height: 42px;
+      padding: 0 17px;
+      border: 1px solid var(--color-border-strong);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--color-text);
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease, transform .15s ease;
+    }
+    .btn:hover { border-color: rgba(104, 189, 248, .65); }
+    .btn:active { transform: scale(.98); }
+    .btn.primary {
+      border-color: var(--color-primary);
+      background: var(--color-primary);
+      color: #05111b;
+      font-weight: 760;
+    }
+    .btn.primary:hover { background: var(--color-primary-hover); }
+    .btn.warning {
+      border-color: rgba(242, 170, 50, .5);
+      color: var(--color-warning);
+    }
+    .surface {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      background: rgba(11, 23, 34, .62);
+    }
+
+    /* Variant A — judgment first */
+    .judgment-wrap {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding-top: 56px;
+    }
+    .hero {
+      margin-bottom: 34px;
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 34px;
+    }
+    .eyebrow {
+      display: block;
+      margin-bottom: 10px;
+      color: var(--color-accent);
+      font-size: var(--text-sm);
+      font-weight: 720;
+    }
+    .hero h1 {
+      max-width: 760px;
+      margin: 0;
+      font-size: clamp(32px, 3.4vw, 52px);
+      line-height: 1.08;
+      letter-spacing: -0.06em;
+    }
+    .hero h1 em { color: var(--color-warning); font-style: normal; }
+    .hero-note {
+      max-width: 310px;
+      margin: 0 0 5px;
+      color: var(--color-text-muted);
+      font-size: var(--text-sm);
+      line-height: 1.7;
+    }
+    .judgment-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.8fr) minmax(290px, .82fr);
+      gap: 18px;
+    }
+    .decision-card { overflow: hidden; }
+    .section-head {
+      min-height: 62px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .section-head h2 { margin: 0; font-size: var(--text-base); }
+    .section-head small { color: var(--color-text-muted); }
+    .section-head a { margin-left: auto; color: var(--color-primary); font-size: var(--text-sm); }
+    .decision {
+      display: grid;
+      grid-template-columns: 32px 190px 1fr auto;
+      gap: 14px;
+      align-items: center;
+      min-height: 76px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--color-border);
+      cursor: pointer;
+      transition: background .15s ease;
+    }
+    .decision:hover { background: rgba(143, 163, 181, .035); }
+    .decision:last-child { border-bottom: 0; }
+    .decision-number { color: var(--color-text-dim); }
+    .decision-project { display: flex; gap: 10px; align-items: center; font-weight: 680; }
+    .dot {
+      width: 9px;
+      height: 9px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--color-success);
+      box-shadow: 0 0 0 0 rgba(69, 223, 145, .38);
+    }
+    .dot.live { animation: breathe 2.2s infinite; }
+    .dot.warn { background: var(--color-warning); box-shadow: none; }
+    @keyframes breathe {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(69, 223, 145, .34); }
+      45% { box-shadow: 0 0 0 7px rgba(69, 223, 145, 0); }
+    }
+    .decision-copy { color: var(--color-text-muted); }
+    .decision-time { color: var(--color-text-dim); font-size: var(--text-xs); }
+    .decision-detail {
+      grid-column: 2 / -1;
+      margin: -4px 0 18px;
+      padding: 18px 20px;
+      border: 1px solid rgba(242, 170, 50, .27);
+      border-radius: var(--radius-md);
+      background: rgba(242, 170, 50, .035);
+      animation: reveal .2s ease-out;
+    }
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: none; }
+    }
+    .decision-detail p { margin: 0 0 15px; color: var(--color-text-muted); line-height: 1.55; }
+    .decision-detail b { color: var(--color-text); }
+    .decision-actions { display: flex; gap: 8px; }
+    .live-rail { display: grid; gap: 14px; align-content: start; }
+    .quiet-list { padding: 8px 18px 10px; }
+    .quiet-item {
+      min-height: 70px;
+      display: grid;
+      grid-template-columns: 12px 1fr auto;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid var(--color-border);
+    }
+    .quiet-item:last-child { border-bottom: 0; }
+    .quiet-item b { display: block; margin-bottom: 5px; font-size: var(--text-sm); }
+    .quiet-item span { color: var(--color-text-muted); font-size: var(--text-xs); }
+    .connection { padding: 16px 18px; line-height: 1.55; font-size: var(--text-sm); }
+
+    /* Variant B — living delegation */
+    .flow-layout {
+      height: 100vh;
+      padding-top: 88px;
+      display: grid;
+      grid-template-columns: 250px minmax(0, 1fr) 280px;
+    }
+    .flow-list, .flow-inspector {
+      padding: 24px 18px;
+      border-right: 1px solid var(--color-border);
+      background: rgba(7, 16, 25, .7);
+    }
+    .flow-inspector { border-right: 0; border-left: 1px solid var(--color-border); }
+    .flow-list h2, .flow-inspector h2 { margin: 0 0 18px; font-size: var(--text-base); }
+    .session {
+      width: 100%;
+      padding: 14px 13px;
+      display: grid;
+      gap: 7px;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      background: transparent;
+      color: var(--color-text-muted);
+      text-align: left;
+      cursor: pointer;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .session:hover { background: rgba(143, 163, 181, .04); }
+    .session.active { border-color: var(--color-primary); background: rgba(60, 168, 245, .08); color: var(--color-text); }
+    .session small { color: var(--color-text-muted); }
+    .flow-stage {
+      position: relative;
+      min-width: 0;
+      overflow: hidden;
+      background-image: radial-gradient(rgba(104, 189, 248, .15) 1px, transparent 1px);
+      background-size: 22px 22px;
+    }
+    .flow-stage-head {
+      position: absolute;
+      z-index: 3;
+      top: 0;
+      left: 0;
+      right: 0;
+      min-height: 58px;
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--color-border);
+      background: rgba(7, 16, 25, .72);
+      backdrop-filter: blur(12px);
+    }
+    .flow-canvas {
+      position: absolute;
+      inset: 58px 0 62px;
+      min-height: 430px;
+    }
+    .connector {
+      position: absolute;
+      z-index: 0;
+      height: 1px;
+      transform-origin: left center;
+      background: linear-gradient(90deg, rgba(60,168,245,.22), rgba(54,220,176,.75), rgba(60,168,245,.22));
+    }
+    .connector::after {
+      content: "";
+      position: absolute;
+      top: -3px;
+      left: 0;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      box-shadow: 0 0 10px rgba(54, 220, 176, .8);
+      animation: travel 3s linear infinite;
+    }
+    .connector.c1 { left: 20%; top: 50%; width: 29%; transform: rotate(-19deg); }
+    .connector.c2 { left: 20%; top: 50%; width: 30%; transform: rotate(0); }
+    .connector.c3 { left: 20%; top: 50%; width: 29%; transform: rotate(19deg); }
+    .connector.c4 { left: 54%; top: 30%; width: 27%; transform: rotate(22deg); }
+    .connector.c5 { left: 54%; top: 50%; width: 25%; transform: rotate(0); }
+    .connector.c6 { left: 54%; top: 70%; width: 27%; transform: rotate(-22deg); }
+    .connector.c2::after, .connector.c5::after { animation-delay: -1.25s; }
+    .connector.c3::after, .connector.c6::after { animation-delay: -2.1s; }
+    @keyframes travel {
+      0% { left: 0; opacity: 0; }
+      12%, 82% { opacity: 1; }
+      100% { left: calc(100% - 7px); opacity: 0; }
+    }
+    .agent {
+      position: absolute;
+      z-index: 2;
+      width: 150px;
+      min-height: 74px;
+      padding: 14px;
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--color-border-strong);
+      border-radius: var(--radius-md);
+      background: rgba(12, 25, 36, .94);
+      box-shadow: var(--shadow-sm);
+      cursor: pointer;
+      transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
+    }
+    .agent:hover, .agent.selected {
+      transform: translateY(-2px);
+      border-color: var(--color-primary);
+      box-shadow: 0 12px 34px rgba(0,0,0,.25);
+    }
+    .agent b { font-size: var(--text-sm); }
+    .agent small { color: var(--color-text-muted); }
+    .agent.root { left: 9%; top: calc(50% - 37px); }
+    .agent.explore { left: 45%; top: calc(29% - 37px); }
+    .agent.build { left: 45%; top: calc(50% - 37px); border-color: rgba(54, 220, 176, .72); }
+    .agent.verify { left: 45%; top: calc(71% - 37px); }
+    .agent.result { right: 7%; top: calc(50% - 37px); }
+    .agent .agent-state { color: var(--color-accent); font-size: var(--text-xs); }
+    .flow-log {
+      position: absolute;
+      z-index: 4;
+      left: 18px;
+      right: 18px;
+      bottom: 13px;
+      min-height: 42px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      gap: 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 10px;
+      background: rgba(7, 16, 25, .86);
+      color: var(--color-text-muted);
+      font-size: var(--text-xs);
+    }
+    .flow-log span::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--color-success); }
+    .inspector-block { margin-bottom: 26px; }
+    .inspector-block small { display: block; margin-bottom: 8px; color: var(--color-text-dim); }
+    .inspector-block b, .inspector-block p { margin: 0; line-height: 1.55; }
+    .inspector-block p { color: var(--color-text-muted); }
+    .message { width: 100%; margin-top: 8px; }
+
+    /* Variant C — one temporal line */
+    .timeline-wrap {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 72px 0 80px;
+    }
+    .timeline-intro {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 50px;
+    }
+    .timeline-intro h1 { max-width: 680px; margin: 0; font-size: clamp(32px, 4vw, 52px); line-height: 1.08; letter-spacing: -0.06em; }
+    .timeline-intro p { max-width: 260px; margin: 0; color: var(--color-text-muted); line-height: 1.65; }
+    .time-line {
+      position: relative;
+      margin-left: 16px;
+      padding-left: 54px;
+    }
+    .time-line::before {
+      content: "";
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      left: 8px;
+      width: 1px;
+      background: linear-gradient(var(--color-text-dim), var(--color-primary), var(--color-accent), var(--color-border));
+    }
+    .moment {
+      position: relative;
+      margin-bottom: 42px;
+      opacity: .62;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .moment:hover { opacity: 1; transform: translateX(3px); }
+    .moment.current { opacity: 1; }
+    .moment::before {
+      content: "";
+      position: absolute;
+      top: 8px;
+      left: -51px;
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      background: var(--color-text-dim);
+    }
+    .moment.current::before {
+      background: var(--color-accent);
+      box-shadow: 0 0 0 7px rgba(54, 220, 176, .1);
+      animation: breathe 2.2s infinite;
+    }
+    .moment.next::before { background: var(--color-bg); border: 1px solid var(--color-border-strong); }
+    .moment-time { margin-bottom: 8px; color: var(--color-text-dim); font-size: var(--text-xs); }
+    .moment h2 { margin: 0 0 8px; font-size: var(--text-xl); }
+    .moment p { margin: 0; color: var(--color-text-muted); line-height: 1.6; }
+    .moment-card {
+      margin-top: 16px;
+      padding: 18px;
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      background: rgba(11, 23, 34, .62);
+    }
+    .moment-card .btn { margin-left: auto; }
+    .agent-stack { display: flex; padding-left: 8px; }
+    .avatar {
+      width: 34px;
+      height: 34px;
+      margin-left: -8px;
+      display: grid;
+      place-items: center;
+      border: 2px solid var(--color-surface);
+      border-radius: 50%;
+      background: var(--color-surface-raised);
+      color: var(--color-text-muted);
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .avatar.active { color: var(--color-accent); box-shadow: 0 0 0 1px rgba(54,220,176,.4); }
+    .timeline-filter {
+      margin-bottom: 34px;
+      display: flex;
+      gap: 8px;
+    }
+    .chip {
+      min-height: 36px;
+      padding: 0 13px;
+      border: 1px solid var(--color-border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--color-text-muted);
+      cursor: pointer;
+    }
+    .chip.active { border-color: var(--color-primary); color: var(--color-text); background: rgba(60,168,245,.08); }
+
+    /* Toast and sketch tools */
+    .toast {
+      position: fixed;
+      z-index: 120;
+      left: 50%;
+      bottom: 28px;
+      padding: 12px 16px;
+      transform: translate(-50%, 18px);
+      border: 1px solid rgba(69,223,145,.38);
+      border-radius: 10px;
+      background: rgba(11,23,34,.96);
+      color: var(--color-text);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .2s ease, transform .2s ease;
+      box-shadow: var(--shadow-md);
+    }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+    #sketch-tools {
+      position: fixed;
+      z-index: 9999;
+      right: 12px;
+      bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 9px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.76);
+      color: white;
+      font: 12px system-ui;
+      opacity: .38;
+      transition: opacity .2s ease;
+    }
+    #sketch-tools:hover { opacity: 1; }
+    #sketch-tools button, #sketch-tools select {
+      height: 27px;
+      border: 1px solid rgba(255,255,255,.24);
+      border-radius: 5px;
+      background: rgba(255,255,255,.08);
+      color: white;
+    }
+    #sketch-tools button { min-width: 30px; cursor: pointer; }
+    #viewport { width: 100%; max-width: none; margin: 0 auto; transition: max-width .25s ease; }
+    body.annotate [data-note] { outline: 1px dashed rgba(242,170,50,.7); }
+    body.annotate [data-note]::after {
+      content: attr(data-note);
+      position: absolute;
+      z-index: 50;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: #17110a;
+      color: #ffd78d;
+      font: 10px var(--font-mono);
+      pointer-events: none;
+    }
+
+    @media (max-width: 900px) {
+      .variant-nav {
+        top: 8px;
+        width: calc(100% - 20px);
+        overflow: hidden;
+        justify-content: stretch;
+      }
+      .variant-tab {
+        min-width: 0;
+        flex: 1 1 0;
+        padding: 0 6px;
+        font-size: 12px;
+      }
+      .shell { grid-template-columns: 1fr; }
+      .rail { display: none; }
+      .page { padding: 0 18px 70px; }
+      .topbar { display: none; }
+      .judgment-wrap { padding-top: 116px; }
+      .hero { display: block; }
+      .hero-note { margin-top: 18px; }
+      .judgment-grid { grid-template-columns: 1fr; }
+      .decision { grid-template-columns: 24px 1fr auto; padding: 0 14px; }
+      .decision-copy { grid-column: 2 / -1; grid-row: 2; margin: -12px 0 16px; font-size: var(--text-sm); }
+      .decision-time { grid-column: 3; grid-row: 1; }
+      .decision-detail { grid-column: 1 / -1; margin: -4px 0 14px; }
+      .flow-layout { min-height: 100vh; height: auto; padding-top: 64px; grid-template-columns: 1fr; }
+      .flow-list { display: none; }
+      .flow-stage { min-height: 640px; }
+      .flow-inspector { border-left: 0; border-top: 1px solid var(--color-border); }
+      .flow-canvas { min-height: 520px; }
+      .agent { width: 126px; padding: 11px; }
+      .agent.root { left: 4%; }
+      .agent.explore, .agent.build, .agent.verify { left: 40%; }
+      .agent.result { right: 3%; }
+      .timeline-wrap { padding: 130px 18px 70px; }
+      .timeline-intro { display: block; }
+      .timeline-intro p { margin-top: 18px; }
+      #sketch-tools { display: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport">
+    <nav class="variant-nav" role="tablist" aria-label="디자인 변형">
+      <button class="variant-tab active" role="tab" aria-selected="true" data-variant="a">A · 판단 우선</button>
+      <button class="variant-tab" role="tab" aria-selected="false" data-variant="b">B · 살아있는 위임</button>
+      <button class="variant-tab" role="tab" aria-selected="false" data-variant="c">C · 한 줄의 시간</button>
+    </nav>
+
+    <section id="variant-a" class="variant active" aria-label="변형 A 판단 우선">
+      <div class="shell">
+        <aside class="rail">
+          <div class="brand">LoadToAgent</div>
+          <nav>
+            <button class="rail-link active attention"><span>!</span><span>확인 요청</span><span class="count">3</span></button>
+            <button class="rail-link" data-jump="b"><span>◷</span><span>실시간 흐름</span><span class="count">9</span></button>
+            <button class="rail-link"><span>≡</span><span>전체 작업</span><span class="count">48</span></button>
+          </nav>
+          <div class="rail-foot">
+            <button>⌁ &nbsp; 실행 도구</button>
+            <button>⚙ &nbsp; 환경 설정</button>
+          </div>
+        </aside>
+        <main class="page">
+          <header class="topbar">
+            <div class="topbar-title"><b>확인 요청</b><span>지금 당신의 판단이 필요한 일입니다.</span></div>
+            <div class="top-actions">
+              <input class="search" placeholder="작업 검색" aria-label="작업 검색">
+              <button class="btn primary" data-toast="새 작업 작성 화면을 엽니다.">＋ 새 작업</button>
+            </div>
+          </header>
+          <div class="judgment-wrap">
+            <section class="hero">
+              <div>
+                <span class="eyebrow">오늘, 당신의 차례</span>
+                <h1>에이전트는 움직이고 있습니다.<br><em>결정할 일은 3개</em>입니다.</h1>
+              </div>
+              <p class="hero-note">나머지는 조용히 뒤에서 흐릅니다. 필요한 순간에만 화면 앞으로 가져옵니다.</p>
+            </section>
+
+            <div class="judgment-grid">
+              <section class="surface decision-card" data-note="핵심 판단 영역">
+                <header class="section-head"><h2>확인 요청</h2><small>중요한 순서</small><a href="#">모두 보기</a></header>
+                <article class="decision" data-decision>
+                  <span class="decision-number">1</span>
+                  <div class="decision-project"><span class="dot warn"></span>cras_backend</div>
+                  <div class="decision-copy">테스트가 실패했습니다</div>
+                  <time class="decision-time">2분 전　⌄</time>
+                  <div class="decision-detail">
+                    <p><b>검증 테스트 12개 중 1개가 실패했습니다.</b><br>코드 변경은 보존되어 있습니다. 수정 후 다시 실행할지 결정해 주세요.</p>
+                    <div class="decision-actions">
+                      <button class="btn primary" data-toast="수정 요청을 보냈습니다.">수정 요청</button>
+                      <button class="btn" data-toast="검증 테스트를 다시 실행합니다.">다시 실행</button>
+                    </div>
+                  </div>
+                </article>
+                <article class="decision" data-decision>
+                  <span class="decision-number">2</span>
+                  <div class="decision-project"><span class="dot warn"></span>board-migration-loop</div>
+                  <div class="decision-copy">작업 방향을 선택해야 합니다</div>
+                  <time class="decision-time">18분 전　⌃</time>
+                </article>
+                <article class="decision" data-decision>
+                  <span class="decision-number">3</span>
+                  <div class="decision-project"><span class="dot warn"></span>CMS_WEB</div>
+                  <div class="decision-copy">오랫동안 새 활동이 없습니다</div>
+                  <time class="decision-time">30분 전　⌃</time>
+                </article>
+              </section>
+
+              <aside class="live-rail">
+                <section class="surface">
+                  <header class="section-head"><h2>움직이는 일</h2><small>9</small><a href="#" data-jump="b">흐름 보기</a></header>
+                  <div class="quiet-list">
+                    <div class="quiet-item"><span class="dot live"></span><div><b>Lodestar</b><span>구현 결과 정리 중 · 서브 2</span></div><span>12분</span></div>
+                    <div class="quiet-item"><span class="dot live"></span><div><b>cras_backend</b><span>오류 처리 수정 중 · 서브 3</span></div><span>18분</span></div>
+                    <div class="quiet-item"><span class="dot live"></span><div><b>board-migration-loop</b><span>파일 분석 중 · 서브 1</span></div><span>35분</span></div>
+                  </div>
+                </section>
+                <div class="surface connection"><span class="dot live" style="display:inline-block;margin-right:8px"></span><b>연결 정상</b><br><span class="muted">완료된 일 36개는 기록에 정리되어 있습니다.</span></div>
+              </aside>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section id="variant-b" class="variant" aria-label="변형 B 살아있는 위임">
+      <div class="flow-layout">
+        <aside class="flow-list">
+          <h2>움직이는 일　<span class="muted">9</span></h2>
+          <button class="session active"><b>cras_backend</b><small>오류 처리 수정 중 · 18분</small></button>
+          <button class="session"><b>Lodestar</b><small>결과 정리 중 · 12분</small></button>
+          <button class="session"><b>board-migration-loop</b><small>파일 분석 중 · 35분</small></button>
+          <button class="session"><b>CMS_WEB</b><small>응답 대기 · 30분</small></button>
+        </aside>
+        <main class="flow-stage" data-note="애니메이션은 작업 이동 신호">
+          <header class="flow-stage-head"><b>cras_backend · 리뷰 오류 수정과 검증</b><span><span class="dot live" style="display:inline-block;margin-right:7px"></span>작업 중</span></header>
+          <div class="flow-canvas">
+            <i class="connector c1"></i><i class="connector c2"></i><i class="connector c3"></i>
+            <i class="connector c4"></i><i class="connector c5"></i><i class="connector c6"></i>
+            <button class="agent root" data-agent="main"><b>메인 GPT</b><small>전체 작업 조율</small><span class="agent-state">● 작업 중</span></button>
+            <button class="agent explore" data-agent="explore"><b>탐색 에이전트</b><small>원인 파일 확인 완료</small><span class="agent-state">완료</span></button>
+            <button class="agent build selected" data-agent="build"><b>구현 에이전트</b><small>예외 경로 수정 중</small><span class="agent-state">● 작업 중</span></button>
+            <button class="agent verify" data-agent="verify"><b>검증 에이전트</b><small>테스트 대기</small><span class="agent-state dim">대기</span></button>
+            <button class="agent result" data-agent="result"><b>결과 정리</b><small>변경 요약 대기</small><span class="agent-state dim">다음</span></button>
+          </div>
+          <div class="flow-log"><span>탐색 완료 · 17분 전</span><span>파일 4개 확인 · 15분 전</span><span>구현 시작 · 12분 전</span></div>
+        </main>
+        <aside class="flow-inspector">
+          <h2 id="agentTitle">구현 에이전트</h2>
+          <div class="inspector-block"><small>맡은 일</small><b id="agentRole">오류 처리 로직 수정</b></div>
+          <div class="inspector-block"><small>지금 하는 일</small><p id="agentNow">예외 경로를 정리하고 있습니다.</p></div>
+          <div class="inspector-block"><small>최근 활동</small><b id="agentAgo">1분 전</b></div>
+          <button class="btn primary message" data-toast="구현 에이전트에게 메시지를 보냈습니다.">메시지 보내기</button>
+        </aside>
+      </div>
+    </section>
+
+    <section id="variant-c" class="variant" aria-label="변형 C 한 줄의 시간">
+      <div class="shell">
+        <aside class="rail">
+          <div class="brand">LoadToAgent</div>
+          <nav>
+            <button class="rail-link active"><span>→</span><span>지금</span><span class="count">9</span></button>
+            <button class="rail-link attention"><span>!</span><span>내 판단</span><span class="count">3</span></button>
+            <button class="rail-link"><span>✓</span><span>지난 기록</span><span class="count">36</span></button>
+          </nav>
+          <div class="rail-foot"><button>⌁ &nbsp; 실행 도구</button><button>⚙ &nbsp; 환경 설정</button></div>
+        </aside>
+        <main class="page">
+          <div class="timeline-wrap">
+            <section class="timeline-intro">
+              <div><span class="eyebrow">cras_backend</span><h1>한 일, 하는 일,<br>당신을 기다리는 일.</h1></div>
+              <p>상태 대신 시간의 흐름으로 읽습니다. 필요한 순간에만 행동이 나타납니다.</p>
+            </section>
+            <div class="timeline-filter" aria-label="작업 필터">
+              <button class="chip active">이 작업</button>
+              <button class="chip">모든 프로젝트</button>
+              <button class="chip">내 판단만</button>
+            </div>
+            <div class="time-line" data-note="과거 → 현재 → 다음">
+              <article class="moment">
+                <div class="moment-time">17분 전 · 끝남</div>
+                <h2>원인을 찾았습니다.</h2>
+                <p>탐색 에이전트가 예외 처리 누락 지점과 관련 파일 4개를 확인했습니다.</p>
+              </article>
+              <article class="moment current">
+                <div class="moment-time">지금 · 진행 중</div>
+                <h2>두 에이전트가 수정하고 있습니다.</h2>
+                <p>메인 GPT가 전체 작업을 조율하고, 구현 에이전트가 예외 경로를 정리합니다.</p>
+                <div class="moment-card">
+                  <div class="agent-stack"><span class="avatar active">GPT</span><span class="avatar active">DEV</span><span class="avatar">QA</span></div>
+                  <div><b>구현 2 · 대기 1</b><div class="muted">마지막 활동 1분 전</div></div>
+                  <button class="btn" data-jump="b">흐름 보기</button>
+                </div>
+              </article>
+              <article class="moment next">
+                <div class="moment-time">다음 · 당신의 판단</div>
+                <h2>수정 결과를 검토해 주세요.</h2>
+                <p>테스트가 끝나면 변경 요약과 선택지 하나만 이곳에 나타납니다.</p>
+                <div class="moment-card">
+                  <span class="dot warn"></span>
+                  <div><b>예상 대기 3분</b><div class="muted">준비되면 알림을 보냅니다.</div></div>
+                  <button class="btn warning" data-toast="완료 시 알림을 예약했습니다.">알림 받기</button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <div id="sketch-tools">
+    <label>Theme
+      <select id="theme-switcher" aria-label="테마">
+        <option value="default">Default</option>
+      </select>
+    </label>
+    <button data-width="375px" title="휴대폰">M</button>
+    <button data-width="768px" title="태블릿">T</button>
+    <button data-width="none" title="데스크톱">D</button>
+    <button id="annotation-toggle" title="주석">Aa</button>
+  </div>
+
+  <script>
+    const variantTabs = [...document.querySelectorAll(".variant-tab")];
+    const variants = [...document.querySelectorAll(".variant")];
+    const toast = document.getElementById("toast");
+    let toastTimer;
+
+    function showVariant(id) {
+      variantTabs.forEach((tab) => {
+        const active = tab.dataset.variant === id;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      variants.forEach((variant) => variant.classList.toggle("active", variant.id === `variant-${id}`));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function showToast(message) {
+      window.clearTimeout(toastTimer);
+      toast.textContent = message;
+      toast.classList.add("show");
+      toastTimer = window.setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    variantTabs.forEach((tab) => tab.addEventListener("click", () => showVariant(tab.dataset.variant)));
+    document.querySelectorAll("[data-jump]").forEach((control) => {
+      control.addEventListener("click", (event) => {
+        event.preventDefault();
+        showVariant(control.dataset.jump);
+      });
+    });
+    document.querySelectorAll("[data-toast]").forEach((control) => {
+      control.addEventListener("click", () => showToast(control.dataset.toast));
+    });
+
+    document.querySelectorAll("[data-decision]").forEach((decision) => {
+      decision.addEventListener("click", (event) => {
+        if (event.target.closest("button")) return;
+        document.querySelectorAll(".decision-detail").forEach((detail) => detail.remove());
+        if (decision.querySelector(".decision-detail")) return;
+        const detail = document.createElement("div");
+        detail.className = "decision-detail";
+        detail.innerHTML = `<p><b>판단에 필요한 맥락만 펼쳤습니다.</b><br>세부 로그는 작업 상세에서 확인할 수 있습니다.</p><div class="decision-actions"><button class="btn primary">이 작업 열기</button></div>`;
+        decision.append(detail);
+        detail.querySelector("button").addEventListener("click", () => showToast("작업 상세를 엽니다."));
+      });
+    });
+
+    const agentContent = {
+      main: ["메인 GPT", "전체 작업 조율", "서브에이전트의 결과를 모으고 있습니다.", "방금"],
+      explore: ["탐색 에이전트", "오류 원인 탐색", "관련 파일 4개와 실패 지점을 확인했습니다.", "3분 전"],
+      build: ["구현 에이전트", "오류 처리 로직 수정", "예외 경로를 정리하고 있습니다.", "1분 전"],
+      verify: ["검증 에이전트", "수정 결과 검증", "구현 에이전트의 완료 신호를 기다립니다.", "5분 전"],
+      result: ["결과 정리", "변경 요약 작성", "검증 결과가 도착하면 사용자용 요약을 만듭니다.", "대기"]
+    };
+    document.querySelectorAll("[data-agent]").forEach((agent) => {
+      agent.addEventListener("click", () => {
+        document.querySelectorAll("[data-agent]").forEach((item) => item.classList.remove("selected"));
+        agent.classList.add("selected");
+        const content = agentContent[agent.dataset.agent];
+        document.getElementById("agentTitle").textContent = content[0];
+        document.getElementById("agentRole").textContent = content[1];
+        document.getElementById("agentNow").textContent = content[2];
+        document.getElementById("agentAgo").textContent = content[3];
+      });
+    });
+
+    document.querySelectorAll(".session").forEach((session) => {
+      session.addEventListener("click", () => {
+        document.querySelectorAll(".session").forEach((item) => item.classList.remove("active"));
+        session.classList.add("active");
+        showToast(`${session.querySelector("b").textContent} 흐름을 불러왔습니다.`);
+      });
+    });
+    document.querySelectorAll(".chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        document.querySelectorAll(".chip").forEach((item) => item.classList.remove("active"));
+        chip.classList.add("active");
+        showToast(`${chip.textContent}만 표시합니다.`);
+      });
+    });
+
+    document.getElementById("theme-switcher").addEventListener("change", (event) => {
+      document.getElementById("theme-link").href = `../themes/${event.target.value}.css`;
+    });
+    document.querySelectorAll("#sketch-tools [data-width]").forEach((button) => {
+      button.addEventListener("click", () => {
+        document.getElementById("viewport").style.maxWidth = button.dataset.width;
+        showToast(button.dataset.width === "none" ? "데스크톱 너비" : `${button.dataset.width} 미리보기`);
+      });
+    });
+    document.getElementById("annotation-toggle").addEventListener("click", () => {
+      document.body.classList.toggle("annotate");
+    });
+  </script>
+</body>
+</html>

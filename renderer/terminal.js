@@ -142,6 +142,7 @@
     embeddedGeneration: 0,
     pendingPrompts: new Map(),
     promptDismissals: new Map(),
+    promptNotificationsPrimed: false,
     promptRefreshInFlight: false,
     promptRefreshQueued: false,
     promptLastRefreshAt: 0,
@@ -745,7 +746,7 @@
       fontSize: state.terminalFontSize,
       letterSpacing: -2,
       lineHeight: state.terminalFontSize >= 17 ? 1.32 : 1.28,
-      scrollback: 10_000,
+      scrollback: 5_000,
       theme: xtermTheme(),
     };
   }
@@ -776,7 +777,7 @@
   });
 
   const {
-    tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
+    agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, startAgent, openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
@@ -977,11 +978,26 @@
     state.promptRefreshInFlight = true;
     state.promptLastRefreshAt = Date.now();
     const previousSignature = promptMapSignature(state.pendingPrompts);
+    const previousPrompts = state.pendingPrompts;
     scanPendingPrompts().then(prompts => {
       for (const [sessionId, prompt] of prompts) {
         if (state.promptDismissals.get(prompt.target?.id) === prompt.fingerprint) prompts.delete(sessionId);
       }
       state.pendingPrompts = prompts;
+      if (state.promptNotificationsPrimed) {
+        for (const [sessionId, prompt] of prompts) {
+          const previous = previousPrompts.get(sessionId);
+          if (previous?.fingerprint === prompt.fingerprint && previous?.target?.id === prompt.target?.id) continue;
+          window.loadtoagent.notifyAttentionPrompt?.({
+            sessionId,
+            fingerprint: `${prompt.target?.id || ''}:${prompt.fingerprint || ''}`,
+            kind: prompt.kind,
+            title: prompt.title || prompt.question || '',
+          }).catch(error => reportRecoverableError('terminal-prompt-notification', error));
+        }
+      } else {
+        state.promptNotificationsPrimed = true;
+      }
       if (promptMapSignature(prompts) !== previousSignature) {
         window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
       }
@@ -1248,9 +1264,8 @@
         bindEvents();
         state.eventsBound = true;
       }
-      const [bootstrap, , environments] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), refreshSessions(), window.loadtoagent.wslDistros()]);
+      const [bootstrap] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), refreshSessions()]);
       state.platform = bootstrap.platform || state.platform;
-      state.wslDistros = Array.isArray(environments) ? environments : [];
       state.initialized = true;
       configurePlatform();
       if (!state.resizeObserver && 'ResizeObserver' in window) {
@@ -1263,6 +1278,16 @@
       syncTerminalViewControls();
       renderAll();
       schedulePendingPromptRefresh(true);
+      // WSL discovery may start the subsystem and take seconds on Windows. It
+      // should update the optional Linux controls, not hold the PTY screen open.
+      Promise.resolve(window.loadtoagent.wslDistros()).then(environments => {
+        state.wslDistros = Array.isArray(environments) ? environments : [];
+        if (!state.initialized) return;
+        configurePlatform();
+        renderAll();
+      }).catch(error => {
+        reportRecoverableError('terminal-wsl-discovery', error);
+      });
     })().catch(error => {
       state.initialized = false;
       state.initPromise = null;
@@ -1282,6 +1307,7 @@
     selectTmuxById,
     openTmuxModal,
     agentTargets,
+    agentConnectionSignature,
     resumeSupport,
     dispatchAgentCommand,
     interruptAgent,
@@ -1295,6 +1321,7 @@
     unmountEmbedded,
     embeddedState,
     focusEmbedded,
+    startAgent,
     pendingPromptForSession,
     respondToPrompt,
     refreshPendingPrompts: () => schedulePendingPromptRefresh(true),

@@ -1262,6 +1262,7 @@ app.whenReady().then(async () => {
     console.error(error && error.stack || error);
   } finally {
     if (win && !win.isDestroyed()) win.destroy();
-    app.exit(exitCode);
+    process.exitCode = exitCode;
+    app.quit();
   }
 });

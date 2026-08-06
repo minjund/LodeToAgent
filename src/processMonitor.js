@@ -400,7 +400,16 @@ function markRuntime(session, presence) {
   const existing = Array.isArray(session.runtimePresence) ? session.runtimePresence : [];
   if (!existing.some(item => item.id === presence.id)) existing.push(presence);
   session.runtimePresence = existing;
-  if (presence.interactionMode === 'batch') {
+  const finalAt = Date.parse(session.completedAt || session.endedAt || 0);
+  const runtimeStartedAt = Date.parse(presence.startedAt || 0);
+  const finalState = ['completed', 'failed', 'cancelled'].includes(String(session.status || ''))
+    || Boolean(session.completionObserved && session.completedAt);
+  const finalStatusObserved = finalState && (
+    !Number.isFinite(runtimeStartedAt)
+    || !Number.isFinite(finalAt)
+    || finalAt >= runtimeStartedAt
+  );
+  if (presence.interactionMode === 'batch' && !finalStatusObserved) {
     session.conversationStatus = session.status;
     session.status = 'running';
     session.statusDetail = '화면 밖에서 AI가 계속 작업 중';
@@ -482,8 +491,36 @@ function syntheticBridgeSession(bridge, now = Date.now()) {
   return session;
 }
 
+function inferredBridgeBindings(sessions, minimumScore = 15_000) {
+  const candidates = [];
+  for (const session of sessions || []) {
+    const provider = String(session?.provider || '').trim().toLowerCase();
+    const sessionId = String(session?.id || '').trim();
+    if (!provider || session?.parentId || !sessionId.startsWith(`${provider}:`) || sessionId.length > 100) continue;
+    for (const presence of session.runtimePresence || []) {
+      const terminalId = String(presence?.terminalId || '').trim();
+      const score = Number(presence?.linkScore);
+      if (presence?.kind !== 'bridge' || presence?.provider !== provider || !terminalId || !Number.isFinite(score) || score < minimumScore) continue;
+      candidates.push({ terminalId, sessionId, provider, linkScore: score });
+    }
+  }
+  const terminalCounts = new Map();
+  const sessionCounts = new Map();
+  for (const candidate of candidates) {
+    terminalCounts.set(candidate.terminalId, (terminalCounts.get(candidate.terminalId) || 0) + 1);
+    sessionCounts.set(candidate.sessionId, (sessionCounts.get(candidate.sessionId) || 0) + 1);
+  }
+  return candidates.filter(candidate => terminalCounts.get(candidate.terminalId) === 1 && sessionCounts.get(candidate.sessionId) === 1);
+}
+
 function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now = Date.now(), bridges = []) {
-  const sessions = structuredClone(agentSessions || []);
+  // Runtime linking only changes top-level status fields and runtimePresence.
+  // Preserve the large immutable histories instead of deep-cloning every card
+  // on each monitor tick.
+  const sessions = (agentSessions || []).map(session => ({
+    ...session,
+    runtimePresence: (session.runtimePresence || []).map(item => ({ ...item })),
+  }));
   const byId = new Map(sessions.map(session => [session.id, session]));
   const usedSessionIds = new Set();
   const usedBridgeIds = new Set();
@@ -641,5 +678,6 @@ module.exports = {
   utilityProcess,
   runtimeLinkScore,
   bridgeLinkScore,
+  inferredBridgeBindings,
   applyRuntimePresence,
 };

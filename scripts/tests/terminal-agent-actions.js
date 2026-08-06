@@ -8,6 +8,71 @@ const vm = require('vm');
 function registerTerminalAgentActionTests(context) {
   const { test, root } = context;
 
+  test('새 AI 작업은 headless runner 대신 대화형 PTY 시작 인자를 만든다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    const sandbox = { window: { LoadToAgentI18n: { t: key => key } } };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [] },
+      providerLabel: provider => provider,
+    });
+
+    const claude = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Claude PTY', model: 'sonnet', allowWrites: true });
+    const codex = actions.freshAgentLaunchOptions({ provider: 'codex', prompt: 'Codex PTY', model: 'gpt-5.6', allowWrites: false });
+    const gemini = actions.freshAgentLaunchOptions({ provider: 'gemini', prompt: 'Gemini PTY', allowWrites: true });
+    const grok = actions.freshAgentLaunchOptions({ provider: 'grok', prompt: 'Grok PTY', model: 'grok-code', allowWrites: true });
+
+    assert.deepStrictEqual(Array.from(claude.args), ['--model', 'sonnet', '--permission-mode', 'acceptEdits', 'Claude PTY']);
+    assert.deepStrictEqual(Array.from(claude.recoveryArgs), ['--model', 'sonnet', '--permission-mode', 'acceptEdits']);
+    assert.deepStrictEqual(Array.from(codex.args), ['--model', 'gpt-5.6', '--sandbox', 'read-only', 'Codex PTY']);
+    assert.deepStrictEqual(Array.from(gemini.args), ['--yolo', '--prompt-interactive', 'Gemini PTY']);
+    assert.equal(grok.initialCommandInArgs, false);
+    assert.deepStrictEqual(Array.from(grok.args), ['--no-auto-update', '--model', 'grok-code', '--always-approve']);
+  });
+
+  test('새 AI 작업은 PTY를 생성하고 초기 요청을 그 터미널에 한 번만 전달한다', async () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    const creates = [];
+    const commands = [];
+    const sandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        loadtoagent: {
+          terminalCreate: async options => {
+            creates.push(options);
+            return { id: `terminal:${options.provider}`, deliveryState: options.initialCommandInArgs ? 'accepted' : '' };
+          },
+          terminalCommand: async (id, prompt, options) => {
+            commands.push([id, prompt, options]);
+            return { ok: true, deliveryState: 'accepted' };
+          },
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [] },
+      init: async () => {},
+      refreshSessions: async () => {},
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+    });
+
+    const codex = await actions.startAgent({ provider: 'codex', prompt: 'PTY에서 시작', cwd: 'D:\\workspace' });
+    const grok = await actions.startAgent({ provider: 'grok', prompt: 'PTY로 한 번 보내기', cwd: 'D:\\workspace' });
+
+    assert.equal(codex.terminalId, 'terminal:codex');
+    assert.equal(grok.terminalId, 'terminal:grok');
+    assert.equal(creates[0].type, 'agent');
+    assert.equal(creates[0].transient, false);
+    assert.equal(creates[0].initialCommandInArgs, true);
+    assert.equal(creates[1].initialCommandInArgs, false);
+    assert.equal(commands.length, 1);
+    assert.equal(commands[0][0], 'terminal:grok');
+    assert.equal(commands[0][1], 'PTY로 한 번 보내기');
+    assert.match(commands[0][2].deliveryId, /^start:/);
+  });
+
   test('대화창 Enter 전송은 숨겨진 일회성 프로세스 대신 지속형 관리 터미널을 만든다', async () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     let launchOptions = null;

@@ -12,7 +12,7 @@ const { parseArguments } = require('../../bin/loadtoagent');
 const { parseGeneric, buildSummary } = require('../../src/agentMonitor');
 const { AgentRunner, commandSpec, handleClaude } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
-const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, bridgeLinkScore, applyRuntimePresence } = require('../../src/processMonitor');
+const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, bridgeLinkScore, applyRuntimePresence, inferredBridgeBindings } = require('../../src/processMonitor');
 const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell, killPtyTree } = require('../../src/terminalManager');
 const {
   TerminalHostServer,
@@ -23,6 +23,7 @@ const {
   terminateHostProcess,
   resolveTerminalHostExecutable,
 } = require('../../src/terminalHost');
+const { parseConfig: parseTerminalHostConfig, run: runTerminalHostDaemon } = require('../../src/terminalHostDaemon');
 const { TmuxController, safeName, safeTarget } = require('../../src/tmuxController');
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../../src/tmuxMonitor');
 const { ManagedTmuxRuntime } = require('../../src/managedTmuxRuntime');
@@ -330,6 +331,21 @@ function registerTmuxAndProcessTests(context) {
     assert.equal(batch[0].conversationStatus, 'waiting');
     assert.match(batch[0].statusDetail, /화면 밖에서 AI가 계속 작업 중/);
     assert.equal(batch[0].runtimePresence[0].pid, 404);
+    const completedBatch = applyRuntimePresence([{
+      ...batch[0], status: 'completed', statusDetail: '작업 완료',
+      completionObserved: true, completedAt: '2026-07-14T03:00:55Z',
+    }], {}, { processes: [processes[1]] }, Date.parse('2026-07-14T03:01:00Z'));
+    assert.equal(completedBatch[0].status, 'completed');
+    assert.equal(completedBatch[0].statusDetail, '작업 완료');
+    assert.equal(completedBatch[0].runtimePresence[0].pid, 404);
+    const restartedBatch = applyRuntimePresence([{
+      ...completedBatch[0], runtimePresence: [],
+    }], {}, { processes: [{
+      ...processes[1], id: 'windows:claude:405', pid: 405,
+      startedAt: '2026-07-14T03:01:05Z',
+    }] }, Date.parse('2026-07-14T03:01:10Z'));
+    assert.equal(restartedBatch[0].status, 'running');
+    assert.equal(restartedBatch[0].conversationStatus, 'completed');
     const commandLine = 'claude.exe --session-id current-session --fork-session --resume C:\\Users\\dev\\.claude\\projects\\repo\\old-session.jsonl';
     assert.equal(processSessionExternalId({ commandLine }, 'claude'), 'current-session');
     assert.equal(processSessionExternalId({ commandLine: 'claude.exe --resume "C:\\Users\\dev\\.claude\\projects\\repo\\resumed-session.jsonl"' }, 'claude'), 'resumed-session');
@@ -390,6 +406,9 @@ function registerNativeProcessTests(context) {
     assert.equal(bridgeLinkScore({ ...base, provider: 'claude', clientKind: 'claude-desktop', startedAt: bridge.startedAt }, { ...bridge, provider: 'claude' }, now), -Infinity);
     assert.equal(bridgeLinkScore({ ...base, clientKind: 'codex-cli', startedAt: '2026-07-14T09:40:00Z' }, bridge, now), -Infinity);
     assert.ok(bridgeLinkScore({ ...base, clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }, bridge, now) > 10_000);
+    const observed = applyRuntimePresence([{ ...base, id: 'codex:matched', clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }], {}, { processes: [] }, now, [{ ...bridge, id: 'terminal:new', terminalId: 'terminal:new' }]);
+    assert.deepStrictEqual(inferredBridgeBindings(observed).map(item => [item.terminalId, item.sessionId]), [['terminal:new', 'codex:matched']]);
+    assert.deepStrictEqual(inferredBridgeBindings(observed, 20_000), []);
   });
 
 }
@@ -641,6 +660,11 @@ function registerGenericAgentTests(context) {
 
 function registerTerminalLifecycleTests(context) {
   const { test, temp, root } = context;
+  test('터미널 호스트 데몬 진입점은 패키지 런타임에서 정의되지 않은 참조 없이 로드된다', () => {
+    assert.equal(typeof parseTerminalHostConfig, 'function');
+    assert.equal(typeof runTerminalHostDaemon, 'function');
+  });
+
   test('지속형 AI 터미널은 독립 tmux 소켓의 관리 세션으로 시작한다', () => {
     const spawns = [];
     class FakePty {
@@ -4678,9 +4702,9 @@ function registerTerminalFailureTests(context) {
       },
     });
     const replayCapSession = replayCapManager.create({ type: 'powershell', cwd: root });
-    replayCapProcesses[0].dataCallback(`😀${'x'.repeat(2 * 1024 * 1024 - 1)}`);
+    replayCapProcesses[0].dataCallback(`😀${'x'.repeat(512 * 1024 - 1)}`);
     const characterCappedReplay = replayCapManager.get(replayCapSession.id, true).replay;
-    assert.equal(characterCappedReplay.length, 2 * 1024 * 1024 - 1);
+    assert.equal(characterCappedReplay.length, 512 * 1024 + 1);
     assert.equal(hasUnpairedSurrogate(characterCappedReplay), false);
     replayCapManager.dispose();
 

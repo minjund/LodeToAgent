@@ -303,7 +303,10 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     $("#runError").classList.add("hidden");
     try {
       syncLockedProject();
-      const result = await window.loadtoagent.runAgent({
+      if (typeof window.LoadToAgentTerminal?.startAgent !== "function") {
+        throw new Error(window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
+      }
+      const result = await window.LoadToAgentTerminal.startAgent({
         provider: state.runProvider,
         cwd: $("#runCwd").value.trim(),
         model: $("#runModel").value.trim(),

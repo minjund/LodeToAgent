@@ -5,7 +5,7 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 window.LoadToAgentAppFactories.createSessionEventBindings = function createSessionEventBindings(context = {}) {
   const {
     $, state, selectView, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, renderSessions, renderTmuxMap, openDrawer, openSubagentConversation, openExecutionActivity,
-    dispatchAgentCommand, openAgentTerminal, copyBridgeCommand, saveDashboardPreferences = () => {},
+    dispatchAgentCommand, interruptAgentTerminal, openAgentTerminal, copyBridgeCommand, saveDashboardPreferences = () => {},
     controlManagedRun, quickRespond, prepareReassignment,
     copyText = async () => false,
     announce = () => {},
@@ -433,6 +433,44 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
     bindSortableSessionList($("#liveSessionGrid"), "[data-control-session][data-session-sortable]");
     bindSortableProjectGroups($("#liveSessionGrid"));
     $("#liveSessionGrid").addEventListener("click", async (event) => {
+      const detailTab = event.target.closest("[data-workflow-detail-tab]");
+      if (detailTab) {
+        event.stopPropagation();
+        state.workflowDetailTab = detailTab.dataset.workflowDetailTab;
+        $("#liveSessionGrid").querySelectorAll("[data-workflow-detail-tab]").forEach((button) => {
+          const active = button === detailTab;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", String(active));
+        });
+        $("#liveSessionGrid").querySelectorAll("[data-workflow-detail-panel]").forEach((panel) => {
+          const active = panel.dataset.workflowDetailPanel === state.workflowDetailTab;
+          panel.classList.toggle("active", active);
+          panel.toggleAttribute("hidden", !active);
+        });
+        return;
+      }
+      const detailScroll = event.target.closest("[data-workflow-detail-scroll]");
+      if (detailScroll) {
+        event.stopPropagation();
+        const tab = $("#liveSessionGrid").querySelector(`[data-workflow-detail-tab="${CSS.escape(detailScroll.dataset.workflowDetailScroll || "summary")}"]`);
+        tab?.click();
+        $("#workflowDetail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return;
+      }
+      const inlineTerminal = event.target.closest("[data-inline-pty-trigger]");
+      if (inlineTerminal) {
+        event.stopPropagation();
+        window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger, {
+          focus: !inlineTerminal.closest(".control-room-session"),
+        });
+        return;
+      }
+      const terminalInterrupt = event.target.closest("[data-terminal-interrupt]");
+      if (terminalInterrupt) {
+        event.stopPropagation();
+        await interruptAgentTerminal(terminalInterrupt.dataset.terminalInterrupt);
+        return;
+      }
       if (Date.now() - projectDragEndedAt < 250 && event.target.closest(".control-project-header")) {
         event.preventDefault();
         event.stopPropagation();
@@ -566,15 +604,24 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       }
       const node = event.target.closest("[data-graph-focus]");
       if (!node) return;
-      if (state.graphFocusId === node.dataset.graphFocus) openDrawer(node.dataset.graphFocus, { context: true });
-      else {
+      if (state.graphFocusId !== node.dataset.graphFocus) {
+        window.LoadToAgentInlineTerminal?.close?.({ render: false });
         state.graphFocusId = node.dataset.graphFocus;
         renderSessions("focus");
       }
     });
     $("#liveSessionGrid").addEventListener("input", (event) => {
       const input = event.target.closest("[data-agent-command-draft]");
-      if (input) state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
+      if (!input) return;
+      state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
+      const form = input.closest("[data-agent-command-form]");
+      const submit = form?.querySelector('button[type="submit"]');
+      if (submit) submit.disabled = form.dataset.agentTerminalReady === "false" || !input.value.trim();
+      const count = form?.querySelector("[data-conversation-draft-count]");
+      if (count) {
+        count.textContent = window.LoadToAgentI18n.t("agent.input_count", { count: input.value.length.toLocaleString() });
+        count.classList.toggle("hidden", input.value.length < 7200);
+      }
     });
     $("#liveSessionGrid").addEventListener("change", (event) => {
       const picker = event.target.closest("[data-agent-command-target]");
@@ -598,6 +645,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();
+      window.LoadToAgentImeSubmit?.handleSubmit(form);
       dispatchAgentCommand(form.dataset.agentCommandForm, form);
     });
   }
@@ -605,6 +653,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
   function bindGraphNavigationEvents() {
     $("#openTmuxFromAgentWork").addEventListener("click", () => selectView("tmux", { focusMain: true }));
     $("#graphBreadcrumbs").addEventListener("click", (event) => {
+      window.LoadToAgentInlineTerminal?.close?.({ render: false });
       if (event.target.closest("[data-graph-reset]")) state.graphFocusId = null;
       else {
         const node = event.target.closest("[data-graph-focus]");
@@ -614,6 +663,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       renderSessions("focus-back");
     });
     $("#graphResetBtn").addEventListener("click", () => {
+      window.LoadToAgentInlineTerminal?.close?.({ render: false });
       state.graphFocusId = null;
       renderSessions("focus-back");
     });

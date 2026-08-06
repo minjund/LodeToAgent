@@ -47,20 +47,33 @@ function parseJsonText(text) {
   try { return JSON.parse(text); } catch (_plainTextPayload) { return null; }
 }
 
+function firstJsonLineTimestamp(text) {
+  for (const line of String(text || '').split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const row = parseJsonText(line);
+    const value = row && row.timestamp;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (Number.isFinite(Date.parse(String(value || '')))) return value;
+  }
+  return null;
+}
+
 function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
   const stat = safeStat(file);
-  if (!stat || !stat.isFile()) return { rows: [], truncated: false };
+  if (!stat || !stat.isFile()) return { rows: [], truncated: false, firstTimestamp: null };
   const limit = boundedBytes(maxBytes, MAX_JSONL_BYTES, MAX_JSONL_BYTES);
   const start = Math.max(0, stat.size - limit);
   const length = stat.size - start;
   const fd = fs.openSync(file, 'r');
   let buffer = Buffer.alloc(0);
   let headerLine = '';
+  let firstTimestamp = null;
   try {
     buffer = readRange(fd, start, length);
     if (start > 0) {
       const headLength = Math.min(stat.size, 2 * 1024 * 1024);
       const head = readRange(fd, 0, headLength);
+      firstTimestamp = firstJsonLineTimestamp(head.toString('utf8'));
       const newline = head.indexOf(10);
       if (newline >= 0) {
         headerLine = head.subarray(0, newline).toString('utf8').replace(/\r$/, '');
@@ -84,7 +97,15 @@ function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
     const header = parseJsonText(headerLine);
     if (header && header.type === 'session_meta') rows.unshift(header);
   }
-  return { rows, truncated: start > 0 };
+  if (firstTimestamp == null) {
+    const firstTimestampedRow = rows.find(row => {
+      const value = row && row.timestamp;
+      return (typeof value === 'number' && Number.isFinite(value))
+        || Number.isFinite(Date.parse(String(value || '')));
+    });
+    firstTimestamp = firstTimestampedRow ? firstTimestampedRow.timestamp : null;
+  }
+  return { rows, truncated: start > 0, firstTimestamp };
 }
 
 function walkRecent(root, predicate, max = MAX_FILES_PER_PROVIDER, maxDepth = 6) {

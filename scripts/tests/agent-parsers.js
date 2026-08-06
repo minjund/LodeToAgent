@@ -6,6 +6,7 @@ const path = require('path');
 const {
   AgentMonitor, parseClaude, parseCodex, parseGeneric, attachHierarchy, isProjectlessSession, mergeManagedWithHistory,
 } = require('../../src/agentMonitor');
+const { bridgeLinkScore } = require('../../src/processMonitor');
 const { MAX_JSON_BYTES } = require('../../src/agentMonitor/sessionFiles');
 const { assistantRequestsUserResponse, assistantResponseIntent } = require('../../src/agentMonitor/responseIntent');
 
@@ -108,9 +109,9 @@ function registerClaudeParserTests(context) {
       { type: 'user', uuid: 'retry-user', timestamp: '2026-07-14T01:00:02Z', message: { role: 'user', content: '다시 시도해줘' } },
       { type: 'assistant', uuid: 'retry-answer', timestamp: '2026-07-14T01:00:03Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '재시도에 성공했습니다.' }] } },
     ]));
-    assert.equal(recovered.status, 'idle');
+    assert.equal(recovered.status, 'completed');
     assert.equal(recovered.title, '다시 시도해줘');
-    assert.equal(recovered.statusDetail, '다음 요청 대기');
+    assert.equal(recovered.statusDetail, '작업 완료');
   });
 
   test('세션 상세 조회는 카드 제한과 달리 Claude 전체 대화를 다시 읽는다', () => {
@@ -162,6 +163,32 @@ function registerClaudeParserTests(context) {
     ]));
     assert.equal(scheduled.title, '/scheduled-run --tick order-verify');
     assert.equal(scheduled.clientKind, 'claude-cli');
+  });
+
+  test('Claude의 타임스탬프 없는 헤더와 잘린 카드 기록에서도 실제 시작 시각을 유지한다', () => {
+    const file = path.join(temp, 'claude', 'cli', 'stable-pty-link.jsonl');
+    const info = jsonl(file, [
+      { type: 'last-prompt', sessionId: 'stable-pty-link' },
+      { type: 'mode', sessionId: 'stable-pty-link' },
+      { type: 'permission-mode', sessionId: 'stable-pty-link' },
+      { type: 'attachment', entrypoint: 'cli', timestamp: '2026-08-06T04:16:23Z', cwd: 'D:\\repo' },
+      { type: 'user', timestamp: '2026-08-06T04:16:24Z', cwd: 'D:\\repo', message: { role: 'user', content: 'PTY 연결을 유지해줘' } },
+      { type: 'assistant', timestamp: '2026-08-06T04:32:10Z', cwd: 'D:\\repo', message: { role: 'assistant', content: [{ type: 'text', text: `진행 중 ${'x'.repeat(2_000)}` }] } },
+      { type: 'system', subtype: 'turn_complete', timestamp: '2026-08-06T04:32:11Z' },
+    ]);
+    const session = parseClaude(info, { maxBytes: 512 });
+    assert.equal(session.truncated, true);
+    assert.equal(session.startedAt, '2026-08-06T04:16:23.000Z');
+
+    session.environment = { kind: 'windows' };
+    session.status = 'running';
+    const bridge = {
+      provider: 'claude',
+      environment: 'windows',
+      cwd: 'D:\\repo',
+      startedAt: '2026-08-06T04:16:17Z',
+    };
+    assert.ok(bridgeLinkScore(session, bridge, Date.parse('2026-08-06T04:40:00Z')) > 0);
   });
 
   test('Claude 서브에이전트를 부모 세션에 연결한다', () => {
@@ -329,7 +356,7 @@ function registerClaudeParserTests(context) {
     assert.equal(child.status, 'idle');
   });
 
-  test('Claude 서브에이전트의 end_turn만 작업 완료로 판정한다', () => {
+  test('Claude의 명시적인 end_turn을 최상위와 서브에이전트 모두 작업 완료로 판정한다', () => {
     const completed = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'completed-parent', 'subagents', 'agent-completed.jsonl'), [
       { type: 'user', timestamp: '2026-07-14T01:00:00Z', message: { role: 'user', content: '주문 관리 이관을 점검해줘' } },
       { type: 'assistant', timestamp: '2026-07-14T01:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '점검을 완료했습니다.' }] } },
@@ -350,8 +377,9 @@ function registerClaudeParserTests(context) {
     const main = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'main-end-turn.jsonl'), [
       { type: 'assistant', timestamp: '2026-07-14T03:00:00Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '메인 응답 완료' }] } },
     ]));
-    assert.notEqual(main.status, 'completed');
-    assert.equal(main.completionObserved, false);
+    assert.equal(main.status, 'completed');
+    assert.equal(main.statusDetail, '작업 완료');
+    assert.equal(main.completionObserved, true);
   });
 
   test('Claude의 과거 완료 턴이 새로 실행 중인 턴을 대기 상태로 덮지 않는다', () => {
@@ -464,7 +492,9 @@ function registerCodexParserTests(context) {
     assert.equal(session.title, '테스트를 실행해줘');
     assert.equal(session.usage.total, 250);
     assert.equal(session.context.window, 258400);
-    assert.equal(session.status, 'idle');
+    assert.equal(session.status, 'completed');
+    assert.equal(session.statusDetail, '작업 완료');
+    assert.equal(session.completionObserved, true);
     assert.equal(session.clientKind, 'codex-desktop');
     assert.deepStrictEqual(session.executions.map(item => [item.kind, item.mode, item.status]), [['shell', 'foreground', 'completed']]);
     assert.equal(session.executions[0].command, 'npm test');

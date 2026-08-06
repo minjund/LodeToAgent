@@ -128,6 +128,21 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     });
   }
 
+  async function writeTerminalReplay(terminal, replay) {
+    const text = String(replay || '');
+    const chunkChars = 32 * 1024;
+    for (let offset = 0; offset < text.length;) {
+      let end = Math.min(text.length, offset + chunkChars);
+      const lastCode = text.charCodeAt(end - 1);
+      const nextCode = text.charCodeAt(end);
+      if (end < text.length && lastCode >= 0xd800 && lastCode <= 0xdbff
+        && nextCode >= 0xdc00 && nextCode <= 0xdfff) end -= 1;
+      const chunk = text.slice(offset, end);
+      await new Promise(resolve => terminal.write(chunk, resolve));
+      offset = end;
+    }
+  }
+
   async function ensureSessionTerminal(session) {
     let entry = state.terminals.get(session.id);
     const inputDisabled = Boolean(session?.conversationBound);

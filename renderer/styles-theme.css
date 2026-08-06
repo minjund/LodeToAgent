@@ -1191,12 +1191,32 @@ html[data-theme] .memory-record.review-pending {
   background: linear-gradient(90deg, var(--theme-warning-soft), var(--theme-surface) 38%);
 }
 
+html[data-theme] .memory-record.task-completed {
+  border-color: var(--theme-success-border);
+  background: linear-gradient(90deg, var(--theme-success-soft), var(--theme-surface) 38%);
+}
+
+html[data-theme] .memory-review-status.completed {
+  border-color: var(--theme-success-border);
+  background: var(--theme-success-soft);
+  color: var(--theme-success);
+}
+
+html[data-theme] .memory-record.task-completed .memory-record-mark {
+  color: var(--theme-success);
+}
+
 html[data-theme] :is(
   .memory-record.review-pending .memory-record-mark,
   .memory-review-wrap > small b,
   .memory-review-status
 ) {
   color: var(--theme-warning);
+}
+
+html[data-theme] body[data-current-view="active"] .memory-review-status.completed,
+html[data-theme] .memory-record.review-pending.task-completed .memory-record-mark {
+  color: var(--theme-success);
 }
 
 html[data-theme] .memory-review-action {
@@ -4281,4 +4301,369 @@ html[data-theme] .terminal-target-meta .terminal-target-facts i {
   border-color: var(--terminal-border);
   background: var(--theme-surface-subtle);
   color: var(--terminal-muted);
+}
+
+/* A review request is a single next action, so keep the project-home prompt
+ * compact and let the work card below carry the full explanation. */
+html[data-theme] body[data-current-view="all"] .home-attention-strip {
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--theme-warning-border);
+  border-radius: 12px;
+  background: var(--theme-surface);
+  box-shadow: none;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title {
+  min-width: 138px;
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 15px;
+  border: 0;
+  border-right: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  background: var(--theme-warning-soft);
+  text-align: left;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title:hover {
+  background: color-mix(in srgb, var(--theme-warning) 12%, var(--theme-surface));
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-signal {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid var(--theme-warning-border);
+  border-radius: 9px;
+  background: var(--theme-warning-soft);
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-signal i {
+  color: var(--theme-warning);
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: none;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title-copy {
+  width: auto;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title-copy b,
+html[data-theme] body[data-current-view="all"] .home-attention-title-copy small {
+  display: block;
+  margin: 0;
+  white-space: nowrap;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title-copy b {
+  color: var(--theme-text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-title-copy small {
+  color: var(--theme-warning);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-list,
+html[data-theme] body[data-current-view="all"] .home-attention-strip:not(:has(.home-attention-more)) .home-attention-list {
+  min-width: 0;
+  display: block;
+  border: 0;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item,
+html[data-theme] body[data-current-view="all"] .home-attention-list .home-attention-item:first-child {
+  width: 100%;
+  min-width: 0;
+  min-height: 72px;
+  display: grid !important;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 13px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: left;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item:hover {
+  background: var(--theme-surface-raised);
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-list .home-attention-item:not(:first-child) {
+  display: none !important;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-provider {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-color: color-mix(in srgb, var(--management-provider) 48%, var(--theme-border));
+  border-radius: 9px;
+  color: var(--management-provider);
+  background: color-mix(in srgb, var(--management-provider) 10%, transparent);
+  font-size: 10px;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item-copy :is(small, b, em) {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item-copy small {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item-copy b {
+  color: var(--theme-text);
+  font-size: 13px;
+  font-weight: 780;
+  line-height: 1.35;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-item-copy em {
+  color: var(--theme-text-secondary);
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.3;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--theme-accent-border);
+  border-radius: 8px;
+  color: var(--theme-accent-strong);
+  background: var(--theme-accent-soft);
+  white-space: nowrap;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-action u {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-action i,
+html[data-theme] body[data-current-view="all"] .home-attention-more i {
+  font-style: normal;
+}
+
+html[data-theme] body[data-current-view="all"] .home-attention-more,
+html[data-theme] body[data-current-view="all"] .home-attention-more.compact-only {
+  min-width: 118px;
+  min-height: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 14px;
+  border: 0;
+  border-left: 1px solid var(--theme-border-soft);
+  border-radius: 0;
+  color: var(--theme-text-secondary);
+  background: var(--theme-surface-raised);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+/* A selected project already exposes its review in the task card. Removing the
+ * global queue avoids announcing the same decision twice. */
+html[data-theme] body[data-current-view="all"][data-project-selected="true"] #operationsOverview {
+  display: none !important;
+}
+
+html[data-theme] body[data-current-view="all"][data-project-selected="true"] .control-room-session.has-attention {
+  border-color: var(--theme-warning-border);
+  background: var(--theme-surface);
+  background-image: none;
+  box-shadow: inset 3px 0 var(--theme-warning);
+}
+
+html[data-theme] body[data-current-view="all"][data-project-selected="true"] .control-room-session.has-attention > header > .control-session-flow,
+html[data-theme] body[data-current-view="all"][data-project-selected="true"] .control-room-session.has-attention > .control-room-flow {
+  display: none;
+}
+
+/* Result and problem reviews are one compact decision row. The task header
+ * above already provides project context, so this row only shows what matters
+ * for the next action. */
+html[data-theme] .control-session-review.simple-review {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 0;
+  border-top: 1px solid var(--theme-border-soft);
+  border-left: 0;
+  border-radius: 0;
+  background: var(--theme-surface-raised);
+  box-shadow: none;
+}
+
+html[data-theme] .control-session-review.simple-review .control-review-provider {
+  gap: 9px;
+  white-space: nowrap;
+}
+
+html[data-theme] .control-session-review.simple-review .control-review-provider > i {
+  width: 30px;
+  height: 30px;
+  flex-basis: 30px;
+  border-radius: 8px;
+}
+
+html[data-theme] .control-session-review.simple-review .control-review-provider small {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+}
+
+html[data-theme] .control-session-review.simple-review .control-review-provider b {
+  color: var(--theme-text-secondary);
+  font-size: 11px;
+}
+
+html[data-theme] .control-review-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+html[data-theme] .control-review-copy :is(strong, small) {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme] .control-review-copy strong {
+  color: var(--theme-text);
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+html[data-theme] .control-review-copy small {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+html[data-theme] .control-review-more {
+  color: var(--theme-text-muted);
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+html[data-theme] .control-session-review.simple-review .control-review-open {
+  min-height: 38px;
+  margin: 0;
+  padding: 8px 12px;
+  border-color: var(--theme-accent-border);
+  color: var(--theme-accent-strong);
+  background: var(--theme-accent-soft);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  html[data-theme] body[data-current-view="all"] .home-attention-more,
+  html[data-theme] body[data-current-view="all"] .home-attention-more.compact-only {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  html[data-theme] body[data-current-view="all"] .home-attention-strip {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html[data-theme] body[data-current-view="all"] .home-attention-title {
+    min-width: 0;
+    min-height: 48px;
+    padding: 8px 11px;
+    border-right: 0;
+    border-bottom: 1px solid var(--theme-border-soft);
+  }
+
+  html[data-theme] body[data-current-view="all"] .home-attention-title-copy {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+
+  html[data-theme] body[data-current-view="all"] .home-attention-item,
+  html[data-theme] body[data-current-view="all"] .home-attention-list .home-attention-item:first-child {
+    min-height: 0;
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 10px 11px;
+  }
+
+  html[data-theme] body[data-current-view="all"] .home-attention-action {
+    grid-column: 2;
+    width: fit-content;
+    margin-top: 3px;
+  }
+
+  html[data-theme] .control-session-review.simple-review {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 10px;
+    padding: 11px;
+  }
+
+  html[data-theme] .control-session-review.simple-review .control-review-open {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
 }

@@ -325,6 +325,82 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return target;
   }
 
+  function freshAgentLaunchOptions(options = {}) {
+    const provider = String(options.provider || '').trim().toLowerCase();
+    const prompt = String(options.prompt || '').trim();
+    const model = String(options.model || '').trim();
+    const allowWrites = Boolean(options.allowWrites);
+    const args = [];
+    if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
+      throw rejectedError(t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }));
+    }
+    if (!prompt) throw rejectedError(t('terminal.agent.command_required'));
+
+    if (provider === 'claude') {
+      if (model) args.push('--model', model);
+      if (allowWrites) args.push('--permission-mode', 'acceptEdits');
+    } else if (provider === 'codex') {
+      if (model) args.push('--model', model);
+      args.push('--sandbox', allowWrites ? 'workspace-write' : 'read-only');
+    } else if (provider === 'gemini') {
+      if (model) args.push('--model', model);
+      if (allowWrites) args.push('--yolo');
+    } else {
+      args.push('--no-auto-update');
+      if (model) args.push('--model', model);
+      if (allowWrites) args.push('--always-approve');
+    }
+
+    const recoveryArgs = [...args];
+    let initialCommandInArgs = true;
+    if (provider === 'gemini') args.push('--prompt-interactive', prompt);
+    else if (provider === 'grok') initialCommandInArgs = false;
+    else args.push(prompt);
+    return { provider, prompt, args, recoveryArgs, initialCommandInArgs };
+  }
+
+  async function startAgent(options = {}) {
+    await initializeBeforeDelivery();
+    const cwd = String(options.cwd || preferredWorkspace() || '').trim();
+    if (!cwd) throw rejectedError(t('terminal.agent.cwd_missing'));
+    const launch = freshAgentLaunchOptions(options);
+    const deliveryId = `start:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
+    const titlePrompt = launch.prompt.replace(/\s+/g, ' ').slice(0, 72);
+    const created = await window.loadtoagent.terminalCreate({
+      type: 'agent',
+      provider: launch.provider,
+      args: launch.args,
+      recoveryArgs: launch.recoveryArgs,
+      cwd,
+      title: `${providerLabel(launch.provider)} · ${titlePrompt}`,
+      transient: false,
+      initialCommand: launch.prompt,
+      initialCommandInArgs: launch.initialCommandInArgs,
+      deliveryId,
+      cols: 120,
+      rows: 32,
+    });
+    if (!created?.id) throw rejectedError(t('terminal.agent.resume_terminal_failed'));
+
+    let delivery = created;
+    if (!launch.initialCommandInArgs) {
+      delivery = await window.loadtoagent.terminalCommand(created.id, launch.prompt, { deliveryId });
+      if (!delivery || delivery.ok === false) throw resultError(delivery, t('terminal.agent.send_failed'));
+    }
+    try {
+      await refreshSessions();
+    } catch (error) {
+      reportPostDeliveryError('terminal-agent-start-refresh', error);
+    }
+    return {
+      ok: true,
+      runId: created.id,
+      terminalId: created.id,
+      promptSent: true,
+      deliveryState: normalizedDeliveryState(delivery),
+    };
+  }
+
   async function dispatchAgentCommand(agentSession, command, targetId = '', options = {}) {
     await initializeBeforeDelivery();
     const text = String(command || '').trim();
@@ -795,6 +871,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
   return {
     agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent,
+    freshAgentLaunchOptions, startAgent,
     openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
   };
 };

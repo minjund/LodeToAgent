@@ -302,6 +302,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#terminalCommandForm').addEventListener('submit', async event => {
       event.preventDefault();
+      window.LoadToAgentImeSubmit?.handleSubmit(event.currentTarget);
       if (state.commandSending) return;
       const input = $('#terminalCommandInput');
       const sent = await sendCommand(input.value);
@@ -342,11 +343,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#terminalCommandInput').addEventListener('keydown', event => {
       if (composer?.handleKeydown(event)) return;
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
-        event.preventDefault();
-        $('#terminalCommandForm').requestSubmit();
-        return;
-      }
+      if (window.LoadToAgentImeSubmit?.handleKeydown(event, event.currentTarget)) return;
       if (event.key === 'Escape' && event.currentTarget.value) {
         event.preventDefault();
         $('#terminalCommandClearBtn').click();
@@ -374,6 +371,9 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       requestAnimationFrame(() => {
         if (input.isConnected) input.setSelectionRange(input.value.length, input.value.length);
       });
+    });
+    $('#terminalCommandInput').addEventListener('compositionend', event => {
+      window.LoadToAgentImeSubmit?.handleCompositionEnd(event);
     });
     $('#terminalCommandClearBtn').addEventListener('click', () => {
       const input = $('#terminalCommandInput');

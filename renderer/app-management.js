@@ -38,11 +38,11 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const RECENT_SESSION_WINDOW_MS = 24 * 60 * 60 * 1000;
   const ALWAYS_VISIBLE_STATUSES = new Set(["starting", "running"]);
   const CURRENT_RISK_STATUSES = new Set(["starting", "running", "waiting", "paused", "failed"]);
-  const RESPONSE_ATTENTION_KINDS = new Set(["approval", "decision", "input", "response"]);
+  const EXPLICIT_ATTENTION_SOURCES = new Set(["execution-approval", "input-tool"]);
   const ACTIONABLE_RISK_SIGNALS = new Set(["run-failed", "run-paused", "stalled", "waiting-too-long", "repeated-failures"]);
   const needsUserResponse = session => Boolean(
     (session.attention?.category === "required" || (!session.attention?.category && session.attention?.required))
-    && RESPONSE_ATTENTION_KINDS.has(session.attention.kind),
+    && EXPLICIT_ATTENTION_SOURCES.has(session.attention.source),
   );
   const hasOptionalFollowup = session => Boolean(
     session.attention?.category === "optional" || session.attention?.kind === "optional",
@@ -74,12 +74,12 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const needsManagementReview = (session, now = Date.now()) => Boolean(
     !isResultReviewComplete(session)
     && isRecentSession(session, now)
-    && (needsUserResponse(session) || hasCurrentRisk(session, now)),
+    && needsUserResponse(session),
   );
   const needsManagementInbox = (session, now = Date.now()) => Boolean(
     !isResultReviewComplete(session)
     && isRecentSession(session, now)
-    && (needsUserResponse(session) || hasOptionalFollowup(session) || hasCurrentRisk(session, now)),
+    && needsUserResponse(session),
   );
   const prioritySummary = value => {
     const lines = String(value || "")
@@ -474,24 +474,21 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
             ? t("management.result_response_open_help")
             : t("management.result_problem_open_help")
         : t("control.attention_check_summary", { summary });
+      const taskTitle = readablePreview(noviceCopy(session.title), 72).text || itemTitle;
+      const waitingSince = timeAgo(directReview ? session.attention?.requestedAt || session.updatedAt : entryTimestamp(entry));
       return `<button type="button" class="home-attention-item ${tone}" data-open-session="${esc(session.id)}" ${canCompleteReview ? 'data-result-review="true"' : ""} style="--management-provider:${provider.accent}" aria-label="${esc(`${groupedLabel}: ${session.title}. ${summary}`)}">
-        <span class="home-attention-column-heading">${esc(t(index === 0 ? "control.attention_column_selected" : "control.attention_column_others"))}</span>
-        <span class="home-attention-dot" aria-hidden="true"></span>
-        <span><small>${index === 0 ? "가장 오래 기다린 결과" : groupedLabel.includes(provider.label) ? esc(groupedLabel) : `${esc(provider.label)} · ${esc(groupedLabel)}`}</small><b>${esc(itemTitle)}</b><em title="${esc(summary)}">${esc(itemSummary)}</em><u>${esc(t("control.attention_open_record"))}</u></span>
-        <time>${esc(timeAgo(directReview ? session.attention?.requestedAt || session.updatedAt : entryTimestamp(entry)))}</time><i aria-hidden="true">→</i>
+        <span class="provider-mark home-attention-provider" aria-hidden="true">${esc(provider.mark)}</span>
+        <span class="home-attention-item-copy"><small>${esc(provider.label)} · ${esc(waitingSince)}</small><b>${esc(taskTitle)}</b><em title="${esc(summary)}">${esc(itemSummary)}</em></span>
+        <span class="home-attention-action"><u>${esc(t("control.attention_open_record"))}</u><i aria-hidden="true">→</i></span>
       </button>`;
     };
-    const overflow = Math.max(0, ordered.length - shown.length);
-    const compactOverflow = Math.max(0, ordered.length - 1);
     section.innerHTML = `<div class="home-attention-strip ${ordered.length ? "has-items" : "is-clear"}" data-home-attention="${ordered.length}">
-      <button type="button" class="home-attention-title" data-management-filter="all">
-        <span class="home-attention-column-heading">1. 내가 먼저 할 일</span>
+      <button type="button" class="home-attention-title" data-management-filter="all" aria-label="${esc(t("control.attention_title", { active: activeItems, completed: completedItems, total: totalItems, shown: shown.length }))}">
         <span class="home-attention-signal" aria-hidden="true"><i>!</i></span>
-        <span><small>${esc(t("control.attention_eyebrow"))}</small><b>${esc(t("control.attention_title", { active: activeItems, completed: completedItems, total: totalItems, shown: shown.length }))}</b><u>${esc(activeItems > 1 ? `나머지 ${activeItems - 1}건 모두 보기` : t("control.attention_view_all"))}</u></span>
-        <strong>${esc(t("control.attention_total", { count: activeItems }))}</strong>
+        <span class="home-attention-title-copy"><b>${esc(t("control.attention_eyebrow"))}</b><small>${esc(t("control.attention_compact_count", { count: activeItems }))}</small></span>
       </button>
       <div class="home-attention-list">${shown.map(item).join("")}</div>
-      ${overflow ? `<button type="button" class="home-attention-more" data-management-filter="all">${esc(t("control.attention_more", { count: overflow }))}</button>` : compactOverflow ? `<button type="button" class="home-attention-more compact-only" data-management-filter="all">${esc(t("control.attention_more", { count: compactOverflow }))}</button>` : ""}
+      ${activeItems > 1 ? `<button type="button" class="home-attention-more" data-management-filter="all">${esc(t("control.attention_view_queue", { count: activeItems }))}<i aria-hidden="true">→</i></button>` : ""}
     </div>`;
     return totalItems;
   }
