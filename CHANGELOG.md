@@ -5,6 +5,20 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.14 - 2026-08-06
+
+- Move the live PTY out of the right-side task drawer: clicking an AI now
+  toggles its signed, interactive PTY directly below that AI in the workflow,
+  and clicking the same AI again closes it without disturbing nearby work.
+- Put task context behind the work-progress view, with dedicated summary,
+  lifecycle, and usage tabs that expose input, output, cache, total, and
+  context-window token details without crowding the terminal.
+- Ship the project-first workspace and session-flow refinements, clearer
+  attention and completion notifications, IME-safe command submission, and
+  stronger session, terminal-host, and update lifecycle diagnostics.
+- Gate Windows desktop releases with both deterministic inline-PTY interaction
+  coverage and a real node-pty-to-xterm end-to-end command round trip.
+
 ## 1.6.13 - 2026-08-06
 
 - Rebuild and republish the verified actual-PTY conversation experience from
