@@ -5,6 +5,12 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.13 - 2026-08-06
+
+- Rebuild and republish the verified actual-PTY conversation experience from
+  the latest `main` source so the desktop installers and npm package share one
+  current release version.
+
 ## 1.6.12 - 2026-08-06
 
 - Open every main task's Conversation tab as an actual connected PTY: reuse
