@@ -440,14 +440,12 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
     const composer = $("#drawerComposer");
     composer.dataset.mode = actualTerminalChat ? "terminal" : "conversation";
-    const existingTerminalComposer = actualTerminalChat
-      && drawerTerminalState.sessionId === session.id
-      && Boolean(composer.querySelector(`[data-agent-command-form="${CSS.escape(session.id)}"]`));
     const showComposer = !session.parentId
       && !executionMode
       && conversationTab
+      && !actualTerminalChat
       && typeof agentCommandComposer === "function"
-      && (liveTerminalChat || existingTerminalComposer);
+      && liveTerminalChat;
     composer.classList.toggle("hidden", !showComposer);
     const nextComposerHtml = showComposer ? agentCommandComposer.call(null, session, {
       conversation: true,

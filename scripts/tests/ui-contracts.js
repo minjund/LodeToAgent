@@ -561,10 +561,13 @@ const DRAWER_TERMINAL_CONTRACTS = [
   'resumeForAgent',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
   'composer.classList.toggle("hidden", !showComposer)',
+  '&& !actualTerminalChat',
   'composer.dataset.mode = actualTerminalChat ? "terminal" : "conversation"',
   'loadtoagent:drawer-terminal-targets-changed',
   'window.LoadToAgentTerminal.resumeForAgent(session, \'\', false, { focus: false })',
   'drawer.terminal_resume_available',
+  'function setResumeAction(visible)',
+  'function showUnavailable(session)',
   "markUnavailable(session.id, requestedTargetId, 'mount-failed')",
   'mountForAgent',
   'unmountEmbedded',
@@ -1122,7 +1125,7 @@ function registerUiContractTests(context) {
     assert.equal(drawerSource.includes('state.drawerTab === "terminal"'), false, '별도 터미널 탭 상태 분기가 남아 있습니다.');
     assert.equal(drawerSource.includes('tab.dataset.tab === "terminal"'), false, '별도 터미널 탭 렌더링 분기가 남아 있습니다.');
     assert.equal(drawerSource.includes('transcriptChat'), false, '상위 세션 대화 탭에 transcript fallback이 남아 있습니다.');
-    assert.equal(drawerSource.includes('agentCommandComposer(session'), false, 'PTY 아래에 별도 채팅 composer를 다시 만들면 안 됩니다.');
+    assert.match(drawerSource, /const showComposer =[^;]*&& !actualTerminalChat/s, 'PTY 아래에는 별도 채팅 composer를 만들면 안 됩니다.');
     assert.doesNotMatch(
       drawerSource,
       /const terminalTargets\s*=[^;]*isLiveSession/s,
@@ -1362,11 +1365,7 @@ function registerUiContractTests(context) {
       /\.detail-drawer\[data-conversation-surface="transcript"\] #drawerContent\s*\{[^}]*background-color:\s*#080c12;[^}]*font-family:\s*var\(--font-mono/s,
       '부모가 제어하는 서브에이전트의 읽기 전용 기록 화면 스타일이 필요합니다.',
     );
-    assert.match(
-      styles,
-      /\.detail-drawer\[data-conversation-shell="terminal"\] #drawerComposer \.terminal-conversation\s*\{/,
-      '대화 전송과 raw PTY 전송 모두 같은 터미널형 입력 셸을 사용해야 합니다.',
-    );
+    assert.doesNotMatch(styles, /\.agent-inline-terminal-composer\s*\{/, '인라인 PTY에 별도 메시지 입력 셸을 다시 만들면 안 됩니다.');
     assert.match(styles, /html\[data-theme="light"\].*data-conversation-surface="transcript"/s, '터미널형 기록 화면의 밝은 테마 계약이 없습니다.');
     assert.match(styles, /@media\s*\(prefers-reduced-motion:\s*reduce\)/, '동작 줄이기 미디어 계약이 없습니다.');
     const terminal = rendererSource([
@@ -1895,6 +1894,7 @@ function registerUiContractTests(context) {
     const events = fs.readFileSync(path.join(root, 'renderer', 'app-events-sessions.js'), 'utf8');
     const orchestration = fs.readFileSync(path.join(root, 'renderer', 'app-graph-orchestration.js'), 'utf8');
     const inlineTerminal = fs.readFileSync(path.join(root, 'renderer', 'inline-agent-terminal.js'), 'utf8');
+    const workbench = fs.readFileSync(path.join(root, 'renderer', 'terminal-workbench.js'), 'utf8');
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-workflow-map.css'), 'utf8');
 
@@ -1908,6 +1908,8 @@ function registerUiContractTests(context) {
     assert.equal(events.includes('if (state.graphFocusId === node.dataset.graphFocus) openDrawer'), false, '같은 AI 재클릭이 오른쪽 드로어를 다시 열고 있습니다.');
     assert.ok(orchestration.includes('window.LoadToAgentInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
     assert.ok(inlineTerminal.includes('terminal.mountForAgent(session'), '인라인 PTY가 실제 에이전트 터미널 호스트를 마운트하지 않습니다.');
+    assert.equal(graph.includes('data-inline-terminal-composer'), false, '인라인 PTY에 별도 메시지 입력창을 다시 만들면 안 됩니다.');
+    assert.match(workbench, /const inputDisabled = readOnly;/, '인라인 PTY가 실제 xterm 입력을 전달해야 합니다.');
     assert.ok(inlineTerminal.includes('instance.state.inlineTerminalSessionId === id'), '같은 AI를 다시 눌렀을 때 닫는 토글 계약이 없습니다.');
     assert.ok(html.includes('<script src="inline-agent-terminal.js"></script>'), '인라인 PTY 런타임이 로드되지 않습니다.');
     assert.ok(styles.includes('.agent-inline-terminal-link'), '선택한 AI와 PTY의 시각적 연결 표시가 없습니다.');

@@ -12,6 +12,8 @@ GitHub release notes remain the authoritative version history.
   `path-to-app` window from appearing repeatedly during development.
 - Update the release toolchain's YAML parser to the patched dependency version
   required by the high-severity audit gate.
+- Remove the duplicate message composer from inline and drawer PTY views so
+  typing, paste, Enter, and Ctrl+C go directly through the terminal cursor.
 
 ## 1.6.14 - 2026-08-06
 

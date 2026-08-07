@@ -294,7 +294,12 @@ const ACTION_MANIFEST = [
     required: false,
     optionalReason: 'Subagent details are intentionally read-only, while the deterministic main-agent fixture uses attached PTY mode without a structured-response interrupt control.',
   },
-  { selector: '[data-terminal-interrupt]', action: 'agent:terminal-interrupt' },
+  {
+    selector: '[data-terminal-interrupt]',
+    action: 'agent:terminal-interrupt',
+    required: false,
+    optionalReason: 'PTY conversations use the native xterm input surface, where Ctrl+C replaces the retired separate composer interrupt button.',
+  },
   { selector: '#drawerTerminalFocusBtn', action: 'drawer:terminal-focus' },
   { selector: '#drawerTerminalReconnectBtn', action: 'drawer:terminal-reconnect' },
   { selector: '#runForm', action: 'run:submit' },
@@ -3240,38 +3245,22 @@ async function exerciseDrawer(win, round) {
   `상세 요청 병합과 백그라운드 갱신 상태가 올바르지 않습니다: ${JSON.stringify(drawerRace)}`);
   await waitFor(win, `window.LoadToAgentTerminal.embeddedState().agentSessionId === 'fixture-root'
     && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))`,
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')`,
   '백그라운드 상세 갱신 중에도 같은 PTY가 대화 탭에 유지되지 않았습니다.');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]');
-    const input = form.querySelector('[data-agent-command-draft]');
-    input.value = 'sonnet 모델로 바꿔줘';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    form.requestSubmit();
-  })()`);
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'sonnet 모델로 바꿔줘');
   mark('session:model-command');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
-    && item.args[0] === 'terminal-main' && item.args[1] === 'sonnet 모델로 바꿔줘')
-    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+  await waitFor(win, `!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')
     && window.LoadToAgentApp.state.view === 'active'
     && document.querySelector('#detailDrawer').classList.contains('open')
-    && document.querySelector('[data-agent-command-draft="fixture-root"]')?.value === ''`,
-  '연결된 Claude 세션의 모델 변경 요청이 안전한 대화 명령으로 전달되지 않았습니다.');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const form = document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]');
-    const input = form.querySelector('[data-agent-command-draft]');
-    input.value = '현재 상태를 알려줘';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    form.requestSubmit();
-  })()`);
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
-    && item.args[0] === 'terminal-main' && item.args[1] === '현재 상태를 알려줘')
-    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-root')
+    && !document.querySelector('#drawerComposer')?.children.length`,
+  '연결된 Claude 세션의 모델 변경 요청이 xterm으로 전달되지 않았습니다.');
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', '현재 상태를 알려줘');
+  await waitFor(win, `!window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')
     && window.LoadToAgentApp.state.view === 'active'
     && document.querySelector('#detailDrawer').classList.contains('open')`,
-  '현재 상태 요청이 안전한 대화 명령으로 현재 세션에 전달되지 않았습니다.');
+  '현재 상태 요청이 xterm으로 현재 세션에 전달되지 않았습니다.');
   await click(win, '#closeDrawerBtn', 'drawer:close');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, 'drawer backdrop 닫기 실패');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-failed')`);
@@ -3671,6 +3660,40 @@ async function clearControlRoomSearch(win) {
   await waitFor(win, `window.LoadToAgentApp.state.search === ''`, '관제 검색을 초기화하지 못했습니다.');
 }
 
+async function writeToEmbeddedXterm(win, viewportSelector, text) {
+  const prepared = await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector(${JSON.stringify(`${viewportSelector} .xterm-helper-textarea`)});
+    if (!input) return false;
+    input.focus({ preventScroll: true });
+    return document.activeElement === input;
+  })()`);
+  assert(prepared, `${viewportSelector}의 xterm 입력 커서에 포커스하지 못했습니다.`);
+  await sleep(20);
+  await clearCalls(win);
+  const pasted = await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector(${JSON.stringify(`${viewportSelector} .xterm-helper-textarea`)});
+    if (!input) return false;
+    const clipboard = new DataTransfer();
+    clipboard.setData('text/plain', ${JSON.stringify(text)});
+    input.dispatchEvent(new ClipboardEvent('paste', {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: clipboard,
+    }));
+    return true;
+  })()`);
+  assert(pasted, `${viewportSelector}의 xterm 붙여넣기 입력을 만들지 못했습니다.`);
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
+  await waitFor(win, `(() => {
+    const terminalId = window.LoadToAgentTerminal.embeddedState().terminalId;
+    const writes = window.interactionTest.getCalls().filter(item => item.name === 'terminalWrite');
+    return writes.length >= 2
+      && writes.every(item => item.args[0] === terminalId)
+      && writes.map(item => String(item.args[1] || '')).join('').endsWith(${JSON.stringify(`${text}\r`)});
+  })()`, `${viewportSelector}의 xterm 입력이 연결된 PTY로 전달되지 않았습니다.`);
+}
+
 async function exerciseAgentControls(win, round) {
   await click(win, '[data-view="all"]', 'nav:all');
   await resetGraphToOverview(win);
@@ -3680,109 +3703,29 @@ async function exerciseAgentControls(win, round) {
     && !document.querySelector('#liveSessionGrid [data-agent-command-form]')`,
   '작업 진행 화면에서 별도 지시 입력창이 제거되지 않았습니다.');
   await click(win, '[data-open-session="fixture-root"]', 'drawer:open-graph');
-  await waitFor(win, `document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]')?.dataset.agentCommandInputModeSelected === 'terminal'
-    && window.LoadToAgentTerminal.embeddedState().connected
+  await waitFor(win, `window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))`,
-  '실행 중 메인 AI의 별도 대화창에 같은 PTY 입력창이 열리지 않았습니다.');
-  await recordExercise(win, '#drawerComposer [data-agent-command-draft="fixture-root"]');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    input.value = 'AGENT_DIRECT_COMMAND';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"] button[type="submit"]').click();
-  })()`);
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')
+    && !document.querySelector('#drawerComposer')?.children.length`,
+  '실행 중 메인 AI의 대화창에 별도 메시지 입력란 없는 PTY가 열리지 않았습니다.');
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'AGENT_DIRECT_COMMAND');
   mark('agent:command-submit');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')`, 'AI 직접 지시 form submit이 terminalCommand를 호출하지 않았습니다.');
-  assert(await callCount(win, 'terminalCommand') === 1, 'AI 직접 지시가 한 번보다 많이 전송되었습니다.');
-
-  await waitFor(win, `document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]')?.dataset.agentCommandInputModeSelected === 'terminal'
-    && window.LoadToAgentTerminal.embeddedState().connected
-    && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))`,
-  '실행 중 메인 AI의 대화 탭에 같은 PTY 입력창이 열리지 않았습니다.');
+  assert(await callCount(win, 'terminalCommand') === 0, 'PTY 직접 입력이 별도 메시지 command 경로를 호출했습니다.');
   await win.webContents.executeJavaScript(`document.querySelector('#drawerTerminalViewport > .terminal-screen').dataset.interactionTerminalIdentity = 'fixture-root-main'`);
+  await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
+  await waitFor(win, `document.activeElement === document.querySelector('#drawerTerminalViewport .xterm-helper-textarea')`,
+  'PTY 초점 버튼이 실제 xterm 입력 커서로 이동하지 않았습니다.');
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'TERMINAL_DRAWER_CONTINUE');
+  mark('agent:command-submit');
+  assert(await callCount(win, 'terminalCommand') === 0, 'PTY 직접 입력이 구조화 메시지 경로를 호출했습니다.');
   await clearCalls(win);
   await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
-  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Q' });
-  win.webContents.sendInputEvent({ type: 'char', keyCode: 'q' });
-  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Q' });
-  await waitFor(win, `document.activeElement === document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]')
-    && document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]')?.value.includes('q')`,
-  'PTY 초점 버튼이 raw xterm 대신 안전한 composer 입력란으로 이동하지 않았습니다.');
-  const drawerRawInputGate = await win.webContents.executeJavaScript(`(() => ({
-    terminalWriteCalls: window.interactionTest.getCalls().filter(item => item.name === 'terminalWrite'),
-    terminalCommandCalls: window.interactionTest.getCalls().filter(item => item.name === 'terminalCommand'),
-  }))()`);
-  assert(drawerRawInputGate.terminalWriteCalls.length === 0 && drawerRawInputGate.terminalCommandCalls.length === 0,
-    `서명된 대화 PTY의 raw xterm 입력 경로가 열렸습니다: ${JSON.stringify(drawerRawInputGate)}`);
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    input.value = '/';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  })()`);
-  const drawerSlashGate = await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    return {
-      menuAbsent: !document.querySelector('#drawerComposer [data-conversation-slash-menu]'),
-      choicesAbsent: !document.querySelector('#drawerComposer [data-conversation-slash-command]'),
-      controls: input?.getAttribute('aria-controls'),
-      expanded: input?.getAttribute('aria-expanded'),
-      autocomplete: input?.getAttribute('aria-autocomplete'),
-      popup: input?.getAttribute('aria-haspopup'),
-      terminalCalls: window.interactionTest.getCalls().filter(item =>
-        item.name === 'terminalWrite' || item.name === 'terminalCommand'),
-    };
-  })()`);
-  assert(drawerSlashGate.menuAbsent && drawerSlashGate.choicesAbsent
-    && drawerSlashGate.controls === null && drawerSlashGate.expanded === null
-    && drawerSlashGate.autocomplete === null && drawerSlashGate.popup === null
-    && drawerSlashGate.terminalCalls.length === 0,
-  `서명된 대화 composer에 slash-command 우회가 남았습니다: ${JSON.stringify(drawerSlashGate)}`);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    input.value = 'TERMINAL_DRAWER_CONTINUE';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-  })()`);
-  await click(win, '#drawerComposer [data-agent-command-form="fixture-root"] .conversation-send', 'agent:conversation-send');
-  mark('agent:command-submit');
-  await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCommand'
-    && item.args[0] === 'terminal-main'
-    && item.args[1] === 'TERMINAL_DRAWER_CONTINUE')
-    && !window.LoadToAgentApp.state.pendingConversationMessages.has('fixture-root')
-    && document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar')?.dataset.tone === 'delivered'
-    && document.querySelector('#detailDrawer')?.classList.contains('open')`,
-  '드로어 하단 입력이 구조화 대화를 만들지 않고 같은 PTY로 전달되지 않았습니다.', 160);
-  assert(await callCount(win, 'terminalCommand') === 1, '드로어 하단 PTY 지시가 한 번보다 많이 전송되었습니다.');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    input.value = '중단 후에도 유지할 초안';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-    input.setSelectionRange(4, 4);
-  })()`);
-  await click(win, '#drawerComposer [data-terminal-interrupt="fixture-root"]', 'agent:terminal-interrupt', 2);
-  await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalSignal'
-    && item.args[0] === 'terminal-main' && item.args[1] === 'interrupt').length === 1`,
-  '대화 PTY 응답 중단이 정확한 signed terminal에 한 번 전달되지 않았습니다.');
-  const terminalInterruptGate = await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-root"]');
-    return {
-      value: input?.value || '',
-      focused: document.activeElement === input,
-      selectionStart: input?.selectionStart,
-      selectionEnd: input?.selectionEnd,
-      signals: window.interactionTest.getCalls().filter(item => item.name === 'terminalSignal'),
-    };
-  })()`);
-  assert(terminalInterruptGate.value === '중단 후에도 유지할 초안'
-    && terminalInterruptGate.focused
-    && terminalInterruptGate.selectionStart === 4 && terminalInterruptGate.selectionEnd === 4
-    && terminalInterruptGate.signals.length === 1,
-  `PTY 응답 중단이 중복 전송되거나 composer 초안·커서를 손상했습니다: ${JSON.stringify(terminalInterruptGate)}`);
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers: ['control'] });
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers: ['control'] });
+  await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalWrite'
+    && item.args[0] === 'terminal-main' && item.args[1] === '\\x03').length === 1`,
+  '대화 PTY의 Ctrl+C가 실제 xterm 입력 경로로 한 번 전달되지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.emitTerminalData('terminal-main', '\\r\\nDRAWER_PTY_CONTINUES\\r\\n')`);
   await waitFor(win, `document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar')?.dataset.tone === 'running'
     && window.LoadToAgentTerminal.embeddedState().connected`,
@@ -3893,59 +3836,40 @@ async function exerciseAgentControls(win, round) {
   '외부 CLI 세션을 열 때 같은 대화의 실제 PTY 생성을 시작하지 않았습니다.');
   await waitFor(win, `window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId.startsWith('terminal-created-')
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
     && document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar')?.dataset.tone === 'connected'
-    && document.querySelector('#drawerComposer .agent-command-panel.control-direct[data-agent-command-input-mode-selected="terminal"] textarea:not([disabled])')`,
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')
+    && !document.querySelector('#drawerComposer')?.children.length`,
   '외부 CLI 세션의 실제 PTY가 같은 대화창에 연결되지 않았습니다.');
+  await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
   await win.webContents.executeJavaScript(`(() => {
     window.interactionTest.setSessionRuntimePresence('fixture-root', []);
     window.interactionTest.removeTerminal('terminal-main');
     window.interactionTest.emitSnapshot();
     window.interactionTest.emitTerminalState('removed');
   })()`);
-  await waitFor(win, `(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
-    return document.activeElement === input
-      && input.value === 'FOCUS_STABILITY_DRAFT'
-      && input.selectionStart === 7
-      && input.selectionEnd === 7;
-  })()`, '실시간 대화 갱신 중 입력 포커스·초안·커서 위치가 유지되지 않았습니다.');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
-    input.value = 'HANDOFF_EXISTING_SESSION';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.closest('form').requestSubmit();
-  })()`);
+  await waitFor(win, `document.activeElement === document.querySelector('#drawerTerminalViewport .xterm-helper-textarea')
+    && window.LoadToAgentTerminal.embeddedState().connected`,
+  '실시간 대화 갱신 중 xterm 입력 포커스가 유지되지 않았습니다.');
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'HANDOFF_EXISTING_SESSION');
   mark('agent:handoff-submit');
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')
     && window.LoadToAgentApp.state.view === 'all'
     && !document.querySelector('#terminalSection:not(.hidden)')`,
   'PTY 연결 요청 직후 상세 대화창을 유지하지 못했습니다.');
-  await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalCommand'
-      && item.args[0].startsWith('terminal-created-')
-      && item.args[1] === 'HANDOFF_EXISTING_SESSION').length === 1
-    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+  await waitFor(win, `!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
     && window.LoadToAgentApp.state.view === 'all'
     && document.querySelector('#detailDrawer').classList.contains('open')
     && window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId.startsWith('terminal-created-')
     && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))
-    && ['connected', 'running', 'delivered'].includes(document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar')?.dataset.tone)
+    && ['connected', 'running'].includes(document.querySelector('#drawerTerminalSurface .drawer-terminal-statusbar')?.dataset.tone)
     && !document.querySelector('#detailDrawer .chat-row')`,
-  '이미 연결된 WSL 외부 CLI의 실제 PTY에 명령을 한 번만 보내지 못했습니다.');
+  '이미 연결된 WSL 외부 CLI의 실제 PTY에 직접 입력하지 못했습니다.');
   await win.webContents.executeJavaScript(`document.querySelector('#drawerTerminalViewport > .terminal-screen').dataset.interactionTerminalIdentity = 'fixture-live-handoff'`);
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-live-0"]');
-    input.value = 'HANDOFF_CONTINUED_SESSION';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.closest('form').requestSubmit();
-  })()`);
-  await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalCommand'
-      && item.args[0].startsWith('terminal-created-')
-      && item.args[1] === 'HANDOFF_CONTINUED_SESSION').length === 1
-    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'HANDOFF_CONTINUED_SESSION');
+  await waitFor(win, `!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')
     && window.LoadToAgentTerminal.embeddedState().connected`,
   '같은 명령을 다시 입력했을 때 새 터미널을 만들지 않고 이어진 PTY로 한 번 전달하지 못했습니다.');
   await win.webContents.executeJavaScript(`(() => {
@@ -4006,8 +3930,9 @@ async function exerciseAgentControls(win, round) {
     && document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'pty'
     && window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId.startsWith('terminal-created-')
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))
-    && document.querySelector('#drawerComposer .agent-command-panel.control-direct[data-agent-command-input-mode-selected="terminal"] textarea:not([disabled])')
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')
+    && !document.querySelector('#drawerComposer')?.children.length
     && window.interactionTest.getCalls().filter(item => item.name === 'terminalCreate'
       && item.args[0].bridgeId === 'fixture-origin').length === 1
     && window.interactionTest.getCalls().some(item => item.name === 'terminalCreate'
@@ -4017,25 +3942,17 @@ async function exerciseAgentControls(win, round) {
       && item.args[0].initialCommandInArgs === false)
     && !window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')`,
   '실행 중인 Codex 데스크톱 작업을 열 때 실제 PTY를 자동 연결하지 않았습니다.');
-  await clearCalls(win);
-  await win.webContents.executeJavaScript(`(() => {
-    const input = document.querySelector('#drawerComposer [data-agent-command-draft="fixture-origin"]');
-    input.value = 'RESUME_DESKTOP_IN_BACKGROUND';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.closest('form').requestSubmit();
-  })()`);
+  await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'RESUME_DESKTOP_IN_BACKGROUND');
   mark('agent:command-submit');
-  await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalCommand'
-      && item.args[0].startsWith('terminal-created-')
-      && item.args[1] === 'RESUME_DESKTOP_IN_BACKGROUND').length === 1
-    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')`,
-  '연결된 Codex 데스크톱 작업의 실제 PTY에 명령을 한 번만 보내지 못했습니다.');
+  await waitFor(win, `!window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
+    && !window.interactionTest.getCalls().some(item => item.name === 'terminalCommand')`,
+  '연결된 Codex 데스크톱 작업의 실제 PTY에 직접 입력하지 못했습니다.');
   await waitFor(win, `window.LoadToAgentApp.state.view === 'all'
     && document.querySelector('#detailDrawer')?.classList.contains('open')
     && window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId.startsWith('terminal-created-')
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm'))
-    && document.querySelector('#drawerComposer .agent-command-panel.control-direct[data-agent-command-input-mode-selected="terminal"] textarea:not([disabled])')`,
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')`,
   '복원한 백그라운드 터미널이 같은 대화창에 연결되지 않았습니다.');
   await click(win, '#closeDrawerBtn', 'drawer:close');
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')`, '복원한 백그라운드 터미널 대화창이 닫히지 않았습니다.');
@@ -4095,22 +4012,13 @@ async function exerciseInlineTerminal(win, round) {
     };
   })()`);
   assert(diagnostic.targets.length > 0 && diagnostic.inlineOpen && diagnostic.inlineBeforeCompleted && !diagnostic.drawerOpen && diagnostic.embeddedTerminalId === 'terminal-main', `fixture AI PTY가 클릭한 AI와 지난 기록 사이에 열리지 않았습니다: ${JSON.stringify(diagnostic)}`);
-  const commandTriggered = await win.webContents.executeJavaScript(`(() => {
-    window.interactionTest.clearCalls();
-    const form = document.querySelector('[data-inline-agent-terminal="fixture-root"] [data-agent-command-form="fixture-root"]');
-    const input = form?.querySelector('[data-agent-command-draft]');
-    if (!form || !input || form.dataset.agentTerminalReady !== 'true') return false;
-    input.value = '인라인 PTY에서 계속 진행해줘';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    form.requestSubmit();
-    return true;
-  })()`);
-  assert(commandTriggered, '인라인 PTY의 안전한 명령 입력창을 사용할 수 없습니다.');
-  await waitFor(win, `window.interactionTest.getCalls().some(call => call.name === 'terminalCommand'
-    && call.args[0] === 'terminal-main' && call.args[1] === '인라인 PTY에서 계속 진행해줘')
-    && Boolean(document.querySelector('[data-inline-agent-terminal="fixture-root"]'))
+  assert(await win.webContents.executeJavaScript(`!document.querySelector('[data-inline-terminal-composer]')`),
+    '인라인 PTY에 별도 메시지 입력란이 남아 있습니다.');
+  await writeToEmbeddedXterm(win, '#agentInlineTerminalViewport', '인라인 PTY에서 계속 진행해줘');
+  await waitFor(win, `Boolean(document.querySelector('[data-inline-agent-terminal="fixture-root"]'))
+    && !window.interactionTest.getCalls().some(call => call.name === 'terminalCommand')
     && !document.querySelector('#detailDrawer')?.classList.contains('open')`,
-  '인라인 PTY 명령이 같은 실제 PTY로 전달되지 않았습니다.');
+  '인라인 xterm 입력이 같은 실제 PTY로 전달되지 않았습니다.');
   await win.webContents.executeJavaScript(`document.querySelector('[data-inline-agent-terminal="fixture-root"]')?.scrollIntoView({ block: 'center', inline: 'nearest' })`);
   await sleep(180);
   const inlineCaptureRect = await win.webContents.executeJavaScript(`(() => {
@@ -4439,9 +4347,10 @@ async function exerciseTerminal(win, round) {
   await focusRoot(win);
   await click(win, '[data-open-session="fixture-root"]', 'drawer:open-graph');
   await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')
-    && document.querySelector('#drawerComposer [data-agent-command-form="fixture-root"]')?.dataset.agentCommandInputModeSelected === 'terminal'
     && window.LoadToAgentTerminal.embeddedState().connected
-    && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'`,
+    && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
+    && Boolean(document.querySelector('#drawerTerminalViewport .xterm-helper-textarea'))
+    && document.querySelector('#drawerComposer')?.classList.contains('hidden')`,
   'AI 작업의 별도 대화창에서 연결 터미널을 열지 못했습니다.', 120);
   const targetDiagnostic = await win.webContents.executeJavaScript(`(() => {
     const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');

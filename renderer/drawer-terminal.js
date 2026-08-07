@@ -83,29 +83,12 @@
       : state.baseStatus;
     const bar = surface()?.querySelector('.drawer-terminal-statusbar');
     if (bar) bar.dataset.tone = status.tone;
-    const composer = element('drawerComposer');
-    const terminalComposer = composer?.dataset.mode === 'terminal';
-    if (terminalComposer) composer.dataset.tone = status.tone;
     if (element('drawerTerminalStatus')) element('drawerTerminalStatus').textContent = t(status.key);
     if (element('drawerTerminalMeta')) element('drawerTerminalMeta').textContent = String(status.meta || '');
-    const input = composer?.querySelector('[data-agent-command-draft]');
-    if (terminalComposer && input) input.placeholder = t(prompt ? 'drawer.terminal_answer_placeholder' : 'drawer.terminal_placeholder');
-  }
-
-  function disableComposerUntilConnected() {
-    const composer = element('drawerComposer');
-    if (composer?.dataset.mode !== 'terminal' || !state.session?.id) return;
-    const form = composer.querySelector('[data-agent-command-form]');
-    if (!form || form.dataset.agentCommandForm !== state.session.id) return;
-    form.dataset.agentTerminalReady = 'false';
-    form.dataset.agentSendAvailable = 'false';
-    const submit = form.querySelector('[type="submit"]');
-    if (submit) submit.disabled = true;
   }
 
   function setStatus(tone, key, meta = '') {
     state.baseStatus = { tone, key, meta };
-    if (['connecting', 'error', 'unavailable'].includes(tone)) disableComposerUntilConnected();
     renderStatus();
   }
 
@@ -119,12 +102,34 @@
     if (help) help.textContent = t(helpKey);
   }
 
+  function resumeSupport(session) {
+    return window.LoadToAgentTerminal?.resumeSupport?.(session)
+      || { supported: false, reason: '' };
+  }
+
+  function setResumeAction(visible) {
+    const button = element('drawerTerminalResumeBtn');
+    if (!button) return;
+    button.classList.toggle('hidden', !visible);
+    button.disabled = !visible;
+  }
+
+  function showUnavailable(session) {
+    const support = resumeSupport(session);
+    const resumable = Boolean(support.supported);
+    setResumeAction(resumable);
+    setEmpty(
+      true,
+      resumable ? 'drawer.terminal_resume_available' : 'drawer.terminal_unavailable',
+      resumable ? 'drawer.terminal_resume_available_help' : 'drawer.terminal_unavailable_help',
+    );
+    setStatus('unavailable', resumable ? 'drawer.terminal_resume_available' : 'drawer.terminal_unavailable', support.reason || '');
+    return { ok: false, reason: 'no-target', targets: [], resumable };
+  }
+
   function selectedTargetId(session, createIfMissing = false, excludedTargetIds = new Set()) {
-    const selected = element('drawerComposer')?.querySelector('[data-agent-command-target]')?.value || '';
     const targets = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
       .filter(target => !excludedTargetIds.has(targetIdOf(target)));
-    const selectedTarget = selected ? targets.find(target => target.id === selected) : null;
-    if (selectedTarget && (!createIfMissing || selectedTarget.kind === 'terminal')) return selected;
     return (targets.find(target => target.kind === 'terminal') || (createIfMissing ? null : targets[0]) || {}).id || '';
   }
 
@@ -284,14 +289,13 @@
       clearUnavailable(resetSessionId);
       state.connectionFailures.delete(resetSessionId);
     }
+    setResumeAction(false);
     setEmpty(true);
     setStatus('connecting', 'drawer.terminal_connecting');
   }
 
   element('drawerTerminalFocusBtn')?.addEventListener('click', () => {
-    const input = element('drawerComposer')?.querySelector('[data-agent-command-draft]');
-    if (input && !input.disabled) input.focus({ preventScroll: true });
-    else setStatus('unavailable', 'drawer.terminal_unavailable');
+    if (!window.LoadToAgentTerminal?.focusEmbedded?.()) setStatus('unavailable', 'drawer.terminal_unavailable');
   });
   element('drawerTerminalReconnectBtn')?.addEventListener('click', async event => {
     const button = event.currentTarget;
@@ -359,16 +363,6 @@
       else button.disabled = false;
     }
   });
-  element('drawerComposer')?.addEventListener('submit', event => {
-    if (!state.session || element('drawerComposer')?.dataset.mode !== 'terminal') return;
-    setStatus('running', 'drawer.terminal_sending', state.target?.label || '');
-  }, true);
-  element('drawerComposer')?.addEventListener('change', event => {
-    const picker = event.target.closest?.('[data-agent-command-target]');
-    if (!state.session || !picker?.value) return;
-    mount(state.session, { force: true, targetId: picker.value });
-  });
-
   window.loadtoagent?.onTerminalData?.(payload => {
     if (!state.target || state.target.kind !== 'terminal' || payload?.id !== (state.target.terminalId || state.target.id)) return;
     setStatus('running', 'drawer.terminal_running', state.target.label || '');

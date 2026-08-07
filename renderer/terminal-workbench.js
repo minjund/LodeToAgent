@@ -34,7 +34,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       cols: Number(session.cols) || 120,
       rows: Number(session.rows) || 32,
     } : null;
-    const inputDisabled = readOnly || Boolean(session?.conversationBound);
+    const inputDisabled = readOnly;
     const terminal = new window.Terminal({
       ...xtermOptions(inputDisabled),
       ...(fixedGrid || {}),
@@ -145,7 +145,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function ensureSessionTerminal(session) {
     let entry = state.terminals.get(session.id);
-    const inputDisabled = Boolean(session?.conversationBound);
+    const inputDisabled = false;
     if (entry && entry.inputDisabled !== inputDisabled) {
       entry.terminal.dispose();
       entry.host.remove();

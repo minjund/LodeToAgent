@@ -261,8 +261,9 @@ async function run() {
         && terminal?.backend === 'direct'
         && terminal?.agentResumeSessionId === rootSession.externalId
         && document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm')
-        && document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]')?.dataset.agentTerminalReady === 'true';
-    })()`, '클릭한 메인 AI 바로 아래에 주입된 실제 PTY와 안전한 입력창이 연결되지 않았습니다.');
+        && document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea')
+        && !document.querySelector('[data-inline-terminal-composer]');
+    })()`, '클릭한 메인 AI 바로 아래에 별도 메시지 입력란 없는 실제 PTY가 연결되지 않았습니다.');
 
     const terminalTextExpression = `(() => {
       const screen = document.querySelector('#agentInlineTerminalViewport > .terminal-screen');
@@ -275,16 +276,27 @@ async function run() {
     await waitForRenderer(win, `${terminalTextExpression}.includes(${JSON.stringify(hydrationMarker)})`,
       'terminalGet replay가 인라인 xterm에 hydrate되지 않았습니다.');
 
-    await rendererValue(win, `(() => {
+    const focused = await rendererValue(win, `(() => {
       window.interactionTest.clearCalls();
-      const form = document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]');
-      const input = form?.querySelector('[data-agent-command-draft]');
-      if (!form || !input) return false;
-      input.value = ${JSON.stringify(liveCommand)};
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      form.requestSubmit();
+      return window.LoadToAgentTerminal.focusEmbedded()
+        && document.activeElement === document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
+    })()`);
+    assert(focused, '인라인 PTY의 실제 xterm 입력 커서에 포커스하지 못했습니다.');
+    const pasted = await rendererValue(win, `(() => {
+      const input = document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
+      if (!input) return false;
+      const clipboard = new DataTransfer();
+      clipboard.setData('text/plain', ${JSON.stringify(liveCommand)});
+      input.dispatchEvent(new ClipboardEvent('paste', {
+        bubbles: true,
+        cancelable: true,
+        clipboardData: clipboard,
+      }));
       return true;
     })()`);
+    assert(pasted, 'xterm의 실제 붙여넣기 입력 경로가 명령을 처리하지 않았습니다.');
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' });
 
     await waitUntil(() => clientData.join('').includes(liveMarker),
       '인라인 PTY 입력 명령이 TerminalHost 소켓을 거쳐 실제 PTY 출력으로 돌아오지 않았습니다.');
@@ -296,25 +308,27 @@ async function run() {
       inlineMounted: Boolean(document.querySelector('[data-inline-agent-terminal="fixture-root"]')),
       drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
       xtermMounted: Boolean(document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm')),
-      composerReady: document.querySelector('[data-inline-terminal-composer] [data-agent-command-form="fixture-root"]')?.dataset.agentTerminalReady || '',
+      composerAbsent: !document.querySelector('[data-inline-terminal-composer]'),
       calls: window.interactionTest.getCalls(),
       text: ${terminalTextExpression},
     }))()`);
-    const rendererCommands = rendererResult.calls.filter(call => call.name === 'terminalCommand');
-    assert(rendererResult.inlineMounted && !rendererResult.drawerOpen && rendererResult.xtermMounted && rendererResult.composerReady === 'true',
+    const rendererWrites = rendererResult.calls.filter(call => call.name === 'terminalWrite');
+    const rendererWriteText = rendererWrites
+      .filter(call => call.args[0] === terminalId)
+      .map(call => String(call.args[1] || ''))
+      .join('');
+    assert(rendererResult.inlineMounted && !rendererResult.drawerOpen && rendererResult.xtermMounted && rendererResult.composerAbsent,
       `메인 AI 바로 아래 인라인 영역이 실제 PTY 전용 화면이 아닙니다: ${JSON.stringify(rendererResult)}`);
-    assert(rendererCommands.length === 1
-      && rendererCommands[0].args[0] === terminalId
-      && rendererCommands[0].args[1] === liveCommand,
-    `composer가 실제 terminalCommand IPC를 정확히 한 번 호출하지 않았습니다: ${JSON.stringify(rendererCommands)}`);
+    assert(rendererWriteText.endsWith(`${liveCommand}\r`),
+      `xterm 직접 입력이 terminalWrite IPC로 전달되지 않았습니다: ${JSON.stringify(rendererWrites)}`);
     assert(!rendererResult.calls.some(call => call.name === 'terminalCreate'),
       '기존 실제 PTY가 있는데 인라인 화면이 별도 터미널을 생성했습니다.');
-    assert(!rendererResult.calls.some(call => call.name === 'terminalWrite'),
-      '서명된 대화 PTY에 raw xterm 입력 경로가 열렸습니다.');
+    assert(!rendererResult.calls.some(call => call.name === 'terminalCommand'),
+      'PTY 직접 입력 중 별도 메시지 command 경로가 호출되었습니다.');
     assert(ipcCalls.some(call => call.operation === 'list')
       && ipcCalls.some(call => call.operation === 'get' && call.args[0] === terminalId)
-      && ipcCalls.some(call => call.operation === 'command'
-        && call.args[0] === terminalId && call.args[1] === liveCommand),
+      && ipcCalls.filter(call => call.operation === 'write' && call.args[0] === terminalId)
+        .map(call => String(call.args[1] || '')).join('').endsWith(`${liveCommand}\r`),
     `preload→IPC→TerminalHostClient 호출 경로가 완주하지 않았습니다: ${JSON.stringify(ipcCalls)}`);
     assert(String((await client.get(terminalId, true))?.replay || '').includes(liveMarker),
       'TerminalManager/node-pty replay에서 live marker를 확인하지 못했습니다.');
@@ -326,7 +340,7 @@ async function run() {
       authenticatedHostClients: server.clients.size,
       hydrationMarker,
       liveMarker,
-      rendererTerminalCommandCalls: rendererCommands.length,
+      rendererTerminalWriteCalls: rendererWrites.length,
       ipcOperations: ipcCalls.map(call => call.operation),
     };
     log(`passed ${JSON.stringify(summary)}`);
