@@ -5,6 +5,14 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.15 - 2026-08-07
+
+- Launch the source checkout with its application path when the generated
+  `loadtoagent` bridge opens the desktop UI, preventing Electron's default
+  `path-to-app` window from appearing repeatedly during development.
+- Update the release toolchain's YAML parser to the patched dependency version
+  required by the high-severity audit gate.
+
 ## 1.6.14 - 2026-08-06
 
 - Move the live PTY out of the right-side task drawer: clicking an AI now
