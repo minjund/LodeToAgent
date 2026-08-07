@@ -178,8 +178,12 @@ async function run() {
     `서명된 앱 소유 agent PTY가 실행되지 않았습니다: ${JSON.stringify(session)}`);
 
     const hydrationMarker = `LTA_REPLAY_${Date.now()}`;
+    const scrollHistoryMarker = `LTA_SCROLL_HISTORY_${Date.now()}`;
     const liveMarker = `LTA_LIVE_${Date.now()}`;
-    const hydrationCommand = encodedMarkerCommand(hydrationMarker);
+    const hydrationText = `${Array.from({ length: 96 }, (_item, index) => (
+      `${scrollHistoryMarker}_${String(index).padStart(3, '0')}`
+    )).join('\r\n')}\r\n${hydrationMarker}`;
+    const hydrationCommand = encodedMarkerCommand(hydrationText);
     const liveCommand = encodedMarkerCommand(liveMarker);
 
     await client.command(terminalId, hydrationCommand);
@@ -276,6 +280,49 @@ async function run() {
     await waitForRenderer(win, `${terminalTextExpression}.includes(${JSON.stringify(hydrationMarker)})`,
       'terminalGet replay가 인라인 xterm에 hydrate되지 않았습니다.');
 
+    const scrollStateExpression = `(() => {
+      const screen = document.querySelector('#agentInlineTerminalViewport > .terminal-screen');
+      return {
+        viewportY: Number(screen?.dataset.viewportY || 0),
+        baseY: Number(screen?.dataset.baseY || 0),
+      };
+    })()`;
+    await waitForRenderer(win, `(() => {
+      const state = ${scrollStateExpression};
+      return state.baseY > 0 && state.viewportY >= state.baseY;
+    })()`, '긴 PTY replay가 xterm scrollback으로 쌓이지 않았습니다.');
+    const wheelDispatched = await rendererValue(win, `(() => {
+      const terminal = document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm-screen');
+      if (!terminal) return false;
+      terminal.dispatchEvent(new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaMode: WheelEvent.DOM_DELTA_PIXEL,
+        deltaY: -720,
+      }));
+      return true;
+    })()`);
+    assert(wheelDispatched, '인라인 xterm에 마우스 휠 이벤트를 전달하지 못했습니다.');
+    await waitForRenderer(win, `(() => {
+      const state = ${scrollStateExpression};
+      return state.baseY > 0 && state.viewportY < state.baseY;
+    })()`, '인라인 PTY의 마우스 휠이 이전 scrollback으로 이동하지 않았습니다.');
+    const scrolledState = await rendererValue(win, scrollStateExpression);
+
+    const remountResult = await rendererValue(win, `(async () => {
+      const rootSession = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
+      const mount = document.querySelector('#agentInlineTerminalViewport');
+      const result = await window.LoadToAgentTerminal.mountForAgent(rootSession, {
+        mount,
+        targetId: ${JSON.stringify(terminalId)},
+      });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return { result, state: ${scrollStateExpression} };
+    })()`);
+    assert(remountResult.result?.ok && remountResult.result?.reused
+      && remountResult.state.baseY > 0 && remountResult.state.viewportY < remountResult.state.baseY,
+    `PTY를 다시 맞춘 뒤 마우스 휠 scrollback 위치가 맨 아래로 돌아갔습니다: ${JSON.stringify({ scrolledState, remountResult })}`);
+
     const focused = await rendererValue(win, `(() => {
       window.interactionTest.clearCalls();
       return window.LoadToAgentTerminal.focusEmbedded()
@@ -339,7 +386,9 @@ async function run() {
       hostEndpoint: hostInfo.endpoint,
       authenticatedHostClients: server.clients.size,
       hydrationMarker,
+      scrollHistoryMarker,
       liveMarker,
+      scrolledState,
       rendererTerminalWriteCalls: rendererWrites.length,
       ipcOperations: ipcCalls.map(call => call.operation),
     };
