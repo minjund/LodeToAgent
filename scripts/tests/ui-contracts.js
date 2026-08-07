@@ -1436,6 +1436,10 @@ function registerUiContractTests(context) {
     assert.equal(pkg.build.portable.unpackDirName, false);
     assert.ok(mainEntry.includes("app.setName(PRODUCT_NAME)"));
     assert.ok(mainEntry.includes("app.setAppUserModelId('com.wincube.loadtoagent')"));
+    assert.ok(
+      mainEntry.includes('LOADTOAGENT_SOURCE_LAUNCHER=1'),
+      '소스 브리지에서 데스크톱 앱을 열 때 Electron 실행 파일과 앱 경로를 함께 전달해야 합니다.',
+    );
     assert.ok(pkg.dependencies['node-pty']);
     assert.ok(pkg.dependencies['@xterm/xterm']);
     assert.ok(pkg.dependencies['@xterm/addon-fit']);
