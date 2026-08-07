@@ -92,17 +92,11 @@ app.whenReady().then(async () => {
     });
     sessionId = bound.id;
     await waitForMarker(sessionId, boundReadyMarker);
-    let rawBlocked = false;
-    try {
-      manager.write(sessionId, 'unsafe raw input');
-    } catch (error) {
-      rawBlocked = error?.code === 'AGENT_BOUND_RAW_INPUT_BLOCKED';
-    }
-    if (!rawBlocked) throw new Error('bound 실제 PTY가 raw xterm 입력을 차단하지 않았습니다.');
+    manager.write(sessionId, 'native xterm input');
     const interrupted = waitForMarker(sessionId, boundInterruptedMarker);
     manager.signal(sessionId, 'interrupt');
     await interrupted;
-    process.stdout.write('✓ bound 실제 PTY 장기 작업 raw 입력 차단·Ctrl+C 중단 검증\n');
+    process.stdout.write('✓ bound 실제 PTY 장기 작업 xterm 입력·Ctrl+C 중단 검증\n');
     await finish();
   } catch (error) {
     await finish(error);

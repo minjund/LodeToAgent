@@ -104,6 +104,27 @@ function registerCliAndUpdateTests(context) {
     assert.deepStrictEqual(npmSpec.args, ['/tmp/loadtoagent']);
     assert.equal(npmSpec.env.PATH, '/usr/bin');
 
+    const sourceBridgeSpec = desktopLaunchSpec({
+      env: {
+        PATH: 'C:\\Windows',
+        ELECTRON_RUN_AS_NODE: '1',
+        LOADTOAGENT_SOURCE_LAUNCHER: '1',
+      },
+      execPath: 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe',
+      packageRoot: 'D:\\workspace',
+    });
+    assert.equal(sourceBridgeSpec.executable, 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe');
+    assert.deepStrictEqual(sourceBridgeSpec.args, ['D:\\workspace']);
+    assert.equal('ELECTRON_RUN_AS_NODE' in sourceBridgeSpec.env, false);
+    assert.equal('LOADTOAGENT_SOURCE_LAUNCHER' in sourceBridgeSpec.env, false);
+
+    const legacySourceBridgeSpec = desktopLaunchSpec({
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+      execPath: 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe',
+      packageRoot: 'D:\\workspace',
+    });
+    assert.deepStrictEqual(legacySourceBridgeSpec.args, ['D:\\workspace']);
+
     const packagedSpec = desktopLaunchSpec({
       env: { PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1' },
       execPath: '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent',

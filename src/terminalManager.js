@@ -2569,11 +2569,6 @@ class TerminalManager extends EventEmitter {
     if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
     const data = String(value == null ? '' : value);
     if (data.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
-    if (isExactBoundAgentOptions(session.options) && !['\x03', '\x04', '\x0c'].includes(data)) {
-      const error = new Error('이 대화에 연결된 AI 명령창은 질문 입력란을 통해서만 내용을 보낼 수 있습니다.');
-      error.code = 'AGENT_BOUND_RAW_INPUT_BLOCKED';
-      throw error;
-    }
     session.process.write(data);
     return { ok: true };
   }

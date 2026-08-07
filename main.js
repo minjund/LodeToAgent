@@ -227,12 +227,14 @@ function installBridgeLauncher(home = bridgeHome) {
     : path.join(__dirname, 'bin', 'loadtoagent.js');
   if (process.platform === 'win32') {
     const launcher = path.join(directory, 'loadtoagent.cmd');
-    const content = `@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${process.execPath}" "${script}" %*\r\n`;
+    const sourceMarker = app.isPackaged ? '' : 'set "LOADTOAGENT_SOURCE_LAUNCHER=1"\r\n';
+    const content = `@echo off\r\n${sourceMarker}set "ELECTRON_RUN_AS_NODE=1"\r\n"${process.execPath}" "${script}" %*\r\n`;
     fs.writeFileSync(launcher, content, 'utf8');
     return { path: launcher, directory, commandPrefix: `& "${launcher}"`, simpleCommand: 'loadtoagent' };
   }
   const launcher = path.join(directory, 'loadtoagent');
-  const content = `#!/bin/sh\nELECTRON_RUN_AS_NODE=1 exec ${shellQuote(process.execPath)} ${shellQuote(script)} "$@"\n`;
+  const sourceMarker = app.isPackaged ? '' : 'LOADTOAGENT_SOURCE_LAUNCHER=1 ';
+  const content = `#!/bin/sh\n${sourceMarker}ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(process.execPath)} ${shellQuote(script)} "$@"\n`;
   fs.writeFileSync(launcher, content, { encoding: 'utf8', mode: 0o755 });
   fs.chmodSync(launcher, 0o755);
   return { path: launcher, directory, commandPrefix: shellQuote(launcher), simpleCommand: 'loadtoagent' };
