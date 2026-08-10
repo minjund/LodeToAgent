@@ -29,9 +29,31 @@ function latestActivity(session) {
 
 function latestMeaningfulText(session) {
   const messages = [...(session.messages || [])].reverse();
-  const preferred = messages.find(row => row && row.role === 'assistant' && text(row.text));
-  const fallback = messages.find(row => row && text(row.text));
-  return text((preferred || fallback || {}).text || session.statusDetail || session.result || '', 360);
+  const latest = messages.find(row => row && text(row.text));
+  return text((latest || {}).text || session.statusDetail || session.result || '', 360);
+}
+
+function currentResponseIntent(session) {
+  const responseIntent = session.responseIntent || {};
+  if (responseIntent.source === 'input-tool') return responseIntent;
+  const latestConversation = [...(session.messages || [])].reverse().find(row => (
+    row
+    && (row.role === 'assistant' || row.role === 'user')
+    && text(row.text)
+  ));
+  if (latestConversation?.role !== 'user') return responseIntent;
+  // Parsers retain the previous assistant prose so completed turns can still
+  // be summarized. Once a newer user turn exists, however, an offer or
+  // question from that old prose no longer asks for attention. Keeping it
+  // would make the new request look as if the AI had already replied.
+  return {
+    category: 'none',
+    required: false,
+    optional: false,
+    requestText: '',
+    confidence: 'low',
+    source: 'none',
+  };
 }
 
 function checkStatus(value) {
@@ -172,7 +194,7 @@ function outcomeFor(session, evidence) {
 
 function attentionFor(session) {
   const latest = latestMeaningfulText(session);
-  const responseIntent = session.responseIntent || {};
+  const responseIntent = currentResponseIntent(session);
   const requestText = text(responseIntent.requestText || '', 420);
   const permissionExecution = [...(session.executions || [])].reverse().find(execution => (
     execution
@@ -265,6 +287,7 @@ function healthFor(session, sessions, attention, progress, evidence, nowValue) {
 
 function enrichSession(session, sessions = [], nowValue = Date.now()) {
   if (!session) return session;
+  const responseIntent = currentResponseIntent(session);
   const attention = attentionFor(session);
   const progress = progressFor(session, attention);
   const evidence = evidenceFor(session);
@@ -272,6 +295,7 @@ function enrichSession(session, sessions = [], nowValue = Date.now()) {
   const health = healthFor(session, sessions, attention, progress, evidence, nowValue);
   return {
     ...session,
+    responseIntent,
     attention,
     progress,
     health,

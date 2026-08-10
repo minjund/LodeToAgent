@@ -34,6 +34,7 @@ function registerTerminalAgentActionTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     const creates = [];
     const commands = [];
+    const selections = [];
     const sandbox = {
       window: {
         LoadToAgentI18n: { t: key => key },
@@ -54,6 +55,8 @@ function registerTerminalAgentActionTests(context) {
       state: { snapshot: null, sessions: [] },
       init: async () => {},
       refreshSessions: async () => {},
+      moveWorkbench: mode => selections.push(['mode', mode]),
+      selectSession: async (id, mode) => selections.push(['session', id, mode]),
       preferredWorkspace: () => 'D:\\workspace',
       providerLabel: provider => provider,
     });
@@ -65,13 +68,563 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(grok.terminalId, 'terminal:grok');
     assert.equal(creates[0].type, 'agent');
     assert.equal(creates[0].transient, false);
+    assert.equal(creates[0].sessionBackend, 'direct');
     assert.equal(creates[0].initialCommandInArgs, true);
+    assert.match(creates[0].creationId, /^create:/);
+    assert.notEqual(creates[0].creationId, creates[0].deliveryId,
+      'PTY 생성 멱등성 ID와 첫 질문 delivery ID는 서로 달라야 합니다.');
     assert.equal(Object.hasOwn(creates[0], 'recoveryArgs'), false, '새 AI 작업 생성 요청에 대화 ID 없는 복구 인자를 보내면 안 됩니다.');
     assert.equal(creates[1].initialCommandInArgs, false);
+    assert.notEqual(creates[1].creationId, creates[0].creationId);
     assert.equal(commands.length, 1);
     assert.equal(commands[0][0], 'terminal:grok');
     assert.equal(commands[0][1], 'PTY로 한 번 보내기');
     assert.match(commands[0][2].deliveryId, /^start:/);
+    assert.deepStrictEqual(selections, [
+      ['mode', 'general'], ['session', 'terminal:codex', 'question'],
+      ['mode', 'general'], ['session', 'terminal:grok', 'question'],
+    ]);
+  });
+
+  test('Grok 새 작업은 command 응답 연결이 끊겨도 같은 delivery ID로 한 번만 안전 재시도한다', async () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    const attempts = [];
+    const writes = [];
+    const accepted = new Map();
+    const createAttempts = [];
+    const createdById = new Map();
+    let ptySpawns = 0;
+    const sandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        loadtoagent: {
+          terminalCreate: async options => {
+            createAttempts.push(options);
+            if (createdById.has(options.creationId)) {
+              return {
+                id: createdById.get(options.creationId),
+                status: 'running',
+                creationId: options.creationId,
+                creationDuplicate: true,
+              };
+            }
+            ptySpawns += 1;
+            createdById.set(options.creationId, 'terminal:grok-reconnect');
+            // The PTY was created, but the create RPC response was lost.
+            throw new Error('명령창 생성 응답이 닫혔습니다.');
+          },
+          terminalCommand: async (id, prompt, options) => {
+            attempts.push([id, prompt, options.deliveryId]);
+            if (accepted.has(options.deliveryId)) {
+              return { ok: true, duplicate: true, deliveryId: options.deliveryId, deliveryState: 'accepted' };
+            }
+            // Simulate the real PTY write succeeding while only its host RPC
+            // response is lost. The ledger is authoritative on reconnect.
+            writes.push([id, prompt]);
+            accepted.set(options.deliveryId, true);
+            throw new Error('명령창 연결이 닫혔습니다.');
+          },
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [] },
+      init: async () => {},
+      refreshSessions: async () => {},
+      moveWorkbench: () => {},
+      selectSession: async () => {},
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+    });
+
+    const result = await actions.startAgent({
+      provider: 'grok', prompt: '연결이 끊겨도 한 번만 보내기', cwd: 'D:\\workspace',
+    });
+
+    assert.equal(createAttempts.length, 2, 'create RPC transport failure도 한 번만 재시도해야 합니다.');
+    assert.strictEqual(createAttempts[1], createAttempts[0], 'create 재시도는 같은 옵션 객체를 그대로 사용해야 합니다.');
+    assert.match(createAttempts[0].creationId, /^create:/);
+    assert.notEqual(createAttempts[0].creationId, createAttempts[0].deliveryId);
+    assert.equal(ptySpawns, 1, '생성 응답이 유실돼도 실제 PTY spawn은 한 번이어야 합니다.');
+    assert.equal(attempts.length, 2, 'transport failure 뒤 command RPC는 한 번만 재시도해야 합니다.');
+    assert.equal(attempts[1][2], attempts[0][2], '재시도는 같은 delivery ID를 유지해야 합니다.');
+    assert.deepStrictEqual(writes, [['terminal:grok-reconnect', '연결이 끊겨도 한 번만 보내기']],
+      '응답이 유실돼도 실제 PTY 입력은 한 번이어야 합니다.');
+    assert.equal(result.deliveryState, 'accepted');
+    assert.equal(result.promptSent, true);
+    assert.equal(result.duplicate, true);
+    assert.equal(result.creationDuplicate, true);
+  });
+
+  test('Grok 새 작업의 command transport가 계속 끊기면 중복 시작 대신 전달 확인 필요로 남긴다', async () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    const deliveryIds = [];
+    let refreshes = 0;
+    const moves = [];
+    const selections = [];
+    const sandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        LoadToAgentRendererUtils: { reportRecoverableError: () => { throw new Error('진단 보고 실패'); } },
+        loadtoagent: {
+          terminalCreate: async () => ({ id: 'terminal:grok-unknown' }),
+          terminalCommand: async (_id, _prompt, options) => {
+            deliveryIds.push(options.deliveryId);
+            throw new Error('명령창 연결이 계속 닫혔습니다.');
+          },
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
+    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [] },
+      init: async () => {},
+      refreshSessions: async () => { refreshes += 1; },
+      moveWorkbench: mode => { moves.push(mode); },
+      selectSession: async (id, mode) => { selections.push([id, mode]); },
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+    });
+
+    let deliveryUnknown = null;
+    await assert.rejects(
+      actions.startAgent({
+        provider: 'grok', prompt: '전달 상태를 분명히 남겨줘', cwd: 'D:\\workspace',
+        creationId: 'create:grok-command-unknown',
+      }),
+      error => {
+        deliveryUnknown = error;
+        return error.deliveryState === 'unknown'
+          && error.creationState === 'accepted'
+          && error.creationId === 'create:grok-command-unknown'
+          && error.terminalId === 'terminal:grok-unknown'
+          && error.terminalSelected === true
+          && error.retryable === true;
+      },
+    );
+
+    assert.equal(deliveryIds.length, 2);
+    assert.equal(deliveryIds[1], deliveryIds[0]);
+    assert.equal(deliveryUnknown.deliveryState, 'unknown');
+    assert.equal(refreshes, 1, '전달 응답이 불명확해도 새 PTY 목록을 먼저 갱신해야 합니다.');
+    assert.deepStrictEqual(moves, ['general']);
+    assert.deepStrictEqual(selections, [['terminal:grok-unknown', 'question']],
+      '실제 AI 출력이 있을 수 있는 새 PTY를 오류 반환 전에 선택해야 합니다.');
+
+    const lostCreateOptions = [];
+    sandbox.window.loadtoagent.terminalCreate = async options => {
+      lostCreateOptions.push(options);
+      throw new Error('명령창 생성 응답을 계속 받지 못했습니다.');
+    };
+    await assert.rejects(
+      actions.startAgent({
+        provider: 'grok', prompt: '생성 ID를 보존해줘', cwd: 'D:\\workspace',
+        creationId: 'create:preserved-form-retry',
+      }),
+      error => error.creationState === 'unknown'
+        && error.creationId === 'create:preserved-form-retry',
+    );
+    assert.equal(lostCreateOptions.length, 2);
+    assert.strictEqual(lostCreateOptions[1], lostCreateOptions[0]);
+    assert.equal(lostCreateOptions[0].creationId, 'create:preserved-form-retry');
+
+    const rejectedCreateIds = [];
+    let rejectedCommandAttempts = 0;
+    sandbox.window.loadtoagent.terminalCreate = async options => {
+      rejectedCreateIds.push(options.creationId);
+      return {
+        id: 'terminal:grok-command-retry',
+        status: 'running',
+        creationDuplicate: rejectedCreateIds.length > 1,
+      };
+    };
+    sandbox.window.loadtoagent.terminalCommand = async () => {
+      rejectedCommandAttempts += 1;
+      if (rejectedCommandAttempts === 1) {
+        return { ok: false, error: 'provider not ready', deliveryState: 'rejected' };
+      }
+      return { ok: true, deliveryState: 'accepted' };
+    };
+    await assert.rejects(
+      actions.startAgent({
+        provider: 'grok', prompt: '같은 PTY에서 command만 다시 보내기', cwd: 'D:\\workspace',
+        creationId: 'create:grok-command-rejected',
+      }),
+      error => error.creationState === 'accepted'
+        && error.deliveryState === 'rejected'
+        && error.creationId === 'create:grok-command-rejected'
+        && error.terminalId === 'terminal:grok-command-retry',
+    );
+    const retriedCommand = await actions.startAgent({
+      provider: 'grok', prompt: '같은 PTY에서 command만 다시 보내기', cwd: 'D:\\workspace',
+      creationId: 'create:grok-command-rejected',
+    });
+    assert.equal(retriedCommand.terminalId, 'terminal:grok-command-retry');
+    assert.deepStrictEqual(rejectedCreateIds, [
+      'create:grok-command-rejected', 'create:grok-command-rejected',
+    ]);
+    assert.equal(rejectedCommandAttempts, 2);
+
+    const selectionReports = [];
+    const selectionSandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        LoadToAgentRendererUtils: {
+          reportRecoverableError: scope => {
+            selectionReports.push(scope);
+            if (scope === 'terminal-agent-start-refresh') throw new Error('diagnostic reporter failed');
+          },
+        },
+        loadtoagent: {
+          terminalCreate: async () => ({
+            id: 'terminal:new-but-not-selected', status: 'running', deliveryState: 'accepted',
+          }),
+        },
+      },
+    };
+    vm.runInNewContext(source, selectionSandbox, { filename: 'terminal-agent.js' });
+    const selectionActions = selectionSandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [], mode: 'old' },
+      init: async () => {},
+      refreshSessions: async () => { throw new Error('refresh failed'); },
+      moveWorkbench: () => {},
+      selectSession: async () => { throw new Error('selection failed'); },
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+    });
+    await assert.rejects(
+      selectionActions.startAgent({
+        provider: 'codex', prompt: '과거 PTY 대신 이 PTY를 열어줘', cwd: 'D:\\workspace',
+        creationId: 'create:selection-failed',
+      }),
+      error => error.code === 'TERMINAL_START_SELECTION_FAILED'
+        && error.creationState === 'accepted'
+        && error.deliveryState === 'accepted'
+        && error.terminalId === 'terminal:new-but-not-selected'
+        && error.retryable === true,
+    );
+    assert.deepStrictEqual(selectionReports, [
+      'terminal-agent-start-refresh', 'terminal-agent-start-selection',
+    ]);
+
+    const failedSelectionIds = [];
+    let failedSelectionShouldThrow = false;
+    const failedSandbox = {
+      window: {
+        LoadToAgentI18n: { t: key => key },
+        loadtoagent: {
+          terminalCreate: async () => ({
+            id: 'terminal:failed-start',
+            status: 'failed',
+            creationFailed: true,
+            creationUnavailable: true,
+            deliveryState: 'rejected',
+            error: 'provider executable missing',
+            code: 'TERMINAL_CREATE_FAILED',
+          }),
+        },
+      },
+    };
+    vm.runInNewContext(source, failedSandbox, { filename: 'terminal-agent.js' });
+    const failedActions = failedSandbox.window.LoadToAgentTerminalAgentActions({
+      state: { snapshot: null, sessions: [] },
+      init: async () => {},
+      refreshSessions: async () => {},
+      moveWorkbench: () => {},
+      selectSession: async id => {
+        failedSelectionIds.push(id);
+        if (failedSelectionShouldThrow) throw new Error('failed record selection failed');
+      },
+      preferredWorkspace: () => 'D:\\workspace',
+      providerLabel: provider => provider,
+    });
+    await assert.rejects(
+      failedActions.startAgent({
+        provider: 'codex', prompt: '실패해도 초안을 보존해줘', cwd: 'D:\\workspace',
+        creationId: 'create:failed-start-draft',
+      }),
+      error => error.code === 'TERMINAL_CREATE_FAILED'
+        && error.creationState === 'failed'
+        && error.creationFailed === true
+        && error.deliveryState === 'rejected'
+        && error.terminalId === 'terminal:failed-start',
+    );
+    assert.deepStrictEqual(failedSelectionIds, ['terminal:failed-start'],
+      '실패 기록은 보이게 선택하되 작업 시작 성공으로 반환하면 안 됩니다.');
+
+    failedSandbox.window.loadtoagent.terminalCreate = async () => ({
+      id: 'terminal:termination-uncertain',
+      status: 'stopping',
+      creationFailed: true,
+      creationUnavailable: true,
+      deliveryState: 'unknown',
+      error: 'provider cleanup is still pending',
+      code: 'TERMINAL_TERMINATION_UNCERTAIN',
+    });
+    await assert.rejects(
+      failedActions.startAgent({
+        provider: 'codex', prompt: '종료 확인 전에는 같은 생성 ID를 보존해줘', cwd: 'D:\\workspace',
+        creationId: 'create:termination-uncertain',
+      }),
+      error => error.code === 'TERMINAL_TERMINATION_UNCERTAIN'
+        && error.creationState === 'accepted'
+        && error.creationFailed === true
+        && error.creationUnavailable === true
+        && error.deliveryState === 'unknown'
+        && error.retryable === true
+        && error.terminalId === 'terminal:termination-uncertain',
+    );
+    assert.deepStrictEqual(failedSelectionIds, [
+      'terminal:failed-start', 'terminal:termination-uncertain',
+    ], '종료 불확실 기록도 사용자에게 보이게 선택하되 시작 성공으로 반환하면 안 됩니다.');
+
+    failedSandbox.window.loadtoagent.terminalCreate = async () => ({
+      id: 'terminal:failed-and-unselectable',
+      status: 'failed',
+      creationFailed: true,
+      creationUnavailable: true,
+      deliveryState: 'rejected',
+      error: 'provider executable missing',
+      code: 'TERMINAL_CREATE_FAILED',
+    });
+    failedSelectionShouldThrow = true;
+    await assert.rejects(
+      failedActions.startAgent({
+        provider: 'codex', prompt: '선택 실패가 생성 실패를 덮으면 안 돼', cwd: 'D:\\workspace',
+        creationId: 'create:failed-and-unselectable',
+      }),
+      error => error.code === 'TERMINAL_CREATE_FAILED'
+        && error.creationState === 'failed'
+        && error.deliveryState === 'rejected'
+        && error.creationFailed === true
+        && error.terminalSelected === false
+        && error.selectionError?.code === 'TERMINAL_START_SELECTION_FAILED',
+    );
+    failedSelectionShouldThrow = false;
+
+    const runModalSource = fs.readFileSync(path.join(root, 'renderer', 'app-run-modal.js'), 'utf8');
+    assert.match(runModalSource, /let pendingRunCreation = null;/u);
+    assert.match(runModalSource, /pendingRunCreation\.key !== creationKey/u,
+      '폼 payload가 바뀌면 다음 제출은 새 creationId를 발급해야 합니다.');
+    assert.match(runModalSource, /creationId: pendingRunCreation\.id/u,
+      '응답 불명 재시도는 보존한 creationId를 startAgent에 전달해야 합니다.');
+    assert.match(runModalSource, /forgetPendingRunCreation\(\{ persist: false \}\);\s*markGuideStep/u,
+      '성공한 생성은 보존 creationId를 폐기해야 합니다.');
+    assert.match(runModalSource, /creationState[\s\S]{0,120}rejected[\s\S]{0,160}forgetPendingRunCreation\(\)/u,
+      'create 자체의 확정 거절만 보존 creationId를 폐기해야 합니다.');
+    assert.match(runModalSource, /creationState === "failed" && deliveryState === "rejected"/u,
+      '질문 전달 전 생성 실패는 초안을 남기고 실패한 creationId만 폐기해야 합니다.');
+
+    const qualitySource = fs.readFileSync(path.join(root, 'renderer', 'app-quality.js'), 'utf8');
+    const runDraftStore = new Map();
+    const storage = {
+      getItem: key => runDraftStore.get(key) || null,
+      setItem: (key, value) => runDraftStore.set(key, String(value)),
+      removeItem: key => runDraftStore.delete(key),
+    };
+    let generatedCreationIds = 0;
+    const modalSandbox = {
+      localStorage: storage,
+      sessionStorage: storage,
+      document: {
+        body: {
+          dataset: {},
+          classList: { toggle: () => {} },
+        },
+        activeElement: null,
+        querySelectorAll: () => [],
+      },
+      setTimeout: callback => { callback(); return 1; },
+      clearTimeout: () => {},
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: {
+          t: key => key,
+          errorText: error => String(error?.message || error),
+        },
+        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
+        crypto: { randomUUID: () => `fixture-${++generatedCreationIds}` },
+      },
+    };
+    vm.runInNewContext(runModalSource, modalSandbox, { filename: 'app-run-modal.js' });
+    vm.runInNewContext(qualitySource, modalSandbox, { filename: 'app-quality.js' });
+
+    const makeElement = (initial = {}) => {
+      const classes = new Set(initial.classes || []);
+      return {
+        value: '', checked: false, disabled: false, readOnly: false,
+        dataset: {}, textContent: '', innerHTML: '', isConnected: true,
+        classList: {
+          add: (...names) => names.forEach(name => classes.add(name)),
+          remove: (...names) => names.forEach(name => classes.delete(name)),
+          contains: name => classes.has(name),
+          toggle: (name, force) => {
+            if (force === undefined ? !classes.has(name) : force) classes.add(name);
+            else classes.delete(name);
+          },
+        },
+        setAttribute: () => {}, removeAttribute: () => {}, focus: () => {},
+        querySelectorAll: () => [], contains: () => false,
+        ...initial,
+      };
+    };
+    const selectedViews = [];
+    const makeModalApp = () => {
+      const elements = {
+        '#runPrompt': makeElement(),
+        '#runCwd': makeElement(),
+        '#runModel': makeElement(),
+        '#allowWrites': makeElement(),
+        '#runError': makeElement({ classes: ['hidden'] }),
+        '#runForm': makeElement(),
+        '#runForm button[type="submit"]': makeElement(),
+        '#closeRunModalBtn': makeElement(),
+        '#cancelRunBtn': makeElement(),
+        '#runSubmitLabel': makeElement(),
+        '#runProjectName': makeElement(),
+        '#runProjectPath': makeElement(),
+        '#pickRunCwdBtn': makeElement(),
+        '#runWorkspaceSuggestions': makeElement(),
+        '#runPermissionHint': makeElement({ classes: ['hidden'] }),
+        '#runModal': makeElement(),
+        '#toast': makeElement({ classes: ['hidden'] }),
+        '#searchInput': makeElement(),
+        '#sortSelect': makeElement(),
+      };
+      const state = {
+        providerFilters: new Set(),
+        runProvider: 'grok',
+        availability: { grok: true },
+        workspace: 'D:\\workspace',
+        workspaces: [{ path: 'D:\\workspace', name: 'workspace' }],
+        providers: [{ id: 'grok', label: 'Grok', company: 'xAI', mark: 'G' }],
+      };
+      const app = {
+        $: selector => elements[selector] || null,
+        esc: value => String(value),
+        uiLocale: () => 'ko-KR',
+        state,
+        PROJECTLESS_WORKSPACE: '__projectless__',
+        motionPreference: { matches: true },
+        motionState: { modalTimer: 0, modalFocusTimer: 0, toastTimer: 0 },
+        markGuideStep: () => {}, rememberDialogTrigger: () => null,
+        restoreDialogTrigger: () => {}, setDialogOpenState: () => {}, announce: () => {},
+        providerInfo: () => ({ label: 'Grok' }), providerStyle: () => '',
+        visibleProviders: () => state.providers, isProviderVisible: () => true,
+        selectView: view => { selectedViews.push(view); },
+      };
+      Object.assign(app, modalSandbox.window.LoadToAgentAppFactories.createRunModal(app));
+      Object.assign(app, modalSandbox.window.LoadToAgentAppFactories.createQualityEnhancements(app));
+      app.loadQualityState();
+      // Bootstrap restores dashboard preferences before the user selects the
+      // project whose locked cwd is used by the run modal.
+      state.workspace = 'D:\\workspace';
+      return { app, elements, state };
+    };
+    const setDraft = (page, prompt = '재로드 뒤에도 같은 PTY에서 보내기') => {
+      page.elements['#runPrompt'].value = prompt;
+      page.elements['#runCwd'].value = 'D:\\workspace';
+      page.elements['#runModel'].value = 'grok-code';
+      page.elements['#allowWrites'].checked = false;
+    };
+    const submitIds = [];
+    modalSandbox.window.LoadToAgentTerminal = {
+      startAgent: async options => {
+        submitIds.push(options.creationId);
+        const error = new Error('provider command rejected');
+        error.creationState = 'accepted';
+        error.deliveryState = 'rejected';
+        throw error;
+      },
+    };
+    const firstPage = makeModalApp();
+    setDraft(firstPage);
+    await firstPage.app.handleRun({ preventDefault: () => {} });
+    const persistedPending = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    assert.equal(persistedPending.creationId, submitIds[0]);
+    assert.match(persistedPending.creationFingerprint, /^rc1:[a-f0-9]{32}$/u);
+
+    const reloadedPage = makeModalApp();
+    reloadedPage.app.restoreRunDraft();
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    assert.equal(submitIds[1], submitIds[0],
+      'command 확정 거절 뒤 renderer가 재로드돼도 같은 payload는 같은 creationId/PTY를 재사용해야 합니다.');
+
+    setDraft(reloadedPage, '내용이 바뀐 새 작업');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    assert.notEqual(submitIds[2], submitIds[1], '폼 payload가 바뀌면 persisted creationId를 재사용하면 안 됩니다.');
+
+    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+      submitIds.push(options.creationId);
+      const error = new Error('create rejected');
+      error.creationState = 'rejected';
+      error.deliveryState = 'rejected';
+      throw error;
+    };
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    const rejectedId = submitIds.at(-1);
+    const afterCreateRejected = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    assert.equal(Object.hasOwn(afterCreateRejected, 'creationId'), false,
+      'create 자체가 확정 거절되면 persisted creationId를 폐기해야 합니다.');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    assert.notEqual(submitIds.at(-1), rejectedId, 'create 확정 거절 뒤 제출은 새 creationId를 발급해야 합니다.');
+
+    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+      submitIds.push(options.creationId);
+      const error = new Error('provider executable missing');
+      error.creationState = 'failed';
+      error.creationFailed = true;
+      error.deliveryState = 'rejected';
+      throw error;
+    };
+    setDraft(reloadedPage, '실행 파일이 없어도 이 긴 초안은 보존');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    const failedCreationId = submitIds.at(-1);
+    const afterStartFailed = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    assert.equal(afterStartFailed.prompt, '실행 파일이 없어도 이 긴 초안은 보존');
+    assert.equal(Object.hasOwn(afterStartFailed, 'creationId'), false,
+      '전달 전 생성 실패는 다음 명시적 재시도가 새 PTY를 만들도록 실패 creationId만 폐기해야 합니다.');
+    assert.equal(reloadedPage.elements['#runPrompt'].value, '실행 파일이 없어도 이 긴 초안은 보존');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    assert.notEqual(submitIds.at(-1), failedCreationId,
+      '전달 전 생성 실패를 다시 시도할 때 실패한 terminal record만 다시 열면 안 됩니다.');
+
+    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+      submitIds.push(options.creationId);
+      const error = new Error('provider cleanup is still pending');
+      error.creationState = 'accepted';
+      error.creationFailed = true;
+      error.creationUnavailable = true;
+      error.deliveryState = 'unknown';
+      error.terminalId = 'terminal:termination-uncertain';
+      error.terminalSelected = true;
+      throw error;
+    };
+    setDraft(reloadedPage, '종료 확인 전까지 이 긴 초안과 생성 ID를 모두 보존');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    const uncertainCreationId = submitIds.at(-1);
+    const afterStartUncertain = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    assert.equal(afterStartUncertain.prompt, '종료 확인 전까지 이 긴 초안과 생성 ID를 모두 보존');
+    assert.equal(afterStartUncertain.creationId, uncertainCreationId,
+      '생성 정리는 진행 중이고 전달이 불명확하면 동일 PTY ledger를 확인하도록 creationId를 보존해야 합니다.');
+    assert.equal(reloadedPage.elements['#runPrompt'].value,
+      '종료 확인 전까지 이 긴 초안과 생성 ID를 모두 보존');
+    assert.equal(reloadedPage.elements['#runModal'].classList.contains('hidden'), true,
+      '전달 결과가 불명확해도 선택된 실제 PTY가 모달 뒤에 가려지면 안 됩니다.');
+    assert.equal(selectedViews.at(-1), 'terminal');
+    await reloadedPage.app.handleRun({ preventDefault: () => {} });
+    assert.equal(submitIds.at(-1), uncertainCreationId,
+      '종료 불확실 상태의 명시적 재시도는 병렬 PTY를 만들지 않도록 같은 creationId를 사용해야 합니다.');
+
+    const tampered = {
+      ...JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2')),
+      creationId: 'x'.repeat(241),
+    };
+    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify(tampered));
+    const tamperedReload = makeModalApp();
+    assert.equal(Object.hasOwn(tamperedReload.state.runDraft, 'creationId'), false,
+      '길이 제한을 넘은 persisted creationId를 renderer가 신뢰하면 안 됩니다.');
   });
 
   test('대화창 Enter 전송은 숨겨진 일회성 프로세스 대신 지속형 관리 터미널을 만든다', async () => {
@@ -884,6 +1437,7 @@ function registerTerminalAgentActionTests(context) {
       provider: 'codex',
       externalId: '019f-persisted-a',
       cwd: 'D:\\Workspace-A',
+      environment: { kind: 'windows', distro: '' },
       runtimePresence: [],
     };
     const secondIdentity = {
@@ -939,6 +1493,25 @@ function registerTerminalAgentActionTests(context) {
     assert.deepStrictEqual(Array.from(actions.agentTargets(secondIdentity), target => target.id), [],
       'metadata가 없던 PTY도 최초 mount/selection에서 bind된 뒤 identity 변경으로 재승인되면 안 됩니다.');
     assert.equal(actions.bindAgentConnection(secondIdentity, firstBindTarget), false);
+
+    state.sessions = [{
+      id: 'terminal:inferred-fresh',
+      type: 'agent',
+      provider: 'codex',
+      bridgeId: firstIdentity.id,
+      agentLinkedSessionId: firstIdentity.id,
+      agentLinkedExternalId: firstIdentity.externalId,
+      agentLinkedEnvironment: 'windows',
+      agentLinkedDistro: '',
+      agentConnectionSignature: firstSignature,
+      backend: 'direct',
+      conversationBound: true,
+      status: 'running',
+      pid: 7604,
+    }];
+    assert.deepStrictEqual(Array.from(actions.agentTargets(firstIdentity), target => target.id), ['terminal:inferred-fresh'],
+      '첫 질문으로 영속 연결된 fresh PTY는 같은 canonical 대화의 writable target으로 재사용해야 합니다.');
+    assert.deepStrictEqual(Array.from(actions.agentTargets(secondIdentity), target => target.id), []);
   });
 
   test('연결 서명은 고정 길이이며 cwd 변경과 무관하게 canonical history identity를 유지한다', () => {

@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { blankUsage } = require('./providerRegistry');
 
@@ -457,11 +458,47 @@ function syntheticRuntimeSession(processInfo, now = Date.now()) {
   };
 }
 
+function normalizedPromptText(value, limit = 6_000) {
+  const text = String(value == null ? '' : value).replace(/\u0000/g, '').trim();
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function promptFingerprint(value) {
+  const text = normalizedPromptText(value);
+  return text ? crypto.createHash('sha256').update(text, 'utf8').digest('hex') : '';
+}
+
+const BRIDGE_CLOCK_SKEW_MS = 5_000;
+const BRIDGE_DISCOVERY_WINDOW_MS = 5 * 60_000;
+
+function withinBridgeDiscoveryWindow(value, bridgeStart) {
+  const timestamp = Date.parse(value || 0);
+  return Number.isFinite(timestamp)
+    && timestamp >= bridgeStart - BRIDGE_CLOCK_SKEW_MS
+    && timestamp <= bridgeStart + BRIDGE_DISCOVERY_WINDOW_MS;
+}
+
+function bridgePromptMatches(session, bridge) {
+  const expected = String(bridge?.initialPromptFingerprint || '').trim().toLowerCase();
+  const bridgeStart = Date.parse(bridge?.startedAt || 0);
+  if (!/^[a-f0-9]{64}$/u.test(expected) || !Number.isFinite(bridgeStart)) return false;
+  return (session?.messages || []).some(message => {
+    if (message?.role !== 'user' || promptFingerprint(message.text) !== expected) return false;
+    const messageAt = Date.parse(message.timestamp || 0);
+    return Number.isFinite(messageAt) && withinBridgeDiscoveryWindow(message.timestamp, bridgeStart);
+  });
+}
+
 function bridgeLinkScore(session, bridge, now = Date.now()) {
   if (!session || session.provider !== bridge.provider) return -Infinity;
   if (!session.environment || session.environment.kind !== bridge.environment) return -Infinity;
   if (utilitySession(session)) return -Infinity;
   if (session.clientKind === 'codex-desktop' || session.clientKind === 'codex-ide' || session.clientKind === 'claude-desktop') return -Infinity;
+  // An unbound terminal and a recent history often share provider, cwd, and
+  // start time. Those fields alone previously attached a fresh PTY to an older
+  // conversation before the provider wrote its new transcript. Require the
+  // exact launch prompt observed in that transcript before inferring a link.
+  if (bridge.terminalId && !bridgePromptMatches(session, bridge)) return -Infinity;
   let score = session.parentId ? -500 : 3_000;
   const sessionCwd = String(session.cwd || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
   const bridgeCwd = String(bridge.cwd || '').replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
@@ -469,8 +506,8 @@ function bridgeLinkScore(session, bridge, now = Date.now()) {
   const sessionStart = Date.parse(session.startedAt || 0);
   const bridgeStart = Date.parse(bridge.startedAt || 0);
   if (!Number.isFinite(sessionStart) || !Number.isFinite(bridgeStart)) return -Infinity;
+  if (!withinBridgeDiscoveryWindow(session.startedAt, bridgeStart)) return -Infinity;
   const delta = Math.abs(sessionStart - bridgeStart) / 60_000;
-  if (delta > 5) return -Infinity;
   score += delta <= 1 ? 8_000 : 4_000;
   const age = Math.max(0, (now - Date.parse(session.updatedAt || 0)) / 60_000);
   return score + Math.max(0, 720 - age);
@@ -500,8 +537,23 @@ function inferredBridgeBindings(sessions, minimumScore = 15_000) {
     for (const presence of session.runtimePresence || []) {
       const terminalId = String(presence?.terminalId || '').trim();
       const score = Number(presence?.linkScore);
-      if (presence?.kind !== 'bridge' || presence?.provider !== provider || !terminalId || !Number.isFinite(score) || score < minimumScore) continue;
-      candidates.push({ terminalId, sessionId, provider, linkScore: score });
+      if (presence?.kind !== 'bridge'
+        || presence?.provider !== provider
+        || !terminalId
+        || presence.bindingTerminalCandidateCount !== 1
+        || presence.bindingSessionCandidateCount !== 1
+        || !Number.isFinite(score)
+        || score < minimumScore) continue;
+      candidates.push({
+        terminalId,
+        sessionId,
+        externalId: String(session.externalId || '').trim(),
+        provider,
+        environment: String(session.environment?.kind || '').trim().toLowerCase(),
+        distro: String(session.environment?.distro || '').trim(),
+        promptFingerprint: String(presence.initialPromptFingerprint || '').trim().toLowerCase(),
+        linkScore: score,
+      });
     }
   }
   const terminalCounts = new Map();
@@ -543,12 +595,37 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
       if (score > 0) bridgePairs.push({ bridge, session, score });
     }
   }
+  // Preserve ambiguity from the complete candidate graph before the greedy
+  // runtime display match consumes either side. A chosen best row is not safe
+  // to persist when the same terminal could still represent two histories, or
+  // two fresh terminals could both represent the same history.
+  const terminalCandidates = new Map();
+  const sessionCandidates = new Map();
+  for (const pair of bridgePairs) {
+    const terminalId = String(pair.bridge.terminalId || pair.bridge.id || '');
+    if (!terminalCandidates.has(terminalId)) terminalCandidates.set(terminalId, new Set());
+    terminalCandidates.get(terminalId).add(pair.session.id);
+    if (!sessionCandidates.has(pair.session.id)) sessionCandidates.set(pair.session.id, new Set());
+    sessionCandidates.get(pair.session.id).add(terminalId);
+  }
   bridgePairs.sort((a, b) => b.score - a.score);
   for (const pair of bridgePairs) {
     if (usedBridgeIds.has(pair.bridge.id) || usedSessionIds.has(pair.session.id)) continue;
+    const terminalId = String(pair.bridge.terminalId || pair.bridge.id || '');
+    if (terminalCandidates.get(terminalId)?.size !== 1
+      || sessionCandidates.get(pair.session.id)?.size !== 1) {
+      continue;
+    }
     usedBridgeIds.add(pair.bridge.id);
     usedSessionIds.add(pair.session.id);
-    markRuntime(pair.session, { ...pair.bridge, kind: 'bridge', label: 'LoadToAgent 외부 명령창 연결', linkScore: Math.round(pair.score) });
+    markRuntime(pair.session, {
+      ...pair.bridge,
+      kind: 'bridge',
+      label: 'LoadToAgent 외부 명령창 연결',
+      linkScore: Math.round(pair.score),
+      bindingTerminalCandidateCount: terminalCandidates.get(terminalId)?.size || 0,
+      bindingSessionCandidateCount: sessionCandidates.get(pair.session.id)?.size || 0,
+    });
   }
   for (const distro of tmuxSnapshot && tmuxSnapshot.distros || []) {
     if (distro.stale) continue;
@@ -677,6 +754,7 @@ module.exports = {
   processInteractionMode,
   utilityProcess,
   runtimeLinkScore,
+  promptFingerprint,
   bridgeLinkScore,
   inferredBridgeBindings,
   applyRuntimePresence,

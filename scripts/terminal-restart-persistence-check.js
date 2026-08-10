@@ -44,16 +44,54 @@ function launchApp(port, userData, bridgeHome) {
 }
 
 async function targetPage(port, child) {
+  let latestTargets = [];
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (child.exitCode != null) throw new Error(`Electron 앱이 시작 중 종료되었습니다.\n${child.capturedStderr.join('')}`);
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json`).then(response => response.json());
-      const target = targets.find(item => item.type === 'page' && /LoadToAgent/i.test(item.title || '')) || targets.find(item => item.type === 'page');
+      latestTargets = Array.isArray(targets) ? targets : [];
+      const target = latestTargets.find(item => item.type === 'page'
+        && (/LoadToAgent/i.test(item.title || '') || /\/index\.html(?:[?#]|$)/i.test(item.url || '')));
       if (target?.webSocketDebuggerUrl) return target;
     } catch {}
     await pause(150);
   }
-  throw new Error(`Electron 디버그 대상(${port})을 찾지 못했습니다.\n${child.capturedStderr.join('')}`);
+  const targetSummary = latestTargets.map(item => ({ type: item.type, title: item.title, url: item.url }));
+  throw new Error(`준비된 Electron 디버그 대상(${port})을 찾지 못했습니다.\ntargets=${JSON.stringify(targetSummary)}\n${child.capturedStderr.join('')}`);
+}
+
+function remoteValueText(value) {
+  if (!value) return '';
+  if (value.description) return String(value.description);
+  if (value.value !== undefined) {
+    try { return typeof value.value === 'string' ? value.value : JSON.stringify(value.value); } catch {}
+  }
+  return String(value.type || '');
+}
+
+function remoteStackText(stackTrace) {
+  return (stackTrace?.callFrames || []).map(frame => {
+    const source = frame.url || '<renderer>';
+    return `    at ${frame.functionName || '<anonymous>'} (${source}:${Number(frame.lineNumber || 0) + 1}:${Number(frame.columnNumber || 0) + 1})`;
+  }).join('\n');
+}
+
+function exceptionDetailsText(details) {
+  if (!details) return '';
+  return [
+    remoteValueText(details.exception) || details.text || '렌더러 평가 실패',
+    remoteStackText(details.stackTrace),
+  ].filter(Boolean).join('\n');
+}
+
+function rendererDiagnosticText(send) {
+  const diagnostics = send?.diagnostics || {};
+  const renderer = (diagnostics.renderer || []).slice(-20).join('\n');
+  const stderr = String(diagnostics.child?.capturedStderr?.join('') || '').trim();
+  return [
+    renderer ? `renderer diagnostics:\n${renderer}` : '',
+    stderr ? `Electron stderr:\n${stderr}` : '',
+  ].filter(Boolean).join('\n');
 }
 
 async function connectPage(port, child) {
@@ -65,26 +103,65 @@ async function connectPage(port, child) {
   });
   let sequence = 0;
   const pending = new Map();
+  const rendererDiagnostics = [];
+  const rememberDiagnostic = value => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    rendererDiagnostics.push(text);
+    if (rendererDiagnostics.length > 100) rendererDiagnostics.shift();
+  };
   socket.addEventListener('message', event => {
     const message = JSON.parse(event.data);
-    if (!message.id || !pending.has(message.id)) return;
-    const entry = pending.get(message.id);
-    pending.delete(message.id);
-    if (message.error) entry.reject(new Error(message.error.message));
-    else entry.resolve(message.result || {});
+    if (message.id && pending.has(message.id)) {
+      const entry = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) entry.reject(new Error(`${message.error.message}\n${rendererDiagnosticText(send)}`.trim()));
+      else entry.resolve(message.result || {});
+      return;
+    }
+    if (message.method === 'Runtime.exceptionThrown') {
+      rememberDiagnostic(exceptionDetailsText(message.params?.exceptionDetails));
+    } else if (message.method === 'Runtime.consoleAPICalled'
+      && ['error', 'warning'].includes(message.params?.type)) {
+      rememberDiagnostic((message.params?.args || []).map(remoteValueText).filter(Boolean).join(' '));
+    } else if (message.method === 'Log.entryAdded') {
+      rememberDiagnostic(`${message.params?.entry?.level || 'log'}: ${message.params?.entry?.text || ''}`);
+    }
   });
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     const id = ++sequence;
     pending.set(id, { resolve, reject });
     socket.send(JSON.stringify({ id, method, params }));
   });
+  send.diagnostics = { child, renderer: rendererDiagnostics, target };
   await send('Runtime.enable');
-  return { socket, send };
+  await send('Log.enable');
+  let readinessException = null;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const readiness = await send('Runtime.evaluate', {
+      expression: "typeof window.loadtoagent?.bootstrap === 'function'",
+      returnByValue: true,
+    });
+    readinessException = readiness.exceptionDetails || null;
+    if (readiness.result?.value === true) return { socket, send };
+    await pause(50);
+  }
+  throw new Error([
+    `LoadToAgent preload API가 준비되지 않았습니다: ${target.url || target.title || 'unknown target'}`,
+    exceptionDetailsText(readinessException),
+    rendererDiagnosticText(send),
+  ].filter(Boolean).join('\n'));
 }
 
 async function evaluate(send, expression) {
   const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
-  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text || '렌더러 평가 실패');
+  if (result.exceptionDetails) {
+    throw new Error([
+      exceptionDetailsText(result.exceptionDetails),
+      `expression=${String(expression).slice(0, 500)}`,
+      rendererDiagnosticText(send),
+    ].filter(Boolean).join('\n'));
+  }
   return result.result?.value;
 }
 

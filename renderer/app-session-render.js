@@ -61,9 +61,14 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
 
   function recentConversation(session) {
     const messages = (session.messages || []).filter((message) => message && message.text && message.role !== "system");
-    const user = [...messages].reverse().find((message) => message.role === "user");
-    const assistant = [...messages].reverse().find((message) => message.role === "assistant");
-    const tool = [...messages].reverse().find((message) => message.role === "tool");
+    const latestUserIndex = messages.findLastIndex((message) => message.role === "user");
+    const user = latestUserIndex >= 0 ? messages[latestUserIndex] : null;
+    // A compact monitor snapshot can contain the newest user turn before its
+    // answer arrives. Never pair that request with an assistant/tool message
+    // from an older turn, which makes history look like a new AI response.
+    const responseMessages = latestUserIndex >= 0 ? messages.slice(latestUserIndex + 1) : messages;
+    const assistant = [...responseMessages].reverse().find((message) => message.role === "assistant");
+    const tool = [...responseMessages].reverse().find((message) => message.role === "tool");
     const rows = [];
     if (user) rows.push({ label: t("session.me"), text: readablePreview(user.text, 140).text, tone: "user" });
     if (assistant) rows.push({ label: providerInfo(session.provider).label, text: readablePreview(assistant.text, 140).text, tone: "assistant" });

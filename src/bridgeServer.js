@@ -5,11 +5,13 @@ const os = require('os');
 const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
+const { StringDecoder } = require('string_decoder');
 const { AGENT_PROVIDERS } = require('./terminalManager');
 const { runBestEffort } = require('./diagnostics');
 
 const PROTOCOL_VERSION = 1;
 const MAX_FRAME_CHARS = 1024 * 1024;
+const MAX_OUTBOUND_QUEUE_BYTES = 16 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 10_000;
 
 function bridgeDirectory(home = os.homedir()) {
@@ -35,11 +37,6 @@ function safeWriteJson(file, value) {
   runBestEffort('bridge-discovery-permissions', () => fs.chmodSync(file, 0o600));
 }
 
-function sendFrame(socket, payload) {
-  if (!socket || socket.destroyed) return;
-  socket.write(`${JSON.stringify(payload)}\n`, 'utf8');
-}
-
 function validProvider(value) {
   const provider = String(value || '').toLowerCase();
   return AGENT_PROVIDERS[provider] ? provider : '';
@@ -61,6 +58,9 @@ class BridgeServer {
     this.endpoint = options.endpoint || endpointFor(this.platform, this.home);
     this.token = options.token || crypto.randomBytes(32).toString('hex');
     this.file = options.discoveryFile || discoveryFile(this.home);
+    this.maxOutboundQueueBytes = Number.isFinite(Number(options.maxOutboundQueueBytes))
+      ? Math.max(1, Number(options.maxOutboundQueueBytes))
+      : MAX_OUTBOUND_QUEUE_BYTES;
     this.server = null;
     this.clients = new Map();
     this.terminalListenersAttached = false;
@@ -124,18 +124,41 @@ class BridgeServer {
 
   accept(socket) {
     socket.setNoDelay(true);
-    const client = { socket, buffer: '', authenticated: false, terminalId: '', bridgeId: '', authTimer: null };
+    const client = {
+      socket,
+      buffer: '',
+      decoder: new StringDecoder('utf8'),
+      authenticated: false,
+      terminalId: '',
+      bridgeId: '',
+      authTimer: null,
+      outboundQueue: [],
+      outboundBytes: 0,
+      outboundInFlightBytes: 0,
+      outboundBlocked: false,
+      outboundFlushing: false,
+      outboundEndRequested: false,
+      outboundEndCalled: false,
+      detached: false,
+    };
+    client.onDrain = () => {
+      if (client.detached) return;
+      client.outboundBlocked = false;
+      client.outboundInFlightBytes = 0;
+      this.flushOutbound(client);
+    };
     client.authTimer = setTimeout(() => {
       if (!client.authenticated) socket.destroy(new Error('외부 명령창 연결 확인 시간이 초과되었습니다.'));
     }, AUTH_TIMEOUT_MS);
     this.clients.set(socket, client);
     socket.on('data', chunk => this.consume(client, chunk));
+    socket.on('drain', client.onDrain);
     socket.on('error', () => this.detach(client));
     socket.on('close', () => this.detach(client));
   }
 
   consume(client, chunk) {
-    client.buffer += chunk.toString('utf8');
+    client.buffer += client.decoder.write(chunk);
     if (client.buffer.length > MAX_FRAME_CHARS) return client.socket.destroy(new Error('외부 명령창에서 받은 내용이 너무 큽니다.'));
     let newline;
     while ((newline = client.buffer.indexOf('\n')) >= 0) {
@@ -149,9 +172,13 @@ class BridgeServer {
         return client.socket.destroy(new Error('외부 명령창에서 받은 메시지 형식이 올바르지 않습니다.'));
       }
       try { this.handle(client, message || {}); } catch (error) {
-        sendFrame(client.socket, { type: 'error', message: String(error.message || error) });
-        if (!client.authenticated) client.socket.end();
+        this.enqueueFrame(client, { type: 'error', message: String(error.message || error) });
+        if (!client.authenticated) {
+          this.endWhenFlushed(client);
+          return;
+        }
       }
+      if (client.detached || client.outboundEndRequested) return;
     }
   }
 
@@ -176,7 +203,7 @@ class BridgeServer {
       client.authTimer = null;
       client.terminalId = session.id;
       client.bridgeId = bridgeId;
-      sendFrame(client.socket, {
+      this.enqueueFrame(client, {
         type: 'started',
         bridgeId,
         terminalId: session.id,
@@ -193,25 +220,25 @@ class BridgeServer {
       const signaling = this.terminalManager.signal(client.terminalId, message.signal);
       if (signaling && typeof signaling.then === 'function') {
         Promise.resolve(signaling).catch(error => {
-          sendFrame(client.socket, { type: 'error', message: String(error.message || error) });
+          this.enqueueFrame(client, { type: 'error', message: String(error.message || error) });
         });
       }
     } else if (message.type === 'close') {
       const closing = this.terminalManager.close(client.terminalId);
       if (closing && typeof closing.then === 'function') {
         Promise.resolve(closing).then(
-          () => client.socket.end(),
-          error => sendFrame(client.socket, { type: 'error', message: String(error.message || error) }),
+          () => this.endWhenFlushed(client),
+          error => this.enqueueFrame(client, { type: 'error', message: String(error.message || error) }),
         );
       } else {
-        client.socket.end();
+        this.endWhenFlushed(client);
       }
     } else throw new Error('이 외부 명령창 요청은 지원하지 않습니다.');
   }
 
   forwardData(payload) {
     for (const client of this.clients.values()) {
-      if (client.terminalId === payload.id) sendFrame(client.socket, { type: 'output', data: Buffer.from(String(payload.data || ''), 'utf8').toString('base64') });
+      if (client.terminalId === payload.id) this.enqueueFrame(client, { type: 'output', data: Buffer.from(String(payload.data || ''), 'utf8').toString('base64') });
     }
   }
 
@@ -220,19 +247,93 @@ class BridgeServer {
     if (!session) return;
     for (const client of this.clients.values()) {
       if (client.terminalId !== session.id) continue;
-      sendFrame(client.socket, { type: 'state', status: session.status, exitCode: session.exitCode, signal: session.signal });
-      if (['detached', 'stopped', 'exited', 'failed'].includes(session.status)) client.socket.end();
+      this.enqueueFrame(client, { type: 'state', status: session.status, exitCode: session.exitCode, signal: session.signal });
+      if (['detached', 'stopped', 'exited', 'failed'].includes(session.status)) this.endWhenFlushed(client);
     }
   }
 
+  enqueueFrame(client, payload) {
+    if (!client || client.detached || client.outboundEndRequested
+      || !this.clients.has(client.socket) || client.socket.destroyed) return false;
+    let frame;
+    try {
+      frame = Buffer.from(`${JSON.stringify(payload)}\n`, 'utf8');
+    } catch (error) {
+      runBestEffort('bridge-frame-encode', () => client.socket.destroy(error));
+      return false;
+    }
+    const socketBuffered = Math.max(0, Number(client.socket.writableLength) || 0);
+    const bufferedBytes = Math.max(client.outboundInFlightBytes, socketBuffered);
+    if (bufferedBytes + client.outboundBytes + frame.length > this.maxOutboundQueueBytes) {
+      const error = new Error('외부 명령창 출력 전송 대기열이 가득 차 연결을 종료합니다.');
+      error.code = 'BRIDGE_CLIENT_BACKPRESSURE_OVERFLOW';
+      client.outboundQueue.length = 0;
+      client.outboundBytes = 0;
+      runBestEffort('bridge-backpressure-overflow', () => client.socket.destroy(error));
+      return false;
+    }
+    client.outboundQueue.push(frame);
+    client.outboundBytes += frame.length;
+    this.flushOutbound(client);
+    return true;
+  }
+
+  flushOutbound(client) {
+    if (!client || client.detached || client.outboundBlocked || client.outboundFlushing
+      || client.socket.destroyed || !this.clients.has(client.socket)) return;
+    client.outboundFlushing = true;
+    try {
+      while (!client.outboundBlocked && !client.detached && !client.socket.destroyed
+        && client.outboundQueue.length > 0) {
+        const frame = client.outboundQueue.shift();
+        client.outboundBytes = Math.max(0, client.outboundBytes - frame.length);
+        let writable;
+        try {
+          writable = client.socket.write(frame);
+        } catch (error) {
+          runBestEffort('bridge-socket-write', () => client.socket.destroy(error));
+          break;
+        }
+        if (!writable) {
+          client.outboundBlocked = true;
+          client.outboundInFlightBytes = Math.max(frame.length, Number(client.socket.writableLength) || 0);
+        }
+      }
+    } finally {
+      client.outboundFlushing = false;
+    }
+    if (client.outboundEndRequested && !client.outboundEndCalled && !client.outboundBlocked
+      && client.outboundQueue.length === 0 && !client.socket.destroyed) {
+      client.outboundEndCalled = true;
+      client.socket.end();
+    }
+  }
+
+  endWhenFlushed(client) {
+    if (!client || client.detached || client.socket.destroyed) return;
+    client.outboundEndRequested = true;
+    this.flushOutbound(client);
+  }
+
   detach(client) {
+    if (!client || client.detached) return;
+    client.detached = true;
     if (client.authTimer) clearTimeout(client.authTimer);
+    client.authTimer = null;
+    if (client.onDrain) client.socket.removeListener?.('drain', client.onDrain);
+    client.outboundQueue.length = 0;
+    client.outboundBytes = 0;
+    client.outboundInFlightBytes = 0;
+    client.outboundBlocked = false;
+    client.outboundEndRequested = false;
+    client.outboundEndCalled = false;
     this.clients.delete(client.socket);
   }
 
   dispose() {
     this.detachTerminalListeners();
-    for (const client of this.clients.values()) {
+    for (const client of [...this.clients.values()]) {
+      this.detach(client);
       runBestEffort('bridge-client-close', () => client.socket.destroy());
     }
     this.clients.clear();

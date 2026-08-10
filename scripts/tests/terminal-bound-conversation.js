@@ -6,6 +6,7 @@ const path = require('path');
 const {
   TerminalManager,
   normalizeLaunchOptions,
+  promptFingerprint,
 } = require('../../src/terminalManager');
 
 class FakePty {
@@ -89,6 +90,330 @@ function persistedBoundRecord(root, pid) {
 }
 
 function registerTerminalBoundConversationTests({ test, root, temp }) {
+  test('fresh PTY는 첫 질문이 일치하는 실제 provider 기록에만 영속 연결한다', () => {
+    const storeFile = path.join(temp, 'fresh-inferred-binding.json');
+    const { manager } = managerFixture(root, { storeFile });
+    const prompt = '새 작업의 고유한 첫 질문';
+    const created = manager.create({
+      type: 'agent',
+      provider: 'codex',
+      cwd: root,
+      args: ['--sandbox', 'read-only', prompt],
+      initialCommand: prompt,
+      initialCommandInArgs: true,
+      deliveryId: 'start:fresh-binding',
+      sessionBackend: 'direct',
+    });
+    assert.equal(created.initialPromptFingerprint, promptFingerprint(prompt));
+    assert.equal(created.conversationBound, false);
+    assert.throws(
+      () => manager.bindAgentSession(created.id, {
+        terminalId: created.id,
+        sessionId: 'codex:wrong-history',
+        externalId: 'wrong-history',
+        provider: 'codex',
+        environment: 'macos',
+        distro: '',
+        promptFingerprint: promptFingerprint('다른 질문'),
+        linkScore: 19_000,
+      }),
+      error => error.code === 'AGENT_BINDING_IDENTITY_MISMATCH',
+    );
+
+    const bound = manager.bindAgentSession(created.id, {
+      terminalId: created.id,
+      sessionId: 'codex:fresh-history',
+      externalId: 'fresh-history',
+      provider: 'codex',
+      environment: 'macos',
+      distro: '',
+      promptFingerprint: promptFingerprint(prompt),
+      linkScore: 19_000,
+    });
+    assert.equal(bound.conversationBound, true);
+    assert.equal(bound.bridgeId, 'codex:fresh-history');
+    assert.equal(bound.agentLinkedSessionId, 'codex:fresh-history');
+    assert.equal(bound.agentLinkedExternalId, 'fresh-history');
+    assert.equal(bound.agentResumeSessionId, 'fresh-history');
+    assert.match(bound.agentConnectionSignature, /^acs1:[a-f0-9]{64}$/u);
+    assert.throws(
+      () => manager.command(created.id, '/resume stale-history'),
+      error => error.code === 'AGENT_BOUND_META_COMMAND_BLOCKED',
+    );
+
+    const restoredFixture = managerFixture(root, { storeFile });
+    const restored = restoredFixture.manager.get(created.id);
+    assert.equal(restored.conversationBound, true);
+    assert.equal(restored.agentLinkedSessionId, 'codex:fresh-history');
+    assert.equal(restored.initialPromptFingerprint, promptFingerprint(prompt));
+    assert.equal(restored.recoverySkippedReason, 'bound-direct-explicit-reconnect-required');
+    restoredFixture.manager.recoverPersistedSessions();
+    assert.equal(restoredFixture.spawns.length, 0, 'host 재시작이 원래 fresh 인자를 다시 실행하면 안 됩니다.');
+
+    const authoritativeFile = path.join(temp, 'fresh-inferred-binding-derived-options.json');
+    const authoritativeStore = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    authoritativeStore.sessions[0].status = 'running';
+    authoritativeStore.sessions[0].pid = 59_998;
+    authoritativeStore.sessions[0].options.agentConnectionSignature = '';
+    authoritativeStore.sessions[0].options.args = [];
+    fs.writeFileSync(authoritativeFile, JSON.stringify(authoritativeStore), 'utf8');
+    let authoritativeProbes = 0;
+    const authoritativeFixture = managerFixture(root, {
+      storeFile: authoritativeFile,
+      processKill: () => {
+        authoritativeProbes += 1;
+        const error = new Error('released');
+        error.code = 'ESRCH';
+        throw error;
+      },
+    });
+    const rebuiltBinding = authoritativeFixture.manager.get(created.id);
+    assert.equal(rebuiltBinding.conversationBound, true);
+    assert.equal(rebuiltBinding.agentResumeSessionId, 'fresh-history');
+    assert.match(rebuiltBinding.agentConnectionSignature, /^acs1:[a-f0-9]{64}$/u);
+    assert.equal(rebuiltBinding.recoverySkippedReason, 'bound-direct-explicit-reconnect-required');
+    assert.equal(authoritativeProbes, 1, 'valid binding은 canonical recovery identity를 재구성해 orphan을 fail-closed 확인해야 합니다.');
+    authoritativeFixture.manager.recoverPersistedSessions();
+    assert.equal(authoritativeFixture.spawns.length, 0);
+
+    const tamperedFile = path.join(temp, 'fresh-inferred-binding-tampered.json');
+    const tamperedStore = JSON.parse(fs.readFileSync(storeFile, 'utf8'));
+    tamperedStore.sessions[0].status = 'running';
+    tamperedStore.sessions[0].pid = 59_999;
+    tamperedStore.sessions[0].agentBinding.promptFingerprint = 'f'.repeat(64);
+    fs.writeFileSync(tamperedFile, JSON.stringify(tamperedStore), 'utf8');
+    let orphanProbes = 0;
+    const tamperedFixture = managerFixture(root, {
+      storeFile: tamperedFile,
+      processKill: () => {
+        orphanProbes += 1;
+        const error = new Error('should not probe rejected binding');
+        error.code = 'ESRCH';
+        throw error;
+      },
+    });
+    const rejectedBinding = tamperedFixture.manager.get(created.id);
+    assert.equal(rejectedBinding.conversationBound, false);
+    assert.equal(rejectedBinding.bridgeId, '');
+    assert.equal(rejectedBinding.agentResumeSessionId, '');
+    assert.equal(rejectedBinding.recoverySkippedReason, 'invalid-agent-binding');
+    tamperedFixture.manager.recoverPersistedSessions();
+    assert.equal(tamperedFixture.spawns.length, 0);
+    assert.equal(orphanProbes, 0, '검증 실패한 binding의 PID/자동 resume 경로를 신뢰하면 안 됩니다.');
+
+    const conflictFixture = managerFixture(root);
+    const createFresh = (text, deliveryId) => conflictFixture.manager.create({
+      type: 'agent', provider: 'codex', cwd: root,
+      args: ['--sandbox', 'read-only', text],
+      initialCommand: text, initialCommandInArgs: true, deliveryId,
+      sessionBackend: 'direct',
+    });
+    const firstConflict = createFresh('종료 확인 중인 첫 PTY', 'start:conflict-first');
+    conflictFixture.manager.bindAgentSession(firstConflict.id, {
+      sessionId: 'codex:conflict-history', externalId: 'conflict-history', provider: 'codex',
+      environment: 'macos', distro: '', promptFingerprint: promptFingerprint('종료 확인 중인 첫 PTY'), linkScore: 19_000,
+    });
+    const firstConflictState = conflictFixture.manager.sessions.get(firstConflict.id);
+    firstConflictState.status = 'stopping';
+    firstConflictState.terminationPending = true;
+    const secondConflict = createFresh('두 번째 PTY', 'start:conflict-second');
+    assert.throws(
+      () => conflictFixture.manager.bindAgentSession(secondConflict.id, {
+        sessionId: 'codex:conflict-history', externalId: 'conflict-history', provider: 'codex',
+        environment: 'macos', distro: '', promptFingerprint: promptFingerprint('두 번째 PTY'), linkScore: 19_000,
+      }),
+      error => error.code === 'AGENT_BINDING_SESSION_ALREADY_ACTIVE',
+      '같은 canonical 대화의 기존 PTY가 종료 확인 중이면 새 binding을 허용하면 안 됩니다.',
+    );
+
+    const creationStoreFile = path.join(temp, 'fresh-creation-idempotency.json');
+    const creationFixture = managerFixture(root, { storeFile: creationStoreFile });
+    const creationRequest = {
+      type: 'agent', provider: 'grok', cwd: root,
+      args: ['--no-auto-update'], title: 'Grok · 생성 요청 멱등성',
+      initialCommand: '응답이 유실되어도 새 PTY는 하나', initialCommandInArgs: false,
+      creationId: 'create:fresh-grok-idempotent', deliveryId: 'start:fresh-grok-idempotent',
+      sessionBackend: 'direct', transient: false, cols: 120, rows: 32,
+    };
+    const firstCreation = creationFixture.manager.create(creationRequest);
+    const duplicateCreation = creationFixture.manager.create(creationRequest);
+    assert.equal(duplicateCreation.id, firstCreation.id);
+    assert.equal(duplicateCreation.creationDuplicate, true);
+    assert.equal(duplicateCreation.creationUnavailable, false);
+    assert.equal(creationFixture.spawns.length, 1, '같은 creationId 재전송은 PTY를 다시 spawn하면 안 됩니다.');
+    const persistedCreation = JSON.parse(fs.readFileSync(creationStoreFile, 'utf8')).sessions
+      .find(session => session.id === firstCreation.id);
+    assert.equal(persistedCreation.creationId, creationRequest.creationId);
+    assert.match(persistedCreation.creationPayloadFingerprint, /^[a-f0-9]{64}$/u);
+    assert.throws(
+      () => creationFixture.manager.create({ ...creationRequest, initialCommand: '다른 생성 payload' }),
+      error => error.code === 'CREATION_ID_CONFLICT'
+        && error.creationState === 'rejected'
+        && error.creationId === creationRequest.creationId,
+    );
+    const firstFollowup = creationFixture.manager.command(firstCreation.id, creationRequest.initialCommand, {
+      deliveryId: creationRequest.deliveryId,
+    });
+    const duplicateFollowup = creationFixture.manager.command(firstCreation.id, creationRequest.initialCommand, {
+      deliveryId: creationRequest.deliveryId,
+    });
+    assert.equal(firstFollowup.deliveryState, 'accepted');
+    assert.equal(duplicateFollowup.duplicate, true);
+    assert.equal(creationFixture.writes.length, 1, 'Grok 후속 command도 실제 PTY에는 한 번만 써야 합니다.');
+    const duplicateAfterAcceptedCommand = creationFixture.manager.create({
+      ...creationRequest,
+      deliveryId: 'start:fresh-grok-after-command-response-loss',
+    });
+    assert.equal(duplicateAfterAcceptedCommand.deliveryState, 'accepted');
+    assert.equal(duplicateAfterAcceptedCommand.promptSent, true);
+    assert.equal(duplicateAfterAcceptedCommand.originalDeliveryId, creationRequest.deliveryId);
+    assert.equal(creationFixture.writes.length, 1,
+      'command 응답 뒤 renderer가 재시도해도 creation ledger가 이미 전달된 Grok 질문을 다시 쓰게 하면 안 됩니다.');
+
+    const overlongIdPrefix = 'x'.repeat(240);
+    const spawnsBeforeInvalidIds = creationFixture.spawns.length;
+    for (const suffix of ['A', 'B']) {
+      assert.throws(
+        () => creationFixture.manager.create({
+          ...creationRequest,
+          creationId: `${overlongIdPrefix}${suffix}`,
+          deliveryId: '',
+        }),
+        error => error.code === 'CREATION_ID_INVALID' && error.creationState === 'rejected',
+        '공통 240자 prefix를 가진 서로 다른 creationId를 잘라 같은 장부 키로 취급하면 안 됩니다.',
+      );
+    }
+    assert.equal(creationFixture.spawns.length, spawnsBeforeInvalidIds,
+      '길이 제한을 넘은 creationId는 PTY spawn 전에 거절해야 합니다.');
+    const writesBeforeInvalidDelivery = creationFixture.writes.length;
+    assert.throws(
+      () => creationFixture.manager.command(firstCreation.id, '잘린 ID로 전달하지 마', {
+        deliveryId: `${'d'.repeat(240)}A`,
+      }),
+      error => error.code === 'DELIVERY_REJECTED' && error.deliveryState === 'rejected',
+    );
+    assert.equal(creationFixture.writes.length, writesBeforeInvalidDelivery,
+      '길이 제한을 넘은 deliveryId는 PTY write 전에 거절해야 합니다.');
+    assert.throws(
+      () => creationFixture.manager.create({
+        ...creationRequest,
+        creationId: 'create:valid-id-with-invalid-delivery',
+        deliveryId: `${'d'.repeat(240)}B`,
+      }),
+      error => error.code === 'DELIVERY_REJECTED' && error.deliveryState === 'rejected',
+      '생성 요청의 과긴 deliveryId도 creation ledger/spawn 전에 거절해야 합니다.',
+    );
+    assert.equal(creationFixture.spawns.length, spawnsBeforeInvalidIds);
+
+    const codexCreationRequest = {
+      ...creationRequest,
+      provider: 'codex',
+      args: ['--sandbox', 'read-only', '생성·전달 장부를 함께 저장'],
+      title: 'Codex · 생성 장부 저장 횟수',
+      initialCommand: '생성·전달 장부를 함께 저장',
+      initialCommandInArgs: true,
+      creationId: 'create:fresh-codex-persist-count',
+      deliveryId: 'start:fresh-codex-persist-count',
+    };
+    let creationPersistCalls = 0;
+    const originalPersistNow = creationFixture.manager.persistNow.bind(creationFixture.manager);
+    creationFixture.manager.persistNow = () => {
+      creationPersistCalls += 1;
+      return originalPersistNow();
+    };
+    creationFixture.manager.create(codexCreationRequest);
+    assert.equal(creationPersistCalls, 2,
+      'argv prompt 생성은 spawn 전 creation+prepared, spawn 후 accepted 상태를 각각 한 번만 저장해야 합니다.');
+
+    const restartedCreation = managerFixture(root, { storeFile: creationStoreFile });
+    restartedCreation.manager.recoverPersistedSessions();
+    const afterHostRestart = restartedCreation.manager.create(creationRequest);
+    assert.equal(afterHostRestart.id, firstCreation.id);
+    assert.equal(afterHostRestart.creationDuplicate, true);
+    assert.equal(afterHostRestart.creationUnavailable, true);
+    assert.equal(afterHostRestart.recoverySkippedReason, 'unsafe-agent-restart');
+    assert.equal(restartedCreation.spawns.length, 0, 'host 재시작 뒤 동일 생성 요청은 fresh provider를 다시 실행하면 안 됩니다.');
+
+    let failedSpawnAttempts = 0;
+    const failedCreation = managerFixture(root, {
+      ptyModule: {
+        spawn() {
+          failedSpawnAttempts += 1;
+          throw new Error('provider executable missing');
+        },
+      },
+    });
+    const failedResult = failedCreation.manager.create({
+      ...creationRequest,
+      creationId: 'create:fresh-grok-failed',
+      deliveryId: 'start:fresh-grok-failed',
+    });
+    const reusedFailure = failedCreation.manager.create({
+      ...creationRequest,
+      creationId: 'create:fresh-grok-failed',
+      deliveryId: 'start:fresh-grok-failed',
+    });
+    assert.equal(failedResult.status, 'failed');
+    assert.equal(failedResult.creationFailed, true);
+    assert.equal(reusedFailure.id, failedResult.id);
+    assert.equal(reusedFailure.creationDuplicate, true);
+    assert.equal(failedSpawnAttempts, 1, '실패한 생성 요청도 같은 session을 열어야 하며 다시 spawn하면 안 됩니다.');
+
+    let registrationSpawnAttempts = 0;
+    let registrationCleanupKills = 0;
+    const registrationFailure = managerFixture(root, {
+      killTree: handle => handle.kill(),
+      ptyModule: {
+        spawn() {
+          registrationSpawnAttempts += 1;
+          return {
+            pid: 61_000,
+            onData() { throw new Error('PTY data listener registration failed'); },
+            onExit() {},
+            write() {},
+            resize() {},
+            kill() { registrationCleanupKills += 1; },
+          };
+        },
+      },
+    });
+    const registrationRequest = {
+      ...codexCreationRequest,
+      creationId: 'create:fresh-codex-registration-failed',
+      deliveryId: 'start:fresh-codex-registration-failed',
+    };
+    const registrationResult = registrationFailure.manager.create(registrationRequest);
+    const registrationDuplicate = registrationFailure.manager.create(registrationRequest);
+    assert.equal(registrationResult.status, 'failed');
+    assert.equal(registrationResult.deliveryState, 'unknown',
+      '프로세스가 시작된 뒤 초기화가 실패하면 argv 질문 도달 여부를 rejected로 단정하면 안 됩니다.');
+    assert.equal(registrationCleanupKills, 1,
+      'listener 등록 뒤 실패한 실제 프로세스는 handle을 잃기 전에 전체 종료해야 합니다.');
+    assert.equal(registrationFailure.manager.sessions.get(registrationResult.id).process, null);
+    assert.equal(registrationDuplicate.id, registrationResult.id);
+    assert.equal(registrationSpawnAttempts, 1,
+      '초기화 실패한 creationId 재전송이 제어 불가능한 두 번째 AI 프로세스를 만들면 안 됩니다.');
+
+    const failingFileSystem = Object.create(fs);
+    failingFileSystem.writeFileSync = () => { throw new Error('simulated creation ledger failure'); };
+    failingFileSystem.unlinkSync = () => {};
+    const blockedCreation = managerFixture(root, {
+      storeFile: path.join(temp, 'fresh-creation-ledger-blocked.json'),
+      fileSystem: failingFileSystem,
+      onPersistenceError: () => {},
+    });
+    assert.throws(
+      () => blockedCreation.manager.create({
+        ...creationRequest,
+        creationId: 'create:fresh-grok-ledger-blocked',
+        deliveryId: 'start:fresh-grok-ledger-blocked',
+      }),
+      error => error.code === 'CREATION_LEDGER_UNAVAILABLE'
+        && error.creationState === 'rejected',
+    );
+    assert.equal(blockedCreation.spawns.length, 0, '생성 장부 영속화 실패 시 spawn 전에 fail closed해야 합니다.');
+  });
+
   test('signed conversation PTY는 요청 backend와 무관하게 direct app-owned PTY로 정규화한다', () => {
     const normalized = normalizeLaunchOptions(boundOptions(root), 'darwin');
     assert.equal(normalized.sessionBackend, 'direct');

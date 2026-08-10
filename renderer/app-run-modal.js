@@ -21,11 +21,60 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     providerStyle,
     visibleProviders = () => state.providers,
     isProviderVisible = () => true,
-    restoreRunDraft = () => {},
-    clearRunDraft = () => {},
     selectView = () => {},
   } = context;
   let runFocusToken = null;
+  let pendingRunCreation = null;
+
+  const restoreRunDraft = (...args) => context.restoreRunDraft?.(...args);
+  const clearRunDraft = (...args) => context.clearRunDraft?.(...args);
+
+  function runCreationKey(options) {
+    if (typeof context.runCreationFingerprint === "function") {
+      return context.runCreationFingerprint(options);
+    }
+    return JSON.stringify([
+      options.provider,
+      options.cwd,
+      options.model,
+      options.prompt,
+      Boolean(options.allowWrites),
+    ]);
+  }
+
+  function nextRunCreationId() {
+    const random = typeof window.crypto?.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+    return `create:${random}`;
+  }
+
+  function restoredPendingRunCreation(key) {
+    const creationId = String(state.runDraft?.creationId || "").trim();
+    const creationFingerprint = String(state.runDraft?.creationFingerprint || "").trim();
+    return creationId
+      && /^[A-Za-z0-9:._-]{1,240}$/.test(creationId)
+      && creationFingerprint === key
+      ? { key, id: creationId }
+      : null;
+  }
+
+  function rememberPendingRunCreation(record) {
+    pendingRunCreation = record;
+    if (typeof context.setPendingRunCreation === "function") {
+      context.setPendingRunCreation({
+        creationId: record.id,
+        creationFingerprint: record.key,
+      });
+    }
+  }
+
+  function forgetPendingRunCreation({ persist = true } = {}) {
+    pendingRunCreation = null;
+    if (persist && typeof context.clearPendingRunCreation === "function") {
+      context.clearPendingRunCreation();
+    }
+  }
 
   function providerPickerHtml() {
     return visibleProviders()
@@ -306,23 +355,71 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       if (typeof window.LoadToAgentTerminal?.startAgent !== "function") {
         throw new Error(window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
       }
-      const result = await window.LoadToAgentTerminal.startAgent({
+      const runOptions = {
         provider: state.runProvider,
         cwd: $("#runCwd").value.trim(),
         model: $("#runModel").value.trim(),
         prompt: $("#runPrompt").value.trim(),
         allowWrites: $("#allowWrites").checked,
+      };
+      const creationKey = runCreationKey(runOptions);
+      if (typeof context.setPendingRunCreation === "function") {
+        pendingRunCreation = restoredPendingRunCreation(creationKey);
+      }
+      if (!pendingRunCreation || pendingRunCreation.key !== creationKey) {
+        rememberPendingRunCreation({ key: creationKey, id: nextRunCreationId() });
+      }
+      const result = await window.LoadToAgentTerminal.startAgent({
+        ...runOptions,
+        creationId: pendingRunCreation.id,
       });
-      if (!result.ok) throw new Error(result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
+      if (!result.ok) {
+        const error = new Error(result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
+        error.creationState = result.creationState || "rejected";
+        error.deliveryState = result.deliveryState || "rejected";
+        error.terminalId = result.terminalId || "";
+        error.terminalSelected = result.terminalSelected === true;
+        throw error;
+      }
+      forgetPendingRunCreation({ persist: false });
       markGuideStep("create");
       closeRunModal(true);
       clearRunDraft({ silent: true, focus: false });
       syncRunComposer();
-      toast(window.LoadToAgentI18n.t("provider.started", { provider: providerInfo(state.runProvider).label }));
+      // startAgent preselects the newly-created PTY. Open that workbench now so
+      // provider output, approval prompts, and failures are visible instead of
+      // leaving the user on a stale dashboard card.
+      selectView("terminal");
+      toast(result.creationFailed
+        ? (result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"))
+        : result.creationUnavailable
+          ? window.LoadToAgentI18n.t("terminal.stopped_record_kept")
+        : window.LoadToAgentI18n.t(result.deliveryState === "unknown"
+          ? "agent.delivery_uncertain"
+          : "provider.started", { provider: providerInfo(state.runProvider).label }));
     } catch (error) {
-      $("#runError").textContent = window.LoadToAgentI18n.errorText(error, "ui.could_not_start_the_task");
-      $("#runError").classList.remove("hidden");
-      $("#runError").focus({ preventScroll: true });
+      const creationState = String(error?.creationState || "").toLowerCase();
+      const deliveryState = String(error?.deliveryState || "").toLowerCase();
+      if (creationState === "rejected"
+        || (creationState === "failed" && deliveryState === "rejected")) {
+        forgetPendingRunCreation();
+      }
+      const revealUncertainTerminal = creationState === "accepted"
+        && deliveryState === "unknown"
+        && error?.terminalSelected === true
+        && Boolean(error?.terminalId);
+      if (revealUncertainTerminal) {
+        // The command may already be running. Keep the full draft and the
+        // idempotent creation ID, but uncover the selected PTY so live output
+        // and approval prompts are not hidden behind the run dialog.
+        closeRunModal(true);
+        selectView("terminal");
+        toast(window.LoadToAgentI18n.t("agent.delivery_uncertain"));
+      } else {
+        $("#runError").textContent = window.LoadToAgentI18n.errorText(error, "ui.could_not_start_the_task");
+        $("#runError").classList.remove("hidden");
+        $("#runError").focus({ preventScroll: true });
+      }
     } finally {
       setRunSubmitting(false);
     }

@@ -9,10 +9,10 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { spawnSync } = require('child_process');
 const { parseArguments } = require('../../bin/loadtoagent');
-const { parseGeneric, buildSummary } = require('../../src/agentMonitor');
+const { parseGeneric, buildSummary, snapshotWithoutSessions } = require('../../src/agentMonitor');
 const { AgentRunner, commandSpec, handleClaude } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
-const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, bridgeLinkScore, applyRuntimePresence, inferredBridgeBindings } = require('../../src/processMonitor');
+const { ProcessMonitor, processRows, powershellProcessRows, posixProcessRows, providerFromPosixProcess, selectAgentProcesses, processSessionExternalId, promptFingerprint, bridgeLinkScore, applyRuntimePresence, inferredBridgeBindings } = require('../../src/processMonitor');
 const { TerminalManager, normalizeLaunchOptions, launchSpec, resolveWindowsCommand, resolvePosixShell, killPtyTree } = require('../../src/terminalManager');
 const {
   TerminalHostServer,
@@ -21,6 +21,7 @@ const {
   acquireTerminalHostProcessLock,
   terminalHostLockEndpoint,
   terminateHostProcess,
+  verifyHostDiscovery,
   resolveTerminalHostExecutable,
 } = require('../../src/terminalHost');
 const { parseConfig: parseTerminalHostConfig, run: runTerminalHostDaemon } = require('../../src/terminalHostDaemon');
@@ -400,15 +401,73 @@ function registerNativeProcessTests(context) {
 
   test('외부 브리지는 같은 시각의 CLI 기록에만 연결하고 Codex 데스크톱과 섞지 않는다', () => {
     const now = Date.parse('2026-07-14T10:00:00Z');
-    const bridge = { provider: 'codex', environment: 'windows', cwd: 'D:\\repo', startedAt: '2026-07-14T09:59:30Z' };
-    const base = { provider: 'codex', environment: { kind: 'windows' }, cwd: 'D:\\repo', parentId: null, updatedAt: '2026-07-14T10:00:00Z' };
+    const prompt = '새 PTY에서만 보낸 질문';
+    const bridge = {
+      provider: 'codex', environment: 'windows', cwd: 'D:\\repo',
+      terminalId: 'terminal:new', startedAt: '2026-07-14T09:59:30Z',
+      initialPromptFingerprint: promptFingerprint(prompt),
+    };
+    const base = {
+      provider: 'codex', externalId: 'matched', environment: { kind: 'windows', distro: '' },
+      cwd: 'D:\\repo', parentId: null, updatedAt: '2026-07-14T10:00:00Z',
+      messages: [{ role: 'user', text: prompt, timestamp: '2026-07-14T09:59:35Z' }],
+    };
     assert.equal(bridgeLinkScore({ ...base, clientKind: 'codex-desktop', startedAt: bridge.startedAt }, bridge, now), -Infinity);
     assert.equal(bridgeLinkScore({ ...base, provider: 'claude', clientKind: 'claude-desktop', startedAt: bridge.startedAt }, { ...bridge, provider: 'claude' }, now), -Infinity);
     assert.equal(bridgeLinkScore({ ...base, clientKind: 'codex-cli', startedAt: '2026-07-14T09:40:00Z' }, bridge, now), -Infinity);
+    assert.equal(bridgeLinkScore({ ...base, messages: [], clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }, bridge, now), -Infinity);
+    assert.equal(bridgeLinkScore({ ...base, messages: [{ role: 'user', text: '지난 질문', timestamp: '2026-07-14T09:59:35Z' }], clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }, bridge, now), -Infinity);
+    assert.equal(bridgeLinkScore({ ...base, messages: [{ role: 'user', text: prompt, timestamp: '2026-07-14T09:55:30Z' }], clientKind: 'codex-cli', startedAt: bridge.startedAt }, bridge, now), -Infinity,
+      'launch 전 과거 prompt 기록은 같은 cwd/text여도 새 PTY에 연결하면 안 됩니다.');
+    assert.equal(bridgeLinkScore({ ...base, clientKind: 'codex-cli', startedAt: '2026-07-14T09:55:30Z' }, bridge, now), -Infinity,
+      'launch 전 과거 session 시작 시각도 새 PTY에 연결하면 안 됩니다.');
+    assert.ok(bridgeLinkScore({
+      ...base,
+      messages: [{ role: 'user', text: prompt, timestamp: '2026-07-14T09:59:29Z' }],
+      clientKind: 'codex-cli',
+      startedAt: '2026-07-14T09:59:29Z',
+    }, bridge, now) > 10_000, '초 단위 기록/시계 오차는 허용해야 합니다.');
     assert.ok(bridgeLinkScore({ ...base, clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }, bridge, now) > 10_000);
     const observed = applyRuntimePresence([{ ...base, id: 'codex:matched', clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' }], {}, { processes: [] }, now, [{ ...bridge, id: 'terminal:new', terminalId: 'terminal:new' }]);
     assert.deepStrictEqual(inferredBridgeBindings(observed).map(item => [item.terminalId, item.sessionId]), [['terminal:new', 'codex:matched']]);
+    assert.equal(inferredBridgeBindings(observed)[0].promptFingerprint, bridge.initialPromptFingerprint);
     assert.deepStrictEqual(inferredBridgeBindings(observed, 20_000), []);
+
+    const oldSamePrompt = applyRuntimePresence([{
+      ...base,
+      id: 'codex:old-same-prompt', externalId: 'old-same-prompt', clientKind: 'codex-cli',
+      startedAt: '2026-07-14T09:55:30Z',
+      messages: [{ role: 'user', text: prompt, timestamp: '2026-07-14T09:55:30Z' }],
+    }], {}, { processes: [] }, now, [{ ...bridge, id: 'terminal:old-guard', terminalId: 'terminal:old-guard' }]);
+    assert.deepStrictEqual(inferredBridgeBindings(oldSamePrompt), [],
+      '4분 전 동일 prompt/cwd history는 새 transcript가 생기기 전에도 연결하면 안 됩니다.');
+    assert.equal(oldSamePrompt.some(session => session.id === 'bridge:terminal:old-guard'), true,
+      '과거 history만 있는 fresh PTY는 unresolved synthetic bridge로 남아야 합니다.');
+
+    const ambiguousHistories = applyRuntimePresence([
+      { ...base, id: 'codex:ambiguous-a', externalId: 'ambiguous-a', clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' },
+      { ...base, id: 'codex:ambiguous-b', externalId: 'ambiguous-b', clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' },
+    ], {}, { processes: [] }, now, [{ ...bridge, id: 'terminal:ambiguous', terminalId: 'terminal:ambiguous' }]);
+    assert.deepStrictEqual(inferredBridgeBindings(ambiguousHistories), [],
+      '동일 prompt/time/cwd의 history 후보가 둘이면 greedy 표시 결과를 영속 연결하면 안 됩니다.');
+    assert.equal(ambiguousHistories
+      .filter(session => session.id.startsWith('codex:ambiguous-'))
+      .some(session => (session.runtimePresence || []).some(presence => presence.terminalId === 'terminal:ambiguous')), false,
+    '모호한 fresh PTY를 어느 과거 history 카드에도 표시 연결하면 안 됩니다.');
+    assert.equal(ambiguousHistories.some(session => session.id === 'bridge:terminal:ambiguous'), true,
+      '모호한 PTY는 unresolved synthetic bridge로 남아야 합니다.');
+
+    const ambiguousTerminals = applyRuntimePresence([
+      { ...base, id: 'codex:one-history', externalId: 'one-history', clientKind: 'codex-cli', startedAt: '2026-07-14T09:59:35Z' },
+    ], {}, { processes: [] }, now, [
+      { ...bridge, id: 'terminal:first', terminalId: 'terminal:first' },
+      { ...bridge, id: 'terminal:second', terminalId: 'terminal:second' },
+    ]);
+    assert.deepStrictEqual(inferredBridgeBindings(ambiguousTerminals), [],
+      '같은 history 후보인 fresh terminal이 둘이면 어느 쪽도 영속 연결하면 안 됩니다.');
+    const oneHistory = ambiguousTerminals.find(session => session.id === 'codex:one-history');
+    assert.equal((oneHistory.runtimePresence || []).some(presence => presence.kind === 'bridge'), false);
+    assert.equal(ambiguousTerminals.filter(session => session.id.startsWith('bridge:terminal:')).length, 2);
   });
 
 }
@@ -417,8 +476,9 @@ function registerBridgeIntegrationTests(context) {
   const { test, temp, root } = context;
   test('LoadToAgent 외부 브리지는 인증 소켓으로 전용 PTY에만 입력한다', async () => {
     class FakeManager extends EventEmitter {
-      constructor() { super(); this.writes = []; this.sessions = []; }
+      constructor() { super(); this.writes = []; this.sessions = []; this.lastOptions = null; }
       create(options) {
+        this.lastOptions = options;
         const session = { id: 'terminal:bridge', type: 'agent', title: options.title, provider: options.provider, bridgeId: options.bridgeId, pid: 777, status: 'running', cwd: options.cwd, createdAt: new Date().toISOString(), replay: 'READY\r\n' };
         this.sessions = [session];
         return session;
@@ -451,9 +511,18 @@ function registerBridgeIntegrationTests(context) {
       socket.once('data', chunk => { clearTimeout(timer); buffer += chunk.toString('utf8'); inspect(); });
     });
     await new Promise((resolve, reject) => { socket.once('connect', resolve); socket.once('error', reject); });
-    socket.write(`${JSON.stringify({ type: 'run', token: 'test-token', provider: 'codex', cwd: root, args: [] })}\n`);
+    assert.equal(await waitUntil(() => server.clients.size === 1), true);
+    const bridgeClient = [...server.clients.values()][0];
+    const runFrame = Buffer.from(`${JSON.stringify({
+      type: 'run', token: 'test-token', provider: 'codex', cwd: root, args: ['질문😀'],
+    })}\n`, 'utf8');
+    // Force every multibyte code point across a transport chunk boundary.
+    for (let index = 0; index < runFrame.length; index += 1) {
+      server.consume(bridgeClient, runFrame.subarray(index, index + 1));
+    }
     const started = await nextFrame();
     assert.equal(started.type, 'started');
+    assert.deepStrictEqual(manager.lastOptions.args, ['질문😀']);
     assert.equal(Buffer.from(started.replay, 'base64').toString('utf8'), 'READY\r\n');
     socket.write(`${JSON.stringify({ type: 'input', data: Buffer.from('hello').toString('base64') })}\n`);
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -2332,6 +2401,16 @@ function registerTerminalLifecycleTests(context) {
     class FakeManager extends EventEmitter {
       constructor() { super(); this.calls = []; }
       list() { return []; }
+      create(options) {
+        this.calls.push(['create', options]);
+        const error = new Error('생성 장부를 저장하지 못해 시작하지 않음');
+        error.code = 'CREATION_LEDGER_UNAVAILABLE';
+        error.creationId = options.creationId;
+        error.creationState = 'rejected';
+        error.deliveryId = options.deliveryId;
+        error.deliveryState = 'rejected';
+        throw error;
+      }
       command(id, value, options) {
         this.calls.push(['command', id, value, options]);
         if (value === '보내기 전 거절') {
@@ -2341,6 +2420,10 @@ function registerTerminalLifecycleTests(context) {
           throw error;
         }
         return { ok: true, deliveryState: 'accepted' };
+      }
+      bindAgentSession(id, binding) {
+        this.calls.push(['bindAgentSession', id, binding]);
+        return { id, conversationBound: true, agentLinkedSessionId: binding.sessionId };
       }
       respond(id, choiceKey) { this.calls.push(['respond', id, choiceKey]); return { ok: true }; }
       detach(id) { this.calls.push(['detach', id]); return { id, status: 'detached' }; }
@@ -2370,6 +2453,17 @@ function registerTerminalLifecycleTests(context) {
         client.command('terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }),
         error => error.code === 'DELIVERY_LEDGER_UNAVAILABLE' && error.deliveryState === 'rejected',
       );
+      const createOptions = { type: 'agent', provider: 'codex', creationId: 'create:host:rejected', deliveryId: 'delivery:host:create' };
+      await assert.rejects(
+        client.create(createOptions),
+        error => error.code === 'CREATION_LEDGER_UNAVAILABLE'
+          && error.creationId === createOptions.creationId
+          && error.creationState === 'rejected'
+          && error.deliveryId === createOptions.deliveryId
+          && error.deliveryState === 'rejected',
+      );
+      const binding = { sessionId: 'codex:history-1', promptFingerprint: 'a'.repeat(64) };
+      assert.equal((await client.bindAgentSession('terminal:managed', binding)).agentLinkedSessionId, 'codex:history-1');
       assert.equal((await client.respond('terminal:managed', 'y')).ok, true);
       assert.equal((await client.detach('terminal:managed')).status, 'detached');
       assert.equal((await client.reconnect('terminal:managed')).status, 'running');
@@ -2377,6 +2471,8 @@ function registerTerminalLifecycleTests(context) {
       assert.deepStrictEqual(manager.calls, [
         ['command', 'terminal:managed', '한 번만 보내기', { deliveryId: 'delivery:host:1' }],
         ['command', 'terminal:managed', '보내기 전 거절', { deliveryId: 'delivery:host:rejected' }],
+        ['create', createOptions],
+        ['bindAgentSession', 'terminal:managed', binding],
         ['respond', 'terminal:managed', 'y'],
         ['detach', 'terminal:managed'],
         ['reconnect', 'terminal:managed'],
@@ -2386,6 +2482,117 @@ function registerTerminalLifecycleTests(context) {
       client.dispose();
       server.dispose();
     }
+
+    class BackpressureSocket extends EventEmitter {
+      constructor({ blockFirstWrite = true } = {}) {
+        super();
+        this.blockNextWrite = blockFirstWrite;
+        this.destroyed = false;
+        this.destroyError = null;
+        this.frames = [];
+        this.writableLength = 0;
+        this.ended = false;
+        this.endCalls = 0;
+      }
+      setNoDelay() {}
+      write(frame) {
+        const copied = Buffer.from(frame);
+        this.frames.push(copied);
+        if (!this.blockNextWrite) return true;
+        this.blockNextWrite = false;
+        this.writableLength = copied.length;
+        return false;
+      }
+      releaseBackpressure() {
+        this.writableLength = 0;
+        this.emit('drain');
+      }
+      end() {
+        this.ended = true;
+        this.endCalls += 1;
+      }
+      destroy(error = null) {
+        this.destroyed = true;
+        this.destroyError = error;
+      }
+    }
+
+    const queuedServer = new TerminalHostServer({
+      manager,
+      discoveryFile: path.join(temp, 'terminal-host-backpressure-queue.json'),
+      token: 'backpressure-token',
+      maxOutboundQueueBytes: 4_096,
+    });
+    const queuedSocket = new BackpressureSocket();
+    queuedServer.accept(queuedSocket);
+    const queuedClient = [...queuedServer.clients][0];
+    await queuedServer.handle(queuedClient, { type: 'authenticate', token: 'backpressure-token' });
+    queuedServer.broadcast({ type: 'event', event: 'data', payload: { id: 'terminal:queue', data: 'first' } });
+    queuedServer.broadcast({ type: 'event', event: 'state', payload: { sessions: [] } });
+    await queuedServer.handle(queuedClient, { type: 'request', operation: 'list', requestId: 'queued-list', args: [] });
+    assert.equal(queuedSocket.frames.length, 1,
+      'socket.write가 false를 반환한 뒤에는 drain 전에 다음 프레임을 쓰면 안 됩니다.');
+    queuedSocket.releaseBackpressure();
+    const queuedFrames = queuedSocket.frames.map(frame => JSON.parse(frame.toString('utf8')));
+    assert.deepStrictEqual(queuedFrames.map(frame => [frame.type, frame.event || frame.requestId || '']), [
+      ['ready', ''],
+      ['event', 'data'],
+      ['event', 'state'],
+      ['response', 'queued-list'],
+    ], 'ready/data/state/response는 backpressure 뒤에도 FIFO 순서를 유지해야 합니다.');
+    queuedServer.dispose();
+
+    const unauthenticatedServer = new TerminalHostServer({
+      manager,
+      discoveryFile: path.join(temp, 'terminal-host-auth-fail-close.json'),
+      token: 'auth-fail-close-token',
+      maxOutboundQueueBytes: 4_096,
+    });
+    const unauthenticatedSocket = new BackpressureSocket();
+    unauthenticatedServer.accept(unauthenticatedSocket);
+    const unauthenticatedClient = [...unauthenticatedServer.clients][0];
+    const callsBeforeRejectedAuthentication = manager.calls.length;
+    unauthenticatedServer.consume(unauthenticatedClient, Buffer.from([
+      JSON.stringify({ type: 'authenticate', token: 'wrong-token' }),
+      JSON.stringify({ type: 'authenticate', token: 'auth-fail-close-token' }),
+      JSON.stringify({ type: 'request', operation: 'create', requestId: 'must-not-create', args: [{}] }),
+      '',
+    ].join('\n'), 'utf8'));
+    await unauthenticatedClient.queue;
+    assert.equal(manager.calls.length, callsBeforeRejectedAuthentication,
+      '인증 실패 뒤 같은 chunk의 유효한 authenticate/create를 실행하면 보이지 않는 PTY가 생깁니다.');
+    assert.equal(unauthenticatedClient.authenticated, false);
+    assert.deepStrictEqual(
+      unauthenticatedSocket.frames.map(frame => JSON.parse(frame.toString('utf8')).type),
+      ['response'],
+    );
+    assert.equal(unauthenticatedSocket.ended, false,
+      '인증 오류 응답이 backpressure로 대기 중일 때 socket을 먼저 닫으면 안 됩니다.');
+    unauthenticatedSocket.releaseBackpressure();
+    assert.equal(unauthenticatedSocket.ended, true);
+    assert.equal(unauthenticatedSocket.endCalls, 1);
+    unauthenticatedSocket.releaseBackpressure();
+    assert.equal(unauthenticatedSocket.endCalls, 1, '늦은 drain이 socket.end를 중복 호출하면 안 됩니다.');
+    unauthenticatedServer.dispose();
+
+    const overflowServer = new TerminalHostServer({
+      manager,
+      discoveryFile: path.join(temp, 'terminal-host-backpressure-overflow.json'),
+      token: 'overflow-token',
+      maxOutboundQueueBytes: 256,
+    });
+    const overflowSocket = new BackpressureSocket();
+    overflowServer.accept(overflowSocket);
+    const overflowClient = [...overflowServer.clients][0];
+    await overflowServer.handle(overflowClient, { type: 'authenticate', token: 'overflow-token' });
+    overflowServer.broadcast({
+      type: 'event', event: 'data', payload: { id: 'terminal:overflow', data: 'x'.repeat(512) },
+    });
+    assert.equal(overflowSocket.destroyed, true,
+      'bounded queue 상한을 넘긴 느린 클라이언트는 reconnect/replay가 복원하도록 연결을 닫아야 합니다.');
+    assert.equal(overflowSocket.destroyError?.code, 'TERMINAL_HOST_CLIENT_BACKPRESSURE_OVERFLOW');
+    assert.equal(overflowClient.outboundQueue.length, 0);
+    overflowServer.dispose();
   });
 
   test('macOS 패키지는 터미널 호스트를 숨김 Helper 실행 파일로 연다', () => {
@@ -3099,6 +3306,16 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(secondClient.list()[0].id, created.id);
     assert.equal(secondClient.list()[0].status, 'running');
     assert.match((await secondClient.get(created.id, true)).replay, /BEFORE_RESTART/);
+    const serverClient = [...server.clients].find(entry => entry.authenticated);
+    const unicodeRequest = Buffer.from(`${JSON.stringify({
+      type: 'request', requestId: 'unicode-request', operation: 'command',
+      args: [created.id, '한글😀'],
+    })}\n`, 'utf8');
+    for (let index = 0; index < unicodeRequest.length; index += 1) {
+      server.consume(serverClient, unicodeRequest.subarray(index, index + 1));
+    }
+    await serverClient.queue;
+    assert.equal(processes[0].writes.at(-1), '한글😀\r');
     await secondClient.command(created.id, 'Write-Output AFTER_RESTART');
     assert.equal(processes[0].writes.at(-1), 'Write-Output AFTER_RESTART\r');
 
@@ -3348,9 +3565,13 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(closeCalls, 2, 'OS lock close 실패 뒤에는 release를 다시 시도할 수 있어야 합니다.');
   });
 
-  test('PTY 런타임이 바뀌면 이전 터미널 호스트를 종료한 뒤 새 런타임으로 교체한다', async () => {
+  test('PTY 런타임이 바뀌면 idle 구버전 호스트의 자연 종료 뒤 새 런타임으로 교체한다', async () => {
     class EmptyManager extends EventEmitter {
-      list() { return []; }
+      constructor() {
+        super();
+        this.sessions = [{ id: 'terminal:startup-guard', status: 'running' }];
+      }
+      list() { return this.sessions.map(session => ({ ...session })); }
       on() { return super.on(...arguments); }
       removeListener() { return super.removeListener(...arguments); }
     }
@@ -3359,24 +3580,32 @@ function registerTerminalLifecycleTests(context) {
     const endpoint = suffix => process.platform === 'win32'
       ? `\\\\.\\pipe\\loadtoagent-host-runtime-${process.pid}-${suffix}`
       : path.join(os.tmpdir(), `lta-host-runtime-${process.pid}-${suffix}.sock`);
-    const oldServer = new TerminalHostServer({
+    let oldServer = null;
+    let legacyExitedNaturally = false;
+    oldServer = new TerminalHostServer({
       manager,
       endpoint: endpoint('old'),
       discoveryFile: discovery,
       token: 'old-runtime-token',
       runtime: 'node-pty-1.1.0',
+      idleShutdownMs: 50,
+      onShutdown: () => {
+        legacyExitedNaturally = true;
+        oldServer.dispose();
+      },
     });
     await oldServer.start();
+    // Prevent startup's idle timer from winning the test. The verifier's
+    // disconnect must be what gives the now-idle legacy daemon permission to
+    // shut itself down.
+    manager.sessions = [];
     let replacementServer = null;
-    let retiredRuntime = '';
+    let terminateCalls = 0;
     const client = new TerminalHostClient({
       discoveryFile: discovery,
       expectedRuntime: 'node-pty-1.2.0-beta.14',
       connectTimeoutMs: 2_000,
-      terminateHost: async info => {
-        retiredRuntime = info.runtime;
-        oldServer.dispose();
-      },
+      terminateHost: async () => { terminateCalls += 1; },
       spawnHost: async () => {
         replacementServer = new TerminalHostServer({
           manager,
@@ -3388,9 +3617,16 @@ function registerTerminalLifecycleTests(context) {
         await replacementServer.start();
       },
     });
-    await client.connect();
+    await assert.rejects(
+      client.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_DEFERRED_LIVE_HOST'
+        && error.retryable === true,
+    );
+    assert.equal(await waitUntil(() => client.connected, 4_000), true,
+      'idle legacy runtime이 자연 종료되면 background retry가 새 runtime을 시작해야 합니다.');
 
-    assert.equal(retiredRuntime, 'node-pty-1.1.0');
+    assert.equal(legacyExitedNaturally, true);
+    assert.equal(terminateCalls, 0, '인증된 live legacy runtime을 tree-kill하면 안 됩니다.');
     assert.equal(client.connected, true);
     assert.equal(JSON.parse(fs.readFileSync(discovery, 'utf8')).runtime, 'node-pty-1.2.0-beta.14');
 
@@ -3438,66 +3674,194 @@ function registerTerminalLifecycleTests(context) {
     replacementServer?.dispose();
   });
 
-  test('prompt response를 지원하지 않는 v9 호스트는 인증 확인 뒤 v10 호스트로 교체한다', async () => {
+  test('native PTY 입력 정책이 오래된 v10 호스트는 자연 종료를 확인한 뒤 v11 호스트로 교체한다', async () => {
     class EmptyManager extends EventEmitter {
-      list() { return []; }
+      constructor(sessions = []) {
+        super();
+        this.sessions = sessions;
+      }
+      list() { return this.sessions.map(session => ({ ...session })); }
       on() { return super.on(...arguments); }
       removeListener() { return super.removeListener(...arguments); }
     }
-    const manager = new EmptyManager();
-    const discovery = path.join(temp, 'terminal-host-protocol-upgrade.json');
     const endpoint = suffix => process.platform === 'win32'
       ? `\\\\.\\pipe\\loadtoagent-host-protocol-${process.pid}-${suffix}`
       : path.join(os.tmpdir(), `lta-host-protocol-${process.pid}-${suffix}.sock`);
-    const oldServer = new TerminalHostServer({
+    const removeLegacyDiscovery = file => {
+      if (fs.existsSync(file)) fs.unlinkSync(file);
+    };
+
+    const manager = new EmptyManager([{ id: 'terminal:startup-guard', status: 'running' }]);
+    const discovery = path.join(temp, 'terminal-host-protocol-upgrade.json');
+    let oldServer = null;
+    let legacyExitedNaturally = false;
+    const transitionOrder = [];
+    oldServer = new TerminalHostServer({
       manager,
-      endpoint: endpoint('v9'),
+      endpoint: endpoint('v10'),
       discoveryFile: discovery,
-      token: 'v9-protocol-token',
+      token: 'v10-protocol-token',
+      idleShutdownMs: 50,
+      onShutdown: () => {
+        legacyExitedNaturally = true;
+        transitionOrder.push('legacy-exit');
+        oldServer.dispose();
+        // This test simulates a v10 daemon with the current server class. Its
+        // v11 dispose validator intentionally cannot remove the tampered v10
+        // discovery, while the real v10 daemon removes its own discovery.
+        removeLegacyDiscovery(discovery);
+      },
     });
     await oldServer.start();
     const oldDiscovery = JSON.parse(fs.readFileSync(discovery, 'utf8'));
-    fs.writeFileSync(discovery, JSON.stringify({ ...oldDiscovery, protocol: 9 }), 'utf8');
+    fs.writeFileSync(discovery, JSON.stringify({ ...oldDiscovery, protocol: 10 }), 'utf8');
+    manager.sessions = [];
 
     let replacementServer = null;
-    let retiredProtocol = 0;
-    let acknowledgeTermination = null;
-    const transitionOrder = [];
+    let terminateCalls = 0;
     const client = new TerminalHostClient({
       discoveryFile: discovery,
       connectTimeoutMs: 2_000,
-      terminateHost: async info => {
-        transitionOrder.push('terminate-start');
-        retiredProtocol = info.protocol;
-        oldServer.dispose();
-        await new Promise(resolve => { acknowledgeTermination = resolve; });
-        transitionOrder.push('terminate-ack');
-      },
+      terminateHost: async () => { terminateCalls += 1; },
       spawnHost: async () => {
         transitionOrder.push('spawn');
         replacementServer = new TerminalHostServer({
           manager,
-          endpoint: endpoint('v10'),
+          endpoint: endpoint('v11'),
           discoveryFile: discovery,
-          token: 'v10-protocol-token',
+          token: 'v11-protocol-token',
         });
         await replacementServer.start();
       },
     });
-    const connecting = client.connect();
-    assert.equal(await waitUntil(() => typeof acknowledgeTermination === 'function'), true);
-    assert.deepStrictEqual(transitionOrder, ['terminate-start']);
-    acknowledgeTermination();
-    await connecting;
+    await assert.rejects(
+      client.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_DEFERRED_LIVE_HOST'
+        && error.retryable === true,
+    );
+    assert.equal(await waitUntil(() => client.connected, 4_000), true,
+      'idle v10 verifier가 연결을 놓은 뒤 legacy daemon이 자연 종료되면 v11을 시작해야 합니다.');
 
     const replacementDiscovery = JSON.parse(fs.readFileSync(discovery, 'utf8'));
-    assert.equal(TERMINAL_HOST_PROTOCOL, 10);
-    assert.equal(retiredProtocol, 9);
+    assert.equal(TERMINAL_HOST_PROTOCOL, 11);
+    assert.equal(legacyExitedNaturally, true);
+    assert.equal(terminateCalls, 0, '인증된 idle v10 host도 tree-kill하면 안 됩니다.');
     assert.equal(client.connected, true);
-    assert.equal(replacementDiscovery.protocol, 10);
-    assert.deepStrictEqual(transitionOrder, ['terminate-start', 'terminate-ack', 'spawn']);
+    assert.equal(replacementDiscovery.protocol, 11);
+    assert.deepStrictEqual(transitionOrder, ['legacy-exit', 'spawn']);
     client.dispose();
     replacementServer?.dispose();
+
+    const activeManager = new EmptyManager([
+      { id: 'terminal:legacy-running', status: 'running' },
+      { id: 'terminal:legacy-starting', status: 'starting' },
+      { id: 'terminal:legacy-stopping', status: 'stopping' },
+      { id: 'terminal:legacy-pending', status: 'exited', terminationPending: true },
+      { id: 'terminal:legacy-uncertain', status: 'exited', terminationUncertain: true },
+    ]);
+    const activeDiscovery = path.join(temp, 'terminal-host-active-protocol-upgrade.json');
+    let activeOldServer = null;
+    let activeLegacyExitedNaturally = false;
+    activeOldServer = new TerminalHostServer({
+      manager: activeManager,
+      endpoint: endpoint('active-v10'),
+      discoveryFile: activeDiscovery,
+      token: 'active-v10-protocol-token',
+      idleShutdownMs: 50,
+      onShutdown: () => {
+        activeLegacyExitedNaturally = true;
+        activeOldServer.dispose();
+        removeLegacyDiscovery(activeDiscovery);
+      },
+    });
+    await activeOldServer.start();
+    const activeOldDiscovery = JSON.parse(fs.readFileSync(activeDiscovery, 'utf8'));
+    fs.writeFileSync(activeDiscovery, JSON.stringify({ ...activeOldDiscovery, protocol: 10 }), 'utf8');
+
+    let activeTerminateCalls = 0;
+    let activeSpawnCalls = 0;
+    let activeReplacementServer = null;
+    const activeClient = new TerminalHostClient({
+      discoveryFile: activeDiscovery,
+      connectTimeoutMs: 2_000,
+      terminateHost: async () => { activeTerminateCalls += 1; },
+      spawnHost: async () => {
+        activeSpawnCalls += 1;
+        activeReplacementServer = new TerminalHostServer({
+          manager: activeManager,
+          endpoint: endpoint('active-v11'),
+          discoveryFile: activeDiscovery,
+          token: 'active-v11-protocol-token',
+        });
+        await activeReplacementServer.start();
+      },
+    });
+    await assert.rejects(
+      activeClient.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_DEFERRED_ACTIVE_SESSIONS'
+        && error.retryable === true
+        && error.sessions?.length === 5,
+    );
+    assert.equal(activeTerminateCalls, 0, '실행 중인 구버전 PTY가 있으면 host tree를 종료하면 안 됩니다.');
+    assert.equal(activeSpawnCalls, 0, '실행 중인 구버전 PTY가 있으면 대체 host도 시작하면 안 됩니다.');
+
+    activeManager.sessions = [];
+    activeManager.emit('state', { change: 'updated', session: null, sessions: [] });
+    assert.equal(await waitUntil(() => activeClient.connected, 4_000), true,
+      '구버전 PTY가 모두 끝나고 daemon이 자연 종료되면 background retry가 v11을 시작해야 합니다.');
+    assert.equal(activeLegacyExitedNaturally, true);
+    assert.equal(activeTerminateCalls, 0);
+    assert.equal(activeSpawnCalls, 1);
+    assert.equal(JSON.parse(fs.readFileSync(activeDiscovery, 'utf8')).protocol, 11);
+    activeClient.dispose();
+    activeReplacementServer?.dispose();
+
+    // TOCTOU regression: the ready frame can truthfully contain sessions:[]
+    // while the old renderer creates a PTY immediately after that snapshot.
+    // A verified live host must never be authorized for tree termination from
+    // the stale empty snapshot.
+    const raceManager = new EmptyManager([{ id: 'terminal:race-startup-guard', status: 'running' }]);
+    const raceDiscovery = path.join(temp, 'terminal-host-protocol-upgrade-race.json');
+    let raceOldServer = null;
+    raceOldServer = new TerminalHostServer({
+      manager: raceManager,
+      endpoint: endpoint('race-v10'),
+      discoveryFile: raceDiscovery,
+      token: 'race-v10-protocol-token',
+      idleShutdownMs: 50,
+    });
+    await raceOldServer.start();
+    const raceOldDiscovery = JSON.parse(fs.readFileSync(raceDiscovery, 'utf8'));
+    fs.writeFileSync(raceDiscovery, JSON.stringify({ ...raceOldDiscovery, protocol: 10 }), 'utf8');
+    raceManager.sessions = [];
+
+    let emptySnapshotObserved = false;
+    let raceTerminateCalls = 0;
+    let raceSpawnCalls = 0;
+    const raceClient = new TerminalHostClient({
+      discoveryFile: raceDiscovery,
+      connectTimeoutMs: 2_000,
+      verifyHost: async info => {
+        const verification = await verifyHostDiscovery(info);
+        emptySnapshotObserved = Array.isArray(verification.sessions) && verification.sessions.length === 0;
+        raceManager.sessions = [{ id: 'terminal:created-after-ready', status: 'running' }];
+        return verification;
+      },
+      terminateHost: async () => { raceTerminateCalls += 1; },
+      spawnHost: async () => { raceSpawnCalls += 1; },
+    });
+    await assert.rejects(
+      raceClient.connect(),
+      error => error.code === 'TERMINAL_HOST_REPLACEMENT_DEFERRED_LIVE_HOST'
+        && error.retryable === true,
+    );
+    assert.equal(emptySnapshotObserved, true);
+    assert.equal(raceManager.sessions.length, 1, 'ready snapshot 직후 old client가 새 PTY를 만들었다고 가정합니다.');
+    assert.equal(raceTerminateCalls, 0, 'sessions:[] snapshot은 live legacy host tree-kill 권한이 아닙니다.');
+    assert.equal(raceSpawnCalls, 0, 'live legacy host가 남아 있으면 replacement를 시작하면 안 됩니다.');
+    raceClient.dispose();
+    raceOldServer.dispose();
+    removeLegacyDiscovery(raceDiscovery);
   });
 
   test('인증할 수 없는 구버전 호스트 PID가 살아 있으면 종료하거나 교체하지 않는다', async () => {
@@ -3776,7 +4140,7 @@ function registerTerminalLifecycleTests(context) {
     manager.dispose();
   });
 
-  test('자연 종료 상태는 즉시 저장해 직후 호스트가 죽어도 끝난 셸을 되살리지 않는다', () => {
+  test('자연 종료 상태는 즉시 저장해 직후 호스트가 죽어도 끝난 셸을 되살리지 않는다', async () => {
     const processes = [];
     class FakePty {
       constructor(pid) { this.pid = pid; }
@@ -3787,8 +4151,15 @@ function registerTerminalLifecycleTests(context) {
       kill() {}
     }
     const storeFile = path.join(temp, 'terminal-host-natural-exit.json');
+    const countedFileSystem = Object.create(fs);
+    let storeWrites = 0;
+    countedFileSystem.writeFileSync = (...args) => {
+      storeWrites += 1;
+      return fs.writeFileSync(...args);
+    };
     const options = {
       storeFile,
+      fileSystem: countedFileSystem,
       killTree: () => {},
       ptyModule: { spawn: () => {
         const processHandle = new FakePty(16_000 + processes.length);
@@ -3798,7 +4169,35 @@ function registerTerminalLifecycleTests(context) {
     };
     const manager = new TerminalManager(options);
     const session = manager.create({ type: 'powershell', cwd: root });
+    const writesAfterCreate = storeWrites;
+    for (let index = 0; index < 4; index += 1) {
+      processes[0].dataCallback(`spinner-${index}\r`);
+      await new Promise(resolve => setTimeout(resolve, 75));
+    }
+    assert.equal(
+      storeWrites,
+      writesAfterCreate,
+      '연속 PTY 출력을 150ms마다 전체 저장소로 동기 저장하면 안 됩니다.',
+    );
+    assert.equal(
+      await waitUntil(() => storeWrites === writesAfterCreate + 1, 1_500),
+      true,
+      '연속 출력도 1초 내에 한 번은 안전하게 저장해야 합니다.',
+    );
+    assert.equal(storeWrites, writesAfterCreate + 1);
+
+    processes[0].dataCallback('final-output');
+    const writesBeforeExit = storeWrites;
     processes[0].exitCallback({ exitCode: 0, signal: 0 });
+    assert.equal(
+      storeWrites,
+      writesBeforeExit + 1,
+      '종료 상태와 마지막 출력은 지연 타이머를 기다리지 않고 즉시 저장해야 합니다.',
+    );
+    const storedAtExit = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions
+      .find(item => item.id === session.id);
+    assert.equal(storedAtExit.status, 'exited');
+    assert.match(storedAtExit.replay, /final-output/);
 
     const afterHostCrash = new TerminalManager(options);
     assert.equal(afterHostCrash.get(session.id).status, 'exited');
@@ -3830,18 +4229,43 @@ function registerTerminalLifecycleTests(context) {
     await firstServer.start();
     let replacementServer = null;
     let spawnCalls = 0;
+    let reconnectErrors = 0;
+    let resolveReplacementReady;
+    let rejectReplacementReady;
+    const replacementReady = new Promise((resolve, reject) => {
+      resolveReplacementReady = resolve;
+      rejectReplacementReady = reject;
+    });
     const client = new TerminalHostClient({
       discoveryFile: discovery,
-      connectTimeoutMs: 2_000,
-      spawnHost: async () => {
+      connectTimeoutMs: 350,
+      processExists: pid => {
+        assert.equal(pid, 58_001);
+        return true;
+      },
+      spawnHost: () => {
         spawnCalls += 1;
-        replacementServer = new TerminalHostServer({ manager, endpoint: endpoint('second'), discoveryFile: discovery, token: 'second-token' });
-        await replacementServer.start();
+        // Keep the first replacement attempt unavailable past connectTimeout.
+        // The client must retain its launch lease and retry the connection in
+        // the background instead of wedging until another UI request arrives.
+        setTimeout(() => {
+          replacementServer = new TerminalHostServer({ manager, endpoint: endpoint('second'), discoveryFile: discovery, token: 'second-token' });
+          replacementServer.start().then(resolveReplacementReady, rejectReplacementReady);
+        }, 550);
+        return { pid: 58_001 };
       },
     });
+    client.on('reconnect-error', () => { reconnectErrors += 1; });
     await client.connect();
     firstServer.dispose();
+    // Keep the isolated test process alive long enough to observe the socket
+    // close; production Electron already has a live event loop. Retry timers
+    // themselves are intentionally unref'ed so they never block app exit.
     await new Promise(resolve => setTimeout(resolve, 30));
+    await replacementReady;
+    assert.equal(await waitUntil(() => client.connected, 2_000), true,
+      '첫 자동 복구 제한시간이 지나도 다음 bounded retry에서 연결되어야 합니다.');
+    assert.equal(reconnectErrors >= 1, true);
 
     const created = await client.create({ type: 'powershell', cwd: root, title: '자동 재연결 검증' });
     assert.equal(spawnCalls, 1);
@@ -3851,13 +4275,55 @@ function registerTerminalLifecycleTests(context) {
     await client.close(created.id);
     client.dispose();
     replacementServer?.dispose();
+
+    const startupDiscovery = path.join(temp, 'terminal-host-startup-retry-discovery.json');
+    let startupServer = null;
+    let startupSpawnCalls = 0;
+    let resolveStartupReady;
+    let rejectStartupReady;
+    const startupReady = new Promise((resolve, reject) => {
+      resolveStartupReady = resolve;
+      rejectStartupReady = reject;
+    });
+    const startupClient = new TerminalHostClient({
+      discoveryFile: startupDiscovery,
+      connectTimeoutMs: 80,
+      processExists: () => true,
+      spawnHost: () => {
+        startupSpawnCalls += 1;
+        setTimeout(() => {
+          startupServer = new TerminalHostServer({
+            manager,
+            endpoint: endpoint('startup-retry'),
+            discoveryFile: startupDiscovery,
+            token: 'startup-retry-token',
+          });
+          startupServer.start().then(resolveStartupReady, rejectStartupReady);
+        }, 250);
+        return { pid: 58_002 };
+      },
+    });
+    let startupReconnects = 0;
+    startupClient.on('reconnect', () => { startupReconnects += 1; });
+    await assert.rejects(startupClient.connect(), /명령창에 연결하지 못했습니다/);
+    await startupReady;
+    assert.equal(await waitUntil(() => startupClient.connected, 2_000), true,
+      '최초 startup 연결 실패도 다음 UI 요청 없이 bounded retry로 복구해야 합니다.');
+    assert.equal(startupSpawnCalls, 1);
+    assert.equal(startupReconnects, 1);
+    startupClient.dispose();
+    startupServer?.dispose();
     manager.dispose();
   });
 
-  test('이전 소켓의 늦은 close 이벤트가 새 터미널 호스트 연결을 끊지 않는다', () => {
+  test('이전 소켓의 늦은 close 이벤트가 새 터미널 호스트 연결을 끊지 않는다', async () => {
     const client = new TerminalHostClient({ discoveryFile: path.join(temp, 'unused-host.json') });
     const staleSocket = { destroyed: true };
-    const activeSocket = { destroyed: false };
+    const activeSocket = {
+      destroyed: false,
+      destroy(error) { this.destroyed = true; this.error = error; },
+      end() { this.destroyed = true; },
+    };
     client.socket = activeSocket;
     client.connected = true;
     client.sessions = [{ id: 'terminal:active', status: 'running' }];
@@ -3873,6 +4339,57 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(activeHandshakeRejected, false);
     assert.equal(client.buffer, '');
     assert.equal(client.list()[0].id, 'terminal:active');
+
+    const output = [];
+    client.on('data', payload => output.push(payload));
+    const unicodeFrame = Buffer.from(`${JSON.stringify({
+      type: 'event', event: 'data',
+      payload: { id: 'terminal:active', data: '한😀', outputSequence: 1 },
+    })}\n`, 'utf8');
+    for (let index = 0; index < unicodeFrame.length; index += 1) {
+      client.consume(unicodeFrame.subarray(index, index + 1), activeSocket);
+    }
+    assert.equal(output[0].data, '한😀');
+
+    const retainedAnsi = '\x1b'.repeat(2 * 1024 * 1024);
+    const replayFrame = Buffer.from(`${JSON.stringify({
+      type: 'response', requestId: 'large-replay', ok: true,
+      result: { id: 'terminal:active', replay: retainedAnsi },
+    })}\n`, 'utf8');
+    assert.equal(replayFrame.length > 4 * 1024 * 1024, true,
+      'control-character-heavy replay must exercise the former frame ceiling');
+    let replayResult = null;
+    client.pending.set('large-replay', {
+      resolve: value => { replayResult = value; },
+      reject: error => { throw error; },
+      timer: setTimeout(() => {}, 10_000),
+    });
+    client.consume(replayFrame, activeSocket);
+    assert.equal(activeSocket.destroyed, false);
+    assert.equal(replayResult.replay.length, retainedAnsi.length);
+
+    let destroyedChecks = 0;
+    const closingSocket = {
+      get destroyed() {
+        destroyedChecks += 1;
+        return destroyedChecks >= 3;
+      },
+      write() {
+        throw new Error('닫힌 소켓에 쓰면 안 됩니다.');
+      },
+      destroy() {},
+      end() {},
+    };
+    const closingClient = new TerminalHostClient({ discoveryFile: path.join(temp, 'unused-closing-host.json') });
+    closingClient.socket = closingSocket;
+    closingClient.connected = true;
+    await assert.rejects(
+      closingClient.request('list'),
+      /요청을 보내기 전에 닫혔습니다/,
+    );
+    assert.equal(closingClient.pending.size, 0, '닫힘 race가 요청을 timeout까지 남기면 안 됩니다.');
+    closingClient.dispose();
+    client.dispose();
   });
 
   test('늦은 호스트 list 응답과 역순 list 요청이 최신 세션 상태를 지우지 않는다', async () => {
@@ -4706,6 +5223,21 @@ function registerTerminalFailureTests(context) {
     const characterCappedReplay = replayCapManager.get(replayCapSession.id, true).replay;
     assert.equal(characterCappedReplay.length, 512 * 1024 + 1);
     assert.equal(hasUnpairedSurrogate(characterCappedReplay), false);
+    let burstEvents = 0;
+    replayCapManager.on('data', payload => {
+      if (payload.id === replayCapSession.id) burstEvents += 1;
+    });
+    const burstChunk = 'z'.repeat(16 * 1024);
+    for (let index = 0; index < 192; index += 1) replayCapProcesses[0].dataCallback(burstChunk);
+    const replayCapInternal = replayCapManager.sessions.get(replayCapSession.id);
+    replayCapProcesses[0].dataCallback('A');
+    assert.equal(replayCapInternal.replayPendingChars, 1,
+      '작은 PTY 조각은 live event를 즉시 내보내되 replay 전체를 매번 복사하지 않아야 합니다.');
+    const batchedReplay = replayCapManager.get(replayCapSession.id, true).replay;
+    assert.equal(batchedReplay.length, 2 * 1024 * 1024);
+    assert.equal(batchedReplay.endsWith('A'), true);
+    assert.equal(hasUnpairedSurrogate(batchedReplay), false);
+    assert.equal(burstEvents, 193, 'replay batching이 live PTY 출력 event를 합치거나 늦추면 안 됩니다.');
     replayCapManager.dispose();
 
     let manager = new TerminalManager(managerOptions());
@@ -5202,6 +5734,19 @@ function registerTmuxControlTests(context) {
     const summary = buildSummary([session], { claude: 'claude.exe' });
     assert.equal(summary.totals.active, 1);
     assert.equal(summary.providers.find(item => item.id === 'claude').usage.total, 15);
+
+    const filtered = snapshotWithoutSessions({
+      generatedAt: '2026-08-10T00:00:00Z',
+      sessions: [
+        { id: 'claude:binding-failed', provider: 'claude', status: 'running', parentId: null, usage: { input: 10, output: 5, total: 15 } },
+        { id: 'codex:unrelated', provider: 'codex', status: 'running', parentId: null, usage: { input: 7, output: 3, total: 10 } },
+      ],
+      summary: buildSummary([], {}),
+    }, ['claude:binding-failed'], { claude: 'claude.exe', codex: 'codex.exe' });
+    assert.deepStrictEqual(filtered.sessions.map(item => item.id), ['codex:unrelated']);
+    assert.equal(filtered.summary.totals.sessions, 1);
+    assert.equal(filtered.summary.totals.active, 1);
+    assert.equal(filtered.summary.totals.usage.total, 10);
   });
 
 }

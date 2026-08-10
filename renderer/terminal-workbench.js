@@ -179,7 +179,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         entry.outputSequence = Number.isSafeInteger(parsedSequence) && parsedSequence >= 0
           ? parsedSequence
           : null;
-        if (detail && detail.replay) entry.terminal.write(detail.replay);
+        // A retained full-screen TUI replay can be multiple MiB of ANSI redraw
+        // traffic. Parse it in bounded xterm writes so opening an old task does
+        // not monopolize the renderer and delay fresh AI output.
+        if (detail && detail.replay) await writeTerminalReplay(entry.terminal, detail.replay);
         const buffered = entry.outputHydrationBuffer.splice(0).sort((left, right) => (
           left.outputSequence != null && right.outputSequence != null
             ? left.outputSequence - right.outputSequence || left.arrival - right.arrival

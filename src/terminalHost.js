@@ -6,19 +6,31 @@ const path = require('path');
 const net = require('net');
 const crypto = require('crypto');
 const { EventEmitter } = require('events');
+const { StringDecoder } = require('string_decoder');
 const { spawn } = require('child_process');
 const { endpointFor, safeWriteJson } = require('./bridgeServer');
 const { runBestEffort } = require('./diagnostics');
 
-const TERMINAL_HOST_PROTOCOL = 10;
+// Protocol 11 also marks the native-input terminal semantics introduced after
+// the 1.6.14 host. Long-lived terminal daemons must not keep serving the old
+// conversation-bound raw-input policy to a newer renderer.
+const TERMINAL_HOST_PROTOCOL = 11;
 const TERMINAL_HOST_RUNTIME = `node-pty-${require('node-pty/package.json').version}`;
-const MAX_FRAME_CHARS = 4 * 1024 * 1024;
+// A retained replay may contain two million control characters. JSON escapes
+// each one as six characters (for example ESC -> "\\u001b"), so a valid get
+// response can exceed the old 4 MiB limit even though the replay itself is
+// within TerminalManager's cap.
+const MAX_REQUEST_FRAME_CHARS = 4 * 1024 * 1024;
+const MAX_RESPONSE_FRAME_CHARS = 16 * 1024 * 1024;
+const MAX_SERVER_OUTBOUND_QUEUE_BYTES = 32 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+const RECONNECT_RETRY_BASE_MS = 500;
+const RECONNECT_RETRY_MAX_MS = 30_000;
 const UPDATE_REQUEST_TOKEN = Symbol('terminal-host-update-request');
 const ACTIVE_TERMINAL_STATUSES = new Set(['running', 'starting', 'stopping']);
 const HOST_OPERATIONS = new Set([
-  'list', 'get', 'create', 'write', 'command', 'respond', 'resize', 'signal',
+  'list', 'get', 'create', 'bindAgentSession', 'write', 'command', 'respond', 'resize', 'signal',
   'restart', 'reconnect', 'detach', 'stop', 'close', 'retire',
 ]);
 
@@ -30,8 +42,14 @@ function isActiveTerminalSession(session) {
 }
 
 function sendFrame(socket, payload) {
-  if (!socket || socket.destroyed) return;
-  socket.write(`${JSON.stringify(payload)}\n`, 'utf8');
+  if (!socket || socket.destroyed) return false;
+  try {
+    socket.write(`${JSON.stringify(payload)}\n`, 'utf8');
+    return true;
+  } catch (error) {
+    runBestEffort('terminal-host-socket-write', () => socket.destroy(error));
+    return false;
+  }
 }
 
 function incompatibleHostError(message, discovery) {
@@ -49,6 +67,27 @@ function hostReplacementUnconfirmedError(discovery, cause = null) {
   return error;
 }
 
+function activeLegacyHostError(discovery, sessions) {
+  const active = (Array.isArray(sessions) ? sessions : [])
+    .filter(isActiveTerminalSession)
+    .map(session => ({ ...session }));
+  const error = new Error(`이전 명령창에서 실행 중인 작업 ${active.length}개가 있어 안전한 자동 교체를 미뤘습니다. 작업이 끝나면 자동으로 다시 시도합니다.`);
+  error.code = 'TERMINAL_HOST_REPLACEMENT_DEFERRED_ACTIVE_SESSIONS';
+  error.retryable = true;
+  error.discovery = discovery;
+  error.sessions = active;
+  return error;
+}
+
+function liveLegacyHostError(discovery) {
+  const error = new Error('이전 명령창 연결 프로그램이 아직 실행 중이어서 안전한 자동 교체를 미뤘습니다. 기존 연결이 자연 종료되면 자동으로 다시 시도합니다.');
+  error.code = 'TERMINAL_HOST_REPLACEMENT_DEFERRED_LIVE_HOST';
+  error.retryable = true;
+  error.discovery = discovery;
+  error.sessions = [];
+  return error;
+}
+
 function readHostDiscovery(file, fileSystem = fs, expectedRuntime = TERMINAL_HOST_RUNTIME) {
   const parsed = JSON.parse(fileSystem.readFileSync(file, 'utf8'));
   if (!parsed?.endpoint || !parsed.token || !Number.isSafeInteger(Number(parsed.pid)) || Number(parsed.pid) <= 0) {
@@ -63,22 +102,23 @@ function readHostDiscovery(file, fileSystem = fs, expectedRuntime = TERMINAL_HOS
 function verifyHostDiscovery(discovery, timeoutMs = 1_500) {
   return new Promise((resolve, reject) => {
     const socket = net.createConnection(discovery.endpoint);
+    const decoder = new StringDecoder('utf8');
     let buffer = '';
     let settled = false;
-    const finish = error => {
+    const finish = (error, result = null) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       socket.destroy();
       if (error) reject(error);
-      else resolve();
+      else resolve(result);
     };
     const timer = setTimeout(() => finish(new Error('이전 명령창 연결 확인 시간이 초과되었습니다.')), timeoutMs);
     socket.setNoDelay(true);
     socket.on('connect', () => sendFrame(socket, { type: 'authenticate', token: discovery.token }));
     socket.on('data', chunk => {
-      buffer += chunk.toString('utf8');
-      if (buffer.length > MAX_FRAME_CHARS) {
+      buffer += decoder.write(chunk);
+      if (buffer.length > MAX_RESPONSE_FRAME_CHARS) {
         finish(new Error('이전 명령창 연결 프로그램이 보낸 내용이 너무 큽니다.'));
         return;
       }
@@ -88,8 +128,9 @@ function verifyHostDiscovery(discovery, timeoutMs = 1_500) {
         buffer = buffer.slice(newline + 1);
         if (!line) continue;
         try {
-          if (JSON.parse(line).type === 'ready') {
-            finish();
+          const message = JSON.parse(line);
+          if (message.type === 'ready') {
+            finish(null, message);
             return;
           }
         } catch (_invalidFrame) {}
@@ -357,6 +398,9 @@ class TerminalHostServer {
     this.idleShutdownMs = Number.isFinite(Number(options.idleShutdownMs))
       ? Math.max(0, Number(options.idleShutdownMs))
       : 1_500;
+    this.maxOutboundQueueBytes = Number.isFinite(Number(options.maxOutboundQueueBytes))
+      ? Math.max(1, Number(options.maxOutboundQueueBytes))
+      : MAX_SERVER_OUTBOUND_QUEUE_BYTES;
     this.onShutdown = typeof options.onShutdown === 'function' ? options.onShutdown : () => {};
     this.onManagerData = payload => this.broadcast({ type: 'event', event: 'data', payload });
     this.onManagerState = payload => {
@@ -412,19 +456,35 @@ class TerminalHostServer {
     const client = {
       socket,
       buffer: '',
+      decoder: new StringDecoder('utf8'),
       authenticated: false,
       queue: Promise.resolve(),
+      outboundQueue: [],
+      outboundBytes: 0,
+      outboundInFlightBytes: 0,
+      outboundBlocked: false,
+      outboundFlushing: false,
+      outboundEndRequested: false,
+      outboundEndCalled: false,
+      detached: false,
       authTimer: setTimeout(() => socket.destroy(new Error('명령창 연결 확인 시간이 초과되었습니다.')), AUTH_TIMEOUT_MS),
+    };
+    client.onDrain = () => {
+      if (client.detached) return;
+      client.outboundBlocked = false;
+      client.outboundInFlightBytes = 0;
+      this.flushOutbound(client);
     };
     this.clients.add(client);
     socket.on('data', chunk => this.consume(client, chunk));
+    socket.on('drain', client.onDrain);
     socket.on('error', () => this.detach(client));
     socket.on('close', () => this.detach(client));
   }
 
   consume(client, chunk) {
-    client.buffer += chunk.toString('utf8');
-    if (client.buffer.length > MAX_FRAME_CHARS) {
+    client.buffer += client.decoder.write(chunk);
+    if (client.buffer.length > MAX_REQUEST_FRAME_CHARS) {
       client.socket.destroy(new Error('명령창에 보낸 내용이 너무 큽니다.'));
       return;
     }
@@ -441,16 +501,28 @@ class TerminalHostServer {
         return;
       }
       client.queue = client.queue
-        .then(() => this.handle(client, message || {}))
-        .catch(error => sendFrame(client.socket, {
-          type: 'response',
-          requestId: String(message?.requestId || ''),
-          ok: false,
-          error: String(error?.message || error),
-          code: String(error?.code || ''),
-          deliveryId: String(error?.deliveryId || ''),
-          deliveryState: ['rejected', 'unknown'].includes(error?.deliveryState) ? error.deliveryState : '',
-        }));
+        .then(() => {
+          if (client.detached || client.outboundEndRequested) return undefined;
+          return this.handle(client, message || {});
+        })
+        .catch(error => {
+          const authenticationFailed = !client.authenticated;
+          this.enqueueFrame(client, {
+            type: 'response',
+            requestId: String(message?.requestId || ''),
+            ok: false,
+            error: String(error?.message || error),
+            code: String(error?.code || ''),
+            creationId: String(error?.creationId || ''),
+            creationState: ['rejected', 'unknown'].includes(error?.creationState) ? error.creationState : '',
+            deliveryId: String(error?.deliveryId || ''),
+            deliveryState: ['rejected', 'unknown'].includes(error?.deliveryState) ? error.deliveryState : '',
+          });
+          // Authentication is a one-shot state transition. Once it fails,
+          // reject every frame already queued from the same socket chunk and
+          // close only after the error response survives socket backpressure.
+          if (authenticationFailed) this.endWhenFlushed(client);
+        });
     }
   }
 
@@ -463,7 +535,7 @@ class TerminalHostServer {
       clearTimeout(client.authTimer);
       client.authTimer = null;
       this.cancelIdleShutdown();
-      sendFrame(client.socket, { type: 'ready', sessions: this.manager.list() });
+      this.enqueueFrame(client, { type: 'ready', sessions: this.manager.list() });
       return;
     }
     if (message.type === 'control' && message.operation === 'shutdown-if-idle') {
@@ -476,17 +548,89 @@ class TerminalHostServer {
     const operation = message.operation;
     const args = Array.isArray(message.args) ? message.args : [];
     const result = await Promise.resolve(this.manager[operation](...args));
-    sendFrame(client.socket, { type: 'response', requestId: String(message.requestId || ''), ok: true, result });
+    this.enqueueFrame(client, { type: 'response', requestId: String(message.requestId || ''), ok: true, result });
+  }
+
+  enqueueFrame(client, payload) {
+    if (!client || client.detached || client.outboundEndRequested
+      || !this.clients.has(client) || client.socket.destroyed) return false;
+    let frame;
+    try {
+      frame = Buffer.from(`${JSON.stringify(payload)}\n`, 'utf8');
+    } catch (error) {
+      runBestEffort('terminal-host-frame-encode', () => client.socket.destroy(error));
+      return false;
+    }
+    const socketBuffered = Math.max(0, Number(client.socket.writableLength) || 0);
+    const bufferedBytes = Math.max(client.outboundInFlightBytes, socketBuffered);
+    if (bufferedBytes + client.outboundBytes + frame.length > this.maxOutboundQueueBytes) {
+      const error = new Error('명령창 출력 전송 대기열이 가득 차 연결을 다시 동기화합니다.');
+      error.code = 'TERMINAL_HOST_CLIENT_BACKPRESSURE_OVERFLOW';
+      client.outboundQueue.length = 0;
+      client.outboundBytes = 0;
+      runBestEffort('terminal-host-backpressure-overflow', () => client.socket.destroy(error));
+      return false;
+    }
+    client.outboundQueue.push(frame);
+    client.outboundBytes += frame.length;
+    this.flushOutbound(client);
+    return true;
+  }
+
+  flushOutbound(client) {
+    if (!client || client.detached || client.outboundBlocked || client.outboundFlushing
+      || client.socket.destroyed || !this.clients.has(client)) return;
+    client.outboundFlushing = true;
+    try {
+      while (!client.outboundBlocked && client.outboundQueue.length > 0) {
+        const frame = client.outboundQueue.shift();
+        client.outboundBytes = Math.max(0, client.outboundBytes - frame.length);
+        let writable;
+        try {
+          writable = client.socket.write(frame);
+        } catch (error) {
+          runBestEffort('terminal-host-socket-write', () => client.socket.destroy(error));
+          break;
+        }
+        if (!writable) {
+          client.outboundBlocked = true;
+          client.outboundInFlightBytes = Math.max(frame.length, Number(client.socket.writableLength) || 0);
+        }
+      }
+    } finally {
+      client.outboundFlushing = false;
+    }
+    if (client.outboundEndRequested && !client.outboundEndCalled && !client.outboundBlocked
+      && client.outboundQueue.length === 0 && !client.socket.destroyed) {
+      client.outboundEndCalled = true;
+      client.socket.end();
+    }
+  }
+
+  endWhenFlushed(client) {
+    if (!client || client.detached || client.socket.destroyed) return;
+    client.outboundEndRequested = true;
+    this.flushOutbound(client);
   }
 
   broadcast(payload) {
     for (const client of this.clients) {
-      if (client.authenticated) sendFrame(client.socket, payload);
+      if (client.authenticated) this.enqueueFrame(client, payload);
     }
   }
 
   detach(client) {
+    if (!client || client.detached) return;
+    client.detached = true;
     if (client.authTimer) clearTimeout(client.authTimer);
+    client.authTimer = null;
+    if (client.onDrain) client.socket.removeListener?.('drain', client.onDrain);
+    client.outboundQueue.length = 0;
+    client.outboundBytes = 0;
+    client.outboundInFlightBytes = 0;
+    client.outboundBlocked = false;
+    client.outboundEndRequested = false;
+    client.outboundEndCalled = false;
     this.clients.delete(client);
     this.scheduleShutdownIfIdle();
   }
@@ -517,7 +661,11 @@ class TerminalHostServer {
     this.shutdownTimer = null;
     this.manager.removeListener('data', this.onManagerData);
     this.manager.removeListener('state', this.onManagerState);
-    for (const client of this.clients) runBestEffort('terminal-host-client-close', () => client.socket.destroy());
+    for (const client of [...this.clients]) {
+      this.detach(client);
+      runBestEffort('terminal-host-client-close', () => client.socket.destroy());
+    }
+    this.cancelIdleShutdown();
     this.clients.clear();
     if (this.server) runBestEffort('terminal-host-server-close', () => this.server.close());
     this.server = null;
@@ -587,6 +735,7 @@ class TerminalHostClient extends EventEmitter {
     this.hostLaunch = null;
     this.socket = null;
     this.buffer = '';
+    this.decoder = new StringDecoder('utf8');
     this.connected = false;
     this.disposed = false;
     this.sessions = [];
@@ -597,6 +746,9 @@ class TerminalHostClient extends EventEmitter {
     this.handshake = null;
     this.connectPromise = null;
     this.connectGeneration = 0;
+    this.reconnectNeeded = false;
+    this.reconnectAttempts = 0;
+    this.reconnectTimer = null;
     this.discovery = null;
     this.updateShutdown = false;
   }
@@ -607,14 +759,59 @@ class TerminalHostClient extends EventEmitter {
     }
     if (this.connected && this.socket && !this.socket.destroyed) return Promise.resolve(this);
     if (this.connectPromise) return this.connectPromise;
+    this.cancelReconnectTimer();
     this.disposed = false;
     const generation = ++this.connectGeneration;
     const connecting = this.connectLoop(generation);
-    const tracked = connecting.finally(() => {
+    const tracked = connecting.then(result => {
+      if (this.reconnectNeeded && !this.disposed) {
+        this.reconnectNeeded = false;
+        this.reconnectAttempts = 0;
+        this.emit('reconnect', { sessions: this.list() });
+      }
+      return result;
+    }, error => {
+      if (!this.disposed && !this.updateShutdown) {
+        // Startup can fail before a socket was ever authenticated (slow
+        // daemon launch, stale discovery, transient pipe failure). Treat that
+        // exactly like a later disconnect so the app does not remain wedged
+        // until an unrelated UI request happens to call connect() again.
+        this.reconnectNeeded = true;
+        this.reconnectAttempts += 1;
+        this.emit('reconnect-error', error);
+        const retryMs = Math.min(
+          RECONNECT_RETRY_MAX_MS,
+          RECONNECT_RETRY_BASE_MS * (2 ** Math.min(this.reconnectAttempts - 1, 6)),
+        );
+        this.scheduleReconnect(retryMs);
+      }
+      throw error;
+    }).finally(() => {
       if (this.connectPromise === tracked) this.connectPromise = null;
     });
     this.connectPromise = tracked;
     return this.connectPromise;
+  }
+
+  cancelReconnectTimer() {
+    if (!this.reconnectTimer) return;
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+  }
+
+  scheduleReconnect(delayMs = 0) {
+    if (this.disposed || this.updateShutdown || this.connected || this.reconnectTimer) return;
+    const timer = setTimeout(() => {
+      if (this.reconnectTimer !== timer) return;
+      this.reconnectTimer = null;
+      if (this.disposed || this.updateShutdown || this.connected) return;
+      // connect() owns error reporting and the next bounded retry. Always
+      // observe this background promise so a temporarily unavailable host
+      // cannot become an unhandled rejection.
+      this.connect().catch(() => {});
+    }, Math.max(0, Number(delayMs) || 0));
+    this.reconnectTimer = timer;
+    if (typeof timer.unref === 'function') timer.unref();
   }
 
   hostLaunchPending() {
@@ -665,6 +862,13 @@ class TerminalHostClient extends EventEmitter {
       try {
         await this.connectExisting();
         if (this.disposed || generation !== this.connectGeneration) throw new Error('명령창 다시 연결이 취소되었습니다.');
+        // Real connections always retain a socket, while lifecycle tests may
+        // replace connectExisting() with a minimal connected-state stub. A
+        // close-after-ready race is still observable through connected=false
+        // (handleDisconnect) or a destroyed socket.
+        if (!this.connected || this.socket?.destroyed) {
+          throw new Error('명령창 연결이 준비 직후 닫혔습니다.');
+        }
         // A verified discovery/socket handshake acknowledges the launch. A
         // later reconnect may spawn a replacement only after this host exits.
         this.hostLaunch = null;
@@ -674,15 +878,26 @@ class TerminalHostClient extends EventEmitter {
         this.resetSocket();
         if (error?.code === 'LOADTOAGENT_INCOMPATIBLE_TERMINAL_HOST') {
           let verified = false;
+          let verification = null;
           try {
-            await Promise.resolve(this.verifyHost(error.discovery));
+            verification = await Promise.resolve(this.verifyHost(error.discovery));
             verified = true;
           } catch (verificationError) {
             lastError = verificationError;
           }
           if (verified) {
-            await Promise.resolve(this.terminateHost(error.discovery));
-            this.hostLaunch = null;
+            const legacySessions = Array.isArray(verification?.sessions) ? verification.sessions : [];
+            if (legacySessions.some(isActiveTerminalSession)) {
+              throw activeLegacyHostError(error.discovery, legacySessions);
+            }
+            // A ready response is only a point-in-time snapshot. The old app
+            // can create a PTY immediately after sending an empty list, so a
+            // tree kill here can terminate work that this client never saw.
+            // Disconnecting the verifier lets an actually idle legacy daemon
+            // perform its own idle shutdown. A later retry may launch the new
+            // host only after discovery disappears or its PID is confirmed
+            // dead by the unverified-host branch below.
+            throw liveLegacyHostError(error.discovery);
           } else {
             let previousHostExited = false;
             try {
@@ -724,6 +939,7 @@ class TerminalHostClient extends EventEmitter {
       }, 1_500);
       this.socket = socket;
       this.buffer = '';
+      this.decoder = new StringDecoder('utf8');
       this.handshake = {
         resolve: () => { clearTimeout(timer); this.handshake = null; resolve(); },
         reject: error => { clearTimeout(timer); this.handshake = null; reject(error); },
@@ -743,8 +959,8 @@ class TerminalHostClient extends EventEmitter {
 
   consume(chunk, socket = this.socket) {
     if (socket && socket !== this.socket) return;
-    this.buffer += chunk.toString('utf8');
-    if (this.buffer.length > MAX_FRAME_CHARS) {
+    this.buffer += this.decoder.write(chunk);
+    if (this.buffer.length > MAX_RESPONSE_FRAME_CHARS) {
       this.socket?.destroy(new Error('명령창 연결 프로그램이 보낸 내용이 너무 큽니다.'));
       return;
     }
@@ -754,7 +970,15 @@ class TerminalHostClient extends EventEmitter {
       this.buffer = this.buffer.slice(newline + 1);
       if (!line) continue;
       let message;
-      try { message = JSON.parse(line); } catch { continue; }
+      try {
+        message = JSON.parse(line);
+      } catch (_invalidFrame) {
+        // Silently skipping a frame permanently loses PTY output. Closing the
+        // transport forces the normal reconnect + replay hydration path, which
+        // can recover every byte already retained by TerminalManager.
+        this.socket?.destroy(new Error('명령창 연결 프로그램이 올바르지 않은 내용을 보냈습니다.'));
+        return;
+      }
       if (message.type === 'ready') {
         this.sessions = Array.isArray(message.sessions) ? message.sessions : [];
         this.sessionsRevision += 1;
@@ -769,6 +993,8 @@ class TerminalHostClient extends EventEmitter {
         else {
           const error = new Error(String(message.error || '명령창 작업 실패'));
           if (message.code) error.code = String(message.code);
+          if (message.creationId) error.creationId = String(message.creationId);
+          if (['rejected', 'unknown'].includes(message.creationState)) error.creationState = message.creationState;
           if (message.deliveryId) error.deliveryId = String(message.deliveryId);
           if (['rejected', 'unknown'].includes(message.deliveryState)) error.deliveryState = message.deliveryState;
           pending.reject(error);
@@ -797,12 +1023,10 @@ class TerminalHostClient extends EventEmitter {
     this.pending.clear();
     this.socket = null;
     if (wasConnected && !this.disposed) {
+      this.reconnectNeeded = true;
+      this.reconnectAttempts = 0;
       this.emit('disconnect');
-      this.connect()
-        .then(() => this.emit('reconnect', { sessions: this.list() }))
-        .catch(error => {
-          if (!this.disposed) this.emit('reconnect-error', error);
-        });
+      this.scheduleReconnect();
     }
   }
 
@@ -811,6 +1035,7 @@ class TerminalHostClient extends EventEmitter {
     this.socket = null;
     this.connected = false;
     this.buffer = '';
+    this.decoder = new StringDecoder('utf8');
     if (socket) socket.destroy();
   }
 
@@ -834,7 +1059,11 @@ class TerminalHostClient extends EventEmitter {
         reject(new Error('명령창 작업이 제한 시간 안에 끝나지 않았습니다.'));
       }, REQUEST_TIMEOUT_MS);
       this.pending.set(requestId, { resolve, reject, timer });
-      sendFrame(this.socket, { type: 'request', requestId, operation, args });
+      if (!sendFrame(this.socket, { type: 'request', requestId, operation, args })) {
+        clearTimeout(timer);
+        this.pending.delete(requestId);
+        reject(new Error('명령창 연결이 요청을 보내기 전에 닫혔습니다.'));
+      }
     });
   }
 
@@ -868,6 +1097,7 @@ class TerminalHostClient extends EventEmitter {
     if (this.updateShutdown) throw new Error('업데이트를 준비하는 동안 새 명령창 작업을 시작할 수 없습니다.');
     return this.request('create', options);
   }
+  bindAgentSession(id, binding) { return this.request('bindAgentSession', id, binding || {}); }
   write(id, data) { return this.request('write', id, data); }
   command(id, command, options) { return this.request('command', id, command, options || {}); }
   respond(id, choiceKey) { return this.request('respond', id, choiceKey); }
@@ -997,6 +1227,9 @@ class TerminalHostClient extends EventEmitter {
 
   dispose({ shutdownIfIdle = false } = {}) {
     this.disposed = true;
+    this.reconnectNeeded = false;
+    this.reconnectAttempts = 0;
+    this.cancelReconnectTimer();
     this.connectGeneration += 1;
     if (this.socket && !this.socket.destroyed) {
       if (shutdownIfIdle) sendFrame(this.socket, { type: 'control', operation: 'shutdown-if-idle' });

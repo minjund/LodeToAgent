@@ -25,7 +25,18 @@ const MAX_DELIVERY_RECORDS = 256;
 const MAX_STORE_BYTES = 64 * 1024 * 1024;
 const MAX_BRIDGE_ID_CHARS = 256;
 const STORE_VERSION = 2;
-const PERSIST_DELAY_MS = 150;
+// Full-screen AI TUIs redraw spinners and status bars continuously. Rewriting
+// every retained replay (up to 64 MiB total) six times per second stalls the
+// terminal-host event loop and delays input/host responses. Exit transitions
+// and delivery ledgers still use persistNow(); streamed replay is coalesced to
+// at most one durable checkpoint per second.
+const PERSIST_DELAY_MS = 1_000;
+// node-pty can deliver hundreds of small chunks during a single full-screen
+// redraw or command burst. Once replay reaches its 2 MiB cap, concatenating
+// and slicing the full string for every chunk creates visible event-loop
+// stalls. Keep live delivery immediate, but fold replay chunks in bounded
+// batches so the retained tail is copied at most once per batch.
+const REPLAY_BATCH_MAX_CHARS = 256 * 1024;
 const STORE_RENAME_RETRY_DELAYS_MS = Object.freeze([5, 10, 20, 40, 80]);
 const STORE_RENAME_RETRY_CODES = new Set(['EACCES', 'EBUSY', 'EPERM']);
 const STORE_RENAME_RETRY_SIGNAL = new Int32Array(new SharedArrayBuffer(4));
@@ -67,12 +78,68 @@ function normalizedArguments(value, maxChars = 2_000) {
 }
 
 function normalizedDeliveryId(value) {
-  const id = cleanText(value, 240);
-  return /^[A-Za-z0-9:._-]+$/.test(id) ? id : '';
+  const id = String(value == null ? '' : value).trim();
+  return id.length <= 240 && /^[A-Za-z0-9:._-]+$/.test(id) ? id : '';
+}
+
+function normalizedCreationId(value) {
+  return normalizedDeliveryId(value);
 }
 
 function deliveryFingerprint(value) {
   return crypto.createHash('sha256').update(String(value == null ? '' : value), 'utf8').digest('hex');
+}
+
+function normalizedPromptText(value, limit = 6_000) {
+  const text = String(value == null ? '' : value).replace(/\u0000/g, '').trim();
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+function promptFingerprint(value) {
+  const text = normalizedPromptText(value);
+  return text ? deliveryFingerprint(text) : '';
+}
+
+function validFingerprint(value) {
+  const fingerprint = String(value || '').trim().toLowerCase();
+  return /^[a-f0-9]{64}$/u.test(fingerprint) ? fingerprint : '';
+}
+
+function creationPayloadFingerprint(options, details = {}) {
+  const recoveryArgs = Array.isArray(details.recoveryArgs) ? details.recoveryArgs : null;
+  const canonical = [
+    'terminal-creation-v1',
+    options.type,
+    options.provider,
+    options.cwd,
+    options.distro,
+    options.args,
+    options.sessionBackend,
+    options.tmuxSocket,
+    options.managedTmuxSession,
+    options.tmuxSession,
+    options.tmuxSessionId,
+    options.tmuxWindow,
+    options.tmuxPane,
+    options.tmuxPanePid,
+    options.tmuxAgentPid,
+    options.tmuxAgentProvider,
+    options.tmuxAgentExternalId,
+    options.tmuxAgentArgvHash,
+    options.tmuxAgentStartTimeTicks,
+    options.tmuxAgentProcessGroupId,
+    options.bridgeId,
+    options.agentConnectionSignature,
+    options.title,
+    Boolean(options.transient),
+    options.cols,
+    options.rows,
+    String(details.initialCommand || ''),
+    Boolean(details.initialCommandInArgs),
+    recoveryArgs,
+    Boolean(details.reuseBridge),
+  ];
+  return deliveryFingerprint(JSON.stringify(canonical));
 }
 
 function rejectedDeliveryError(message, code = 'DELIVERY_REJECTED', deliveryId = '') {
@@ -80,6 +147,13 @@ function rejectedDeliveryError(message, code = 'DELIVERY_REJECTED', deliveryId =
   error.code = code;
   error.deliveryState = 'rejected';
   error.deliveryId = deliveryId;
+  return error;
+}
+
+function rejectedCreationError(message, code = 'CREATION_REJECTED', creationId = '', deliveryId = '') {
+  const error = rejectedDeliveryError(message, code, deliveryId);
+  error.creationState = 'rejected';
+  error.creationId = creationId;
   return error;
 }
 
@@ -222,6 +296,70 @@ function agentResumeIdentityKey(options = {}, platform = process.platform) {
   return JSON.stringify([String(options.provider).toLowerCase(), resumeSessionId, environment, distro]);
 }
 
+function normalizedEnvironmentKind(value) {
+  const kind = cleanText(value, 30).toLowerCase();
+  if (['darwin', 'mac', 'macos'].includes(kind)) return 'macos';
+  if (['win32', 'win', 'windows'].includes(kind)) return 'windows';
+  return ['wsl', 'linux'].includes(kind) ? kind : '';
+}
+
+function terminalEnvironmentKind(options = {}, platform = process.platform) {
+  if (platform === 'win32') return options.distro ? 'wsl' : 'windows';
+  return platform === 'darwin' ? 'macos' : 'linux';
+}
+
+function agentBindingSignature(binding = {}) {
+  const canonical = JSON.stringify([
+    String(binding.sessionId || ''),
+    String(binding.provider || '').toLowerCase(),
+    String(binding.externalId || '').trim(),
+    String(binding.environment || '').toLowerCase(),
+    String(binding.distro || '').trim().toLowerCase(),
+  ]);
+  return `acs1:${deliveryFingerprint(canonical)}`;
+}
+
+function normalizeAgentBinding(value, options, initialPromptFingerprint, platform = process.platform) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const provider = cleanText(value.provider, 30).toLowerCase();
+  const sessionId = cleanText(value.sessionId, MAX_AGENT_SESSION_ID_CHARS);
+  const externalId = cleanText(value.externalId, 500);
+  const environment = normalizedEnvironmentKind(value.environment);
+  const distro = cleanText(value.distro, 100);
+  const fingerprint = validFingerprint(value.promptFingerprint);
+  const linkScore = Number(value.linkScore);
+  const expectedEnvironment = terminalEnvironmentKind(options, platform);
+  const expectedDistro = cleanText(options.distro, 100).toLowerCase();
+  if (options.type !== 'agent'
+    || options.sessionBackend !== 'direct'
+    || !AGENT_PROVIDERS[provider]
+    || provider !== options.provider
+    || !validAgentSessionId(sessionId)
+    || !externalId
+    || sessionId !== `${provider}:${externalId}`
+    || environment !== expectedEnvironment
+    || (environment === 'wsl' && distro.toLowerCase() !== expectedDistro)
+    || (environment !== 'wsl' && distro)
+    || !fingerprint
+    || fingerprint !== validFingerprint(initialPromptFingerprint)
+    || !Number.isFinite(linkScore)
+    || linkScore < 15_000) {
+    return null;
+  }
+  const binding = {
+    sessionId,
+    externalId,
+    provider,
+    environment,
+    distro,
+    promptFingerprint: fingerprint,
+    linkScore: Math.round(linkScore),
+    boundAt: validTimestamp(value.boundAt, new Date().toISOString()),
+  };
+  binding.signature = agentBindingSignature(binding);
+  return binding;
+}
+
 function isExactBoundAgentOptions(options = {}) {
   return options.type === 'agent'
     && Boolean(options.bridgeId)
@@ -229,8 +367,8 @@ function isExactBoundAgentOptions(options = {}) {
     && Boolean(agentResumeSessionId(options));
 }
 
-function assertBoundAgentCommandSafe(options, value, deliveryId = '') {
-  if (!isExactBoundAgentOptions(options)) return;
+function assertBoundAgentCommandSafe(options, value, deliveryId = '', agentBinding = null) {
+  if (!isExactBoundAgentOptions(options) && !agentBinding) return;
   const command = String(value == null ? '' : value);
   if (/[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/u.test(command)) {
     throw rejectedDeliveryError(
@@ -1003,6 +1141,7 @@ function managedTmuxAttachSpec(options, platform = process.platform) {
 }
 
 function publicSession(session, includeReplay = false) {
+  const binding = session.agentBinding || null;
   const value = {
     id: session.id,
     type: session.options.type,
@@ -1025,10 +1164,16 @@ function publicSession(session, includeReplay = false) {
     backend: session.options.sessionBackend,
     tmuxSocket: session.options.tmuxSocket,
     managedTmuxSession: session.options.managedTmuxSession,
-    bridgeId: session.options.bridgeId,
-    agentConnectionSignature: session.options.agentConnectionSignature,
+    bridgeId: binding?.sessionId || session.options.bridgeId,
+    agentConnectionSignature: binding?.signature || session.options.agentConnectionSignature,
     agentResumeSessionId: agentResumeSessionId(session.options),
-    conversationBound: isExactBoundAgentOptions(session.options),
+    agentLinkedSessionId: binding?.sessionId || '',
+    agentLinkedExternalId: binding?.externalId || '',
+    agentLinkedEnvironment: binding?.environment || '',
+    agentLinkedDistro: binding?.distro || '',
+    initialPromptFingerprint: session.initialPromptFingerprint || '',
+    creationId: session.creationId || '',
+    conversationBound: Boolean(binding) || isExactBoundAgentOptions(session.options),
     transient: Boolean(session.options.transient),
     background: session.options.type === 'agent',
     recoveredAfterHostRestart: Boolean(session.recoveredAfterHostRestart),
@@ -1049,7 +1194,7 @@ function publicSession(session, includeReplay = false) {
     rows: session.rows,
     fixedGrid: Boolean(session.spec?.exactPaneProxy || (session.options.type === 'tmux' && session.options.tmuxPane)),
   };
-  if (includeReplay) value.replay = session.replay;
+  if (includeReplay) value.replay = flushSessionReplay(session);
   return value;
 }
 
@@ -1076,6 +1221,41 @@ function unicodeSafeReplayTail(value, maxChars = MAX_REPLAY_CHARS) {
     start += 1;
   }
   return text.slice(start);
+}
+
+function flushSessionReplay(session) {
+  if (!session) return '';
+  const chunks = Array.isArray(session.replayPendingChunks) ? session.replayPendingChunks : [];
+  if (chunks.length) {
+    const pending = chunks.length === 1 ? chunks[0] : chunks.join('');
+    session.replay = unicodeSafeReplayTail(`${String(session.replay || '')}${pending}`);
+  }
+  session.replayPendingChunks = [];
+  session.replayPendingChars = 0;
+  return String(session.replay || '');
+}
+
+function appendSessionReplay(session, value, { immediate = false } = {}) {
+  const text = String(value == null ? '' : value);
+  if (!session || !text) return;
+  if (immediate) {
+    flushSessionReplay(session);
+    session.replay = unicodeSafeReplayTail(`${String(session.replay || '')}${text}`);
+    return;
+  }
+  if (!Array.isArray(session.replayPendingChunks)) session.replayPendingChunks = [];
+  session.replayPendingChunks.push(text);
+  session.replayPendingChars = (Number(session.replayPendingChars) || 0) + text.length;
+  if (session.replayPendingChars >= REPLAY_BATCH_MAX_CHARS) {
+    flushSessionReplay(session);
+  }
+}
+
+function resetSessionReplay(session) {
+  if (!session) return;
+  session.replayPendingChunks = [];
+  session.replayPendingChars = 0;
+  session.replay = '';
 }
 
 function jsonBudgetedReplayTail(value, maxBytes) {
@@ -1189,8 +1369,12 @@ function persistedSession(session) {
     signal: session.signal,
     pid: Number.isSafeInteger(Number(session.pid)) && Number(session.pid) > 0 ? Number(session.pid) : null,
     outputSequence: Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0,
-    replay: session.replay,
+    replay: flushSessionReplay(session),
     deliveries: restoredDeliveries(session.deliveries),
+    initialPromptFingerprint: validFingerprint(session.initialPromptFingerprint),
+    creationId: normalizedCreationId(session.creationId),
+    creationPayloadFingerprint: validFingerprint(session.creationPayloadFingerprint),
+    agentBinding: session.agentBinding ? { ...session.agentBinding } : null,
     terminationPending: Boolean(session.terminationPending || session.retiring),
     terminationIntent: persistedTerminationIntent(session.terminationIntent),
     terminationUncertain: Boolean(session.terminationUncertain),
@@ -1342,6 +1526,39 @@ class TerminalManager extends EventEmitter {
           const now = new Date().toISOString();
           const createdAt = validTimestamp(value.createdAt, now);
           const updatedAt = validTimestamp(value.updatedAt, createdAt);
+          const initialPromptFingerprint = validFingerprint(value.initialPromptFingerprint);
+          const rawCreationId = String(value.creationId || '').trim();
+          const creationId = normalizedCreationId(rawCreationId);
+          const creationPayloadFingerprint = validFingerprint(value.creationPayloadFingerprint);
+          if ((rawCreationId && !creationId)
+            || Boolean(creationId) !== Boolean(creationPayloadFingerprint)) {
+            throw new Error('저장된 명령창 생성 요청 식별자가 올바르지 않습니다.');
+          }
+          const agentBinding = normalizeAgentBinding(
+            value.agentBinding,
+            options,
+            initialPromptFingerprint,
+            this.platform,
+          );
+          const invalidAgentBinding = Boolean(value.agentBinding && !agentBinding);
+          if (invalidAgentBinding) {
+            // Preserve the terminal/replay but fail closed on a corrupt or
+            // stale inferred conversation identity. The canonical resume args
+            // and signature were derived from that binding, so retaining them
+            // would silently auto-resume an identity we just rejected.
+            options.bridgeId = '';
+            options.agentConnectionSignature = '';
+            options.args = [];
+          } else if (agentBinding) {
+            // The validated binding is authoritative. Rebuild every derived
+            // writable/recovery field instead of trusting separately persisted
+            // options that could be stale, empty, or tampered.
+            options.bridgeId = agentBinding.sessionId;
+            options.agentConnectionSignature = agentBinding.signature;
+            options.args = agentBinding.provider === 'codex'
+              ? ['resume', agentBinding.externalId]
+              : ['--resume', agentBinding.externalId];
+          }
           const interruptedTransition = Boolean(value.terminationPending) || value.status === 'stopping';
           const terminationUncertain = Boolean(value.terminationUncertain) || interruptedTransition;
           const status = terminationUncertain
@@ -1368,14 +1585,21 @@ class TerminalManager extends EventEmitter {
             cols: options.cols,
             rows: options.rows,
             replay: unicodeSafeReplayTail(value.replay),
+            replayPendingChunks: [],
+            replayPendingChars: 0,
             deliveries: restoredDeliveries(value.deliveries),
+            initialPromptFingerprint,
+            creationId,
+            creationPayloadFingerprint,
+            agentBinding,
             process: null,
             generation: 0,
-            recoveryPending: !terminationUncertain
+            recoveryPending: !invalidAgentBinding
+              && !terminationUncertain
               && !(options.type === 'tmux' && options.tmuxPane && (!options.tmuxWindow || !options.tmuxPanePid))
               && (value.status === 'running' || value.status === 'starting'),
             recoveredAfterHostRestart: false,
-            recoverySkippedReason: '',
+            recoverySkippedReason: invalidAgentBinding ? 'invalid-agent-binding' : '',
             terminationPending: false,
             terminationIntent: restoredTerminationIntent(value.terminationIntent),
             terminationUncertain,
@@ -1483,13 +1707,13 @@ class TerminalManager extends EventEmitter {
           session.recoveredAfterHostRestart = false;
           session.recoverySkippedReason = 'managed-tmux-missing';
           const missingMessage = '\r\n[LoadToAgent] 저장된 명령창 묶음을 찾지 못해 새 AI 대화를 자동으로 시작하지 않았습니다.\r\n';
-          session.replay = unicodeSafeReplayTail(`${session.replay}${missingMessage}`);
+          appendSessionReplay(session, missingMessage, { immediate: true });
           continue;
         }
         session.recoveredAfterHostRestart = true;
         session.recoverySkippedReason = '';
         const reattachMessage = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
-        session.replay = unicodeSafeReplayTail(`${session.replay}${reattachMessage}`);
+        appendSessionReplay(session, reattachMessage, { immediate: true });
         try {
           session.spec = managedTmuxAttachSpec(session.options, this.platform);
           this.spawn(session);
@@ -1510,7 +1734,7 @@ class TerminalManager extends EventEmitter {
         session.recoveredAfterHostRestart = false;
         session.recoverySkippedReason = 'unsafe-agent-restart';
         const skippedMessage = '\r\n[LoadToAgent] 이어갈 기존 AI 대화를 찾지 못했습니다. 새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다.\r\n';
-        session.replay = unicodeSafeReplayTail(`${session.replay}${skippedMessage}`);
+        appendSessionReplay(session, skippedMessage, { immediate: true });
         continue;
       }
       session.recoveredAfterHostRestart = true;
@@ -1522,7 +1746,7 @@ class TerminalManager extends EventEmitter {
       const message = exactTmuxReattach
         ? '\r\n[LoadToAgent] 명령창 호스트가 다시 시작되어 기존 tmux pane의 실제 PTY에 다시 연결했습니다.\r\n'
         : '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤 새 프로그램으로 복구했습니다. 이전 명령창의 임시 상태는 이어지지 않습니다.\r\n';
-      session.replay = unicodeSafeReplayTail(`${session.replay}${message}`);
+      appendSessionReplay(session, message, { immediate: true });
       try {
         this.spawn(session);
       } catch (_recoveryFailed) {
@@ -1707,7 +1931,7 @@ class TerminalManager extends EventEmitter {
       const removedForKey = removedByKey.get(key) || 0;
       if (removedForKey && this.sessions.get(survivor.id) === survivor) {
         const message = `\r\n[LoadToAgent] 같은 AI 대화에 중복으로 열린 연결 ${removedForKey}개를 정리했습니다.\r\n`;
-        survivor.replay = unicodeSafeReplayTail(`${survivor.replay}${message}`);
+        appendSessionReplay(survivor, message, { immediate: true });
       }
     }
     if (removed.length) this.persistNow();
@@ -1881,6 +2105,55 @@ class TerminalManager extends EventEmitter {
     return null;
   }
 
+  creationRecord(creationId) {
+    const id = normalizedCreationId(creationId);
+    if (!id) return null;
+    for (const session of this.sessions.values()) {
+      if (session.creationId === id) return session;
+    }
+    return null;
+  }
+
+  duplicateCreationResult(session, details = {}) {
+    const requestedDeliveryId = normalizedDeliveryId(details.deliveryId);
+    const deliveryRecord = (session.deliveries || []).find(record => (
+      (requestedDeliveryId && record.id === requestedDeliveryId)
+      || (details.fingerprint
+        && record.fingerprint === details.fingerprint
+        && ((!details.target || record.target === details.target)
+          || (!details.initialCommandInArgs && record.target === session.id)))
+    )) || null;
+    let deliveryState = '';
+    if (deliveryRecord) {
+      deliveryState = deliveryRecord
+        .state === 'accepted' ? 'accepted' : 'unknown';
+    } else if (details.initialCommandInArgs) {
+      deliveryState = session.status === 'failed' ? 'rejected' : 'unknown';
+    } else if (session.status === 'failed') {
+      deliveryState = 'rejected';
+    }
+    const creationFailed = session.status === 'failed';
+    const creationUnavailable = creationFailed
+      || !['starting', 'running'].includes(session.status)
+      || Boolean(session.recoverySkippedReason);
+    return {
+      ...publicSession(session, true),
+      ok: true,
+      reused: true,
+      duplicate: true,
+      creationDuplicate: true,
+      creationFailed,
+      creationUnavailable,
+      creationId: session.creationId,
+      promptSent: deliveryState === 'accepted',
+      deliveryId: requestedDeliveryId,
+      ...(deliveryRecord && requestedDeliveryId && deliveryRecord.id !== requestedDeliveryId
+        ? { originalDeliveryId: deliveryRecord.id }
+        : {}),
+      deliveryState,
+    };
+  }
+
   rememberDelivery(session, deliveryId, state, options = {}) {
     const id = normalizedDeliveryId(deliveryId);
     if (!id || !session) return null;
@@ -1954,6 +2227,16 @@ class TerminalManager extends EventEmitter {
     if (requestedDeliveryId && !deliveryId) {
       throw rejectedDeliveryError('전달 요청 식별자가 올바르지 않습니다.');
     }
+    const requestedCreationId = String(rawOptions.creationId || '').trim();
+    const creationId = normalizedCreationId(requestedCreationId);
+    if (requestedCreationId && !creationId) {
+      throw rejectedCreationError(
+        '명령창 생성 요청 식별자가 올바르지 않습니다.',
+        'CREATION_ID_INVALID',
+        '',
+        deliveryId,
+      );
+    }
     if (initialCommand.length > MAX_INPUT_CHARS) {
       throw rejectedDeliveryError('한 번에 보낼 수 있는 입력 크기를 초과했습니다.', 'DELIVERY_TOO_LARGE', deliveryId);
     }
@@ -1986,6 +2269,40 @@ class TerminalManager extends EventEmitter {
           deliveryId,
         );
       }
+    }
+    const fingerprint = initialCommand ? deliveryFingerprint(initialCommand) : '';
+    const deliveryTarget = agentBridgeKey(launchOptions)
+      || `agent:${launchOptions.provider}:${launchOptions.cwd}`;
+    const creationFingerprint = creationId ? creationPayloadFingerprint(launchOptions, {
+      initialCommand,
+      initialCommandInArgs,
+      recoveryArgs,
+      reuseBridge: rawOptions.reuseBridge,
+    }) : '';
+    const knownCreation = creationId ? this.creationRecord(creationId) : null;
+    if (knownCreation) {
+      if (knownCreation.creationPayloadFingerprint !== creationFingerprint) {
+        throw rejectedCreationError(
+          '이 명령창 생성 요청은 다른 실행 내용에 이미 사용됐습니다.',
+          'CREATION_ID_CONFLICT',
+          creationId,
+          deliveryId,
+        );
+      }
+      return this.duplicateCreationResult(knownCreation, {
+        deliveryId,
+        fingerprint,
+        target: deliveryTarget,
+        initialCommandInArgs,
+      });
+    }
+    if (creationId && launchOptions.transient) {
+      throw rejectedCreationError(
+        '일회성 명령창에는 재시도 가능한 생성 요청을 사용할 수 없습니다.',
+        'CREATION_TRANSIENT_UNSUPPORTED',
+        creationId,
+        deliveryId,
+      );
     }
     if (isExactBoundAgentOptions(launchOptions)) {
       // A hard-crash orphan may exit moments after bootstrap. Re-probe the
@@ -2034,9 +2351,6 @@ class TerminalManager extends EventEmitter {
         deliveryId,
       );
     }
-    const fingerprint = initialCommand ? deliveryFingerprint(initialCommand) : '';
-    const deliveryTarget = agentBridgeKey(launchOptions)
-      || `agent:${launchOptions.provider}:${launchOptions.cwd}`;
     const knownDelivery = deliveryId ? this.deliveryRecord(deliveryId) : null;
     if (knownDelivery) {
       if (agentBridgeKey(knownDelivery.session.options) !== agentBridgeKey(launchOptions)) {
@@ -2094,7 +2408,13 @@ class TerminalManager extends EventEmitter {
       cols: options.cols,
       rows: options.rows,
       replay: '',
+      replayPendingChunks: [],
+      replayPendingChars: 0,
       deliveries: [],
+      initialPromptFingerprint: initialCommand ? promptFingerprint(initialCommand) : '',
+      creationId,
+      creationPayloadFingerprint: creationFingerprint,
+      agentBinding: null,
       process: null,
       generation: 0,
       recoveryPending: false,
@@ -2113,6 +2433,17 @@ class TerminalManager extends EventEmitter {
       proxyDeliveryWaiters: new Map(),
     };
     this.sessions.set(id, session);
+    const deliveryWillPersistCreation = Boolean(deliveryId && initialCommandInArgs);
+    if (creationId && !deliveryWillPersistCreation && !this.persistNow()) {
+      this.sessions.delete(id);
+      throw rejectedCreationError(
+        '명령창 생성 장부를 안전하게 저장하지 못해 작업을 시작하지 않았습니다.',
+        'CREATION_LEDGER_UNAVAILABLE',
+        creationId,
+        deliveryId,
+      );
+    }
+    let persistedAfterSpawn = false;
     try {
       if (deliveryId && initialCommandInArgs) this.rememberDelivery(session, deliveryId, 'prepared', {
         required: true,
@@ -2124,6 +2455,7 @@ class TerminalManager extends EventEmitter {
         target: deliveryTarget,
         fingerprint,
       });
+      persistedAfterSpawn = Boolean(deliveryId && initialCommandInArgs);
     } catch (error) {
       if (deliveryId && initialCommandInArgs && error?.terminalProcessStarted === false) {
         if (this.forgetDelivery(session, deliveryId)) {
@@ -2132,6 +2464,9 @@ class TerminalManager extends EventEmitter {
           error.deliveryId = deliveryId;
           error.deliveryState = 'unknown';
         }
+      } else if (deliveryId && initialCommandInArgs && error?.terminalProcessStarted) {
+        error.deliveryId = deliveryId;
+        error.deliveryState = 'unknown';
       } else if (initialCommand && !initialCommandInArgs && error?.terminalProcessStarted === false) {
         error = markDeliveryRejected(error, deliveryId);
       } else if (initialCommand && !initialCommandInArgs && error?.terminalProcessStarted) {
@@ -2143,12 +2478,38 @@ class TerminalManager extends EventEmitter {
       // The failed session contains the startup error in replay and can be
       // inspected, restarted, or removed from the session terminal.
       this.persistNow();
+      if (creationId && error?.code !== 'DELIVERY_LEDGER_UNAVAILABLE') {
+        return {
+          ...publicSession(session, true),
+          ok: true,
+          reused: false,
+          creationId,
+          creationDuplicate: false,
+          creationFailed: true,
+          creationUnavailable: true,
+          promptSent: false,
+          deliveryId,
+          deliveryState: String(error?.deliveryState || '') || 'rejected',
+          error: String(error?.message || '명령창을 시작하지 못했습니다.'),
+          code: String(error?.code || 'TERMINAL_CREATE_FAILED'),
+        };
+      }
       throw error;
     }
-    this.persistNow();
+    // The accepted delivery write already persisted the spawned PID/status,
+    // creation ledger, and delivery ledger together. Avoid serializing and
+    // atomically replacing a multi-megabyte terminal store a second time on
+    // the launch hot path. Providers that send their prompt after create
+    // still need this post-spawn save.
+    if (!persistedAfterSpawn) this.persistNow();
+    const creationUnavailable = !['starting', 'running'].includes(session.status);
     return {
       ...publicSession(session, true),
       reused: false,
+      creationId,
+      creationDuplicate: false,
+      creationFailed: false,
+      creationUnavailable,
       promptSent: initialCommandInArgs,
       deliveryId,
       deliveryState: deliveryId && initialCommandInArgs ? 'accepted' : '',
@@ -2332,7 +2693,7 @@ class TerminalManager extends EventEmitter {
     session.startupBuffer = '';
     this.clearStartupTimer(session);
     const failureMessage = `\r\n[LoadToAgent] ${message}\r\n`;
-    session.replay = unicodeSafeReplayTail(`${session.replay}${failureMessage}`);
+    appendSessionReplay(session, failureMessage, { immediate: true });
     session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
     session.updatedAt = new Date().toISOString();
     this.emit('data', {
@@ -2356,6 +2717,80 @@ class TerminalManager extends EventEmitter {
       this.persistNow();
       this.emitState('updated', session);
     }, () => {});
+  }
+
+  cleanupFailedSpawnProcess(session, processHandle, generation, startupError) {
+    if (!session || !processHandle) return;
+    const finish = () => {
+      if (this.sessions.get(session.id) !== session
+        || session.generation !== generation
+        || (session.process && session.process !== processHandle)) return;
+      session.process = null;
+      session.pid = null;
+      session.generation += 1;
+      session.retiring = false;
+      session.terminationPending = false;
+      session.terminationIntent = '';
+      session.terminationUncertain = false;
+      session.terminationErrorCode = '';
+      session.terminationErrorMessage = '';
+      session.status = 'failed';
+      session.updatedAt = new Date().toISOString();
+      this.persistNow();
+      this.emitState('updated', session);
+    };
+    const fail = cleanupError => {
+      if (processHandle.__loadtoagentExited) {
+        finish();
+        return;
+      }
+      if (this.sessions.get(session.id) !== session
+        || session.generation !== generation
+        || session.process !== processHandle) return;
+      session.status = 'stopping';
+      session.terminationPending = true;
+      session.terminationIntent = 'startup-failure';
+      session.terminationUncertain = true;
+      session.terminationErrorCode = 'TERMINAL_START_CLEANUP_FAILED';
+      session.terminationErrorMessage = cleanText(
+        `명령창 시작 초기화 실패 뒤 프로그램 종료를 확인하지 못했습니다: ${cleanupError?.message || cleanupError}`,
+        500,
+      );
+      session.updatedAt = new Date().toISOString();
+      this.persistNow();
+      this.emitState('updated', session);
+    };
+    try {
+      const startupCancellation = Boolean(processHandle.__loadtoagentStartupPending);
+      const terminateWithPid = resolvedPid => {
+        if (Number.isSafeInteger(Number(resolvedPid)) && Number(resolvedPid) > 0) {
+          session.pid = Number(resolvedPid);
+        }
+        return startupCancellation
+          ? waitForPtyExitAfter(
+              processHandle,
+              () => processHandle.kill(),
+              PTY_EXIT_CONFIRM_TIMEOUT_MS,
+              { alwaysTerminate: true },
+            )
+          : this.killTree(processHandle, session.pid);
+      };
+      const pidResult = startupCancellation
+        ? null
+        : waitForPtyPid(processHandle, session.pid, this.ptyPidReadyTimeoutMs);
+      const cleanup = pidResult && typeof pidResult.then === 'function'
+        ? Promise.resolve(pidResult).then(terminateWithPid)
+        : terminateWithPid(pidResult);
+      if (cleanup && typeof cleanup.then === 'function') {
+        Promise.resolve(cleanup).then(finish, fail).catch(fail);
+      } else {
+        finish();
+      }
+    } catch (cleanupError) {
+      const combined = new Error(`${startupError?.message || '명령창 시작 초기화 실패'}; ${cleanupError?.message || cleanupError}`);
+      combined.cause = cleanupError;
+      fail(combined);
+    }
   }
 
   spawn(session) {
@@ -2434,7 +2869,7 @@ class TerminalManager extends EventEmitter {
           }
         }
         if (!text) return;
-        session.replay = unicodeSafeReplayTail(`${session.replay}${text}`);
+        appendSessionReplay(session, text);
         session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
         session.updatedAt = new Date().toISOString();
         this.emit('data', { id: session.id, data: text, outputSequence: session.outputSequence });
@@ -2443,6 +2878,7 @@ class TerminalManager extends EventEmitter {
       processHandle.onExit(event => {
         processHandle.__loadtoagentExited = true;
         if (session.generation !== generation) return;
+        flushSessionReplay(session);
         this.clearStartupTimer(session);
         session.startupBuffer = '';
         session.process = null;
@@ -2463,7 +2899,7 @@ class TerminalManager extends EventEmitter {
           if (!session.startupFailure) {
             session.startupFailure = true;
             const failureMessage = '\r\n[LoadToAgent] 요청한 tmux pane 연결이 끝나 입력을 차단했습니다.\r\n';
-            session.replay = unicodeSafeReplayTail(`${session.replay}${failureMessage}`);
+            appendSessionReplay(session, failureMessage, { immediate: true });
             session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
             this.emit('data', { id: session.id, data: failureMessage, outputSequence: session.outputSequence });
           }
@@ -2493,12 +2929,22 @@ class TerminalManager extends EventEmitter {
       this.emitState('updated', session);
     } catch (error) {
       error.terminalProcessStarted = Boolean(processHandle);
-      session.process = null;
-      session.pid = null;
-      session.status = 'failed';
+      if (processHandle) {
+        session.process = processHandle;
+        const readyPid = Number(processHandle.pid);
+        session.pid = Number.isSafeInteger(readyPid) && readyPid > 0 ? readyPid : session.pid;
+        session.status = 'stopping';
+        session.terminationPending = true;
+        session.terminationIntent = 'startup-failure';
+      } else {
+        session.process = null;
+        session.pid = null;
+        session.status = 'failed';
+      }
       session.updatedAt = new Date().toISOString();
       const failureMessage = `\r\n[LoadToAgent] 명령창을 시작하지 못했습니다: ${error.message}\r\n`;
-      session.replay = unicodeSafeReplayTail(`${session.replay}${failureMessage}`);
+      appendSessionReplay(session, failureMessage, { immediate: true });
+      if (processHandle) this.cleanupFailedSpawnProcess(session, processHandle, generation, error);
       session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
       this.emit('data', {
         id: session.id,
@@ -2551,6 +2997,75 @@ class TerminalManager extends EventEmitter {
 
   list() {
     return [...this.sessions.values()].map(session => publicSession(session, false));
+  }
+
+  bindAgentSession(id, rawBinding = {}) {
+    const session = this.required(id);
+    if (session.options.type !== 'agent' || !['running', 'starting'].includes(session.status)) {
+      const error = new Error('실행 중인 AI 명령창만 대화 기록에 연결할 수 있습니다.');
+      error.code = 'AGENT_BINDING_TARGET_INVALID';
+      throw error;
+    }
+    const binding = normalizeAgentBinding(
+      rawBinding,
+      session.options,
+      session.initialPromptFingerprint,
+      this.platform,
+    );
+    if (!binding) {
+      const error = new Error('AI 명령창과 대화 기록의 제공사, 환경 또는 첫 질문이 일치하지 않습니다.');
+      error.code = 'AGENT_BINDING_IDENTITY_MISMATCH';
+      throw error;
+    }
+    if (session.agentBinding) {
+      if (session.agentBinding.sessionId === binding.sessionId
+        && session.agentBinding.promptFingerprint === binding.promptFingerprint) {
+        return publicSession(session, false);
+      }
+      const error = new Error('이 AI 명령창은 이미 다른 대화 기록에 연결되어 있습니다.');
+      error.code = 'AGENT_BINDING_CONFLICT';
+      throw error;
+    }
+    if (isExactBoundAgentOptions(session.options)) {
+      const error = new Error('이미 명시적으로 연결된 AI 대화는 다시 추론 연결할 수 없습니다.');
+      error.code = 'AGENT_BINDING_ALREADY_EXPLICIT';
+      throw error;
+    }
+    const conflicting = [...this.sessions.values()].find(candidate => candidate.id !== session.id
+      && (['running', 'starting', 'stopping'].includes(candidate.status)
+        || candidate.retiring
+        || candidate.terminationPending
+        || candidate.terminationUncertain)
+      && (candidate.agentBinding?.sessionId === binding.sessionId
+        || (isExactBoundAgentOptions(candidate.options) && candidate.options.bridgeId === binding.sessionId)));
+    if (conflicting) {
+      const error = new Error('같은 AI 대화 기록이 다른 명령창에 이미 연결되어 있습니다.');
+      error.code = 'AGENT_BINDING_SESSION_ALREADY_ACTIVE';
+      throw error;
+    }
+    const previousBridgeId = session.options.bridgeId;
+    const previousSignature = session.options.agentConnectionSignature;
+    const previousArgs = session.options.args;
+    const previousUpdatedAt = session.updatedAt;
+    session.agentBinding = binding;
+    session.options.bridgeId = binding.sessionId;
+    session.options.agentConnectionSignature = binding.signature;
+    session.options.args = binding.provider === 'codex'
+      ? ['resume', binding.externalId]
+      : ['--resume', binding.externalId];
+    session.updatedAt = new Date().toISOString();
+    if (!this.persistNow()) {
+      session.agentBinding = null;
+      session.options.bridgeId = previousBridgeId;
+      session.options.agentConnectionSignature = previousSignature;
+      session.options.args = previousArgs;
+      session.updatedAt = previousUpdatedAt;
+      const error = new Error('AI 명령창의 대화 연결 정보를 안전하게 저장하지 못했습니다.');
+      error.code = 'AGENT_BINDING_PERSIST_FAILED';
+      throw error;
+    }
+    this.emitState('updated', session);
+    return publicSession(session, false);
   }
 
   get(id, includeReplay = true) {
@@ -2606,7 +3121,8 @@ class TerminalManager extends EventEmitter {
     if (command.length > MAX_INPUT_CHARS) {
       throw rejectedDeliveryError('한 번에 보낼 수 있는 입력 크기를 초과했습니다.', 'DELIVERY_TOO_LARGE', deliveryId);
     }
-    assertBoundAgentCommandSafe(this.required(id).options, command, deliveryId);
+    const commandSession = this.required(id);
+    assertBoundAgentCommandSafe(commandSession.options, command, deliveryId, commandSession.agentBinding);
     const fingerprint = deliveryFingerprint(command);
     const known = deliveryId ? this.deliveryRecord(deliveryId) : null;
     if (known) {
@@ -2964,7 +3480,7 @@ class TerminalManager extends EventEmitter {
     if (operation === 'restart') {
       session.recoveredAfterHostRestart = false;
       session.recoverySkippedReason = '';
-      session.replay = '';
+      resetSessionReplay(session);
       session.spec = launchSpec(session.options, this.platform, this.agentProviders);
       session.status = 'stopped';
       if (!this.persistNow()) {
@@ -3163,6 +3679,7 @@ module.exports = {
   numericDimension,
   killPtyTree,
   AGENT_PROVIDERS,
+  promptFingerprint,
   resolveWindowsCommand,
   resolvePosixShell,
 };

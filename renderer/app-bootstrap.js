@@ -142,10 +142,15 @@
         const renderedSnapshot = latestSnapshot;
         render();
         saveDashboardPreferences();
-        if (state.selectedId && $("#detailDrawer").classList.contains("open") && !state.detailLoadingIds.has(state.selectedId)) {
+        if (state.selectedId && $("#detailDrawer").classList.contains("open")) {
           const card = (renderedSnapshot.sessions || []).find((session) => session.id === state.selectedId);
           const detail = state.details.get(state.selectedId);
-          if (card && detail && card.updatedAt !== detail.updatedAt) loadSessionDetail(state.selectedId, true);
+          // Queue a follow-up even during the very first full-history read.
+          // With no cached detail yet, a newer snapshot is still evidence that
+          // the in-flight response can be stale.
+          if (card && (!detail || card.updatedAt !== detail.updatedAt)) {
+            loadSessionDetail(state.selectedId, true, card.updatedAt);
+          }
         }
       });
     });
