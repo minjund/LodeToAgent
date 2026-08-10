@@ -34,7 +34,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       cols: Number(session.cols) || 120,
       rows: Number(session.rows) || 32,
     } : null;
-    const inputDisabled = readOnly || Boolean(session?.conversationBound);
+    const inputDisabled = readOnly;
     const terminal = new window.Terminal({
       ...xtermOptions(inputDisabled),
       ...(fixedGrid || {}),
@@ -44,7 +44,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     terminal.open(host);
     const entry = {
       terminal, fit, host, readOnly, inputDisabled, fixedGrid, userScrollRevision: 0, outputWritePending: 0,
-      outputRestoreGeneration: 0,
+      outputRestoreGeneration: 0, wheelLineRemainder: 0,
       writeQueue: Promise.resolve(), pendingResize: null, resizePromise: null,
       outputHydrating: !readOnly,
       outputSequence: null,
@@ -84,7 +84,24 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     syncScrollState(0);
     if (!readOnly) {
       const rememberUserScroll = () => { entry.userScrollRevision += 1; };
-      host.addEventListener('wheel', rememberUserScroll, { capture: true, passive: true });
+      host.addEventListener('wheel', event => {
+        const deltaY = Number(event.deltaY) || 0;
+        const activeBuffer = terminal.buffer.active;
+        if (!deltaY || Number(activeBuffer.baseY || 0) <= 0) return;
+        const lineDelta = event.deltaMode === 1
+          ? deltaY
+          : event.deltaMode === 2
+            ? deltaY * Math.max(1, terminal.rows - 1)
+            : deltaY / Math.max(16, (state.terminalFontSize || 15) * 1.25);
+        entry.wheelLineRemainder += lineDelta;
+        const lines = Math.trunc(entry.wheelLineRemainder);
+        event.preventDefault();
+        event.stopPropagation();
+        if (!lines) return;
+        entry.wheelLineRemainder -= lines;
+        terminal.scrollLines(lines);
+        rememberUserScroll();
+      }, { capture: true, passive: false });
       host.addEventListener('pointerup', rememberUserScroll, true);
       host.addEventListener('keyup', event => {
         if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(event.key)) rememberUserScroll();
@@ -145,7 +162,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function ensureSessionTerminal(session) {
     let entry = state.terminals.get(session.id);
-    const inputDisabled = Boolean(session?.conversationBound);
+    const inputDisabled = false;
     if (entry && entry.inputDisabled !== inputDisabled) {
       entry.terminal.dispose();
       entry.host.remove();

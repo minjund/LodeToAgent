@@ -48,18 +48,6 @@
     if (resume) resume.disabled = !resumable;
   }
 
-  function setComposerReady(root, ready) {
-    const form = root?.querySelector("[data-inline-terminal-composer] [data-agent-command-form]");
-    if (!form) return;
-    form.dataset.agentTerminalReady = ready ? "true" : "false";
-    form.dataset.agentSendAvailable = ready ? "true" : "false";
-    const input = form.querySelector("[data-agent-command-draft]");
-    const submit = form.querySelector('button[type="submit"]');
-    if (submit) submit.disabled = !ready || !String(input?.value || "").trim();
-    const interrupt = form.querySelector("[data-terminal-interrupt]");
-    if (interrupt) interrupt.disabled = !ready;
-  }
-
   async function sync() {
     const instance = app();
     const session = selectedSession();
@@ -73,7 +61,6 @@
     const generation = ++local.generation;
     setEmpty(root, true);
     setStatus(root, "drawer.terminal_connecting");
-    setComposerReady(root, false);
     try {
       const result = await terminal.mountForAgent(session, {
         mount: viewport,
@@ -93,20 +80,17 @@
           resumable,
         );
         setStatus(root, resumable ? "drawer.terminal_resume_available" : "drawer.terminal_unavailable", "", "unavailable");
-        setComposerReady(root, false);
         return result || { ok: false, reason: "unavailable" };
       }
       const targetId = String(result.target?.terminalId || result.target?.id || "");
       if (targetId) local.targetIds.set(session.id, targetId);
       setEmpty(root, false);
       setStatus(root, "drawer.terminal_connected", result.target?.label || result.terminal?.title || "", "connected");
-      setComposerReady(root, true);
       return result;
     } catch (error) {
       if (generation !== local.generation) return { ok: false, reason: "cancelled" };
       setEmpty(root, true, "drawer.terminal_unavailable", "drawer.terminal_unavailable_help");
       setStatus(root, "drawer.terminal_unavailable", window.LoadToAgentI18n.errorText(error, "drawer.terminal_unavailable"), "error");
-      setComposerReady(root, false);
       report("inline-agent-terminal-mount", error);
       return { ok: false, reason: "error", error };
     }

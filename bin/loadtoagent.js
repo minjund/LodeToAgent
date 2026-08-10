@@ -60,9 +60,18 @@ function desktopLaunchSpec(options = {}) {
   const sourceEnv = options.env || process.env;
   const env = { ...sourceEnv };
   const packagedLauncher = sourceEnv.ELECTRON_RUN_AS_NODE === '1';
+  const sourceLauncher = sourceEnv.LOADTOAGENT_SOURCE_LAUNCHER === '1';
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.LOADTOAGENT_SOURCE_LAUNCHER;
   if (packagedLauncher) {
-    return { executable: options.execPath || process.execPath, args: [], env };
+    const executable = options.execPath || process.execPath;
+    const executableName = String(executable).split(/[\\/]/u).pop() || '';
+    const electronExecutable = /^electron(?:\.exe)?$/i.test(executableName);
+    return {
+      executable,
+      args: sourceLauncher || electronExecutable ? [options.packageRoot || PACKAGE_ROOT] : [],
+      env,
+    };
   }
   const executable = options.electronPath || require('electron');
   return { executable, args: [options.packageRoot || PACKAGE_ROOT], env };

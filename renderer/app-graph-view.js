@@ -1183,12 +1183,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   function inlineTerminalPanel(session) {
     if (state.inlineTerminalSessionId !== session.id) return "";
     const provider = providerInfo(session.provider);
-    const composer = window.LoadToAgentApp?.agentCommandComposer?.(session, {
-      conversation: true,
-      terminal: true,
-      terminalStyle: true,
-      connectionReady: false,
-    }) || "";
     return `<section id="agentInlineTerminal" class="agent-inline-terminal" data-inline-agent-terminal="${esc(session.id)}" style="${providerStyle(session.provider)}" aria-label="${esc(`${provider.label} PTY`)}">
       <span class="agent-inline-terminal-link" aria-hidden="true"></span>
       <header class="agent-inline-terminal-head">
@@ -1207,7 +1201,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <button class="primary-button hidden" type="button" data-inline-terminal-resume>${esc(t("drawer.terminal_resume_action"))}</button>
         </div>
       </div>
-      <div class="agent-inline-terminal-composer" data-inline-terminal-composer>${composer}</div>
     </section>`;
   }
 

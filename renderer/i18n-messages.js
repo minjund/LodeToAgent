@@ -496,7 +496,7 @@
     "drawer.terminal_failed_help": {"ko":"오른쪽 위 다시 연결 버튼을 눌러 재시도할 수 있습니다.","en":"Use the reconnect button above to try again.","zh-CN":"可使用上方的重新连接按钮重试。"},
     "drawer.terminal_tmux_target": {"ko":"tmux 입력 대상 연결됨","en":"tmux input target connected","zh-CN":"已连接 tmux 输入目标"},
     "drawer.terminal_tmux_help": {"ko":"메시지는 같은 tmux에 전달됩니다. 화면 직접 입력은 전체 터미널에서 사용할 수 있습니다.","en":"Messages go to the same tmux target. Direct screen input remains available in the full terminal.","zh-CN":"消息将发送到同一 tmux 目标。可在完整终端中直接输入。"},
-    "drawer.terminal_focus": {"ko":"메시지 입력란으로 이동","en":"Focus message input","zh-CN":"聚焦消息输入框"},
+    "drawer.terminal_focus": {"ko":"터미널 입력으로 이동","en":"Focus terminal input","zh-CN":"聚焦终端输入"},
     "drawer.terminal_reconnect": {"ko":"PTY 다시 연결","en":"Reconnect PTY","zh-CN":"重新连接 PTY"},
     "drawer.terminal_viewport": {"ko":"현재 AI 작업의 실제 PTY 출력 및 스크롤 기록","en":"Live PTY output and scrollback for the current AI task","zh-CN":"当前 AI 任务的实时 PTY 输出和滚动记录"},
     "drawer.terminal_placeholder": {"ko":"터미널에 메시지 또는 명령 입력…","en":"Enter a message or command in the terminal…","zh-CN":"在终端中输入消息或命令…"},
