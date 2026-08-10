@@ -5,6 +5,16 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.16 - 2026-08-10
+
+- Keep inline and drawer PTYs focused on native terminal input without a
+  separate message composer, and preserve terminal scrollback with the mouse
+  wheel.
+- Prevent Electron's placeholder `path-to-app` window across Windows and macOS
+  source launches by recognizing executable paths with either path separator.
+- Start brand-new AI tasks without invalid recovery arguments while retaining
+  recovery behavior for existing sessions.
+
 ## 1.6.15 - 2026-08-07
 
 - Launch the source checkout with its application path when the generated

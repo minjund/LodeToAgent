@@ -65,7 +65,8 @@ function desktopLaunchSpec(options = {}) {
   delete env.LOADTOAGENT_SOURCE_LAUNCHER;
   if (packagedLauncher) {
     const executable = options.execPath || process.execPath;
-    const electronExecutable = /^electron(?:\.exe)?$/i.test(path.basename(executable));
+    const executableName = String(executable).split(/[\\/]/u).pop() || '';
+    const electronExecutable = /^electron(?:\.exe)?$/i.test(executableName);
     return {
       executable,
       args: sourceLauncher || electronExecutable ? [options.packageRoot || PACKAGE_ROOT] : [],
