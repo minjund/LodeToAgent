@@ -351,12 +351,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       if (allowWrites) args.push('--always-approve');
     }
 
-    const recoveryArgs = [...args];
     let initialCommandInArgs = true;
     if (provider === 'gemini') args.push('--prompt-interactive', prompt);
     else if (provider === 'grok') initialCommandInArgs = false;
     else args.push(prompt);
-    return { provider, prompt, args, recoveryArgs, initialCommandInArgs };
+    return { provider, prompt, args, initialCommandInArgs };
   }
 
   async function startAgent(options = {}) {
@@ -370,7 +369,6 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       type: 'agent',
       provider: launch.provider,
       args: launch.args,
-      recoveryArgs: launch.recoveryArgs,
       cwd,
       title: `${providerLabel(launch.provider)} · ${titlePrompt}`,
       transient: false,

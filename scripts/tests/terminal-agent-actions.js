@@ -23,11 +23,11 @@ function registerTerminalAgentActionTests(context) {
     const grok = actions.freshAgentLaunchOptions({ provider: 'grok', prompt: 'Grok PTY', model: 'grok-code', allowWrites: true });
 
     assert.deepStrictEqual(Array.from(claude.args), ['--model', 'sonnet', '--permission-mode', 'acceptEdits', 'Claude PTY']);
-    assert.deepStrictEqual(Array.from(claude.recoveryArgs), ['--model', 'sonnet', '--permission-mode', 'acceptEdits']);
     assert.deepStrictEqual(Array.from(codex.args), ['--model', 'gpt-5.6', '--sandbox', 'read-only', 'Codex PTY']);
     assert.deepStrictEqual(Array.from(gemini.args), ['--yolo', '--prompt-interactive', 'Gemini PTY']);
     assert.equal(grok.initialCommandInArgs, false);
     assert.deepStrictEqual(Array.from(grok.args), ['--no-auto-update', '--model', 'grok-code', '--always-approve']);
+    assert.equal(Object.hasOwn(claude, 'recoveryArgs'), false, '새 대화에는 아직 복구할 대화 ID가 없으므로 복구 인자를 만들지 않아야 합니다.');
   });
 
   test('새 AI 작업은 PTY를 생성하고 초기 요청을 그 터미널에 한 번만 전달한다', async () => {
@@ -66,6 +66,7 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(creates[0].type, 'agent');
     assert.equal(creates[0].transient, false);
     assert.equal(creates[0].initialCommandInArgs, true);
+    assert.equal(Object.hasOwn(creates[0], 'recoveryArgs'), false, '새 AI 작업 생성 요청에 대화 ID 없는 복구 인자를 보내면 안 됩니다.');
     assert.equal(creates[1].initialCommandInArgs, false);
     assert.equal(commands.length, 1);
     assert.equal(commands[0][0], 'terminal:grok');
