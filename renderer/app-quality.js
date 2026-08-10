@@ -42,6 +42,41 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     return String(value || "").replace(/\s+/g, " ").trim().slice(0, limit);
   }
 
+  function normalizedRunCreationOptions(value = {}) {
+    return [
+      String(value.provider || "").trim().toLowerCase().slice(0, 40),
+      String(value.cwd || "").trim().slice(0, 2_000),
+      String(value.model || "").trim().slice(0, 160),
+      String(value.prompt || "").trim().slice(0, 8_000),
+      Boolean(value.allowWrites),
+    ];
+  }
+
+  function runCreationFingerprint(value = {}) {
+    const input = JSON.stringify(normalizedRunCreationOptions(value));
+    const hashes = [0x811c9dc5, 0x9e3779b9, 0x85ebca6b, 0xc2b2ae35];
+    const primes = [0x01000193, 0x27d4eb2d, 0x165667b1, 0x9e3779b1];
+    for (const character of input) {
+      const code = character.codePointAt(0);
+      for (let index = 0; index < hashes.length; index += 1) {
+        hashes[index] = Math.imul(hashes[index] ^ code, primes[index]);
+        hashes[index] ^= hashes[index] >>> 13;
+      }
+    }
+    return `rc1:${hashes.map(hash => (hash >>> 0).toString(16).padStart(8, "0")).join("")}`;
+  }
+
+  function normalizedPendingCreation(value, expectedFingerprint = "") {
+    const creationId = typeof value?.creationId === "string" ? value.creationId.trim() : "";
+    const creationFingerprint = typeof value?.creationFingerprint === "string"
+      ? value.creationFingerprint.trim().toLowerCase()
+      : "";
+    if (!/^[A-Za-z0-9:._-]{1,240}$/.test(creationId)
+      || !/^rc1:[a-f0-9]{32}$/.test(creationFingerprint)
+      || (expectedFingerprint && creationFingerprint !== expectedFingerprint)) return null;
+    return { creationId, creationFingerprint };
+  }
+
   function defaultQualityPreferences() {
     return {
       version: QUALITY_PREF_VERSION,
@@ -119,13 +154,15 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
     const draft = safeParse(sessionStorage, RUN_DRAFT_STORAGE_KEY);
     if (draft?.version === RUN_DRAFT_VERSION) {
-      state.runDraft = {
+      const restoredDraft = {
         prompt: typeof draft.prompt === "string" ? draft.prompt.slice(0, 8_000) : "",
         cwd: typeof draft.cwd === "string" ? draft.cwd.slice(0, 2_000) : "",
         model: typeof draft.model === "string" ? draft.model.slice(0, 160) : "",
         allowWrites: draft.allowWrites === true,
         provider: typeof draft.provider === "string" && /^[a-z0-9_-]{1,40}$/i.test(draft.provider) ? draft.provider : "",
       };
+      const pendingCreation = normalizedPendingCreation(draft, runCreationFingerprint(restoredDraft));
+      state.runDraft = pendingCreation ? { ...restoredDraft, ...pendingCreation } : restoredDraft;
       if (state.runDraft.provider) state.runProvider = state.runDraft.provider;
     } else state.runDraft = { prompt: "", cwd: "", model: "", allowWrites: false, provider: "" };
   }
@@ -149,7 +186,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   }
 
   function currentRunDraft() {
-    return {
+    const draft = {
       version: RUN_DRAFT_VERSION,
       prompt: $("#runPrompt")?.value.slice(0, 8_000) || "",
       cwd: $("#runCwd")?.value.slice(0, 2_000) || "",
@@ -157,18 +194,49 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       allowWrites: Boolean($("#allowWrites")?.checked),
       provider: String(state.runProvider || "").slice(0, 40),
     };
+    const pendingCreation = normalizedPendingCreation(
+      state.runDraft,
+      runCreationFingerprint(draft),
+    );
+    return pendingCreation ? { ...draft, ...pendingCreation } : draft;
   }
 
-  function saveRunDraft() {
-    clearTimeout(runDraftTimer);
-    runDraftTimer = 0;
-    const draft = currentRunDraft();
+  function persistRunDraft(draft) {
     state.runDraft = { ...draft };
     try {
       sessionStorage.setItem(RUN_DRAFT_STORAGE_KEY, JSON.stringify(draft));
     } catch (error) {
       window.LoadToAgentRendererUtils.reportRecoverableError("run-draft-save", error);
     }
+  }
+
+  function saveRunDraft() {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = 0;
+    persistRunDraft(currentRunDraft());
+  }
+
+  function setPendingRunCreation(value = {}) {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = 0;
+    const draft = currentRunDraft();
+    const pendingCreation = normalizedPendingCreation(value, runCreationFingerprint(draft));
+    if (pendingCreation) Object.assign(draft, pendingCreation);
+    else {
+      delete draft.creationId;
+      delete draft.creationFingerprint;
+    }
+    persistRunDraft(draft);
+    return pendingCreation;
+  }
+
+  function clearPendingRunCreation() {
+    clearTimeout(runDraftTimer);
+    runDraftTimer = 0;
+    const draft = currentRunDraft();
+    delete draft.creationId;
+    delete draft.creationFingerprint;
+    persistRunDraft(draft);
   }
 
   function scheduleRunDraftSave() {
@@ -581,6 +649,9 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     loadQualityState,
     saveDashboardPreferences,
     saveRunDraft,
+    runCreationFingerprint,
+    setPendingRunCreation,
+    clearPendingRunCreation,
     restoreRunDraft,
     clearRunDraft,
     renderQuickCommands,

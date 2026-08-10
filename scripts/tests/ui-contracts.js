@@ -1034,6 +1034,48 @@ function registerSyntaxContractTests(context) {
 
 function registerUiContractTests(context) {
   const { test, root } = context;
+  test('최신 AI 요청에 답이 없으면 지난 답변을 새 응답처럼 붙이지 않는다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-session-render.js'), 'utf8');
+    const sandbox = {
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: key => key, observedText: value => value },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app-session-render.js' });
+    const renderer = sandbox.window.LoadToAgentAppFactories.createSessionRenderer({
+      state: {},
+      readablePreview: text => ({ text: String(text), full: String(text) }),
+      providerInfo: provider => ({ label: provider }),
+    });
+    const waiting = renderer.recentConversation({
+      provider: 'claude',
+      messages: [
+        { role: 'user', text: '지난 질문' },
+        { role: 'assistant', text: '지난 답변' },
+        { role: 'user', text: '아직 답이 없는 새 질문' },
+      ],
+    });
+    assert.deepStrictEqual(
+      Array.from(waiting, row => [row.tone, row.text]),
+      [['user', '아직 답이 없는 새 질문']],
+    );
+
+    const answered = renderer.recentConversation({
+      provider: 'claude',
+      messages: [
+        { role: 'user', text: '지난 질문' },
+        { role: 'assistant', text: '지난 답변' },
+        { role: 'user', text: '새 질문' },
+        { role: 'assistant', text: '새 답변' },
+      ],
+    });
+    assert.deepStrictEqual(
+      Array.from(answered, row => [row.tone, row.text]),
+      [['user', '새 질문'], ['assistant', '새 답변']],
+    );
+  });
+
   test('필수 UI 영역과 초보자용 안내 계약이 존재한다', () => {
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const monitorWorker = fs.readFileSync(path.join(root, 'src', 'monitorWorker.js'), 'utf8');
@@ -1393,6 +1435,14 @@ function registerUiContractTests(context) {
     );
     assert.ok(mainEntry.includes('macPathEntries(os.homedir(), process.env.PATH)'), 'macOS PATH 조회가 검증된 정적 경로 병합기를 사용해야 합니다.');
     assert.ok(!mainEntry.includes('execFileSync(shellPath'), '앱 창 생성 전에 사용자 셸 초기화를 동기 실행하면 안 됩니다.');
+    assert.ok(
+      mainEntry.includes('const pendingTerminalBindings = new Map()')
+        && mainEntry.includes('const existing = pendingTerminalBindings.get(key)')
+        && mainEntry.includes('revision !== monitorSnapshotRevision')
+        && mainEntry.includes('persistInferredTerminalBindings(message.bridgeBindings).then')
+        && mainEntry.includes('snapshotWithoutSessions(message.snapshot, bindingResult.failedSessionIds, availability)'),
+      'monitor snapshot은 동일 in-flight binding을 기다리고 최신 generation만 게시하며 실패 카드만 제외해야 합니다.',
+    );
     for (const channel of APP_IPC_CHANNELS) {
       assert.ok(
         ipcSource.includes(`handleTrusted('${channel}'`),
@@ -1559,7 +1609,7 @@ function registerUiContractTests(context) {
       completedAt: '2026-07-31T01:00:01.000Z',
       updatedAt: '2026-07-31T01:00:01.000Z',
       attention: { category: 'none', required: false },
-      outcome: { status: 'completed', verified: true, completedAt: '2026-07-31T01:00:01.000Z', summary: '첫 결과' },
+      outcome: { status: 'completed', verified: true, completedAt: '2026-07-31T01:00:01.000Z', summary: `${'같은 앞부분'.repeat(160)} · 첫 결과` },
     };
     core.state.snapshot = { sessions: [rootSession, resultSession] };
     assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), ['review-result']);
@@ -1570,6 +1620,12 @@ function registerUiContractTests(context) {
     const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
     reloaded.state.snapshot = core.state.snapshot;
     assert.equal(reloaded.isResultReviewComplete(resultSession), true);
+
+    resultSession.outcome = { ...resultSession.outcome, summary: `${'같은 앞부분'.repeat(160)} · 뒤에서 바뀐 결과` };
+    assert.equal(core.isResultReviewComplete(resultSession), false,
+      '타임스탬프와 긴 앞부분이 같아도 결과 뒷부분이 바뀌면 다시 확인해야 합니다.');
+    assert.equal(core.markResultReviewComplete(resultSession), 1);
+    assert.equal(core.isResultReviewComplete(resultSession), true);
 
     resultSession.outcome = { ...resultSession.outcome, completedAt: '2026-07-31T02:00:00.000Z', summary: '새 결과' };
     resultSession.updatedAt = '2026-07-31T02:00:00.000Z';
@@ -1678,6 +1734,83 @@ function registerUiContractTests(context) {
     assert.equal(selected.executions[0].status, 'completed');
     assert.strictEqual(selected.messages, detailMessages);
     assert.strictEqual(selected.lifecycle, staleDetail.lifecycle);
+  });
+
+  test('상세 기록을 읽는 중 최신 snapshot이 오면 완료 직후 한 번 다시 읽는다', async () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-data.js'), 'utf8');
+    const bootstrapSource = fs.readFileSync(path.join(root, 'renderer', 'app-bootstrap.js'), 'utf8');
+    const pending = [];
+    let detailCalls = 0;
+    const state = {
+      selectedId: 'slow-detail',
+      drawerTab: 'chat',
+      details: new Map(),
+      detailErrors: new Map(),
+      detailLoadingIds: new Set(),
+      snapshot: { sessions: [{
+        id: 'slow-detail', updatedAt: '2026-08-10T01:00:00.000Z',
+      }] },
+    };
+    const sandbox = {
+      Promise,
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: key => key, errorText: error => String(error) },
+        loadtoagent: {
+          sessionDetail: () => {
+            detailCalls += 1;
+            return new Promise(resolve => pending.push(resolve));
+          },
+        },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app-drawer-data.js' });
+    const drawerData = sandbox.window.LoadToAgentAppFactories.createDrawerData({
+      state,
+      renderDrawer: () => {},
+      reportRecoverableError: () => {},
+    });
+
+    const first = drawerData.loadSessionDetail('slow-detail', true);
+    await Promise.resolve();
+    assert.equal(detailCalls, 1);
+    assert.match(bootstrapSource, /loadSessionDetail\(state\.selectedId, true, card\.updatedAt\)/u,
+      '최초 상세 요청에 캐시가 없어도 더 최신 snapshot은 후속 full-history read를 예약해야 합니다.');
+    state.snapshot.sessions[0].updatedAt = '2026-08-10T01:00:10.000Z';
+    drawerData.loadSessionDetail('slow-detail', true, state.snapshot.sessions[0].updatedAt);
+    pending.shift()({
+      id: 'slow-detail', updatedAt: '2026-08-10T01:00:00.000Z', messages: [],
+    });
+    await first;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(detailCalls, 2, 'in-flight snapshot 갱신은 후속 full-history read를 예약해야 합니다.');
+    assert.equal(state.details.has('slow-detail'), false,
+      '더 최신 snapshot이 확인된 뒤 먼저 도착한 stale 상세 응답을 화면 캐시에 반영하면 안 됩니다.');
+
+    drawerData.loadSessionDetail('slow-detail', true, state.snapshot.sessions[0].updatedAt);
+    state.snapshot.sessions[0].updatedAt = '2026-08-10T01:00:20.000Z';
+    drawerData.loadSessionDetail('slow-detail', true, state.snapshot.sessions[0].updatedAt);
+    pending.shift()({
+      id: 'slow-detail', updatedAt: '2026-08-10T01:00:10.000Z',
+      messages: [{ id: 'latest-answer', role: 'assistant', text: '최신 답변' }],
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(detailCalls, 2,
+      '진행 중인 follow-up은 snapshot이 다시 바뀌어도 재귀 full-history read를 만들면 안 됩니다.');
+    assert.equal(state.details.get('slow-detail').updatedAt, '2026-08-10T01:00:10.000Z');
+    assert.equal(state.details.get('slow-detail').messages[0].text, '최신 답변');
+    assert.equal(state.detailLoadingIds.has('slow-detail'), false);
+
+    const third = drawerData.loadSessionDetail('slow-detail', true, state.snapshot.sessions[0].updatedAt);
+    assert.equal(detailCalls, 3,
+      'bounded follow-up 완료 뒤 실제 newer snapshot은 다음 독립 요청으로 읽어야 합니다.');
+    pending.shift()({
+      id: 'slow-detail', updatedAt: '2026-08-10T01:00:20.000Z',
+      messages: [{ id: 'newest-answer', role: 'assistant', text: '가장 최신 답변' }],
+    });
+    await third;
+    assert.equal(state.details.get('slow-detail').updatedAt, '2026-08-10T01:00:20.000Z');
+    assert.equal(state.details.get('slow-detail').messages[0].text, '가장 최신 답변');
   });
 
   test('같은 세션의 최신 스냅샷에서 확인된 대화는 상세 캐시가 갱신될 때까지 보존한다', () => {

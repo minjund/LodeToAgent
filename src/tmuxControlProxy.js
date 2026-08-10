@@ -16,6 +16,7 @@ const { spawn: spawnChild, spawnSync } = require('child_process');
 
 const MAX_ARGUMENT_CHARS = 24 * 1024;
 const MAX_CONTROL_LINE_BYTES = 2 * 1024 * 1024;
+const MAX_CONTROL_BLOCK_BYTES = 8 * 1024 * 1024;
 // A compiler/build can legitimately emit several MiB while a control-mode
 // identity check is in flight. Keep a bounded but practical burst window;
 // replay storage is independently tail-limited by TerminalManager.
@@ -201,11 +202,15 @@ function matchingSuffixLength(buffer, prefix) {
 }
 
 class ControlProtocolParser extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super();
     this.buffer = Buffer.alloc(0);
     this.block = null;
     this.forwardOutputInsideBlocks = false;
+    const requestedMaxBlockBytes = Number(options.maxBlockBytes);
+    this.maxBlockBytes = Number.isSafeInteger(requestedMaxBlockBytes) && requestedMaxBlockBytes > 0
+      ? Math.min(requestedMaxBlockBytes, MAX_CONTROL_BLOCK_BYTES)
+      : MAX_CONTROL_BLOCK_BYTES;
   }
 
   push(chunk) {
@@ -252,12 +257,15 @@ class ControlProtocolParser extends EventEmitter {
         this.emit('notification', text);
         return;
       }
-      blockAppend(this.block, input);
+      if (!blockAppend(this.block, input, this.maxBlockBytes)) {
+        this.block = null;
+        this.emit('fatal', new Error('tmux control protocol response block exceeded the safety limit'));
+      }
       return;
     }
     const begin = /^%begin ([0-9]+) ([0-9]+) ([0-9]+)$/u.exec(text);
     if (begin) {
-      this.block = { time: begin[1], number: begin[2], flags: begin[3], lines: [] };
+      this.block = { time: begin[1], number: begin[2], flags: begin[3], lines: [], bytes: 0 };
       return;
     }
     if (this.consumeOutput(text)) return;
@@ -288,8 +296,13 @@ class ControlProtocolParser extends EventEmitter {
   }
 }
 
-function blockAppend(block, line) {
-  block.lines.push(Buffer.from(line));
+function blockAppend(block, line, maxBytes = MAX_CONTROL_BLOCK_BYTES) {
+  const bytes = Buffer.from(line);
+  const separatorBytes = block.lines.length ? 1 : 0;
+  if (bytes.length + separatorBytes > maxBytes - Number(block.bytes || 0)) return false;
+  block.lines.push(bytes);
+  block.bytes = Number(block.bytes || 0) + separatorBytes + bytes.length;
+  return true;
 }
 
 class DcsInputParser {
@@ -1595,6 +1608,7 @@ async function main() {
 module.exports = {
   BracketedPasteParser,
   ControlProtocolParser,
+  MAX_CONTROL_BLOCK_BYTES,
   DcsInputParser,
   TmuxControlProxy,
   ansiInitialization,

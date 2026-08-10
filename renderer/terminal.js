@@ -709,19 +709,17 @@
       platform: state.platform.label,
     });
     const distro = firstDistro();
-    if (localButton) localButton.textContent = '＋ 내 Windows 컴퓨터에서 시작';
+    if (localButton) localButton.textContent = t('terminal.new_local_session', { computer: computerName });
     if (linuxButton) {
       linuxButton.classList.toggle('hidden', state.platform.id !== 'win32');
-      linuxButton.textContent = '＋ 다른 Linux 컴퓨터에서 시작';
+      linuxButton.textContent = t('terminal.new_remote_session', {
+        computer: distro?.name || distro?.displayName || t('tmux.name_unknown'),
+      });
     }
     const tmuxButton = $('#newTmuxSessionBtn');
     if (tmuxButton) tmuxButton.textContent = t('ui.create_tmux_workspace', {
       computer: distro?.name || distro?.displayName || t('tmux.name_unknown'),
     });
-    const tmuxTitle = $('#tmuxSelectedComputerTitle');
-    if (tmuxTitle && !/’에서 실행한 작업 \d+건$/.test(tmuxTitle.textContent || '')) {
-      tmuxTitle.textContent = '‘업무용 컴퓨터 2’에서 실행한 작업';
-    }
     const tmuxCreateTitle = $('#tmuxCreateTitle');
     if (tmuxCreateTitle) tmuxCreateTitle.textContent = t('ui.create_multi_window_workspace', {
       computer: distro?.name || distro?.displayName || t('tmux.name_unknown'),

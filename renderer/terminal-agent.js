@@ -149,20 +149,30 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const resumeSessionId = String(terminal?.agentResumeSessionId || '').trim();
     const bridgeId = String(terminal?.bridgeId || '').trim();
     const environment = agentSession?.environment || {};
+    const normalizeEnvironmentKind = value => {
+      const kind = String(value || '').trim().toLowerCase();
+      if (['darwin', 'mac', 'macos'].includes(kind)) return 'macos';
+      if (['win32', 'win', 'windows'].includes(kind)) return 'windows';
+      return kind;
+    };
+    const expectedKind = normalizeEnvironmentKind(environment.kind);
+    const expectedDistro = String(environment.distro || '').trim().toLowerCase();
+    const linkedSessionId = String(terminal?.agentLinkedSessionId || '').trim();
+    if (linkedSessionId) {
+      if (linkedSessionId !== String(agentSession?.id || '').trim()) return false;
+      if (String(terminal?.agentLinkedExternalId || '').trim() !== String(agentSession?.externalId || '').trim()) return false;
+      if (String(terminal?.provider || '').toLowerCase() !== String(agentSession?.provider || '').toLowerCase()) return false;
+      if (normalizeEnvironmentKind(terminal?.agentLinkedEnvironment) !== expectedKind) return false;
+      const linkedDistro = String(terminal?.agentLinkedDistro || '').trim().toLowerCase();
+      if (expectedKind === 'wsl' ? linkedDistro !== expectedDistro : Boolean(linkedDistro)) return false;
+      return true;
+    }
     if (resumeSessionId) {
       if (resumeSessionId !== String(agentSession?.externalId || '').trim()) return false;
       const provider = String(terminal?.provider || '').toLowerCase();
       if (provider && provider !== String(agentSession?.provider || '').toLowerCase()) return false;
       if (bridgeId && bridgeId !== String(agentSession?.id || '').trim()) return false;
       const distro = String(terminal?.distro || '').trim().toLowerCase();
-      const expectedDistro = String(environment.distro || '').trim().toLowerCase();
-      const normalizeEnvironmentKind = value => {
-        const kind = String(value || '').trim().toLowerCase();
-        if (['darwin', 'mac', 'macos'].includes(kind)) return 'macos';
-        if (['win32', 'win', 'windows'].includes(kind)) return 'windows';
-        return kind;
-      };
-      const expectedKind = normalizeEnvironmentKind(environment.kind);
       const actualKind = distro
         ? 'wsl'
         : (state.platform?.id === 'win32' ? 'windows'
@@ -250,6 +260,96 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
   function reportPostDeliveryError(scope, error) {
     window.LoadToAgentRendererUtils?.reportRecoverableError?.(scope, error);
+  }
+
+  function nextCreationId() {
+    const random = typeof window.crypto?.randomUUID === 'function'
+      ? window.crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
+    return `create:${random}`;
+  }
+
+  function markCreationError(error, creationId, state = 'unknown') {
+    const value = error instanceof Error ? error : new Error(String(error || ''));
+    value.creationId = creationId;
+    value.creationState = state;
+    if (!value.deliveryState) value.deliveryState = state === 'rejected' ? 'rejected' : 'unknown';
+    return value;
+  }
+
+  function markDeliveryUnknown(error, deliveryId) {
+    const value = error instanceof Error ? error : new Error(String(error || t('terminal.agent.send_failed')));
+    value.deliveryId = deliveryId;
+    value.deliveryState = 'unknown';
+    value.retryable = true;
+    return value;
+  }
+
+  function markCreatedTerminalRetry(error, created, creationId, deliveryId, deliveryState = '') {
+    const value = error instanceof Error ? error : new Error(String(error || t('terminal.agent.send_failed')));
+    value.creationId = creationId;
+    value.creationState = 'accepted';
+    value.terminalId = created?.id || '';
+    value.deliveryId = value.deliveryId || deliveryId;
+    if (deliveryState && !value.deliveryState) value.deliveryState = deliveryState;
+    value.retryable = true;
+    return value;
+  }
+
+  async function createTerminalWithRetry(createOptions, creationId) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const result = await window.loadtoagent.terminalCreate(createOptions);
+        if (!result?.id) {
+          if (result?.ok === false) {
+            const error = resultError(result, t('terminal.agent.resume_terminal_failed'));
+            error.creationState = result.creationState || 'rejected';
+            error.creationId = creationId;
+            throw error;
+          }
+          throw new Error(t('terminal.agent.resume_terminal_failed'));
+        }
+        return result;
+      } catch (error) {
+        const creationState = String(error?.creationState || '').trim().toLowerCase();
+        const deliveryState = String(error?.deliveryState || '').trim().toLowerCase();
+        const confirmedRejected = creationState === 'rejected'
+          || deliveryState === 'rejected'
+          || /^CREATION_/u.test(String(error?.code || ''));
+        if (confirmedRejected) throw markCreationError(error, creationId, 'rejected');
+        // The host may create the PTY and lose only its RPC response. Reuse
+        // the exact same object and creationId once; TerminalManager resolves
+        // it to the already-persisted session without spawning again.
+        if (attempt === 0) continue;
+        throw markCreationError(error, creationId, 'unknown');
+      }
+    }
+    throw markCreationError(new Error(t('terminal.agent.resume_terminal_failed')), creationId, 'unknown');
+  }
+
+  async function sendInitialCommandWithRetry(terminalId, prompt, deliveryId) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const result = await window.loadtoagent.terminalCommand(terminalId, prompt, { deliveryId });
+        if (!result) throw new Error(t('terminal.agent.send_failed'));
+        if (result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
+        return result;
+      } catch (error) {
+        const deliveryState = String(error?.deliveryState || '').trim().toLowerCase();
+        if (deliveryState === 'rejected') throw error;
+        if (deliveryState === 'unknown') throw markDeliveryUnknown(error, deliveryId);
+        // The PTY host can disconnect after accepting the command but before
+        // the renderer receives its response. Re-enter the command RPC once:
+        // TerminalManager's persisted ledger makes the same deliveryId and
+        // payload idempotent, while the new RPC reconnects the host transport.
+        if (attempt === 0) continue;
+        try {
+          reportPostDeliveryError('terminal-agent-start-delivery-unknown', error);
+        } catch (_reportError) {}
+        throw markDeliveryUnknown(error, deliveryId);
+      }
+    }
+    throw markDeliveryUnknown(new Error(t('terminal.agent.send_failed')), deliveryId);
   }
 
   function deliveryNotice(message, tone = 'success') {
@@ -363,39 +463,150 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const cwd = String(options.cwd || preferredWorkspace() || '').trim();
     if (!cwd) throw rejectedError(t('terminal.agent.cwd_missing'));
     const launch = freshAgentLaunchOptions(options);
+    const creationId = String(options.creationId || '').trim() || nextCreationId();
     const deliveryId = `start:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
     const titlePrompt = launch.prompt.replace(/\s+/g, ' ').slice(0, 72);
-    const created = await window.loadtoagent.terminalCreate({
+    const createOptions = {
       type: 'agent',
       provider: launch.provider,
       args: launch.args,
       cwd,
       title: `${providerLabel(launch.provider)} · ${titlePrompt}`,
       transient: false,
+      // A fresh provider transcript is bound back to this exact app-owned PTY
+      // after its first user message is observed. Keep it direct from launch
+      // so that later writable conversation identity cannot be switched by an
+      // external tmux client.
+      sessionBackend: 'direct',
       initialCommand: launch.prompt,
       initialCommandInArgs: launch.initialCommandInArgs,
+      creationId,
       deliveryId,
       cols: 120,
       rows: 32,
-    });
-    if (!created?.id) throw rejectedError(t('terminal.agent.resume_terminal_failed'));
+    };
+    const created = await createTerminalWithRetry(createOptions, creationId);
 
     let delivery = created;
-    if (!launch.initialCommandInArgs) {
-      delivery = await window.loadtoagent.terminalCommand(created.id, launch.prompt, { deliveryId });
-      if (!delivery || delivery.ok === false) throw resultError(delivery, t('terminal.agent.send_failed'));
+    let deliveryError = null;
+    const createdStatus = String(created.status || '').toLowerCase();
+    const createdDeliveryState = normalizedDeliveryState(created, '');
+    const terminalCanReceivePrompt = !created.creationFailed
+      && !created.creationUnavailable
+      && (!createdStatus || ['starting', 'running'].includes(createdStatus));
+    if (!launch.initialCommandInArgs && createdDeliveryState === 'accepted') {
+      delivery = created;
+    } else if (!launch.initialCommandInArgs && createdDeliveryState === 'unknown') {
+      deliveryError = markCreatedTerminalRetry(
+        markDeliveryUnknown(new Error(t('terminal.agent.send_failed')), deliveryId),
+        created,
+        creationId,
+        deliveryId,
+        'unknown',
+      );
+    } else if (!launch.initialCommandInArgs && terminalCanReceivePrompt) {
+      try {
+        delivery = await sendInitialCommandWithRetry(created.id, launch.prompt, deliveryId);
+      } catch (error) {
+        const failedDeliveryState = error?.deliveryState || 'unknown';
+        delivery = { ...created, deliveryState: failedDeliveryState };
+        deliveryError = markCreatedTerminalRetry(
+          error,
+          created,
+          creationId,
+          deliveryId,
+          failedDeliveryState,
+        );
+      }
+    } else if (!launch.initialCommandInArgs) {
+      delivery = { ...created, deliveryState: created.deliveryState || 'rejected' };
     }
+    const deliveryState = normalizedDeliveryState(delivery,
+      created.creationFailed || (!launch.initialCommandInArgs && !terminalCanReceivePrompt)
+        ? 'rejected'
+        : (launch.initialCommandInArgs ? 'accepted' : 'unknown'));
     try {
       await refreshSessions();
     } catch (error) {
-      reportPostDeliveryError('terminal-agent-start-refresh', error);
+      try {
+        reportPostDeliveryError('terminal-agent-start-refresh', error);
+      } catch (_reportError) {}
     }
+    let terminalSelected = false;
+    let selectionFailure = null;
+    try {
+      state.mode = 'general';
+      if (typeof moveWorkbench === 'function') moveWorkbench('general');
+      if (typeof selectSession === 'function') {
+        await selectSession(created.id, 'question');
+        terminalSelected = true;
+      }
+    } catch (error) {
+      try {
+        reportPostDeliveryError('terminal-agent-start-selection', error);
+      } catch (_reportError) {}
+      const selectionError = new Error(t('terminal.agent.resume_terminal_failed'));
+      selectionError.code = 'TERMINAL_START_SELECTION_FAILED';
+      selectionError.cause = error;
+      selectionFailure = markCreatedTerminalRetry(
+        selectionError,
+        created,
+        creationId,
+        deliveryId,
+        deliveryState,
+      );
+    }
+    const creationFailed = Boolean(created.creationFailed || created.status === 'failed');
+    const creationUnavailable = Boolean(created.creationUnavailable
+      || (createdStatus && !['starting', 'running'].includes(createdStatus))
+      || created.recoverySkippedReason);
+    if (deliveryState !== 'accepted' && (creationFailed || creationUnavailable)) {
+      const failedError = new Error(created.error || t('terminal.agent.resume_terminal_failed'));
+      failedError.code = created.code || 'TERMINAL_CREATE_FAILED';
+      failedError.creationFailed = creationFailed;
+      failedError.creationUnavailable = creationUnavailable;
+      if (selectionFailure) failedError.selectionError = selectionFailure;
+      const retry = markCreatedTerminalRetry(
+        failedError,
+        created,
+        creationId,
+        deliveryId,
+        deliveryState,
+      );
+      // A definite rejection can safely rotate the failed creation ID. When
+      // delivery is unknown, preserve the accepted ledger identity so a retry
+      // cannot race the still-stopping or termination-uncertain process.
+      if (deliveryState === 'rejected') retry.creationState = 'failed';
+      retry.terminalSelected = terminalSelected;
+      throw retry;
+    }
+    if (deliveryError || deliveryState === 'unknown') {
+      const retry = deliveryError || markCreatedTerminalRetry(
+        markDeliveryUnknown(new Error(t('terminal.agent.send_failed')), deliveryId),
+        created,
+        creationId,
+        deliveryId,
+        'unknown',
+      );
+      if (selectionFailure) retry.selectionError = selectionFailure;
+      retry.terminalSelected = terminalSelected;
+      throw retry;
+    }
+    if (selectionFailure) throw selectionFailure;
     return {
       ok: true,
       runId: created.id,
       terminalId: created.id,
-      promptSent: true,
-      deliveryState: normalizedDeliveryState(delivery),
+      terminalStatus: created.status || '',
+      creationId,
+      creationDuplicate: Boolean(created.creationDuplicate),
+      creationFailed,
+      creationUnavailable,
+      error: created.error || '',
+      code: created.code || '',
+      promptSent: deliveryState === 'accepted',
+      deliveryState,
+      duplicate: Boolean(delivery?.duplicate || created.creationDuplicate || created.duplicate),
     };
   }
 

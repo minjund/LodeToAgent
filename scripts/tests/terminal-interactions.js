@@ -180,6 +180,19 @@ function registerTerminalInteractionTests(context) {
     assert.equal(entry.outputSequence, 8);
     assert.equal(entry.acceptOutput({ data: 'duplicate-live\r\n', outputSequence: 8 }), null);
     assert.equal(entry.acceptOutput({ data: 'next-live\r\n', outputSequence: 9 }), 'next-live\r\n');
+
+    const longReplay = 'x'.repeat((32 * 1024) + 1);
+    const longSession = { id: 'terminal:long-replay', type: 'agent', status: 'running', title: 'Long replay PTY' };
+    const longHydration = createWorkbench(root, {
+      session: longSession,
+      terminalGet: async () => ({ replay: longReplay, outputSequence: 1 }),
+    });
+    await longHydration.workbench.ensureSessionTerminal(longSession);
+    assert.deepStrictEqual(
+      longHydration.terminalInstances[0].writes.map(value => value.length),
+      [32 * 1024, 1],
+      'large replay must yield between bounded xterm writes',
+    );
   });
 
   test('질문 모드는 일반 셸에 질문을 명령으로 보내지 않는다', async () => {

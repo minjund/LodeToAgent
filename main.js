@@ -8,6 +8,7 @@ const { fileURLToPath, pathToFileURL } = require('url');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
 const { AgentRunner, probeProviders } = require('./src/agentRunner');
+const { snapshotWithoutSessions } = require('./src/agentMonitor');
 const { providerList, blankUsage } = require('./src/providerRegistry');
 const { collectProviderUsage } = require('./src/providerUsage');
 const { TerminalManager } = require('./src/terminalManager');
@@ -89,6 +90,8 @@ const tmuxController = new TmuxController({
 let availability = {};
 let detailRequestId = 0;
 const pendingDetails = new Map();
+const pendingTerminalBindings = new Map();
+let monitorSnapshotRevision = 0;
 const MAIN_COPY = {
   ko: {
     trayTooltip: 'LoadToAgent · 뒤에서 실행 중인 작업 {count}개',
@@ -102,7 +105,7 @@ const MAIN_COPY = {
     completionTitle: '작업 완료',
     terminalHostReconnecting: '명령창 연결을 자동으로 복구하는 중입니다.',
     terminalHostReconnected: '명령창 연결을 복구했습니다.',
-    terminalHostReconnectFailed: '명령창 연결을 복구하지 못했습니다. 명령창을 다시 열어 주세요.',
+    terminalHostReconnectFailed: '명령창 연결 복구가 지연되고 있습니다. 자동으로 다시 시도합니다: {reason}',
     updateActiveTitle: '실행 중인 작업을 중단하고 업데이트할까요?',
     updateActiveMessage: '실행 중인 명령창 {terminalCount}개와 직접 실행 작업 {runCount}개가 있습니다.',
     updateActiveDetail: '업데이트를 계속하면 LoadToAgent와 명령창 연결 프로그램을 완전히 종료한 뒤 새 버전을 설치하고 다시 시작합니다. 관리형 명령창 작업은 분리해 유지하지만, 직접 실행 중인 작업은 중단되며 필요하면 업데이트 후 다시 시작해야 합니다.',
@@ -125,7 +128,7 @@ const MAIN_COPY = {
     completionTitle: 'Task completed',
     terminalHostReconnecting: 'Restoring the terminal connection automatically.',
     terminalHostReconnected: 'Terminal connection restored.',
-    terminalHostReconnectFailed: 'Could not restore the terminal connection: {reason}',
+    terminalHostReconnectFailed: 'Terminal recovery is delayed and will retry automatically: {reason}',
     updateActiveTitle: 'Interrupt running work and update?',
     updateActiveMessage: '{terminalCount} terminal tasks and {runCount} direct runs are still active.',
     updateActiveDetail: 'Continuing will fully close LoadToAgent and its terminal host, install the new version, and restart the app. Managed terminal work is detached and kept running, but direct work is stopped and may need to be restarted after the update.',
@@ -148,7 +151,7 @@ const MAIN_COPY = {
     completionTitle: '任务已完成',
     terminalHostReconnecting: '正在自动恢复终端连接。',
     terminalHostReconnected: '终端连接已恢复。',
-    terminalHostReconnectFailed: '无法恢复终端连接：{reason}',
+    terminalHostReconnectFailed: '终端连接恢复延迟，将自动重试：{reason}',
     updateActiveTitle: '中断正在运行的任务并更新吗？',
     updateActiveMessage: '仍有 {terminalCount} 个终端任务和 {runCount} 个直接运行任务。',
     updateActiveDetail: '继续后将完全关闭 LoadToAgent 及终端连接程序，安装新版本并重新启动。受管理的终端任务会分离并继续运行，但直接运行的任务会停止，更新后可能需要重新启动。',
@@ -520,7 +523,13 @@ function handleTrusted(channel, handler) {
 }
 
 function sendTerminal(channel, payload) {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
+  // PTY output can arrive many times per second. During a renderer reload the
+  // BrowserWindow may still exist while its frame is already disposed; trying
+  // every send then floods diagnostics and blocks useful terminal work. The
+  // renderer rehydrates from TerminalManager replay after markRendererReady.
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererBootstrapped) return;
+  const contents = mainWindow.webContents;
+  if (!contents || contents.isDestroyed() || contents.isLoadingMainFrame()) return;
   try { mainWindow.webContents.send(channel, payload); } catch (error) { reportRecoverableError(`ipc-send:${channel}`, error); }
 }
 
@@ -554,6 +563,44 @@ function scheduleMonitorWorkerRestart() {
   }, delay);
 }
 
+function persistInferredTerminalBindings(bindings) {
+  const requested = Array.isArray(bindings) ? bindings : [];
+  if (!requested.length) return Promise.resolve({ failedSessionIds: [] });
+  if (!terminalManager || typeof terminalManager.bindAgentSession !== 'function') {
+    return Promise.resolve({ failedSessionIds: requested.map(binding => String(binding?.sessionId || '')).filter(Boolean) });
+  }
+  const attempts = [];
+  for (const binding of requested) {
+    const terminalId = String(binding?.terminalId || '');
+    const sessionId = String(binding?.sessionId || '');
+    const promptFingerprint = String(binding?.promptFingerprint || '');
+    if (!terminalId || !sessionId || !promptFingerprint) {
+      attempts.push(Promise.resolve({ ok: false, sessionId }));
+      continue;
+    }
+    const key = `${terminalId}\u0000${sessionId}\u0000${promptFingerprint}`;
+    const existing = pendingTerminalBindings.get(key);
+    if (existing) {
+      attempts.push(existing);
+      continue;
+    }
+    const attempt = Promise.resolve()
+      .then(() => terminalManager.bindAgentSession(terminalId, binding))
+      .then(() => ({ ok: true, sessionId }), error => {
+        reportRecoverableError('terminal-inferred-binding', error);
+        return { ok: false, sessionId };
+      })
+      .finally(() => {
+        if (pendingTerminalBindings.get(key) === attempt) pendingTerminalBindings.delete(key);
+      });
+    pendingTerminalBindings.set(key, attempt);
+    attempts.push(attempt);
+  }
+  return Promise.all(attempts).then(results => ({
+    failedSessionIds: [...new Set(results.filter(result => !result.ok).map(result => result.sessionId).filter(Boolean))],
+  }));
+}
+
 function startMonitorWorker() {
   if (isQuitting || demoCapture || !monitorWorkerConfig) return null;
   const worker = new Worker(path.join(__dirname, 'src', 'monitorWorker.js'), {
@@ -563,10 +610,20 @@ function startMonitorWorker() {
   worker.on('message', message => {
     if (message && message.type === 'snapshot') {
       monitorWorkerRestartAttempts = 0;
-      lastSnapshot = message.snapshot;
-      const snapshot = visibleSnapshotSessions(lastSnapshot);
-      attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
-      sendSnapshot(snapshot);
+      const revision = ++monitorSnapshotRevision;
+      persistInferredTerminalBindings(message.bridgeBindings).then(bindingResult => {
+        // The state event emitted by bindAgentSession reaches the renderer
+        // before its RPC response. Publish only the newest monitor snapshot
+        // after that response so drawer auto-mount cannot race ahead and spawn
+        // a duplicate resume PTY. If one binding fails, hide only that unsafe
+        // canonical card for this scan; unrelated sessions and their rebuilt
+        // summary must continue updating.
+        if (revision !== monitorSnapshotRevision || monitorWorker !== worker) return;
+        lastSnapshot = snapshotWithoutSessions(message.snapshot, bindingResult.failedSessionIds, availability);
+        const snapshot = visibleSnapshotSessions(lastSnapshot);
+        attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
+        sendSnapshot(snapshot);
+      }).catch(error => reportRecoverableError('monitor-snapshot-binding', error));
     }
     if (message && message.type === 'detail-result') {
       const pending = pendingDetails.get(message.requestId);
@@ -974,6 +1031,7 @@ function bridgePresence() {
       startedAt: session.createdAt,
       environment: session.distro && process.platform === 'win32' ? 'wsl' : localEnvironment,
       distro: session.distro || '',
+      initialPromptFingerprint: session.initialPromptFingerprint || '',
       kind: 'bridge',
       label: 'LoadToAgent 외부 명령창 연결',
     }));

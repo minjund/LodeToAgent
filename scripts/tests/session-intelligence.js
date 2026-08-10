@@ -71,6 +71,30 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(optional.attention.actionable, false);
     assert.equal(optional.attention.summary, 'OPS 파일로 저장할까요?');
 
+    const unansweredLatestUser = enrichSession({
+      ...waiting,
+      id: 'unanswered-latest-user',
+      parentId: null,
+      status: 'running',
+      statusObserved: true,
+      statusDetail: '새 요청 처리 중',
+      lifecycle: [],
+      context: { percent: 10 },
+      messages: [
+        { role: 'assistant', text: '이전 결과를 파일로 저장할까요?', timestamp: '2026-07-21T04:19:00.000Z' },
+        { role: 'user', text: '새 요청부터 처리해줘', timestamp: '2026-07-21T04:20:00.000Z' },
+      ],
+      responseIntent: {
+        category: 'optional', required: false, optional: true,
+        requestText: '이전 결과를 파일로 저장할까요?', confidence: 'high', source: 'assistant-message',
+      },
+    }, [], now);
+    assert.equal(unansweredLatestUser.attention.category, 'none');
+    assert.equal(unansweredLatestUser.attention.summary, '');
+    assert.equal(unansweredLatestUser.responseIntent.category, 'none');
+    assert.equal(unansweredLatestUser.responseIntent.requestText, '');
+    assert.equal(unansweredLatestUser.progress.currentStep, '새 요청 처리 중');
+
     const permissionCheck = enrichSession({
       ...waiting, id: 'permission-check', parentId: null, status: 'running', statusObserved: true,
       updatedAt: '2026-07-21T04:20:00.000Z', statusDetail: '도구 실행 준비 중', lifecycle: [], context: { percent: 10 },

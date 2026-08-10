@@ -501,6 +501,13 @@ function buildSummary(sessions, availability) {
   };
 }
 
+function snapshotWithoutSessions(snapshot, sessionIds, availability = {}) {
+  const excluded = new Set((sessionIds || []).map(value => String(value || '')).filter(Boolean));
+  if (!excluded.size) return snapshot;
+  const sessions = (snapshot?.sessions || []).filter(session => !excluded.has(String(session?.id || '')));
+  return { ...snapshot, sessions, summary: buildSummary(sessions, availability) };
+}
+
 // Parser results are cached and must remain immutable between scans. Hierarchy
 // assembly only mutates session fields plus spawn/communication records, so a
 // targeted copy avoids cloning large message, lifecycle, and execution arrays
@@ -802,6 +809,7 @@ module.exports = {
   isProjectlessSession,
   readJsonLines,
   buildSummary,
+  snapshotWithoutSessions,
   contextInfo,
   attachHierarchy,
   mergeManagedWithHistory,

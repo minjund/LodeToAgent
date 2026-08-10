@@ -5,6 +5,28 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.17 - 2026-08-10
+
+- Restore reliable native PTY input without tree-killing a still-live legacy
+  host: replacement waits for its natural idle exit, preserves split UTF-8
+  frames, accepts retained ANSI replay frames, and retries dropped host
+  connections with bounded backoff.
+- Open newly started AI work in its live terminal immediately, then bind that
+  PTY only to the provider history whose first prompt, time, and environment
+  match, preventing duplicate resumes and stale-history attachment.
+- Keep an unanswered newest request from displaying an assistant response
+  copied from an older turn.
+- Retry Grok's separate first-command delivery once with the same durable
+  delivery ID, and surface an uncertain result without starting a duplicate.
+- Persist a distinct creation ID before spawning fresh AI terminals so a lost
+  create response reuses the same running, failed, or stopped record instead
+  of launching a second PTY or repeating the first question.
+- Queue one newest-detail follow-up behind an in-flight drawer read and clear
+  old assistant intent whenever a later user message is still unanswered.
+- Reduce terminal stalls by hydrating large xterm replays in chunks and
+  coalescing high-frequency persistence while bounding slow-client output
+  queues.
+
 ## 1.6.16 - 2026-08-10
 
 - Keep inline and drawer PTYs focused on native terminal input without a

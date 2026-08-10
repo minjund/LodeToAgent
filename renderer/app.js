@@ -1008,17 +1008,29 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return (state.snapshot?.sessions || []).find(session => String(session.id || "") === id)
       || (typeof sessionOrId === "object" ? sessionOrId : null);
   }
+  function resultContentFingerprint(value) {
+    const text = String(value || "");
+    let primary = 0x811c9dc5;
+    let secondary = 0x9e3779b9;
+    for (let index = 0; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      primary = Math.imul(primary ^ code, 0x01000193);
+      secondary = Math.imul(secondary ^ (code + index), 0x85ebca6b);
+    }
+    return `${text.length}:${(primary >>> 0).toString(36)}:${(secondary >>> 0).toString(36)}`;
+  }
   function resultReviewStamp(sessionOrId) {
     const session = resultReviewSnapshot(sessionOrId);
     if (!session) return "";
     const outcome = session.outcome || {};
     const latestAssistant = [...(session.messages || [])].reverse()
       .find(message => message?.role === "assistant" && String(message.text || "").trim());
+    const resultContent = String(outcome.summary || session.result || latestAssistant?.text || session.statusDetail || "").trim();
     return JSON.stringify([
       String(session.status || ""),
       String(outcome.completedAt || session.completedAt || session.endedAt || session.updatedAt || ""),
       String(latestAssistant?.timestamp || ""),
-      String(outcome.summary || session.result || latestAssistant?.text || session.statusDetail || "").trim().slice(0, 800),
+      resultContentFingerprint(resultContent),
     ]);
   }
   function isResultReviewCandidate(sessionOrId) {
