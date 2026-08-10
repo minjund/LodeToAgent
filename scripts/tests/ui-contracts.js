@@ -1559,7 +1559,7 @@ function registerUiContractTests(context) {
       completedAt: '2026-07-31T01:00:01.000Z',
       updatedAt: '2026-07-31T01:00:01.000Z',
       attention: { category: 'none', required: false },
-      outcome: { status: 'completed', verified: true, completedAt: '2026-07-31T01:00:01.000Z', summary: '첫 결과' },
+      outcome: { status: 'completed', verified: true, completedAt: '2026-07-31T01:00:01.000Z', summary: `${'같은 앞부분'.repeat(160)} · 첫 결과` },
     };
     core.state.snapshot = { sessions: [rootSession, resultSession] };
     assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), ['review-result']);
@@ -1570,6 +1570,12 @@ function registerUiContractTests(context) {
     const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
     reloaded.state.snapshot = core.state.snapshot;
     assert.equal(reloaded.isResultReviewComplete(resultSession), true);
+
+    resultSession.outcome = { ...resultSession.outcome, summary: `${'같은 앞부분'.repeat(160)} · 뒤에서 바뀐 결과` };
+    assert.equal(core.isResultReviewComplete(resultSession), false,
+      '타임스탬프와 긴 앞부분이 같아도 결과 뒷부분이 바뀌면 다시 확인해야 합니다.');
+    assert.equal(core.markResultReviewComplete(resultSession), 1);
+    assert.equal(core.isResultReviewComplete(resultSession), true);
 
     resultSession.outcome = { ...resultSession.outcome, completedAt: '2026-07-31T02:00:00.000Z', summary: '새 결과' };
     resultSession.updatedAt = '2026-07-31T02:00:00.000Z';

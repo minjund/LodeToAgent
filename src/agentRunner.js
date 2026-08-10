@@ -6,10 +6,12 @@ const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const { EventEmitter } = require('events');
 const { PROVIDERS, normalizeProvider, modelContextWindow, blankUsage, finalizeUsage } = require('./providerRegistry');
-const { runBestEffort } = require('./diagnostics');
+const { reportRecoverableError, runBestEffort } = require('./diagnostics');
 const { pruneManagedRuns, restrictPathPermissions } = require('./dataRetention');
 
 const DEFAULT_TERMINATION_GRACE_MS = 1_000;
+const DEFAULT_PERSIST_DELAY_MS = 50;
+const MAX_AGENT_OUTPUT_LINE_BYTES = 4 * 1024 * 1024;
 const DISPOSING_ERROR = '프로그램이 종료 중이므로 새 작업을 시작할 수 없습니다.';
 
 function terminationTimeoutError(message, code) {
@@ -382,6 +384,10 @@ class AgentRunner extends EventEmitter {
     this.terminationGraceMs = Number.isFinite(terminationGraceMs) && terminationGraceMs >= 0
       ? Math.min(terminationGraceMs, 30_000)
       : DEFAULT_TERMINATION_GRACE_MS;
+    const persistDelayMs = Number(options.persistDelayMs);
+    this.persistDelayMs = Number.isFinite(persistDelayMs) && persistDelayMs >= 0
+      ? Math.min(persistDelayMs, 1_000)
+      : DEFAULT_PERSIST_DELAY_MS;
     this.disposing = false;
     this.disposePromise = null;
     ensureDir(this.runsDir);
@@ -454,6 +460,7 @@ class AgentRunner extends EventEmitter {
     const run = {
       id, provider, dir, child, state, stdoutBuffer: '', stderrBuffer: '', stopping: false,
       processGroup: this.platform !== 'win32',
+      pendingEventLines: [], persistTimer: null, outputOverflow: false,
     };
     this.active.set(id, run);
     state.status = 'running';
@@ -490,29 +497,74 @@ class AgentRunner extends EventEmitter {
   }
 
   consume(run, stream, chunk) {
-    if (!run || run.finalized) return;
+    if (!run || run.finalized || run.outputOverflow) return;
     const key = `${stream}Buffer`;
     run[key] += chunk.toString('utf8');
     let index;
     while ((index = run[key].indexOf('\n')) >= 0) {
-      const line = run[key].slice(0, index).trim();
+      const rawLine = run[key].slice(0, index);
       run[key] = run[key].slice(index + 1);
+      if (Buffer.byteLength(rawLine, 'utf8') > MAX_AGENT_OUTPUT_LINE_BYTES) {
+        this.handleOutputOverflow(run, stream);
+        return;
+      }
+      const line = rawLine.trim();
       if (line) this.handleLine(run, stream, line);
+    }
+    if (Buffer.byteLength(run[key], 'utf8') > MAX_AGENT_OUTPUT_LINE_BYTES) {
+      this.handleOutputOverflow(run, stream);
     }
   }
 
   flush(run, stream) {
     const key = `${stream}Buffer`;
+    if (Buffer.byteLength(run[key], 'utf8') > MAX_AGENT_OUTPUT_LINE_BYTES) {
+      this.handleOutputOverflow(run, stream);
+      return;
+    }
     const line = run[key].trim();
     run[key] = '';
     if (line) this.handleLine(run, stream, line);
+  }
+
+  handleOutputOverflow(run, stream) {
+    if (!run || run.finalized || run.outputOverflow) return;
+    run.outputOverflow = true;
+    run.stdoutBuffer = '';
+    run.stderrBuffer = '';
+    run.state.status = 'failed';
+    run.state.statusDetail = 'AI 프로그램 출력 한 줄이 안전한 크기를 초과했습니다.';
+    run.state.endedAt = new Date().toISOString();
+    run.state.updatedAt = run.state.endedAt;
+    addLifecycle(run.state, 'error', 'AI 프로그램 출력 중단', {
+      id: 'output-overflow',
+      detail: `${stream} 출력 한 줄이 ${MAX_AGENT_OUTPUT_LINE_BYTES.toLocaleString()}바이트 제한을 초과했습니다.`,
+      status: 'failed',
+    });
+    try {
+      this.persist(run);
+    } catch (error) {
+      reportRecoverableError('agent-runner-output-overflow-persist', error);
+    }
+    try {
+      if (this.platform === 'win32') {
+        this.execFile('taskkill', ['/PID', String(run.child.pid), '/T', '/F'], { windowsHide: true }, error => {
+          if (error) reportRecoverableError('runner-output-overflow-taskkill', error);
+        });
+      } else {
+        this.signalRun(run, 'SIGKILL');
+      }
+    } catch (error) {
+      reportRecoverableError('runner-output-overflow-terminate', error);
+    }
+    this.emit('changed', { runId: run.id, state: run.state });
   }
 
   handleLine(run, stream, line) {
     if (!run || run.finalized) return;
     let event = null;
     try { event = JSON.parse(line); } catch (_plainOutputLine) { event = null; } // Plain stderr/stdout lines are valid runner output.
-    fs.appendFileSync(path.join(run.dir, 'events.jsonl'), `${JSON.stringify({ timestamp: new Date().toISOString(), stream, event, text: event ? undefined : clip(line, 4000) })}\n`, 'utf8');
+    const eventLine = `${JSON.stringify({ timestamp: new Date().toISOString(), stream, event, text: event ? undefined : clip(line, 4000) })}\n`;
     if (event) {
       if (run.provider === 'claude') handleClaude(run.state, event);
       else if (run.provider === 'codex') handleCodex(run.state, event);
@@ -524,7 +576,7 @@ class AgentRunner extends EventEmitter {
     }
     run.state.updatedAt = new Date().toISOString();
     updateContext(run.state);
-    this.persist(run);
+    this.schedulePersist(run, eventLine);
     this.emit('changed', { runId: run.id, state: run.state });
   }
 
@@ -538,7 +590,32 @@ class AgentRunner extends EventEmitter {
     this.persist(run);
   }
 
+  schedulePersist(run, eventLine = '') {
+    if (eventLine) {
+      if (!Array.isArray(run.pendingEventLines)) run.pendingEventLines = [];
+      run.pendingEventLines.push(eventLine);
+    }
+    if (run.persistTimer) return;
+    run.persistTimer = setTimeout(() => {
+      run.persistTimer = null;
+      try {
+        this.persist(run);
+      } catch (error) {
+        reportRecoverableError(`agent-runner-persist:${run.id}`, error);
+      }
+    }, this.persistDelayMs);
+  }
+
   persist(run) {
+    if (run.persistTimer) {
+      clearTimeout(run.persistTimer);
+      run.persistTimer = null;
+    }
+    const pendingEventLines = Array.isArray(run.pendingEventLines) ? run.pendingEventLines : [];
+    if (pendingEventLines.length) {
+      fs.appendFileSync(path.join(run.dir, 'events.jsonl'), pendingEventLines.join(''), 'utf8');
+      pendingEventLines.length = 0;
+    }
     atomicJson(path.join(run.dir, 'session.json'), run.state);
   }
 
@@ -822,6 +899,7 @@ class AgentRunner extends EventEmitter {
 
 module.exports = {
   AgentRunner,
+  MAX_AGENT_OUTPUT_LINE_BYTES,
   probeProviders,
   findExecutable,
   commandSpec,

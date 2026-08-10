@@ -1644,6 +1644,13 @@ async function exerciseLanguageSettings(win, round) {
           '#projectHistoryTitle .project-history-title-suffix',
           '#projectHistoryList p > b',
           '#projectHistoryList p > small',
+          '#tmuxSelectedComputerTitle',
+          '#tmuxSelectedComputerDescription',
+          '#refreshTmuxTerminalBtn',
+          '#newTmuxSessionBtn',
+          '#tmuxStats strong',
+          '.tmux-distro-node > span',
+          '.tmux-distro-node > div > strong',
         ];
         const attributeChecks = [
           ['#sidebarNewProjectBtn', 'aria-label'],
@@ -4672,13 +4679,18 @@ async function exerciseTmux(win, round) {
     const result = {
       statLabel: document.querySelector('#tmuxStats strong')?.textContent.trim() || '',
       environment: document.querySelector('.tmux-distro-node > span')?.textContent.trim() || '',
+      environmentCount: document.querySelector('.tmux-distro-node > div > strong')?.textContent.trim() || '',
+      expectedStatLabel: window.LoadToAgentI18n.t('tmux.environment_summary', { name: 'FixtureLinux', working: 2, review: 1 }),
+      expectedEnvironment: window.LoadToAgentI18n.t('tmux.environment_work_label', { name: 'FixtureLinux' }),
+      expectedEnvironmentCount: window.LoadToAgentI18n.t('tmux.environment_work_count', { name: 'FixtureLinux', count: 3 }),
     };
     app.state.platform = previous;
     app.renderTmuxMap();
     return result;
   })()`);
-  assert(nativeEnvironment.statLabel.includes('컴퓨터 이름: 업무용 컴퓨터 2')
-    && nativeEnvironment.environment === '업무용 컴퓨터 2에서 시작한 작업',
+  assert(nativeEnvironment.statLabel === nativeEnvironment.expectedStatLabel
+    && nativeEnvironment.environment === nativeEnvironment.expectedEnvironment
+    && nativeEnvironment.environmentCount === nativeEnvironment.expectedEnvironmentCount,
   `다른 컴퓨터 작업 환경 표시가 올바르지 않습니다: ${JSON.stringify(nativeEnvironment)}`);
   const tmuxMapSemantics = await win.webContents.executeJavaScript(`(() => ({
     nodes: document.querySelectorAll('#tmuxMap [data-tmux-type][data-tmux-id]').length,

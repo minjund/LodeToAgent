@@ -4,7 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { EventEmitter } = require('events');
-const { AgentRunner, signalPosixProcessTree } = require('../../src/agentRunner');
+const { AgentRunner, MAX_AGENT_OUTPUT_LINE_BYTES, signalPosixProcessTree } = require('../../src/agentRunner');
 
 function fakeChild(pid) {
   const child = new EventEmitter();
@@ -31,6 +31,8 @@ function runFixture(runsDir, id, pid, status = 'running') {
       endedAt: null,
       lifecycle: [],
       messages: [],
+      usage: { total: 0, input: 0 },
+      turnUsage: { total: 0, input: 0 },
     },
     stdoutBuffer: '',
     stderrBuffer: '',
@@ -41,6 +43,38 @@ function runFixture(runsDir, id, pid, status = 'running') {
 
 function registerAgentRunnerLifecycleTests(context) {
   const { test, temp, root } = context;
+
+  test('직접 실행 AI 출력은 줄 크기를 제한하고 디스크 저장을 묶어서 처리한다', () => {
+    const runsDir = path.join(temp, 'agent-runner-output-bounds');
+    const signals = [];
+    const runner = new AgentRunner({
+      runsDir,
+      platform: 'linux',
+      persistDelayMs: 1_000,
+      killProcess: (pid, signal) => { signals.push([pid, signal]); },
+    });
+    const batched = runFixture(runsDir, 'batched-output-run', 5_100);
+    runner.consume(batched, 'stdout', Buffer.from([
+      JSON.stringify({ type: 'turn.started' }),
+      JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 2, output_tokens: 1 } }),
+      '',
+    ].join('\n')));
+    assert.equal(batched.pendingEventLines.length, 2);
+    assert.equal(fs.existsSync(path.join(batched.dir, 'events.jsonl')), false,
+      '각 출력 줄마다 즉시 디스크에 쓰면 안 됩니다.');
+    runner.persist(batched);
+    assert.equal(batched.persistTimer, null);
+    assert.equal(fs.readFileSync(path.join(batched.dir, 'events.jsonl'), 'utf8').trim().split('\n').length, 2);
+    assert.equal(JSON.parse(fs.readFileSync(path.join(batched.dir, 'session.json'), 'utf8')).status, 'completed');
+
+    const oversized = runFixture(runsDir, 'oversized-output-run', 5_101);
+    runner.consume(oversized, 'stdout', Buffer.alloc(MAX_AGENT_OUTPUT_LINE_BYTES + 1, 0x61));
+    assert.equal(oversized.outputOverflow, true);
+    assert.equal(oversized.stdoutBuffer, '');
+    assert.equal(oversized.state.status, 'failed');
+    assert.equal(oversized.state.lifecycle.some(item => item.id === 'output-overflow'), true);
+    assert.deepStrictEqual(signals, [[-5_101, 'SIGKILL']]);
+  });
 
   test('직접 실행 AI는 POSIX 프로세스 그룹 전체를 제어한다', async () => {
     const fallbackSignals = [];

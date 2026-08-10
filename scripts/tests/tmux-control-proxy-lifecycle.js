@@ -359,6 +359,22 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     assert.deepEqual(notifications, ['%layout-change @80 layout-data']);
   });
 
+  test('tmux control response block은 여러 짧은 줄의 누적 크기도 제한한다', () => {
+    const parser = new ControlProtocolParser({ maxBlockBytes: 32 });
+    let fatalError = null;
+    parser.on('fatal', error => { fatalError = error; });
+    parser.push(Buffer.from([
+      '%begin 101 8 0',
+      '1234567890123456',
+      'abcdefghijklmnop',
+      'overflow',
+      '',
+    ].join('\n'), 'ascii'));
+
+    assert.match(fatalError?.message || '', /response block exceeded the safety limit/);
+    assert.equal(parser.block, null);
+  });
+
   test('command frame은 paste와 Enter를 한 guard로 보내고 확인 뒤 accepted ACK한다', async () => {
     const proxy = new TmuxControlProxy(proxyOptions(41), { inProcess: true });
     const stages = [];
