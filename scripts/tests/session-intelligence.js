@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert');
-const { enrichSession } = require('../../src/sessionIntelligence');
+const { enrichSession, enrichSessions } = require('../../src/sessionIntelligence');
 
 function registerSessionIntelligenceTests(context) {
   const { test } = context;
@@ -142,6 +142,40 @@ function registerSessionIntelligenceTests(context) {
     }, [], now);
     assert.equal(grok.controlCapabilities.sendInstruction, true);
     assert.equal(grok.controlCapabilities.resume, true);
+
+    const indexedParent = {
+      ...waiting,
+      id: 'indexed-parent',
+      parentId: null,
+      status: 'running',
+      context: { percent: 10 },
+      messages: [],
+      lifecycle: [],
+    };
+    const indexedChild = {
+      ...indexedParent,
+      id: 'indexed-child',
+      parentId: indexedParent.id,
+    };
+    const sharedSnapshot = [indexedParent, indexedChild];
+    assert.equal(enrichSession(indexedChild, sharedSnapshot, now).health.signals.some(signal => signal.code === 'orphan-agent'), false);
+    sharedSnapshot[0] = { ...indexedParent, id: 'replacement-parent' };
+    assert.equal(
+      enrichSession(indexedChild, sharedSnapshot, now).health.signals.some(signal => signal.code === 'orphan-agent'),
+      true,
+      '같은 길이 배열의 부모 ID가 교체되면 단독 계산도 최신 구성원을 반영해야 합니다.',
+    );
+    sharedSnapshot[0] = indexedParent;
+
+    const arrayMap = sharedSnapshot.map;
+    let snapshotPasses = 0;
+    sharedSnapshot.map = function countedMap(...args) {
+      snapshotPasses += 1;
+      return arrayMap.apply(this, args);
+    };
+    const indexedResults = enrichSessions(sharedSnapshot, now);
+    assert.equal(snapshotPasses, 2, '일괄 계산은 결과 순회 한 번과 공유 ID 인덱스 구성 한 번만 수행해야 합니다.');
+    assert.equal(indexedResults[1].health.signals.some(signal => signal.code === 'orphan-agent'), false);
   });
 
   test('로그의 테스트 실행 상태를 통과·실패·실행 중·미확인으로 구분한다', () => {

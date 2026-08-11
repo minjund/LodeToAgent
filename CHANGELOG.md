@@ -5,6 +5,23 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.19 - 2026-08-11
+
+- Keep only the English, Korean, and Simplified Chinese Electron locale packs
+  that LoadToAgent supports, removing unused Chromium translations from every
+  desktop build.
+- Exclude xterm source, typings, source maps, and duplicate ESM bundles while
+  retaining the browser runtime, stylesheet, package metadata, and licenses.
+- Keep the README demo in the npm package while omitting unreferenced design
+  screenshots from the published tarball.
+- Prune packaged node-pty files to the target operating system and CPU before
+  signing, and fail the build if that native runtime is incomplete.
+- Reclaim stale partial downloads and installers older than the running app
+  from the managed update cache while preserving active and unknown files.
+- Index parsed conversation messages and lifecycle events, stream JSONL header
+  metadata in bounded chunks, and avoid repeated full-session lookups to lower
+  startup work without reducing the visible history window.
+
 ## 1.6.18 - 2026-08-11
 
 - Keep inline xterm DOM, IME composition, scrollback, and input focus stable

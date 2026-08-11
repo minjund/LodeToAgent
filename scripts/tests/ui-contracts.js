@@ -1505,6 +1505,19 @@ function registerUiContractTests(context) {
     assert.ok(pkg.dependencies['node-pty']);
     assert.ok(pkg.dependencies['@xterm/xterm']);
     assert.ok(pkg.dependencies['@xterm/addon-fit']);
+    assert.deepStrictEqual(pkg.build.electronLanguages, ['en-US', 'ko', 'zh-CN', 'zh_CN']);
+    for (const pattern of [
+      '!node_modules/@xterm/xterm/src/**/*',
+      '!node_modules/@xterm/xterm/typings/**/*',
+      '!node_modules/@xterm/xterm/lib/**/*.map',
+      '!node_modules/@xterm/xterm/lib/**/*.mjs',
+      '!node_modules/@xterm/addon-fit/src/**/*',
+      '!node_modules/@xterm/addon-fit/typings/**/*',
+      '!node_modules/@xterm/addon-fit/lib/**/*.map',
+      '!node_modules/@xterm/addon-fit/lib/**/*.mjs',
+    ]) {
+      assert.ok(pkg.build.files.includes(pattern), `패키징 제외 규칙이 없습니다: ${pattern}`);
+    }
     assert.equal(pkg.bin.loadtoagent, 'bin/loadtoagent.js');
     assert.equal(pkg.scripts['test:drawer-conversation'], 'electron scripts/drawer-terminal-visual.js');
     assert.equal(pkg.scripts['test:drawer-actual-pty'], 'electron scripts/drawer-actual-pty-integration.js');

@@ -33,12 +33,38 @@ function registerUpdateDownloadLimitTests(context) {
   const { test, temp } = context;
 
   test('업데이트 확인은 응답 본문이 멈추면 제한 시간 안에 중단한다', async () => {
+    const downloadsDir = path.join(temp, 'update-cache-cleanup');
+    const activeInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.0.0.exe');
+    const staleInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-2.9.0.exe');
+    const staleDownload = path.join(downloadsDir, 'LoadToAgent-3.1.0-portable.exe.download');
+    const futureInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.1.0.exe');
+    const unknownFile = path.join(downloadsDir, 'LoadToAgent-Setup-latest.exe');
+    const nestedDirectory = path.join(downloadsDir, 'LoadToAgent-Setup-2.8.0.exe');
+    const nestedInstaller = path.join(nestedDirectory, 'LoadToAgent-Setup-2.7.0.exe');
+    const protectedTarget = path.join(temp, 'protected-update-target.exe');
+    const linkedInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-2.6.0.exe');
+    fs.mkdirSync(nestedDirectory, { recursive: true });
+    fs.writeFileSync(activeInstaller, 'active installer');
+    fs.writeFileSync(staleInstaller, 'stale installer');
+    fs.writeFileSync(staleDownload, 'partial installer');
+    fs.writeFileSync(futureInstaller, 'future installer');
+    fs.writeFileSync(unknownFile, 'not an app-owned versioned artifact');
+    fs.writeFileSync(nestedInstaller, 'nested installer');
+    fs.writeFileSync(protectedTarget, 'protected symlink target');
+    let linked = false;
+    try {
+      fs.symlinkSync(protectedTarget, linkedInstaller, 'file');
+      linked = true;
+    } catch (error) {
+      if (!error || !['EPERM', 'EACCES', 'UNKNOWN'].includes(error.code)) throw error;
+    }
     let requestSignal = null;
     let readerCancelled = false;
     const manager = new UpdateManager({
       currentVersion: '3.0.0',
       platform: 'win32',
       arch: 'x64',
+      downloadsDir,
       checkTimeoutMs: 20,
       fetch: async (_url, options) => {
         requestSignal = options.signal;
@@ -62,6 +88,7 @@ function registerUpdateDownloadLimitTests(context) {
         };
       },
     });
+    manager.state = { ...manager.state, status: 'downloaded', downloadedPath: activeInstaller };
 
     const state = await manager.check();
 
@@ -69,6 +96,40 @@ function registerUpdateDownloadLimitTests(context) {
     assert.match(state.error, /시간이 초과/);
     assert.equal(requestSignal.aborted, true);
     assert.equal(readerCancelled, true);
+    assert.equal(state.downloadedPath, activeInstaller);
+    assert.equal(fs.existsSync(activeInstaller), true);
+    assert.equal(fs.existsSync(staleInstaller), false);
+    assert.equal(fs.existsSync(staleDownload), false);
+    assert.equal(fs.existsSync(futureInstaller), true);
+    assert.equal(fs.existsSync(unknownFile), true);
+    assert.equal(fs.statSync(nestedDirectory).isDirectory(), true);
+    assert.equal(fs.existsSync(nestedInstaller), true);
+    assert.equal(fs.readFileSync(protectedTarget, 'utf8'), 'protected symlink target');
+    if (linked) assert.equal(fs.lstatSync(linkedInstaller).isSymbolicLink(), true);
+
+    const linkedRootTarget = path.join(temp, 'linked-update-root-target');
+    const linkedRootArtifact = path.join(linkedRootTarget, 'LoadToAgent-Setup-2.5.0.exe');
+    const linkedRoot = path.join(temp, 'linked-update-root');
+    fs.mkdirSync(linkedRootTarget, { recursive: true });
+    fs.writeFileSync(linkedRootArtifact, 'protected linked-root artifact');
+    let linkedRootCreated = false;
+    try {
+      fs.symlinkSync(linkedRootTarget, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+      linkedRootCreated = true;
+    } catch (error) {
+      if (!error || !['EPERM', 'EACCES', 'EINVAL', 'ENOTSUP', 'UNKNOWN'].includes(error.code)) throw error;
+    }
+    if (linkedRootCreated) {
+      const linkedRootManager = new UpdateManager({
+        currentVersion: '3.0.0',
+        platform: 'win32',
+        arch: 'x64',
+        downloadsDir: linkedRoot,
+        fetch: async () => { throw new Error('linked-root fixture'); },
+      });
+      await linkedRootManager.check();
+      assert.equal(fs.readFileSync(linkedRootArtifact, 'utf8'), 'protected linked-root artifact');
+    }
   });
 
   test('업데이트 확인은 길이 헤더가 없는 과대 응답 본문을 중단한다', async () => {
@@ -123,7 +184,7 @@ function registerUpdateDownloadLimitTests(context) {
 
     let overrunCancelled = false;
     const expectedPayload = Buffer.from('safe');
-    const existingInstaller = path.join(downloadsDir, 'overrun.exe');
+    const existingInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.1.0.exe');
     fs.mkdirSync(downloadsDir, { recursive: true });
     fs.writeFileSync(existingInstaller, 'previous verified installer', 'utf8');
     const overrun = managerWithAsset({
@@ -139,7 +200,7 @@ function registerUpdateDownloadLimitTests(context) {
           }),
         },
       }),
-    }, asset('overrun.exe', expectedPayload.length, expectedPayload));
+    }, asset('LoadToAgent-Setup-3.1.0.exe', expectedPayload.length, expectedPayload));
     await assert.rejects(overrun.download(), /공식 파일.*보다 큽니다/);
     assert.equal(overrunCancelled, true);
     assert.equal(fs.readFileSync(existingInstaller, 'utf8'), 'previous verified installer');

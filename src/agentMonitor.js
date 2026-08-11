@@ -31,6 +31,34 @@ const STALE_TURN_THRESHOLD_MS = 5 * 60_000;
 const LIST_CACHE_MS = 60_000;
 const PINNED_FILE_CACHE_MS = 60_000;
 const CARD_JSONL_BYTES = 4 * 1024 * 1024;
+const sessionCollectionIndexes = new WeakMap();
+
+function collectionIndexes(session) {
+  const cached = sessionCollectionIndexes.get(session);
+  if (cached && cached.messages === session.messages && cached.lifecycle === session.lifecycle) return cached;
+  const messageIds = new Set();
+  const messageSignatures = new Set();
+  for (const message of session.messages || []) {
+    messageIds.add(String(message.id || ''));
+    messageSignatures.add(`${message.role}\u0000${message.text}\u0000${message.timestamp}`);
+  }
+  const lifecycleById = new Map();
+  const runningLifecycle = new Set();
+  for (const event of session.lifecycle || []) {
+    lifecycleById.set(String(event.id || ''), event);
+    if (event.status === 'running') runningLifecycle.add(event);
+  }
+  const indexes = {
+    messages: session.messages,
+    lifecycle: session.lifecycle,
+    messageIds,
+    messageSignatures,
+    lifecycleById,
+    runningLifecycle,
+  };
+  sessionCollectionIndexes.set(session, indexes);
+  return indexes;
+}
 
 function asText(value) {
   if (typeof value === 'string') return value;
@@ -70,9 +98,12 @@ function addMessage(session, message) {
     status: message.status || '',
     timestamp: timestamp(message.timestamp, session.updatedAt),
   };
-  const duplicate = session.messages.some(item => item.id === row.id
-    || (item.role === row.role && item.text === row.text && item.timestamp === row.timestamp));
-  if (!duplicate) session.messages.push(row);
+  const indexes = collectionIndexes(session);
+  const signature = `${row.role}\u0000${row.text}\u0000${row.timestamp}`;
+  if (indexes.messageIds.has(row.id) || indexes.messageSignatures.has(signature)) return;
+  session.messages.push(row);
+  indexes.messageIds.add(row.id);
+  indexes.messageSignatures.add(signature);
 }
 
 function jsonObject(value) {
@@ -144,25 +175,32 @@ function addLifecycle(session, event) {
     status: event.status || 'done',
     timestamp: timestamp(event.timestamp, session.updatedAt),
   };
-  const duplicate = session.lifecycle.some(item => item.id === row.id);
-  if (!duplicate) session.lifecycle.push(row);
+  const indexes = collectionIndexes(session);
+  if (indexes.lifecycleById.has(row.id)) return;
+  session.lifecycle.push(row);
+  indexes.lifecycleById.set(row.id, row);
+  if (row.status === 'running') indexes.runningLifecycle.add(row);
 }
 
 function settleLifecycle(session, id, status = 'done', completedAt = null) {
   const key = String(id || '');
   if (!key) return;
-  const row = session.lifecycle.find(item => item.id === key || item.id === `tool:${key}`);
+  const indexes = collectionIndexes(session);
+  const row = indexes.lifecycleById.get(key) || indexes.lifecycleById.get(`tool:${key}`);
   if (!row) return;
   row.status = status;
+  if (status === 'running') indexes.runningLifecycle.add(row);
+  else indexes.runningLifecycle.delete(row);
   if (completedAt) row.completedAt = timestamp(completedAt, row.timestamp);
 }
 
 function settleRunningLifecycle(session, completedAt = null) {
-  for (const row of session.lifecycle) {
-    if (row.status !== 'running') continue;
+  const indexes = collectionIndexes(session);
+  for (const row of indexes.runningLifecycle) {
     row.status = 'done';
     if (completedAt) row.completedAt = timestamp(completedAt, row.timestamp);
   }
+  indexes.runningLifecycle.clear();
 }
 
 function baseSession(provider, externalId, file, stat) {

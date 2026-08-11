@@ -9,9 +9,7 @@ const npmExecPath = process.env.npm_execpath;
 const npmCommand = npmExecPath ? process.execPath : (process.platform === 'win32' ? 'npm.cmd' : 'npm');
 const npmArgs = [...(npmExecPath ? [npmExecPath] : []), 'pack', '--dry-run', '--json'];
 const allowedDocsAssets = [
-  'docs/assets/loadtoagent-dashboard.png',
   'docs/assets/loadtoagent-demo.gif',
-  'docs/assets/loadtoagent-project-session-ux-concept.png',
 ];
 const allowedDocsAssetSet = new Set(allowedDocsAssets);
 

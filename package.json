@@ -1,6 +1,6 @@
 {
   "name": "loadtoagent",
-  "version": "1.6.18",
+  "version": "1.6.19",
   "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
   "main": "main.js",
   "author": "wincube AX",
@@ -38,9 +38,7 @@
     "renderer",
     "src",
     "docs/*.md",
-    "docs/assets/loadtoagent-dashboard.png",
     "docs/assets/loadtoagent-demo.gif",
-    "docs/assets/loadtoagent-project-session-ux-concept.png",
     "LICENSE",
     "SECURITY.md",
     "CHANGELOG.md",
@@ -111,6 +109,12 @@
     "directories": {
       "output": "release"
     },
+    "electronLanguages": [
+      "en-US",
+      "ko",
+      "zh-CN",
+      "zh_CN"
+    ],
     "files": [
       "main.js",
       "preload.js",
@@ -118,7 +122,17 @@
       "src/**/*",
       "renderer/**/*",
       "LICENSE",
-      "package.json"
+      "package.json",
+      "!node_modules/@xterm/xterm/src/**/*",
+      "!node_modules/@xterm/xterm/typings/**/*",
+      "!node_modules/@xterm/xterm/lib/**/*.map",
+      "!node_modules/@xterm/xterm/lib/**/*.mjs",
+      "!node_modules/@xterm/xterm/README.md",
+      "!node_modules/@xterm/addon-fit/src/**/*",
+      "!node_modules/@xterm/addon-fit/typings/**/*",
+      "!node_modules/@xterm/addon-fit/lib/**/*.map",
+      "!node_modules/@xterm/addon-fit/lib/**/*.mjs",
+      "!node_modules/@xterm/addon-fit/README.md"
     ],
     "asarUnpack": [
       "bin/**/*",
