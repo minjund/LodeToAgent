@@ -3695,7 +3695,7 @@ async function writeToEmbeddedXterm(win, viewportSelector, text) {
   await waitFor(win, `(() => {
     const terminalId = window.LoadToAgentTerminal.embeddedState().terminalId;
     const writes = window.interactionTest.getCalls().filter(item => item.name === 'terminalWrite');
-    return writes.length >= 2
+    return writes.length >= 1
       && writes.every(item => item.args[0] === terminalId)
       && writes.map(item => String(item.args[1] || '')).join('').endsWith(${JSON.stringify(`${text}\r`)});
   })()`, `${viewportSelector}의 xterm 입력이 연결된 PTY로 전달되지 않았습니다.`);
@@ -4026,6 +4026,98 @@ async function exerciseInlineTerminal(win, round) {
     && !window.interactionTest.getCalls().some(call => call.name === 'terminalCommand')
     && !document.querySelector('#detailDrawer')?.classList.contains('open')`,
   '인라인 xterm 입력이 같은 실제 PTY로 전달되지 않았습니다.');
+  const inlineRefreshBaseline = await win.webContents.executeJavaScript(`(() => {
+    const section = document.querySelector('[data-inline-agent-terminal="fixture-root"]');
+    const viewport = section?.querySelector('#agentInlineTerminalViewport');
+    const host = viewport?.querySelector(':scope > .terminal-screen');
+    const helper = host?.querySelector('.xterm-helper-textarea');
+    const refreshSibling = section?.closest('[data-control-session]')?.querySelector('.control-room-main');
+    if (!section || !viewport || !host || !helper || !refreshSibling) return { ok: false };
+    helper.focus({ preventScroll: true });
+    refreshSibling.dataset.inlineRefreshStaleProbe = 'true';
+    window.__loadToAgentInlineRefreshIdentity = {
+      section,
+      viewport,
+      host,
+      helper,
+      sectionParent: section.parentElement,
+      viewportParent: viewport.parentElement,
+      hostParent: host.parentElement,
+      helperParent: helper.parentElement,
+      activeElement: document.activeElement,
+      connection: section.dataset.connection || '',
+      refreshSibling,
+    };
+    window.interactionTest.clearCalls();
+    return {
+      ok: true,
+      focused: document.activeElement === helper,
+      terminalId: window.LoadToAgentTerminal.embeddedState().terminalId || '',
+    };
+  })()`);
+  assert(inlineRefreshBaseline.ok && inlineRefreshBaseline.focused && inlineRefreshBaseline.terminalId === 'terminal-main',
+    `인라인 PTY 갱신 안정성 검증을 위한 DOM과 입력 포커스를 준비하지 못했습니다: ${JSON.stringify(inlineRefreshBaseline)}`);
+  const inlineRefreshStability = await win.webContents.executeJavaScript(`(async () => {
+    const waitForPaint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    for (let refresh = 0; refresh < 2; refresh += 1) {
+      window.LoadToAgentApp.renderSessions('refresh');
+      await waitForPaint();
+    }
+    await new Promise(resolve => setTimeout(resolve, 40));
+    const baseline = window.__loadToAgentInlineRefreshIdentity;
+    const section = document.querySelector('[data-inline-agent-terminal="fixture-root"]');
+    const viewport = section?.querySelector('#agentInlineTerminalViewport');
+    const host = viewport?.querySelector(':scope > .terminal-screen');
+    const helper = host?.querySelector('.xterm-helper-textarea');
+    const refreshSibling = section?.closest('[data-control-session]')?.querySelector('.control-room-main');
+    const calls = window.interactionTest.getCalls();
+    const result = {
+      sectionIdentity: section === baseline?.section,
+      viewportIdentity: viewport === baseline?.viewport,
+      hostIdentity: host === baseline?.host,
+      helperIdentity: helper === baseline?.helper,
+      parentIdentity: Boolean(section?.parentElement === baseline?.sectionParent
+        && viewport?.parentElement === baseline?.viewportParent
+        && host?.parentElement === baseline?.hostParent
+        && helper?.parentElement === baseline?.helperParent),
+      parentChain: Boolean(section?.isConnected
+        && viewport?.isConnected
+        && host?.isConnected
+        && helper?.isConnected
+        && viewport.parentElement === section
+        && host.parentElement === viewport
+        && host.contains(helper)),
+      focusIdentity: document.activeElement === baseline?.activeElement
+        && document.activeElement === baseline?.helper,
+      connectionIdentity: Boolean(section?.dataset.connection
+        && section.dataset.connection === baseline?.connection),
+      surroundingGraphRefreshed: Boolean(refreshSibling
+        && refreshSibling !== baseline?.refreshSibling
+        && refreshSibling.dataset.inlineRefreshStaleProbe !== 'true'),
+      embeddedConnected: window.LoadToAgentTerminal.embeddedState().connected,
+      embeddedTerminalId: window.LoadToAgentTerminal.embeddedState().terminalId || '',
+      terminalCreateCalls: calls.filter(call => call.name === 'terminalCreate').length,
+      terminalGetCalls: calls.filter(call => call.name === 'terminalGet').length,
+      calls: calls.map(call => call.name),
+    };
+    delete window.__loadToAgentInlineRefreshIdentity;
+    return result;
+  })()`);
+  assert(inlineRefreshStability.sectionIdentity
+    && inlineRefreshStability.viewportIdentity
+    && inlineRefreshStability.hostIdentity
+    && inlineRefreshStability.helperIdentity
+    && inlineRefreshStability.parentIdentity
+    && inlineRefreshStability.parentChain
+    && inlineRefreshStability.focusIdentity
+    && inlineRefreshStability.connectionIdentity
+    && inlineRefreshStability.surroundingGraphRefreshed
+    && inlineRefreshStability.embeddedConnected
+    && inlineRefreshStability.embeddedTerminalId === 'terminal-main'
+    && inlineRefreshStability.terminalCreateCalls === 0
+    && inlineRefreshStability.terminalGetCalls === 0,
+  `연속 snapshot 갱신이 인라인 PTY DOM·입력 포커스·연결을 교체했습니다: ${JSON.stringify(inlineRefreshStability)}`);
+  mark('quality:inline-terminal-snapshot-focus-guard');
   await win.webContents.executeJavaScript(`document.querySelector('[data-inline-agent-terminal="fixture-root"]')?.scrollIntoView({ block: 'center', inline: 'nearest' })`);
   await sleep(180);
   const inlineCaptureRect = await win.webContents.executeJavaScript(`(() => {
@@ -4052,6 +4144,67 @@ async function exerciseInlineTerminal(win, round) {
   assert(closeTriggered, '같은 AI를 다시 눌러 인라인 PTY 닫기를 실행하지 못했습니다.');
   markSelectors(['[data-inline-pty-trigger]']);
   await waitFor(win, `!document.querySelector('[data-inline-agent-terminal]') && !window.LoadToAgentTerminal.embeddedState().connected`, '같은 AI를 다시 눌러 인라인 PTY를 닫지 못했습니다.');
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root')`);
+  await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')
+    && document.querySelector('#detailDrawer')?.dataset.terminalChat === 'true'
+    && !document.querySelector('#drawerTerminalSurface')?.classList.contains('hidden')
+    && window.LoadToAgentTerminal.embeddedState().connected
+    && window.LoadToAgentTerminal.embeddedState().agentSessionId === 'fixture-root'
+    && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
+    && Boolean(document.querySelector('#drawerTerminalViewport .xterm-helper-textarea'))`,
+  '인라인 PTY를 닫은 뒤 reconnect focus 검증용 드로어 PTY를 열지 못했습니다.', 160);
+  const reconnectFocusCancelled = await win.webContents.executeJavaScript(`(() => {
+    const helper = document.querySelector('#drawerTerminalViewport .xterm-helper-textarea');
+    if (!helper) return false;
+    helper.focus({ preventScroll: true });
+    window.__drawerReconnectOldHelper = helper;
+    window.interactionTest.emitTerminalReconnect('terminal-main');
+    document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Shift', bubbles: true }));
+    document.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    window.dispatchEvent(new Event('blur'));
+    return true;
+  })()`);
+  assert(reconnectFocusCancelled, '드로어 PTY reconnect focus 취소 fixture를 만들지 못했습니다.');
+  await waitFor(win, `(() => {
+    const helper = document.querySelector('#drawerTerminalViewport .xterm-helper-textarea');
+    return window.LoadToAgentTerminal.embeddedState().connected
+      && helper
+      && helper !== window.__drawerReconnectOldHelper
+      && window.LoadToAgentDrawerTerminal.state().phase === 'connected'
+      && document.activeElement !== helper;
+  })()`, 'reconnect 중 후속 사용자 조작이 있었는데 새 xterm이 포커스를 빼앗았습니다.');
+  await win.webContents.executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+  assert(await win.webContents.executeJavaScript(`document.activeElement !== document.querySelector('#drawerTerminalViewport .xterm-helper-textarea')`),
+    'reconnect focus 취소 확인 뒤 늦게 새 xterm이 포커스를 빼앗았습니다.');
+  win.webContents.focus();
+  const reconnectFocusRequested = await win.webContents.executeJavaScript(`(() => {
+    const helper = document.querySelector('#drawerTerminalViewport .xterm-helper-textarea');
+    if (!helper) return false;
+    helper.focus({ preventScroll: true });
+    if (document.activeElement !== helper) return false;
+    window.__drawerReconnectOldHelper = helper;
+    window.interactionTest.emitTerminalReconnect('terminal-main');
+    return true;
+  })()`);
+  assert(reconnectFocusRequested, '드로어 PTY reconnect focus 복원 fixture를 만들지 못했습니다.');
+  await waitFor(win, `(() => {
+    const helper = document.querySelector('#drawerTerminalViewport .xterm-helper-textarea');
+    return window.LoadToAgentTerminal.embeddedState().connected
+      && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
+      && helper
+      && helper !== window.__drawerReconnectOldHelper
+      && window.LoadToAgentDrawerTerminal.state().phase === 'connected'
+      && document.activeElement === helper;
+  })()`, 'focused 드로어 PTY reconnect 뒤 새 xterm 입력 커서가 복원되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    delete window.__drawerReconnectOldHelper;
+    window.LoadToAgentApp.closeDrawer();
+  })()`);
+  await waitFor(win, `document.querySelector('#drawerBackdrop')?.classList.contains('hidden')
+    && !document.querySelector('#detailDrawer')?.classList.contains('open')
+    && !window.LoadToAgentTerminal.embeddedState().connected`,
+  'reconnect focus 검증 뒤 드로어 PTY를 닫지 못했습니다.');
   const progressTriggered = await win.webContents.executeJavaScript(`(() => {
     const trigger = document.querySelector('.control-session-flow[data-graph-focus="fixture-root"]');
     if (!trigger) return false;
@@ -4074,7 +4227,7 @@ async function exerciseInlineTerminal(win, round) {
   await waitFor(win, `Boolean(document.querySelector('#workflowDetail [data-workflow-detail-panel="tokens"]:not([hidden])'))
     && document.querySelectorAll('#workflowDetail [data-workflow-detail-panel="tokens"] article').length >= 5
     && [...document.querySelectorAll('#workflowDetail [data-workflow-detail-panel="tokens"] article b')].every(node => node.textContent.trim())`, '작업 진행 화면의 사용량 탭에 입력·출력 토큰이 없습니다.');
-  round.observed.inlineTerminal = diagnostic;
+  round.observed.inlineTerminal = { ...diagnostic, refreshStability: inlineRefreshStability };
 }
 
 async function exerciseTerminal(win, round) {
@@ -4972,7 +5125,7 @@ app.whenReady().then(async () => {
       'quality:runtime-schedule-keyboard', 'quality:runtime-loop-keyboard', 'quality:run-draft-restore',
       'quality:run-whitespace-validation', 'quality:run-safe-backdrop', 'quality:drawer-page-tabs',
       'quality:terminal-restart-busy', 'quality:terminal-command-history', 'quality:terminal-length-warning',
-      'quality:terminal-snapshot-focus-guard',
+      'quality:terminal-snapshot-focus-guard', 'quality:inline-terminal-snapshot-focus-guard',
       'quality:terminal-close-busy', 'quality:tmux-map-keyboard', 'quality:tmux-breadcrumb-keyboard', 'quality:tmux-safe-backdrop',
       'quality:drawer-drag-safe',
     ])];

@@ -14,6 +14,7 @@ const { registerConversationDeliveryTests } = require('./tests/conversation-deli
 const { registerTerminalAgentActionTests } = require('./tests/terminal-agent-actions');
 const { registerTerminalComposerTests } = require('./tests/terminal-composer');
 const { registerTerminalInteractionTests } = require('./tests/terminal-interactions');
+const { registerInlineAgentTerminalTests } = require('./tests/inline-agent-terminal');
 const { registerTerminalPromptTests } = require('./tests/terminal-prompts');
 const { registerAgentRunnerLifecycleTests } = require('./tests/agent-runner-lifecycle');
 const { registerUpdateDownloadLimitTests } = require('./tests/update-download-limits');
@@ -34,6 +35,7 @@ registerConversationDeliveryTests(context);
 registerTerminalAgentActionTests(context);
 registerTerminalComposerTests(context);
 registerTerminalInteractionTests(context);
+registerInlineAgentTerminalTests(context);
 registerTerminalPromptTests(context);
 registerAgentRunnerLifecycleTests(context);
 registerUpdateDownloadLimitTests(context);
@@ -44,8 +46,8 @@ registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 233) {
-  throw new Error(`회귀 테스트 등록 수가 233개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 257) {
+  throw new Error(`회귀 테스트 등록 수가 257개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

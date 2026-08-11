@@ -183,6 +183,21 @@ function restoredDeliveries(value) {
   }).filter(Boolean);
 }
 
+function restoredRawInputDeliveries(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(-MAX_DELIVERY_RECORDS).map(record => {
+    const id = normalizedDeliveryId(record?.id);
+    const timestamp = cleanText(record?.timestamp, 50);
+    const fingerprint = String(record?.fingerprint || '').trim().toLowerCase();
+    return id && /^[a-f0-9]{64}$/.test(fingerprint) ? {
+      id,
+      state: 'accepted',
+      timestamp,
+      fingerprint,
+    } : null;
+  }).filter(Boolean);
+}
+
 function validAgentSessionId(value) {
   const sessionId = String(value == null ? '' : value);
   return sessionId.length > 0
@@ -1371,6 +1386,7 @@ function persistedSession(session) {
     outputSequence: Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0,
     replay: flushSessionReplay(session),
     deliveries: restoredDeliveries(session.deliveries),
+    rawInputDeliveries: restoredRawInputDeliveries(session.rawInputDeliveries),
     initialPromptFingerprint: validFingerprint(session.initialPromptFingerprint),
     creationId: normalizedCreationId(session.creationId),
     creationPayloadFingerprint: validFingerprint(session.creationPayloadFingerprint),
@@ -1588,6 +1604,7 @@ class TerminalManager extends EventEmitter {
             replayPendingChunks: [],
             replayPendingChars: 0,
             deliveries: restoredDeliveries(value.deliveries),
+            rawInputDeliveries: restoredRawInputDeliveries(value.rawInputDeliveries),
             initialPromptFingerprint,
             creationId,
             creationPayloadFingerprint,
@@ -2091,6 +2108,16 @@ class TerminalManager extends EventEmitter {
     return null;
   }
 
+  rawInputDeliveryRecord(deliveryId) {
+    const id = normalizedDeliveryId(deliveryId);
+    if (!id) return null;
+    for (const session of this.sessions.values()) {
+      const record = (session.rawInputDeliveries || []).find(item => item.id === id);
+      if (record) return { session, record };
+    }
+    return null;
+  }
+
   preparedDeliveryRecord(target, fingerprint, sessionId = '') {
     if (!target || !fingerprint) return null;
     for (const session of this.sessions.values()) {
@@ -2181,6 +2208,28 @@ class TerminalManager extends EventEmitter {
     return record;
   }
 
+  rememberRawInputDelivery(session, deliveryId, fingerprint) {
+    const id = normalizedDeliveryId(deliveryId);
+    if (!id || !session || !/^[a-f0-9]{64}$/.test(String(fingerprint || ''))) return null;
+    const deliveries = Array.isArray(session.rawInputDeliveries) ? session.rawInputDeliveries : [];
+    let record = deliveries.find(item => item.id === id);
+    if (!record) {
+      record = { id, state: 'accepted', timestamp: new Date().toISOString(), fingerprint };
+      deliveries.push(record);
+    } else {
+      record.state = 'accepted';
+      record.timestamp = new Date().toISOString();
+      record.fingerprint = fingerprint;
+    }
+    session.rawInputDeliveries = deliveries.slice(-MAX_DELIVERY_RECORDS);
+    // Raw xterm input can arrive once per key or IME chunk. Keep its ledger
+    // durable without synchronously rewriting the complete session store for
+    // every keystroke; the in-memory record is available before the host sends
+    // its response, which is the socket-loss retry boundary.
+    this.schedulePersist();
+    return record;
+  }
+
   forgetDelivery(session, deliveryId) {
     const id = normalizedDeliveryId(deliveryId);
     if (!id || !session) return true;
@@ -2226,6 +2275,13 @@ class TerminalManager extends EventEmitter {
     const deliveryId = normalizedDeliveryId(requestedDeliveryId);
     if (requestedDeliveryId && !deliveryId) {
       throw rejectedDeliveryError('전달 요청 식별자가 올바르지 않습니다.');
+    }
+    if (deliveryId && this.rawInputDeliveryRecord(deliveryId)) {
+      throw rejectedDeliveryError(
+        '이 전달 요청은 터미널 입력에 이미 사용됐습니다.',
+        'DELIVERY_ID_CONFLICT',
+        deliveryId,
+      );
     }
     const requestedCreationId = String(rawOptions.creationId || '').trim();
     const creationId = normalizedCreationId(requestedCreationId);
@@ -2411,6 +2467,7 @@ class TerminalManager extends EventEmitter {
       replayPendingChunks: [],
       replayPendingChars: 0,
       deliveries: [],
+      rawInputDeliveries: [],
       initialPromptFingerprint: initialCommand ? promptFingerprint(initialCommand) : '',
       creationId,
       creationPayloadFingerprint: creationFingerprint,
@@ -3079,13 +3136,71 @@ class TerminalManager extends EventEmitter {
     return session;
   }
 
-  write(id, value) {
-    const session = this.required(id);
-    if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+  write(id, value, deliveryOptions = {}) {
+    const requestedDeliveryId = String(deliveryOptions?.deliveryId || '').trim();
+    const deliveryId = normalizedDeliveryId(requestedDeliveryId);
+    if (requestedDeliveryId && !deliveryId) {
+      throw rejectedDeliveryError('전달 요청 식별자가 올바르지 않습니다.');
+    }
+
+    // Calls from protocol-11 clients that predate raw-input delivery IDs keep
+    // their exact behavior. A newer client only enables the retry path after
+    // the host advertises support during the ready handshake.
+    if (!deliveryId) {
+      const session = this.required(id);
+      if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+      const data = String(value == null ? '' : value);
+      if (data.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
+      session.process.write(data);
+      return { ok: true };
+    }
+
     const data = String(value == null ? '' : value);
-    if (data.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
-    session.process.write(data);
-    return { ok: true };
+    if (data.length > MAX_INPUT_CHARS) {
+      throw rejectedDeliveryError('한 번에 보낼 수 있는 입력 크기를 초과했습니다.', 'DELIVERY_TOO_LARGE', deliveryId);
+    }
+    const fingerprint = deliveryFingerprint(data);
+    const knownRawInput = this.rawInputDeliveryRecord(deliveryId);
+    if (knownRawInput) {
+      if (knownRawInput.session.id !== String(id || '')
+        || knownRawInput.record.fingerprint !== fingerprint) {
+        throw rejectedDeliveryError(
+          '이 터미널 입력 요청은 다른 명령창 또는 다른 내용에 이미 사용됐습니다.',
+          'DELIVERY_ID_CONFLICT',
+          deliveryId,
+        );
+      }
+      return {
+        ok: true,
+        duplicate: true,
+        deliveryId,
+        deliveryState: 'accepted',
+      };
+    }
+    if (this.deliveryRecord(deliveryId)) {
+      throw rejectedDeliveryError(
+        '이 전달 요청은 명령 또는 질문 전송에 이미 사용됐습니다.',
+        'DELIVERY_ID_CONFLICT',
+        deliveryId,
+      );
+    }
+
+    let session;
+    try {
+      session = this.required(id);
+      if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+    } catch (error) {
+      throw markDeliveryRejected(error, deliveryId);
+    }
+    try {
+      session.process.write(data);
+    } catch (error) {
+      error.deliveryId = deliveryId;
+      error.deliveryState = 'unknown';
+      throw error;
+    }
+    this.rememberRawInputDelivery(session, deliveryId, fingerprint);
+    return { ok: true, deliveryId, deliveryState: 'accepted' };
   }
 
   respond(id, choiceKey) {
@@ -3124,6 +3239,13 @@ class TerminalManager extends EventEmitter {
     const commandSession = this.required(id);
     assertBoundAgentCommandSafe(commandSession.options, command, deliveryId, commandSession.agentBinding);
     const fingerprint = deliveryFingerprint(command);
+    if (deliveryId && this.rawInputDeliveryRecord(deliveryId)) {
+      throw rejectedDeliveryError(
+        '이 전달 요청은 터미널 입력에 이미 사용됐습니다.',
+        'DELIVERY_ID_CONFLICT',
+        deliveryId,
+      );
+    }
     const known = deliveryId ? this.deliveryRecord(deliveryId) : null;
     if (known) {
       if (known.session.id !== String(id || '')

@@ -19,9 +19,25 @@ function registerTerminalIpc({ ipcMain, requireTrustedSender, trustedSender, man
     if (options && options.type === 'agent' && !isProviderVisible(options.provider)) throw new Error('설정에서 숨긴 AI는 실행할 수 없습니다.');
     return requireManager(manager).create(options || {});
   });
-  ipcMain.handle('terminals:write', (event, id, data) => {
+  ipcMain.handle('terminals:write', async (event, id, data, options) => {
     requireTrustedSender(event);
-    return requireManager(manager).write(id, data);
+    try {
+      const result = await Promise.resolve(requireManager(manager).write(id, data, options || {}));
+      return { terminalWriteEnvelope: 1, ok: true, result };
+    } catch (error) {
+      return {
+        terminalWriteEnvelope: 1,
+        ok: false,
+        error: {
+          message: String(error?.message || error || '명령창 입력 전송 실패'),
+          code: String(error?.code || ''),
+          deliveryId: String(error?.deliveryId || ''),
+          deliveryState: ['rejected', 'unknown'].includes(error?.deliveryState)
+            ? error.deliveryState
+            : '',
+        },
+      };
+    }
   });
   ipcMain.handle('terminals:command', (event, id, command, options) => {
     requireTrustedSender(event);

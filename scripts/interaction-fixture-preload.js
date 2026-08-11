@@ -716,7 +716,10 @@ const api = {
     emitTerminalInventory('updated', created);
     return clone(created);
   },
-  terminalWrite: (id, data) => controlled('terminalWrite', [id, data]),
+  terminalWrite: (id, data, options) => controlled(
+    'terminalWrite',
+    options ? [id, data, options] : [id, data],
+  ),
   terminalCommand: (id, command) => controlled('terminalCommand', [id, command]),
   terminalRespond: (id, choiceKey) => controlled('terminalRespond', [id, choiceKey]),
   terminalResize: (id, cols, rows) => controlled('terminalResize', [id, cols, rows]),
@@ -786,6 +789,16 @@ if (realTerminalFixture) {
     record(name, args);
     return ipcRenderer.invoke(channel, ...args);
   };
+  const unwrapTerminalWriteEnvelope = value => {
+    if (!value || value.terminalWriteEnvelope !== 1) return value;
+    if (value.ok) return value.result;
+    const details = value.error && typeof value.error === 'object' ? value.error : {};
+    const error = new Error(String(details.message || '명령창 입력 전송 실패'));
+    if (details.code) error.code = String(details.code);
+    if (details.deliveryId) error.deliveryId = String(details.deliveryId);
+    if (['rejected', 'unknown'].includes(details.deliveryState)) error.deliveryState = details.deliveryState;
+    throw error;
+  };
   const listenTerminal = (channel, callback) => {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on(channel, handler);
@@ -795,7 +808,11 @@ if (realTerminalFixture) {
     terminalList: () => invokeTerminal('terminalList', 'terminals:list'),
     terminalGet: id => invokeTerminal('terminalGet', 'terminals:get', [id]),
     terminalCreate: options => invokeTerminal('terminalCreate', 'terminals:create', [options]),
-    terminalWrite: (id, data) => invokeTerminal('terminalWrite', 'terminals:write', [id, data]),
+    terminalWrite: async (id, data, options) => unwrapTerminalWriteEnvelope(await invokeTerminal(
+      'terminalWrite',
+      'terminals:write',
+      options ? [id, data, options] : [id, data],
+    )),
     terminalCommand: (id, command, options) => invokeTerminal('terminalCommand', 'terminals:command', [id, command, options]),
     terminalRespond: (id, choiceKey) => invokeTerminal('terminalRespond', 'terminals:respond', [id, choiceKey]),
     terminalResize: (id, cols, rows) => invokeTerminal('terminalResize', 'terminals:resize', [id, cols, rows]),

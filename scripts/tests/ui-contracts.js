@@ -955,7 +955,9 @@ const PRELOAD_IPC_CONTRACTS = [
   'onUpdateState',
   'onAttentionRequested',
   'onTerminalConnection',
-  "terminalWrite: (id, data) => ipcRenderer.invoke('terminals:write'",
+  'async function terminalWrite(id, data, options)',
+  "ipcRenderer.invoke('terminals:write', id, data, options)",
+  'terminalWrite,',
   "terminalResize: (id, cols, rows) => ipcRenderer.invoke('terminals:resize'",
   "terminalDetach: id => ipcRenderer.invoke('terminals:detach'",
   "terminalReconnect: id => ipcRenderer.invoke('terminals:reconnect'",
@@ -1419,6 +1421,7 @@ function registerUiContractTests(context) {
     ]);
     assertIncludesAll(terminal, TERMINAL_RUNTIME_CONTRACTS);
     const mainEntry = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
     const ipcSource = IPC_MODULE_FILES
       .map(file => fs.readFileSync(path.join(root, 'src', 'ipc', file), 'utf8'))
       .join('\n');
@@ -1453,6 +1456,17 @@ function registerUiContractTests(context) {
       assert.ok(ipcSource.includes(`handleTrusted('${channel}'`), `${channel} IPC에 신뢰 발신자 검증이 없습니다.`);
     }
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:write'"), '터미널 입력 IPC 응답 계약이 없습니다.');
+    assert.match(
+      ipcSource,
+      /ipcMain\.handle\('terminals:write',\s*async\s*\(event, id, data, options\)[\s\S]*?\.write\(id, data, options \|\| \{\}\)/,
+      '터미널 입력 deliveryId 옵션이 IPC에서 호스트 클라이언트까지 전달되지 않습니다.',
+    );
+    assert.ok(
+      ipcSource.includes('terminalWriteEnvelope: 1')
+        && preload.includes('unwrapTerminalWriteEnvelope')
+        && preload.includes("['rejected', 'unknown'].includes(details.deliveryState)"),
+      '터미널 입력 IPC가 Electron 경계에서 delivery 오류 메타데이터를 보존하지 않습니다.',
+    );
     assert.ok(ipcSource.includes("ipcMain.handle('terminals:resize'"), '터미널 크기 변경 IPC 응답 계약이 없습니다.');
     for (const operation of ['detach', 'reconnect', 'stop', 'retire']) {
       assert.ok(
@@ -1461,7 +1475,6 @@ function registerUiContractTests(context) {
         `terminals:${operation} IPC 응답 계약이 없습니다.`,
       );
     }
-    const preload = fs.readFileSync(path.join(root, 'preload.js'), 'utf8');
     assertIncludesAll(
       preload,
       PRELOAD_IPC_CONTRACTS,
@@ -2040,7 +2053,19 @@ function registerUiContractTests(context) {
     assert.ok(events.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger') && events.includes('focus: !inlineTerminal.closest(".control-room-session")'), 'AI 클릭이 현재 화면의 인라인 PTY 토글로 연결되지 않았습니다.');
     assert.equal(events.includes('if (state.graphFocusId === node.dataset.graphFocus) openDrawer'), false, '같은 AI 재클릭이 오른쪽 드로어를 다시 열고 있습니다.');
     assert.ok(orchestration.includes('window.LoadToAgentInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
+    assert.match(
+      orchestration,
+      /if \(!replacement\)\s*\{[\s\S]*state\.inlineTerminalSessionId = null;[\s\S]*unmountEmbedded/,
+      '작업 topology가 바뀌어 인라인 PTY 보존에 실패하면 오래된 writable 화면을 닫아야 합니다.',
+    );
+    assert.ok(orchestration.includes('preserveRuntimeConnection && name === "data-connection"'),
+      'snapshot reconcile이 런타임 연결 상태를 지워 한 프레임 깜빡이면 안 됩니다.');
     assert.ok(inlineTerminal.includes('terminal.mountForAgent(session'), '인라인 PTY가 실제 에이전트 터미널 호스트를 마운트하지 않습니다.');
+    assert.match(
+      inlineTerminal,
+      /const createIfMissing\s*=\s*!session\.parentId[\s\S]*terminal\.mountForAgent\(session,\s*\{[\s\S]*createIfMissing,/,
+      '최상위 AI의 PTY를 펼쳤을 때 기존 대화를 prompt 없이 자동 연결하는 생성 계약이 없습니다.',
+    );
     assert.equal(graph.includes('data-inline-terminal-composer'), false, '인라인 PTY에 별도 메시지 입력창을 다시 만들면 안 됩니다.');
     assert.match(workbench, /const inputDisabled = readOnly;/, '인라인 PTY가 실제 xterm 입력을 전달해야 합니다.');
     assert.ok(inlineTerminal.includes('instance.state.inlineTerminalSessionId === id'), '같은 AI를 다시 눌렀을 때 닫는 토글 계약이 없습니다.');

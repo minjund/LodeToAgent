@@ -904,7 +904,10 @@
     return {
       agentSessionId: state.embeddedAgentSessionId,
       terminalId: state.embeddedTerminalId,
-      connected: Boolean(entry?.host && state.embeddedMount && entry.host.parentElement === state.embeddedMount),
+      connected: Boolean(entry?.host?.isConnected
+        && state.embeddedMount?.isConnected
+        && entry.host.parentElement === state.embeddedMount
+        && !entry.host.classList.contains('hidden')),
     };
   }
 
