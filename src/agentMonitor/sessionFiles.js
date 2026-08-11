@@ -6,6 +6,8 @@ const path = require('path');
 const MAX_FILES_PER_PROVIDER = 80;
 const MAX_JSONL_BYTES = 12 * 1024 * 1024;
 const MAX_JSON_BYTES = 12 * 1024 * 1024;
+const JSONL_HEAD_CHUNK_BYTES = 64 * 1024;
+const MAX_JSONL_HEAD_BYTES = 2 * 1024 * 1024;
 
 function safeStat(file) {
   try { return fs.statSync(file); } catch (_missingOrUnreadableFile) { return null; }
@@ -47,15 +49,58 @@ function parseJsonText(text) {
   try { return JSON.parse(text); } catch (_plainTextPayload) { return null; }
 }
 
-function firstJsonLineTimestamp(text) {
-  for (const line of String(text || '').split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const row = parseJsonText(line);
-    const value = row && row.timestamp;
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (Number.isFinite(Date.parse(String(value || '')))) return value;
+function rowTimestamp(row) {
+  const value = row && row.timestamp;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return Number.isFinite(Date.parse(String(value || ''))) ? value : null;
+}
+
+function readJsonLinesHead(fileDescriptor, size) {
+  const limit = Math.min(size, MAX_JSONL_HEAD_BYTES);
+  let position = 0;
+  let pending = Buffer.alloc(0);
+  let headerLine = '';
+  let headerCaptured = false;
+  let firstTimestamp = null;
+  while (position < limit && (!headerCaptured || firstTimestamp == null)) {
+    const chunk = readRange(fileDescriptor, position, Math.min(JSONL_HEAD_CHUNK_BYTES, limit - position));
+    if (!chunk.length) break;
+    position += chunk.length;
+    const buffer = pending.length ? Buffer.concat([pending, chunk]) : chunk;
+    let lineStart = 0;
+    while (lineStart < buffer.length) {
+      const newline = buffer.indexOf(10, lineStart);
+      if (newline < 0) break;
+      const carriageReturn = newline > lineStart && buffer[newline - 1] === 13;
+      const line = buffer.subarray(lineStart, carriageReturn ? newline - 1 : newline).toString('utf8');
+      if (!headerCaptured) {
+        headerLine = line;
+        headerCaptured = true;
+      }
+      if (firstTimestamp == null && line.trim()) firstTimestamp = rowTimestamp(parseJsonText(line));
+      lineStart = newline + 1;
+      if (headerCaptured && firstTimestamp != null) break;
+    }
+    if (headerCaptured && firstTimestamp != null) break;
+    pending = buffer.subarray(lineStart);
   }
-  return null;
+  return { headerLine, firstTimestamp };
+}
+
+function appendJsonLines(text, rows) {
+  let lineStart = 0;
+  while (lineStart <= text.length) {
+    const newline = text.indexOf('\n', lineStart);
+    const lineEnd = newline < 0 ? text.length : newline;
+    let line = text.slice(lineStart, lineEnd);
+    if (line.endsWith('\r')) line = line.slice(0, -1);
+    if (line.trim()) {
+      const row = parseJsonText(line);
+      if (row) rows.push(row);
+    }
+    if (newline < 0) break;
+    lineStart = newline + 1;
+  }
 }
 
 function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
@@ -71,13 +116,7 @@ function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
   try {
     buffer = readRange(fd, start, length);
     if (start > 0) {
-      const headLength = Math.min(stat.size, 2 * 1024 * 1024);
-      const head = readRange(fd, 0, headLength);
-      firstTimestamp = firstJsonLineTimestamp(head.toString('utf8'));
-      const newline = head.indexOf(10);
-      if (newline >= 0) {
-        headerLine = head.subarray(0, newline).toString('utf8').replace(/\r$/, '');
-      }
+      ({ headerLine, firstTimestamp } = readJsonLinesHead(fd, stat.size));
     }
   } finally {
     fs.closeSync(fd);
@@ -88,11 +127,7 @@ function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
     text = newline >= 0 ? text.slice(newline + 1) : '';
   }
   const rows = [];
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.trim()) continue;
-    const row = parseJsonText(line);
-    if (row) rows.push(row);
-  }
+  appendJsonLines(text, rows);
   if (headerLine) {
     const header = parseJsonText(headerLine);
     if (header && header.type === 'session_meta') rows.unshift(header);

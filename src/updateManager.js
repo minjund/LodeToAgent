@@ -194,6 +194,28 @@ function safeFileName(value) {
   return !fileName || fileName === '.' || fileName === '..' ? '' : fileName;
 }
 
+function managedUpdateArtifact(value) {
+  const name = String(value || '');
+  const partial = name.endsWith('.download');
+  const finalName = partial ? name.slice(0, -'.download'.length) : name;
+  const patterns = [
+    /^LoadToAgent-Setup-(.+)\.exe$/,
+    /^LoadToAgent-(.+)-portable\.exe$/,
+    /^LoadToAgent-(.+)-(?:arm64|x64)\.dmg$/,
+  ];
+  for (const pattern of patterns) {
+    const match = finalName.match(pattern);
+    const version = match && normalizeVersion(match[1]);
+    if (version && version.raw === match[1]) return { partial, version: version.raw };
+  }
+  return null;
+}
+
+function pathKey(value) {
+  const resolved = path.resolve(String(value || ''));
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
 class UpdateManager extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -217,6 +239,7 @@ class UpdateManager extends EventEmitter {
     this.AbortController = options.AbortController || globalThis.AbortController;
     this.checkPromise = null;
     this.downloadPromise = null;
+    this.activeDownloadPaths = new Set();
     this.state = {
       status: this.blockedReason
         ? 'error'
@@ -255,6 +278,55 @@ class UpdateManager extends EventEmitter {
     return snapshot;
   }
 
+  async cleanupManagedDownloads(preservePaths = []) {
+    if (!this.downloadsDir) return { removed: 0, reclaimedBytes: 0 };
+    const root = path.resolve(this.downloadsDir);
+    const preserve = new Set([
+      ...preservePaths.filter(Boolean).map(pathKey),
+      ...this.activeDownloadPaths,
+    ]);
+    let entries;
+    try {
+      const rootStat = await fs.promises.lstat(root);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return { removed: 0, reclaimedBytes: 0 };
+      entries = await fs.promises.readdir(root, { withFileTypes: true });
+    } catch (error) {
+      if (error && error.code === 'ENOENT') return { removed: 0, reclaimedBytes: 0 };
+      reportRecoverableError('update-download-cache-list', error);
+      return { removed: 0, reclaimedBytes: 0 };
+    }
+
+    let removed = 0;
+    let reclaimedBytes = 0;
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const artifact = managedUpdateArtifact(entry.name);
+      if (!artifact) continue;
+      if (!artifact.partial) {
+        try {
+          if (compareVersions(artifact.version, this.currentVersion) >= 0) continue;
+        } catch (_invalidCurrentVersion) {
+          continue;
+        }
+      }
+      const candidate = path.resolve(root, entry.name);
+      const candidateKey = pathKey(candidate);
+      if (pathKey(path.dirname(candidate)) !== pathKey(root)
+        || preserve.has(candidateKey)
+        || this.activeDownloadPaths.has(candidateKey)) continue;
+      try {
+        const candidateStat = await fs.promises.lstat(candidate);
+        if (!candidateStat.isFile() || candidateStat.isSymbolicLink() || this.activeDownloadPaths.has(candidateKey)) continue;
+        await fs.promises.unlink(candidate);
+        removed += 1;
+        reclaimedBytes += candidateStat.size;
+      } catch (error) {
+        if (!error || error.code !== 'ENOENT') reportRecoverableError('update-download-cache-remove', error);
+      }
+    }
+    return { removed, reclaimedBytes };
+  }
+
   async check() {
     if (this.checkPromise) return this.checkPromise;
     if (this.blockedReason) return this.getState();
@@ -265,6 +337,7 @@ class UpdateManager extends EventEmitter {
 
   async performCheck() {
     this.setState({ status: 'checking', error: '', checkedAt: new Date().toISOString() });
+    if (!this.downloadPromise) await this.cleanupManagedDownloads([this.state.downloadedPath]);
     const controller = this.AbortController ? new this.AbortController() : null;
     const timeoutMessage = '업데이트 확인 시간이 초과되었습니다. 다시 시도해 주세요.';
     const deadline = Date.now() + this.checkTimeoutMs;
@@ -337,6 +410,7 @@ class UpdateManager extends EventEmitter {
     if (!fileName || !this.downloadsDir) throw new Error('업데이트 파일을 저장할 위치를 준비하지 못했습니다.');
     const finalPath = path.join(this.downloadsDir, fileName);
     const temporaryPath = `${finalPath}.download`;
+    let activeDownloadPaths = [];
     let handle = null;
     let reader = null;
     const controller = this.AbortController ? new this.AbortController() : null;
@@ -352,6 +426,9 @@ class UpdateManager extends EventEmitter {
       if (officialSize > this.maxDownloadBytes) throw new Error('업데이트 파일이 허용된 최대 크기를 초과합니다.');
       await fs.promises.mkdir(this.downloadsDir, { recursive: true });
       await fs.promises.rm(temporaryPath, { force: true });
+      activeDownloadPaths = [pathKey(finalPath), pathKey(temporaryPath)];
+      for (const activePath of activeDownloadPaths) this.activeDownloadPaths.add(activePath);
+      await this.cleanupManagedDownloads([this.state.downloadedPath, finalPath]);
       const response = await awaitDownload(this.fetch(asset.url, {
         headers: { 'User-Agent': `LoadToAgent/${this.currentVersion}` },
         ...(controller ? { signal: controller.signal } : {}),
@@ -439,6 +516,8 @@ class UpdateManager extends EventEmitter {
       });
       this.setState({ status: 'available', progress: 0, downloadedBytes: 0, downloadedPath: '', error: error && error.message || '업데이트 파일을 내려받지 못했습니다.' });
       throw error;
+    } finally {
+      for (const activePath of activeDownloadPaths) this.activeDownloadPaths.delete(activePath);
     }
   }
 

@@ -31,7 +31,7 @@ const { readUpdateRelaunchRequest, signalRendererReady } = require('../../src/up
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace, writeWorkspaces } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 const { ensureMacNodePtyRuntime, unpackedAsarPath } = require('../../src/nodePtyRuntime');
-const { ensureMacNodePtySpawnHelpersExecutable } = require('../after-pack');
+const afterPack = require('../after-pack');
 
 function macHelperReadyPath(root, token) {
   return path.join(root, `install-update-macos-ready-${token}.json`);
@@ -184,42 +184,163 @@ function registerCliAndUpdateTests(context) {
     assert(!entries.includes(path.join(versions, 'v22.16.0', 'bin')));
   });
 
-  test('macOS 앱 패키징 후 node-pty spawn-helper 실행 권한을 복구한다', () => {
-    const appOutDir = path.join(temp, 'mac-after-pack');
-    const helper = path.join(
-      appOutDir,
-      'LoadToAgent.app',
-      'Contents',
-      'Resources',
-      'app.asar.unpacked',
-      'node_modules',
-      'node-pty',
-      'prebuilds',
-      'darwin-x64',
-      'spawn-helper',
-    );
-    const calls = { chmod: null, access: null };
-    const fileSystem = {
-      constants: { X_OK: 1 },
-      readdirSync: () => [{ name: 'darwin-x64', isDirectory: () => true }],
-      existsSync: file => file === helper,
-      statSync: file => {
-        assert.equal(file, helper);
-        return { mode: 0o100644 };
-      },
-      chmodSync: (file, mode) => { calls.chmod = { file, mode }; },
-      accessSync: (file, mode) => { calls.access = { file, mode }; },
+  test('앱 패키징 후 현재 OS·CPU의 node-pty 런타임만 남기고 macOS helper 권한을 검증한다', async () => {
+    const fixtureFiles = [
+      'LICENSE',
+      'README.md',
+      'binding.gyp',
+      'build/Release/conpty/conpty.dll',
+      'build/Release/conpty/OpenConsole.exe',
+      'lib/conpty_console_list_agent.js',
+      'lib/eventEmitter2.js',
+      'lib/index.js',
+      'lib/interfaces.js',
+      'lib/shared/conout.js',
+      'lib/terminal.js',
+      'lib/types.js',
+      'lib/unixTerminal.js',
+      'lib/utils.js',
+      'lib/worker/conoutSocketWorker.js',
+      'lib/windowsConoutConnection.js',
+      'lib/windowsPtyAgent.js',
+      'lib/windowsTerminal.js',
+      'lib/index.js.map',
+      'package.json',
+      'prebuilds/darwin-arm64/pty.node',
+      'prebuilds/darwin-arm64/spawn-helper',
+      'prebuilds/darwin-x64/pty.node',
+      'prebuilds/darwin-x64/spawn-helper',
+      'prebuilds/linux-arm64/pty.node',
+      'prebuilds/linux-x64/pty.node',
+      'prebuilds/win32-arm64/conpty.node',
+      'prebuilds/win32-arm64/conpty_console_list.node',
+      'prebuilds/win32-arm64/conpty/conpty.dll',
+      'prebuilds/win32-arm64/conpty/OpenConsole.exe',
+      'prebuilds/win32-x64/conpty.node',
+      'prebuilds/win32-x64/conpty.pdb',
+      'prebuilds/win32-x64/conpty_console_list.node',
+      'prebuilds/win32-x64/conpty_console_list.pdb',
+      'prebuilds/win32-x64/conpty/conpty.dll',
+      'prebuilds/win32-x64/conpty/OpenConsole.exe',
+      'scripts/post-install.js',
+      'src/win/conpty.h',
+      'third_party/conpty/version/win10-x64/conpty.dll',
+      'third_party/conpty/version/win10-x64/OpenConsole.exe',
+      'typings/node-pty.d.ts',
+    ];
+    const createFixture = (name, platform) => {
+      const appOutDir = path.join(temp, name);
+      const resources = platform === 'darwin'
+        ? path.join(appOutDir, 'LoadToAgent.app', 'Contents', 'Resources')
+        : path.join(appOutDir, 'resources');
+      const packageRoot = path.join(resources, 'app.asar.unpacked', 'node_modules', 'node-pty');
+      for (const relative of fixtureFiles) {
+        const file = path.join(packageRoot, ...relative.split('/'));
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, `fixture:${relative}`, 'utf8');
+      }
+      return { appOutDir, packageRoot };
     };
-
-    const helpers = ensureMacNodePtySpawnHelpersExecutable({
-      electronPlatformName: 'darwin',
-      appOutDir,
+    const relativeFiles = packageRoot => {
+      const files = [];
+      const visit = directory => {
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          const target = path.join(directory, entry.name);
+          if (entry.isDirectory()) visit(target);
+          else if (entry.isFile()) files.push(path.relative(packageRoot, target).replaceAll('\\', '/'));
+        }
+      };
+      visit(packageRoot);
+      return files.sort();
+    };
+    const contextFor = (fixture, platform, arch) => ({
+      electronPlatformName: platform,
+      arch,
+      appOutDir: fixture.appOutDir,
       packager: { appInfo: { productFilename: 'LoadToAgent' } },
-    }, fileSystem);
+    });
 
-    assert.deepStrictEqual(helpers, [helper]);
-    assert.deepStrictEqual(calls.chmod, { file: helper, mode: 0o100755 });
-    assert.deepStrictEqual(calls.access, { file: helper, mode: 1 });
+    const windows = createFixture('win-after-pack', 'win32');
+    const windowsResult = await afterPack(contextFor(windows, 'win32', 1));
+    assert.equal(windowsResult.prebuildName, 'win32-x64');
+    assert.deepStrictEqual(relativeFiles(windows.packageRoot), [
+      'LICENSE',
+      'lib/conpty_console_list_agent.js',
+      'lib/eventEmitter2.js',
+      'lib/index.js',
+      'lib/interfaces.js',
+      'lib/shared/conout.js',
+      'lib/terminal.js',
+      'lib/types.js',
+      'lib/unixTerminal.js',
+      'lib/utils.js',
+      'lib/worker/conoutSocketWorker.js',
+      'lib/windowsConoutConnection.js',
+      'lib/windowsPtyAgent.js',
+      'lib/windowsTerminal.js',
+      'package.json',
+      'prebuilds/win32-x64/conpty.node',
+      'prebuilds/win32-x64/conpty/conpty.dll',
+      'prebuilds/win32-x64/conpty/OpenConsole.exe',
+      'prebuilds/win32-x64/conpty_console_list.node',
+    ].sort());
+
+    const mac = createFixture('mac-after-pack', 'darwin');
+    const helper = path.join(mac.packageRoot, 'prebuilds', 'darwin-arm64', 'spawn-helper');
+    const helperMode = fs.statSync(helper).mode;
+    const calls = { chmod: [], access: [] };
+    const fileSystem = new Proxy(fs, {
+      get(target, property) {
+        if (property === 'chmodSync') {
+          return (file, mode) => { calls.chmod.push({ file, mode }); };
+        }
+        if (property === 'accessSync') {
+          return (file, mode) => { calls.access.push({ file, mode }); };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    const macResult = await afterPack(contextFor(mac, 'darwin', 3), fileSystem);
+    assert.equal(macResult.prebuildName, 'darwin-arm64');
+    assert.deepStrictEqual(macResult.helpers, [helper]);
+    assert.deepStrictEqual(relativeFiles(mac.packageRoot), [
+      'LICENSE',
+      'lib/conpty_console_list_agent.js',
+      'lib/eventEmitter2.js',
+      'lib/index.js',
+      'lib/interfaces.js',
+      'lib/shared/conout.js',
+      'lib/terminal.js',
+      'lib/types.js',
+      'lib/unixTerminal.js',
+      'lib/utils.js',
+      'lib/worker/conoutSocketWorker.js',
+      'lib/windowsConoutConnection.js',
+      'lib/windowsPtyAgent.js',
+      'lib/windowsTerminal.js',
+      'package.json',
+      'prebuilds/darwin-arm64/pty.node',
+      'prebuilds/darwin-arm64/spawn-helper',
+    ].sort());
+    assert.deepStrictEqual(calls.chmod, [{ file: helper, mode: helperMode | 0o111 }]);
+    assert.deepStrictEqual(calls.access, [{ file: helper, mode: fs.constants.X_OK }]);
+
+    const broken = createFixture('broken-after-pack', 'win32');
+    const missingAddon = path.join(broken.packageRoot, 'prebuilds', 'win32-x64', 'conpty.node');
+    fs.rmSync(missingAddon);
+    await assert.rejects(
+      afterPack(contextFor(broken, 'win32', 1)),
+      /필수 win32-x64 런타임 파일을 찾을 수 없습니다/,
+    );
+    assert.equal(fs.existsSync(path.join(broken.packageRoot, 'src', 'win', 'conpty.h')), true);
+
+    const missingPrebuild = createFixture('missing-prebuild-after-pack', 'darwin');
+    fs.rmSync(path.join(missingPrebuild.packageRoot, 'prebuilds', 'darwin-x64'), { recursive: true });
+    await assert.rejects(
+      afterPack(contextFor(missingPrebuild, 'darwin', 1)),
+      /darwin-x64 prebuild 디렉터리를 찾을 수 없습니다/,
+    );
   });
 
   test('macOS node-pty 런타임은 현재 아키텍처 helper 권한과 ASAR 경로를 자가 복구한다', () => {

@@ -8,7 +8,7 @@ const { TmuxMonitor, linkAgentSessions } = require('./tmuxMonitor');
 const { ProcessMonitor, applyRuntimePresence, inferredBridgeBindings } = require('./processMonitor');
 const { scanCodexAutomationHomes } = require('./automationMonitor');
 const { reportRecoverableError } = require('./diagnostics');
-const { enrichSession } = require('./sessionIntelligence');
+const { enrichSession, enrichSessions } = require('./sessionIntelligence');
 
 const tmuxMonitor = new TmuxMonitor();
 tmuxMonitor.scan();
@@ -289,8 +289,9 @@ monitor.on('snapshot', snapshot => {
   monitor.setHistoryHomes(historyHomes);
   const tmux = linkAgentSessions(tmuxBase, snapshot.sessions);
   const processSnapshot = processMonitor.scan();
-  const observedSessions = applyRuntimePresence(snapshot.sessions, tmux, processSnapshot, Date.now(), currentBridges);
-  const sessions = observedSessions.map(session => enrichSession(session, observedSessions, Date.now()));
+  const observedAt = Date.now();
+  const observedSessions = applyRuntimePresence(snapshot.sessions, tmux, processSnapshot, observedAt, currentBridges);
+  const sessions = enrichSessions(observedSessions, observedAt);
   const localKind = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
   const automations = scanCodexAutomationHomes({
     homes: [{ home: workerData.home, kind: localKind, distro: '', label: 'Local' }, ...historyHomes],

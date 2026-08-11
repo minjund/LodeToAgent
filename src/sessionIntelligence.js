@@ -8,6 +8,10 @@ const FAILED_CHECK_STATUSES = new Set(['failed', 'failure', 'error', 'errored'])
 const RUNNING_CHECK_STATUSES = new Set(['running', 'pending', 'started', 'starting', 'in-progress', 'in_progress']);
 const PASSED_CHECK_STATUSES = new Set(['passed', 'completed', 'complete', 'done', 'success', 'succeeded']);
 
+function sessionIndex(sessions) {
+  return new Map((sessions || []).map(row => [row.id, row]));
+}
+
 function text(value, limit = 1200) {
   const output = String(value == null ? '' : value).replace(/\s+/g, ' ').trim();
   return output.length > limit ? `${output.slice(0, limit).trimEnd()}…` : output;
@@ -255,9 +259,9 @@ function attentionFor(session) {
   };
 }
 
-function healthFor(session, sessions, attention, progress, evidence, nowValue) {
+function healthFor(session, sessions, attention, progress, evidence, nowValue, sessionById = null) {
   const now = Number(nowValue || Date.now());
-  const byId = new Map((sessions || []).map(row => [row.id, row]));
+  const byId = sessionById || sessionIndex(sessions);
   const signals = [];
   const add = (code, severity, detail = '') => signals.push({ code, severity, detail: text(detail, 240) });
   const activity = timestamp(progress.lastActivityAt);
@@ -285,14 +289,14 @@ function healthFor(session, sessions, attention, progress, evidence, nowValue) {
   };
 }
 
-function enrichSession(session, sessions = [], nowValue = Date.now()) {
+function enrichSession(session, sessions = [], nowValue = Date.now(), sessionById = null) {
   if (!session) return session;
   const responseIntent = currentResponseIntent(session);
   const attention = attentionFor(session);
   const progress = progressFor(session, attention);
   const evidence = evidenceFor(session);
   const controls = controlCapabilities(session);
-  const health = healthFor(session, sessions, attention, progress, evidence, nowValue);
+  const health = healthFor(session, sessions, attention, progress, evidence, nowValue, sessionById);
   return {
     ...session,
     responseIntent,
@@ -305,10 +309,16 @@ function enrichSession(session, sessions = [], nowValue = Date.now()) {
   };
 }
 
+function enrichSessions(sessions = [], nowValue = Date.now()) {
+  const sessionById = sessionIndex(sessions);
+  return sessions.map(session => enrichSession(session, sessions, nowValue, sessionById));
+}
+
 module.exports = {
   attentionFor,
   controlCapabilities,
   enrichSession,
+  enrichSessions,
   evidenceFor,
   extractArtifacts,
   healthFor,
