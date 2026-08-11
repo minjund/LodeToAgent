@@ -3264,6 +3264,432 @@ function registerTerminalLifecycleTests(context) {
     manager.dispose();
   });
 
+  test('raw 터미널 입력 delivery 장부는 명령 장부와 분리해 중복을 막고 256개로 제한한다', () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const storeFile = path.join(temp, 'raw-write-delivery-ledger.json');
+    const manager = new TerminalManager({
+      platform: 'win32',
+      storeFile,
+      killTree: () => {},
+      ptyModule: { spawn: () => {
+        const handle = new FakePty(11_800 + processes.length);
+        processes.push(handle);
+        return handle;
+      } },
+    });
+    const session = manager.create({ type: 'powershell', cwd: root, title: 'raw 입력 장부 검증' });
+    const commandDeliveryId = 'delivery:command:kept';
+    manager.command(session.id, 'Write-Output kept', { deliveryId: commandDeliveryId });
+
+    for (let index = 0; index < 300; index += 1) {
+      const result = manager.write(session.id, `raw-${index}`, {
+        deliveryId: `delivery:raw:bounded:${index}`,
+      });
+      assert.equal(result.deliveryState, 'accepted');
+    }
+
+    const internal = manager.sessions.get(session.id);
+    assert.equal(internal.rawInputDeliveries.length, 256);
+    assert.equal(internal.rawInputDeliveries[0].id, 'delivery:raw:bounded:44');
+    assert.equal(internal.rawInputDeliveries.at(-1).id, 'delivery:raw:bounded:299');
+    assert.equal(internal.deliveries.some(record => record.id === commandDeliveryId), true,
+      'raw 입력이 질문/명령 delivery 장부를 밀어내면 안 됩니다.');
+
+    const writesBeforeDuplicates = processes[0].writes.length;
+    assert.deepStrictEqual(manager.write(session.id, 'raw-299', {
+      deliveryId: 'delivery:raw:bounded:299',
+    }), {
+      ok: true,
+      duplicate: true,
+      deliveryId: 'delivery:raw:bounded:299',
+      deliveryState: 'accepted',
+    });
+    assert.equal(manager.command(session.id, 'Write-Output kept', {
+      deliveryId: commandDeliveryId,
+    }).duplicate, true);
+    assert.equal(processes[0].writes.length, writesBeforeDuplicates);
+    assert.throws(
+      () => manager.write(session.id, 'different', { deliveryId: 'delivery:raw:bounded:299' }),
+      error => error.code === 'DELIVERY_ID_CONFLICT' && error.deliveryState === 'rejected',
+    );
+    assert.throws(
+      () => manager.command(session.id, 'Write-Output collision', { deliveryId: 'delivery:raw:bounded:299' }),
+      error => error.code === 'DELIVERY_ID_CONFLICT' && error.deliveryState === 'rejected',
+    );
+    assert.throws(
+      () => manager.write(session.id, 'command-collision', { deliveryId: commandDeliveryId }),
+      error => error.code === 'DELIVERY_ID_CONFLICT' && error.deliveryState === 'rejected',
+    );
+    assert.equal(processes[0].writes.length, writesBeforeDuplicates);
+
+    assert.equal(manager.persistNow(), true);
+    const stored = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions
+      .find(item => item.id === session.id);
+    assert.equal(stored.rawInputDeliveries.length, 256);
+    assert.equal(stored.deliveries.some(record => record.id === commandDeliveryId), true);
+    manager.dispose();
+  });
+
+  test('raw 터미널 입력은 응답 유실과 write 전 단절 모두 같은 deliveryId로 한 번만 전달한다', async () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData(callback) { this.dataCallback = callback; }
+      onExit(callback) { this.exitCallback = callback; }
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const suffix = `${process.pid}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const endpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-raw-write-${suffix}`
+      : path.join(os.tmpdir(), `lta-raw-write-${suffix}.sock`);
+    const discovery = path.join(temp, `raw-write-host-${suffix}.json`);
+    const manager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => {},
+      ptyModule: { spawn: () => {
+        const handle = new FakePty(11_900 + processes.length);
+        processes.push(handle);
+        return handle;
+      } },
+    });
+    const server = new TerminalHostServer({
+      manager,
+      endpoint,
+      discoveryFile: discovery,
+      token: `raw-write-token-${suffix}`,
+      idleShutdownMs: 10_000,
+    });
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 3_000,
+      spawnHost: () => { throw new Error('실행 중인 raw 입력 검증 호스트를 다시 시작하면 안 됩니다.'); },
+    });
+    let replacementServer = null;
+    let safeFirstSendServer = null;
+    try {
+      await server.start();
+      await client.connect();
+      assert.equal(client.capabilities.rawWriteDelivery, 1);
+      const session = await client.create({ type: 'powershell', cwd: root, title: 'raw 입력 재시도 검증' });
+
+      const afterWriteId = 'delivery:raw:response-lost';
+      const afterWritePayload = '응답 유실 뒤에도 한 번만 😀\r';
+      const originalEnqueueFrame = server.enqueueFrame.bind(server);
+      let droppedAfterWrite = false;
+      server.enqueueFrame = (serverClient, payload) => {
+        if (!droppedAfterWrite
+          && payload?.type === 'response'
+          && payload?.ok === true
+          && payload?.result?.deliveryId === afterWriteId) {
+          droppedAfterWrite = true;
+          serverClient.socket.destroy();
+          return false;
+        }
+        return originalEnqueueFrame(serverClient, payload);
+      };
+      const afterWriteResult = await client.write(session.id, afterWritePayload, {
+        deliveryId: afterWriteId,
+      });
+      assert.equal(droppedAfterWrite, true);
+      assert.equal(afterWriteResult.deliveryState, 'accepted');
+      assert.equal(afterWriteResult.duplicate, true,
+        '응답이 유실된 첫 write는 manager 장부에서 중복으로 승인되어야 합니다.');
+      assert.equal(processes[0].writes.filter(value => value === afterWritePayload).length, 1);
+
+      const beforeWriteId = 'delivery:raw:disconnect-before-write';
+      const beforeWritePayload = 'write 전에 끊겨도 한 번만\r';
+      const originalHandle = server.handle.bind(server);
+      let droppedBeforeWrite = false;
+      server.handle = (serverClient, message) => {
+        if (!droppedBeforeWrite
+          && message?.type === 'request'
+          && message?.operation === 'write'
+          && message?.args?.[2]?.deliveryId === beforeWriteId) {
+          droppedBeforeWrite = true;
+          serverClient.socket.destroy();
+          return undefined;
+        }
+        return originalHandle(serverClient, message);
+      };
+      const beforeWriteResult = await client.write(session.id, beforeWritePayload, {
+        deliveryId: beforeWriteId,
+      });
+      assert.equal(droppedBeforeWrite, true);
+      assert.equal(beforeWriteResult.deliveryState, 'accepted');
+      assert.equal(processes[0].writes.filter(value => value === beforeWritePayload).length, 1);
+
+      const cachedResult = await client.write(session.id, beforeWritePayload, { deliveryId: beforeWriteId });
+      assert.equal(cachedResult.duplicate, true);
+      assert.equal(processes[0].writes.filter(value => value === beforeWritePayload).length, 1);
+      await assert.rejects(
+        client.write(session.id, '다른 입력', { deliveryId: beforeWriteId }),
+        error => error.code === 'DELIVERY_ID_CONFLICT' && error.deliveryState === 'rejected',
+      );
+
+      const concurrentId = 'delivery:raw:concurrent';
+      const concurrentPayload = '동시 입력도 한 번만';
+      const concurrent = await Promise.all([
+        client.write(session.id, concurrentPayload, { deliveryId: concurrentId }),
+        client.write(session.id, concurrentPayload, { deliveryId: concurrentId }),
+      ]);
+      assert.equal(concurrent[1].duplicate, true);
+      assert.equal(processes[0].writes.filter(value => value === concurrentPayload).length, 1);
+
+      for (let index = 0; index < 260; index += 1) {
+        await client.write(session.id, `bounded-${index}`, {
+          deliveryId: `delivery:raw:client-bounded:${index}`,
+        });
+      }
+      assert.equal(client.rawWriteDeliveries.size, 256);
+      assert.equal(manager.sessions.get(session.id).rawInputDeliveries.length, 256);
+
+      const replacementEndpoint = process.platform === 'win32'
+        ? `\\\\.\\pipe\\loadtoagent-raw-write-replacement-${suffix}`
+        : path.join(os.tmpdir(), `lta-raw-write-replacement-${suffix}.sock`);
+      replacementServer = new TerminalHostServer({
+        manager,
+        endpoint: replacementEndpoint,
+        discoveryFile: discovery,
+        token: `raw-write-replacement-token-${suffix}`,
+        idleShutdownMs: 10_000,
+      });
+      let replacementWriteRequests = 0;
+      const replacementHandle = replacementServer.handle.bind(replacementServer);
+      replacementServer.handle = (serverClient, message) => {
+        if (message?.type === 'request' && message?.operation === 'write') replacementWriteRequests += 1;
+        return replacementHandle(serverClient, message);
+      };
+      await replacementServer.start();
+
+      const replacementDeliveryId = 'delivery:raw:host-replaced-after-write';
+      const replacementPayload = '교체된 daemon에는 다시 쓰지 않기\r';
+      let droppedForReplacement = false;
+      server.enqueueFrame = (serverClient, payload) => {
+        if (!droppedForReplacement
+          && payload?.type === 'response'
+          && payload?.ok === true
+          && payload?.result?.deliveryId === replacementDeliveryId) {
+          droppedForReplacement = true;
+          serverClient.socket.destroy();
+          return false;
+        }
+        return originalEnqueueFrame(serverClient, payload);
+      };
+      await assert.rejects(
+        client.write(session.id, replacementPayload, { deliveryId: replacementDeliveryId }),
+        error => error.deliveryId === replacementDeliveryId
+          && error.deliveryState === 'unknown'
+          && /교체/.test(error.message),
+      );
+      assert.equal(droppedForReplacement, true);
+      assert.equal(replacementWriteRequests, 0,
+        'ACK 유실 뒤 다른 daemon에 같은 raw frame을 재전송하면 안 됩니다.');
+      assert.equal(processes[0].writes.filter(value => value === replacementPayload).length, 1);
+      assert.equal(client.discovery.token, `raw-write-replacement-token-${suffix}`);
+
+      const safeFirstSendEndpoint = process.platform === 'win32'
+        ? `\\\\.\\pipe\\loadtoagent-raw-write-safe-first-${suffix}`
+        : path.join(os.tmpdir(), `lta-raw-write-safe-first-${suffix}.sock`);
+      safeFirstSendServer = new TerminalHostServer({
+        manager,
+        endpoint: safeFirstSendEndpoint,
+        discoveryFile: discovery,
+        token: `raw-write-safe-first-token-${suffix}`,
+        idleShutdownMs: 10_000,
+      });
+      let safeFirstSendRequests = 0;
+      const safeFirstSendHandle = safeFirstSendServer.handle.bind(safeFirstSendServer);
+      safeFirstSendServer.handle = (serverClient, message) => {
+        if (message?.type === 'request' && message?.operation === 'write') safeFirstSendRequests += 1;
+        return safeFirstSendHandle(serverClient, message);
+      };
+      await safeFirstSendServer.start();
+
+      const safeFirstSendId = 'delivery:raw:replacement-before-frame';
+      const safeFirstSendPayload = 'frame 전 단절이면 새 daemon에 최초 1회만 쓰기\r';
+      const originalRawWriteDeliverySupported = client.rawWriteDeliverySupported;
+      let disconnectedBeforeFrame = false;
+      client.rawWriteDeliverySupported = function rawWriteDeliverySupportedWithPreSendDisconnect() {
+        if (!disconnectedBeforeFrame) {
+          disconnectedBeforeFrame = true;
+          this.socket.destroy();
+        }
+        return originalRawWriteDeliverySupported.call(this);
+      };
+      let safeFirstSendResult;
+      try {
+        safeFirstSendResult = await client.write(session.id, safeFirstSendPayload, {
+          deliveryId: safeFirstSendId,
+        });
+      } finally {
+        client.rawWriteDeliverySupported = originalRawWriteDeliverySupported;
+      }
+      assert.equal(disconnectedBeforeFrame, true);
+      assert.equal(safeFirstSendResult.deliveryState, 'accepted');
+      assert.equal(safeFirstSendRequests, 1,
+        '실제 frame 전 단절은 교체 daemon에 안전한 최초 전송을 정확히 한 번 허용해야 합니다.');
+      assert.equal(replacementWriteRequests, 0,
+        '끊긴 이전 daemon에는 pre-send raw frame이 기록되면 안 됩니다.');
+      assert.equal(processes[0].writes.filter(value => value === safeFirstSendPayload).length, 1);
+      assert.equal(client.discovery.token, `raw-write-safe-first-token-${suffix}`);
+    } finally {
+      client.dispose();
+      safeFirstSendServer?.dispose();
+      replacementServer?.dispose();
+      server.dispose();
+      manager.dispose();
+    }
+  });
+
+  test('legacy raw ACK 유실은 재시도하지 않고 실제 frame 전 실패만 안전한 최초 전송을 허용한다', async () => {
+    const processes = [];
+    class FakePty {
+      constructor(pid) { this.pid = pid; this.writes = []; }
+      onData() {}
+      onExit(callback) { this.exitCallback = callback; }
+      write(value) { this.writes.push(value); }
+      resize() {}
+      kill() {}
+    }
+    const suffix = `${process.pid}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const endpoint = process.platform === 'win32'
+      ? `\\\\.\\pipe\\loadtoagent-raw-write-legacy-${suffix}`
+      : path.join(os.tmpdir(), `lta-raw-write-legacy-${suffix}.sock`);
+    const discovery = path.join(temp, `raw-write-legacy-host-${suffix}.json`);
+    const manager = new TerminalManager({
+      platform: 'win32',
+      killTree: () => {},
+      ptyModule: { spawn: () => {
+        const handle = new FakePty(12_100 + processes.length);
+        processes.push(handle);
+        return handle;
+      } },
+    });
+    const server = new TerminalHostServer({
+      manager,
+      endpoint,
+      discoveryFile: discovery,
+      token: `raw-write-legacy-token-${suffix}`,
+      capabilities: {},
+      idleShutdownMs: 10_000,
+    });
+    const client = new TerminalHostClient({
+      discoveryFile: discovery,
+      connectTimeoutMs: 3_000,
+      spawnHost: () => { throw new Error('실행 중인 legacy 검증 호스트를 다시 시작하면 안 됩니다.'); },
+    });
+    try {
+      await server.start();
+      await client.connect();
+      assert.deepStrictEqual(client.capabilities, {});
+      const session = await client.create({ type: 'powershell', cwd: root, title: 'legacy raw 입력 검증' });
+      const originalEnqueueFrame = server.enqueueFrame.bind(server);
+      let dropNextResponse = true;
+      server.enqueueFrame = (serverClient, payload) => {
+        if (dropNextResponse && payload?.type === 'response' && payload?.ok === true) {
+          dropNextResponse = false;
+          serverClient.socket.destroy();
+          return false;
+        }
+        return originalEnqueueFrame(serverClient, payload);
+      };
+      const deliveryId = 'delivery:raw:legacy-ambiguous';
+      const payload = 'legacy 호스트에서는 재전송 금지';
+      await assert.rejects(
+        client.write(session.id, payload, { deliveryId }),
+        error => error.deliveryId === deliveryId && error.deliveryState === 'unknown',
+      );
+      await new Promise(resolve => setTimeout(resolve, 50));
+      assert.equal(processes[0].writes.filter(value => value === payload).length, 1);
+      assert.equal(manager.sessions.get(session.id).rawInputDeliveries.length, 0,
+        'capability 없는 호스트에는 delivery 옵션을 보내면 안 됩니다.');
+      assert.equal(client.rawWriteDeliveries.has(deliveryId), false);
+    } finally {
+      client.dispose();
+      server.dispose();
+      manager.dispose();
+    }
+
+    const preSendClient = new TerminalHostClient({
+      discoveryFile: path.join(temp, 'unused-raw-presend-host.json'),
+    });
+    preSendClient.capabilities = {};
+    const preSendArgs = [];
+    let preSendAttempts = 0;
+    preSendClient.requestWithToken = async (_requestToken, operation, args, transportAttempt) => {
+      assert.equal(operation, 'write');
+      preSendAttempts += 1;
+      transportAttempt.hostInstance = 'same-legacy-host';
+      const resolvedArgs = typeof args === 'function' ? args() : args;
+      preSendArgs.push(resolvedArgs);
+      if (preSendAttempts === 1) {
+        transportAttempt.frameSent = false;
+        throw new Error('frame 전 socket 종료');
+      }
+      transportAttempt.frameSent = true;
+      return { ok: true };
+    };
+    const preSendResult = await preSendClient.write('terminal:legacy-presend', 'first-safe-frame', {
+      deliveryId: 'delivery:raw:legacy-presend',
+    });
+    assert.equal(preSendAttempts, 2);
+    assert.deepStrictEqual(preSendArgs.map(args => args.length), [2, 2],
+      'legacy host에는 delivery 옵션을 보내면 안 됩니다.');
+    assert.equal(preSendResult.deliveryState, 'accepted');
+    preSendClient.dispose();
+
+    const preConnectClient = new TerminalHostClient({
+      discoveryFile: path.join(temp, 'unused-raw-preconnect-host.json'),
+    });
+    preConnectClient.capabilities = { rawWriteDelivery: 1 };
+    let preConnectAttempts = 0;
+    preConnectClient.requestWithToken = async (_requestToken, operation, args, transportAttempt) => {
+      assert.equal(operation, 'write');
+      preConnectAttempts += 1;
+      if (preConnectAttempts === 1) throw new Error('연결 전 실패');
+      transportAttempt.hostInstance = 'first-connected-host';
+      const resolvedArgs = typeof args === 'function' ? args() : args;
+      assert.equal(resolvedArgs[2]?.deliveryId, 'delivery:raw:preconnect');
+      transportAttempt.frameSent = true;
+      return { ok: true, deliveryState: 'accepted' };
+    };
+    const preConnectResult = await preConnectClient.write('terminal:preconnect', 'connected-once', {
+      deliveryId: 'delivery:raw:preconnect',
+    });
+    assert.equal(preConnectAttempts, 2);
+    assert.equal(preConnectResult.deliveryState, 'accepted');
+    preConnectClient.dispose();
+
+    const neverSentClient = new TerminalHostClient({
+      discoveryFile: path.join(temp, 'unused-raw-never-sent-host.json'),
+    });
+    let neverSentAttempts = 0;
+    neverSentClient.requestWithToken = async () => {
+      neverSentAttempts += 1;
+      throw new Error('계속 연결 전 실패');
+    };
+    await assert.rejects(
+      neverSentClient.write('terminal:never-sent', 'not-sent', {
+        deliveryId: 'delivery:raw:never-sent',
+      }),
+      error => error.code === 'TERMINAL_WRITE_NOT_SENT'
+        && error.deliveryState === 'rejected'
+        && error.deliveryId === 'delivery:raw:never-sent',
+    );
+    assert.equal(neverSentAttempts, 2);
+    neverSentClient.dispose();
+  });
+
   test('앱 클라이언트가 종료되어도 터미널 호스트의 PTY와 세션 ID를 유지하고 다시 연결한다', async () => {
     const processes = [];
     class FakePty {

@@ -2,6 +2,22 @@
 
 const { contextBridge, ipcRenderer } = require('electron');
 
+function unwrapTerminalWriteEnvelope(value) {
+  if (!value || value.terminalWriteEnvelope !== 1) return value;
+  if (value.ok) return value.result;
+  const details = value.error && typeof value.error === 'object' ? value.error : {};
+  const error = new Error(String(details.message || '명령창 입력 전송 실패'));
+  if (details.code) error.code = String(details.code);
+  if (details.deliveryId) error.deliveryId = String(details.deliveryId);
+  if (['rejected', 'unknown'].includes(details.deliveryState)) error.deliveryState = details.deliveryState;
+  throw error;
+}
+
+async function terminalWrite(id, data, options) {
+  const value = await ipcRenderer.invoke('terminals:write', id, data, options);
+  return unwrapTerminalWriteEnvelope(value);
+}
+
 contextBridge.exposeInMainWorld('loadtoagent', {
   bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
   rendererReady: () => ipcRenderer.invoke('app:renderer-ready'),
@@ -38,7 +54,7 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   wslDistros: () => ipcRenderer.invoke('wsl:list-distros'),
   terminalGet: id => ipcRenderer.invoke('terminals:get', id),
   terminalCreate: options => ipcRenderer.invoke('terminals:create', options),
-  terminalWrite: (id, data) => ipcRenderer.invoke('terminals:write', id, data),
+  terminalWrite,
   terminalCommand: (id, command, options) => ipcRenderer.invoke('terminals:command', id, command, options),
   terminalRespond: (id, choiceKey) => ipcRenderer.invoke('terminals:respond', id, choiceKey),
   terminalResize: (id, cols, rows) => ipcRenderer.invoke('terminals:resize', id, cols, rows),

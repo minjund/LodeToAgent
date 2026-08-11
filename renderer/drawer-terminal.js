@@ -12,6 +12,9 @@
     unavailableTargets: new Map(),
     connectionFailures: new Map(),
     baseStatus: { tone: 'connecting', key: 'drawer.terminal_connecting', meta: '' },
+    reconnectFocusIntent: null,
+    reconnectOwnerTerminalId: '',
+    userFocusRevision: 0,
   };
 
   const element = id => document.getElementById(id);
@@ -20,6 +23,112 @@
 
   function targetIdOf(target) {
     return String(target?.terminalId || target?.id || '');
+  }
+
+  function drawerSessionVisible(sessionId, expectedViewport = viewport()) {
+    const drawer = element('detailDrawer');
+    const terminalSurface = surface();
+    return Boolean(sessionId
+      && state.session?.id === sessionId
+      && expectedViewport
+      && expectedViewport === viewport()
+      && expectedViewport.isConnected
+      && drawer?.classList.contains('open')
+      && drawer.dataset.terminalChat === 'true'
+      && terminalSurface?.isConnected
+      && !terminalSurface.classList.contains('hidden')
+      && terminalSurface.getAttribute('aria-hidden') !== 'true');
+  }
+
+  function captureReconnectFocus(terminalId) {
+    const safeTerminalId = String(terminalId || '');
+    const sessionId = String(state.session?.id || '');
+    const currentViewport = viewport();
+    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const active = document.activeElement;
+    const host = currentViewport
+      ? [...currentViewport.children].find(child => String(child?.dataset?.terminalScreen || '') === safeTerminalId)
+      : null;
+    const rejected = !safeTerminalId
+      || state.target?.kind !== 'terminal'
+      || targetIdOf(state.target) !== safeTerminalId
+      || !drawerSessionVisible(sessionId, currentViewport)
+      || !embedded.connected
+      || embedded.agentSessionId !== sessionId
+      || String(embedded.terminalId || '') !== safeTerminalId
+      || !host?.contains(active)
+      || !active?.classList?.contains('xterm-helper-textarea');
+    if (rejected) return;
+    state.reconnectFocusIntent = {
+      sessionId,
+      terminalId: safeTerminalId,
+      signature: state.connectionSignature,
+      viewport: currentViewport,
+      origin: active,
+      revision: state.userFocusRevision,
+    };
+  }
+
+  function restoreReconnectFocus(intent, attempt = 0) {
+    if (!intent || state.reconnectFocusIntent !== intent) return;
+    const identityStillCurrent = drawerSessionVisible(intent.sessionId, intent.viewport)
+      && state.connectionSignature === intent.signature;
+    if (!identityStillCurrent || state.userFocusRevision !== intent.revision) {
+      state.reconnectFocusIntent = null;
+      return;
+    }
+    requestAnimationFrame(() => {
+      if (state.reconnectFocusIntent !== intent) return;
+      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const host = [...(intent.viewport?.children || [])].find(child => (
+        String(child?.dataset?.terminalScreen || '') === intent.terminalId
+      ));
+      const connectedTargetReady = state.target?.kind === 'terminal'
+        && targetIdOf(state.target) === intent.terminalId
+        && embedded.connected
+        && embedded.agentSessionId === intent.sessionId
+        && String(embedded.terminalId || '') === intent.terminalId
+        && host?.parentElement === intent.viewport;
+      if (!connectedTargetReady) {
+        if (attempt < 240
+          && drawerSessionVisible(intent.sessionId, intent.viewport)
+          && state.connectionSignature === intent.signature
+          && state.userFocusRevision === intent.revision) {
+          setTimeout(() => restoreReconnectFocus(intent, attempt + 1), 50);
+        } else {
+          state.reconnectFocusIntent = null;
+        }
+        return;
+      }
+      const active = document.activeElement;
+      const documentFocused = typeof document.hasFocus !== 'function' || document.hasFocus();
+      const documentVisible = !document.visibilityState || document.visibilityState === 'visible';
+      const focusStayedPassive = !active
+        || active === document.body
+        || active === document.documentElement
+        || active === intent.origin
+        || active.isConnected === false;
+      const identityRemainsCurrent = drawerSessionVisible(intent.sessionId, intent.viewport)
+        && state.connectionSignature === intent.signature
+        && state.userFocusRevision === intent.revision;
+      const shouldFocus = identityRemainsCurrent
+        && focusStayedPassive
+        && documentFocused
+        && documentVisible;
+      if (shouldFocus) {
+        const focused = window.LoadToAgentTerminal?.focusEmbedded?.() === true;
+        if (focused) state.reconnectFocusIntent = null;
+        else if (attempt < 240) setTimeout(() => restoreReconnectFocus(intent, attempt + 1), 50);
+        else state.reconnectFocusIntent = null;
+      } else if (identityRemainsCurrent && focusStayedPassive && (!documentFocused || !documentVisible) && attempt < 240) {
+        // Chromium can briefly report an unfocused/hidden document while the
+        // old textarea is being detached. A real blur/visibility/user action
+        // increments the revision and is cancelled at the next attempt.
+        setTimeout(() => restoreReconnectFocus(intent, attempt + 1), 50);
+      } else {
+        state.reconnectFocusIntent = null;
+      }
+    });
   }
 
   function connectionSignature(session) {
@@ -150,6 +259,7 @@
       || (embeddedBefore.agentSessionId && embeddedBefore.agentSessionId !== session.id);
     if (switchingSession) {
       state.generation += 1;
+      state.reconnectFocusIntent = null;
       window.LoadToAgentTerminal?.unmountEmbedded?.();
       state.target = null;
       state.pendingMountKey = '';
@@ -285,6 +395,8 @@
     state.target = null;
     state.pendingMountKey = '';
     state.connectionSignature = '';
+    state.reconnectFocusIntent = null;
+    state.reconnectOwnerTerminalId = '';
     if (options.resetAvailability && resetSessionId) {
       clearUnavailable(resetSessionId);
       state.connectionFailures.delete(resetSessionId);
@@ -367,6 +479,48 @@
     if (!state.target || state.target.kind !== 'terminal' || payload?.id !== (state.target.terminalId || state.target.id)) return;
     setStatus('running', 'drawer.terminal_running', state.target.label || '');
   });
+  document.addEventListener('pointerdown', () => { state.userFocusRevision += 1; }, true);
+  document.addEventListener('keydown', () => { state.userFocusRevision += 1; }, true);
+  document.addEventListener('focusin', event => {
+    // Removing the focused xterm host can move focus to the document body.
+    // That passive browser fallback is part of reconnect, not a user choice.
+    if (event.target === document.body
+      || event.target === document.documentElement
+      || event.target?.isConnected === false
+      || event.target === state.reconnectFocusIntent?.origin) return;
+    state.userFocusRevision += 1;
+  }, true);
+  window.addEventListener('blur', () => {
+    queueMicrotask(() => {
+      // Chromium emits a window blur while removing the focused xterm
+      // textarea even though the document itself keeps focus. Only a real
+      // window departure may cancel the reconnect focus intent.
+      const documentFocused = typeof document.hasFocus !== 'function' || document.hasFocus();
+      if (documentFocused) return;
+      state.userFocusRevision += 1;
+    });
+  }, true);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') state.userFocusRevision += 1;
+  }, true);
+  window.addEventListener('loadtoagent:terminal-reconnect-focus', event => {
+    captureReconnectFocus(event.detail?.terminalId);
+  });
+  window.addEventListener('loadtoagent:terminal-reconnect-owner', event => {
+    const terminalId = String(event.detail?.terminalId || '');
+    const currentViewport = viewport();
+    const host = [...(currentViewport?.children || [])].find(child => (
+      String(child?.dataset?.terminalScreen || '') === terminalId
+    ));
+    if (!terminalId
+      || event.detail?.mountId !== 'drawerTerminalViewport'
+      || state.target?.kind !== 'terminal'
+      || targetIdOf(state.target) !== terminalId
+      || !drawerSessionVisible(state.session?.id, currentViewport)
+      || !host
+      || host.parentElement !== currentViewport) return;
+    state.reconnectOwnerTerminalId = terminalId;
+  });
   window.loadtoagent?.onTerminalState?.(payload => {
     if (!Array.isArray(payload?.sessions)) return;
     const usableIds = new Set(payload.sessions
@@ -382,7 +536,29 @@
       const terminalId = targetIdOf(state.target);
       const terminal = payload.sessions.find(item => item.id === terminalId);
       if (payload.change === 'reconnected' && terminal) {
-        setTimeout(() => state.session && mount(state.session, { force: true, targetId: terminalId }), 0);
+        const ownsReconnect = state.reconnectOwnerTerminalId === terminalId;
+        state.reconnectOwnerTerminalId = '';
+        if (!ownsReconnect || !drawerSessionVisible(state.session.id)) return;
+        const reconnectSessionId = String(state.session.id || '');
+        const focusIntent = state.reconnectFocusIntent?.sessionId === reconnectSessionId
+          && state.reconnectFocusIntent?.terminalId === terminalId
+          ? state.reconnectFocusIntent
+          : null;
+        setTimeout(async () => {
+          const currentSession = state.session;
+          if (!currentSession || currentSession.id !== reconnectSessionId) {
+            if (state.reconnectFocusIntent === focusIntent) state.reconnectFocusIntent = null;
+            return;
+          }
+          // Match renderDrawer's key so its scheduled refresh adopts this
+          // authoritative reconnect instead of starting a competing mount.
+          await mount(currentSession, {
+            force: true,
+            targetId: terminalId,
+            createIfMissing: true,
+          });
+          restoreReconnectFocus(focusIntent);
+        }, 0);
       } else if (!terminal || ['stopped', 'exited', 'failed'].includes(terminal.status)) {
         markUnavailable(state.session.id, terminalId, terminal?.status || 'removed');
         state.connectionFailures.set(state.session.id, {
@@ -392,6 +568,7 @@
         });
         state.generation += 1;
         state.pendingMountKey = '';
+        state.reconnectFocusIntent = null;
         window.LoadToAgentTerminal?.unmountEmbedded?.();
         state.target = null;
         setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');

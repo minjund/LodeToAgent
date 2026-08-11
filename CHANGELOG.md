@@ -5,6 +5,21 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.18 - 2026-08-11
+
+- Keep inline xterm DOM, IME composition, scrollback, and input focus stable
+  across live session snapshots instead of detaching and repainting the PTY.
+- Connect an expanded top-level AI terminal automatically without resending its
+  prompt, while preventing stale provider histories and drawer-owned PTYs from
+  being mounted into the wrong view.
+- Deliver raw terminal input through bounded, ordered, idempotent batches so
+  reconnects and lost acknowledgements cannot duplicate, reorder, or silently
+  append uncertain keystrokes.
+- Restore the active xterm caret after a host reconnect only when the user is
+  still working in that PTY, without stealing focus after another interaction.
+- Preserve accepted, rejected, and uncertain delivery state across the Electron
+  IPC boundary and safely retry only input that was never sent to a host.
+
 ## 1.6.17 - 2026-08-10
 
 - Restore reliable native PTY input without tree-killing a still-live legacy

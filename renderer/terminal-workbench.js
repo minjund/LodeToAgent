@@ -3,6 +3,8 @@
 /** Own xterm views, terminal/tmux selection, capture, and management actions. */
 window.LoadToAgentTerminalWorkbench = function createModule(context) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const RAW_INPUT_BATCH_CHARS = 128 * 1024;
+  const MAX_RAW_INPUT_QUEUE_CHARS = 512 * 1024;
   const {
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
@@ -11,6 +13,156 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     syncComposer,
   } = context;
   let tmuxModalFocusToken = null;
+  const rawInputBarriers = new Map();
+  const scheduledRawInputEntries = new Set();
+  const enqueueMicrotask = typeof window.queueMicrotask === 'function'
+    ? callback => window.queueMicrotask(callback)
+    : callback => Promise.resolve().then(callback);
+
+  function documentIsHidden() {
+    return document.hidden === true || document.visibilityState === 'hidden';
+  }
+
+  function flushHiddenRawInputPumps() {
+    if (!documentIsHidden()) return;
+    for (const entry of [...scheduledRawInputEntries]) {
+      if (typeof entry.inputPumpFlush === 'function') enqueueMicrotask(entry.inputPumpFlush);
+    }
+  }
+
+  document.addEventListener?.('visibilitychange', flushHiddenRawInputPumps);
+
+  function nextRawInputDeliveryId(entry) {
+    entry.inputSequence += 1;
+    const random = window.crypto?.randomUUID?.().replace(/-/g, '')
+      || `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+    return `delivery:raw:${Date.now().toString(36)}:${entry.inputSequence.toString(36)}:${random}`;
+  }
+
+  function takeRawInputBatch(entry) {
+    let batch = '';
+    while (entry.inputQueue.length) {
+      const chunk = entry.inputQueue[0];
+      // xterm emits bracketed paste and other control sequences as one data
+      // event. Never cut an event in half: dropping a trailing paste terminator
+      // can leave the remote TTY in paste mode and corrupt all later typing.
+      if (batch && batch.length + chunk.length > RAW_INPUT_BATCH_CHARS) break;
+      if (chunk.length > RAW_INPUT_BATCH_CHARS) break;
+      batch += chunk;
+      entry.inputQueue.shift();
+      entry.inputQueueChars = Math.max(0, entry.inputQueueChars - chunk.length);
+    }
+    return batch;
+  }
+
+  function clearRawInputQueue(entry) {
+    entry.inputQueue = [];
+    entry.inputQueueChars = 0;
+  }
+
+  function closeRawInputEntry(entry) {
+    if (!entry) return;
+    entry.inputClosed = true;
+    entry.inputPumpHalted = true;
+    clearRawInputQueue(entry);
+    entry.inputPumpScheduleGeneration += 1;
+    entry.inputPumpScheduled = false;
+    entry.inputPumpFlush = null;
+    scheduledRawInputEntries.delete(entry);
+    if (entry.inputPumpFrame) {
+      window.cancelAnimationFrame?.(entry.inputPumpFrame);
+      entry.inputPumpFrame = 0;
+    }
+    if (entry.inputPumpTimer) {
+      clearTimeout(entry.inputPumpTimer);
+      entry.inputPumpTimer = 0;
+    }
+  }
+
+  async function pumpRawInput(entry, key) {
+    while (!entry.inputClosed && entry.inputQueue.length) {
+      const batch = takeRawInputBatch(entry);
+      if (!batch) break;
+      const deliveryId = nextRawInputDeliveryId(entry);
+      let failed = false;
+      try {
+        const result = await window.loadtoagent.terminalWrite(key, batch, { deliveryId });
+        if (result?.deliveryState === 'unknown') {
+          notice(t('terminal.error.input_failed'), 'warning');
+          failed = true;
+        }
+      } catch (error) {
+        notice(errorMessage(error), error?.deliveryState === 'unknown' ? 'warning' : 'error');
+        failed = true;
+      }
+      if (failed) {
+        // The current bytes may already be in the PTY. Sending a queued suffix
+        // automatically could submit half a command or finish an uncertain
+        // paste. Drop the suffix and require the user's next explicit input.
+        clearRawInputQueue(entry);
+        entry.inputPumpHalted = true;
+        break;
+      }
+    }
+    if (!entry.inputQueue.length) entry.inputOverflowNotified = false;
+  }
+
+  function scheduleRawInputPump(entry, key) {
+    if (entry.inputPump || entry.inputPumpScheduled) return;
+    const generation = ++entry.inputPumpScheduleGeneration;
+    entry.inputPumpScheduled = true;
+    scheduledRawInputEntries.add(entry);
+    const flush = () => {
+      if (!entry.inputPumpScheduled || generation !== entry.inputPumpScheduleGeneration) return;
+      entry.inputPumpScheduled = false;
+      entry.inputPumpFlush = null;
+      scheduledRawInputEntries.delete(entry);
+      if (entry.inputPumpFrame) window.cancelAnimationFrame?.(entry.inputPumpFrame);
+      entry.inputPumpFrame = 0;
+      if (entry.inputPumpTimer) clearTimeout(entry.inputPumpTimer);
+      entry.inputPumpTimer = 0;
+      if (entry.inputPump || entry.inputClosed) return;
+      const previous = rawInputBarriers.get(key) || Promise.resolve();
+      const task = previous.catch(() => {}).then(() => pumpRawInput(entry, key)).finally(() => {
+        if (entry.inputPump === task) entry.inputPump = null;
+        if (rawInputBarriers.get(key) === task) rawInputBarriers.delete(key);
+        if (!entry.inputClosed && !entry.inputPumpHalted && entry.inputQueue.length) scheduleRawInputPump(entry, key);
+      });
+      rawInputBarriers.set(key, task);
+      entry.inputPump = task;
+      entry.writeQueue = task;
+    };
+    entry.inputPumpFlush = flush;
+    if (documentIsHidden()) {
+      enqueueMicrotask(flush);
+      return;
+    }
+    // Visible xterms still coalesce the short burst of onData fragments in one
+    // paint. The bounded task fallback prevents a stalled paint from holding
+    // input, while visibilitychange switches to a microtask before background
+    // animation-frame throttling can strand the final keystroke.
+    entry.inputPumpFrame = requestAnimationFrame(flush);
+    entry.inputPumpTimer = setTimeout(() => enqueueMicrotask(flush), 32);
+  }
+
+  function enqueueRawInput(entry, key, value) {
+    const data = String(value || '');
+    if (!data || entry.inputClosed) return;
+    if (entry.inputPumpHalted) entry.inputPumpHalted = false;
+    const available = Math.max(0, MAX_RAW_INPUT_QUEUE_CHARS - entry.inputQueueChars);
+    if (data.length > RAW_INPUT_BATCH_CHARS || data.length > available) {
+      // An onData event is one logical xterm input operation. All-or-nothing
+      // admission keeps surrogate pairs and bracketed-paste delimiters intact.
+      if (!entry.inputOverflowNotified) {
+        entry.inputOverflowNotified = true;
+        notice(t('terminal.error.input_failed'), 'error');
+      }
+      return;
+    }
+    entry.inputQueue.push(data);
+    entry.inputQueueChars += data.length;
+    scheduleRawInputPump(entry, key);
+  }
 
   function relativeTime(value) {
     const ms = Date.now() - Date.parse(value || 0);
@@ -46,6 +198,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       terminal, fit, host, readOnly, inputDisabled, fixedGrid, userScrollRevision: 0, outputWritePending: 0,
       outputRestoreGeneration: 0, wheelLineRemainder: 0,
       writeQueue: Promise.resolve(), pendingResize: null, resizePromise: null,
+      inputQueue: [], inputQueueChars: 0, inputPump: null, inputPumpFrame: 0, inputPumpTimer: 0,
+      inputPumpScheduled: false, inputPumpScheduleGeneration: 0, inputPumpFlush: null,
+      inputSequence: 0, inputOverflowNotified: false, inputPumpHalted: false, inputClosed: false,
       outputHydrating: !readOnly,
       outputSequence: null,
       outputHydrationBuffer: [],
@@ -109,9 +264,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       if (!inputDisabled) {
         terminal.onData(data => {
           if (state.selectedId !== key && state.embeddedTerminalId !== key) return;
-          entry.writeQueue = entry.writeQueue
-            .then(() => window.loadtoagent.terminalWrite(key, data))
-            .catch(error => notice(errorMessage(error), 'error'));
+          enqueueRawInput(entry, key, data);
         });
       }
       terminal.onResize(size => {
@@ -164,6 +317,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     let entry = state.terminals.get(session.id);
     const inputDisabled = false;
     if (entry && entry.inputDisabled !== inputDisabled) {
+      closeRawInputEntry(entry);
       entry.terminal.dispose();
       entry.host.remove();
       state.terminals.delete(session.id);
@@ -199,6 +353,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         // failure. Remove it only when it is still the entry registered for the
         // session, so no caller can mistake an unverified blank xterm for a PTY.
         if (state.terminals.get(session.id) === entry) state.terminals.delete(session.id);
+        closeRawInputEntry(entry);
         entry.terminal.dispose();
         entry.host.remove();
         throw error;
@@ -587,23 +742,40 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       && expectedMode === state.mode
       && expectedSessionId === state.selectedId
       && expectedTmuxId === (state.selectedTmux?.pane?.id || state.selectedTmux?.pane?.nativeId || '');
-    hideScreens();
     const session = currentSession();
     const remote = currentTmux();
+    const visibleEntry = session
+      ? state.terminals.get(session.id)
+      : remote ? state.remoteTerminal : null;
+    // State snapshots for the currently selected PTY are frequent. Hiding the
+    // already-mounted xterm before awaiting its resolved ready promise causes a
+    // visible flash and can interrupt focus/IME. Keep only that exact selection
+    // visible; genuine selection changes still hide the previous screen while
+    // the new one is prepared.
+    const keepVisible = Boolean(visibleEntry && !visibleEntry.host.classList.contains('hidden'));
+    if (!keepVisible) hideScreens();
     if (session) {
       const entry = await ensureSessionTerminal(session);
       if (!selectionIsCurrent()) return;
+      for (const [id, other] of state.terminals) {
+        if (id !== session.id) other.host.classList.add('hidden');
+      }
+      if (state.remoteTerminal) state.remoteTerminal.host.classList.add('hidden');
+      $('#terminalEmpty').classList.add('hidden');
       entry.host.classList.remove('hidden');
-      fitEntry(entry, session.id);
+      if (!keepVisible || entry !== visibleEntry) fitEntry(entry, session.id);
       stopCapture();
     } else if (remote) {
       if (!selectionIsCurrent()) return;
       const entry = ensureRemoteTerminal();
+      for (const other of state.terminals.values()) other.host.classList.add('hidden');
+      $('#terminalEmpty').classList.add('hidden');
       entry.host.classList.remove('hidden');
-      fitEntry(entry);
+      if (!keepVisible || entry !== visibleEntry) fitEntry(entry);
       startCapture();
     } else {
       if (!selectionIsCurrent()) return;
+      hideScreens();
       $('#terminalEmpty').classList.remove('hidden');
       stopCapture();
     }
@@ -681,8 +853,33 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       fitEntry(entry, session.id);
     }
     const rehydratedIds = new Set(payload?.change === 'reconnected' ? activeIds : []);
+    const reconnectEntries = payload?.change === 'reconnected'
+      ? [...state.terminals].filter(([id]) => activeIds.has(id))
+      : [];
+    if (typeof CustomEvent === 'function') {
+      for (const [id, entry] of reconnectEntries) {
+        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-reconnect-owner', {
+          detail: {
+            terminalId: id,
+            mountId: String(entry.host.parentElement?.id || ''),
+          },
+        }));
+      }
+    }
+    const reconnectFocus = reconnectEntries
+      .find(([, entry]) => entry.host.contains(document.activeElement)) || null;
+    const reconnectFocusId = String(reconnectFocus?.[0] || '');
+    const reconnectFocusOrigin = reconnectFocus?.[1]?.host?.contains(document.activeElement)
+      ? document.activeElement
+      : null;
+    if (reconnectFocusId && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-reconnect-focus', {
+        detail: { terminalId: reconnectFocusId },
+      }));
+    }
     for (const [id, entry] of state.terminals) {
       if (activeIds.has(id) && !rehydratedIds.has(id)) continue;
+      closeRawInputEntry(entry);
       entry.terminal.dispose();
       entry.host.remove();
       state.terminals.delete(id);
@@ -691,6 +888,18 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (state.selectedId && !state.sessions.some(item => item.id === state.selectedId)) state.selectedId = null;
     renderAll();
     if (state.active) await showSelection();
+    if (reconnectFocusId && state.active && state.selectedId === reconnectFocusId) {
+      const entry = state.terminals.get(reconnectFocusId);
+      const active = document.activeElement;
+      const focusStayedPassive = !active
+        || active === document.body
+        || active === document.documentElement
+        || active === reconnectFocusOrigin
+        || active.isConnected === false;
+      const documentFocused = typeof document.hasFocus !== 'function' || document.hasFocus();
+      const documentVisible = !document.visibilityState || document.visibilityState === 'visible';
+      if (entry && focusStayedPassive && documentFocused && documentVisible) entry.terminal.focus();
+    }
     return true;
   }
 

@@ -27,6 +27,8 @@ const AUTH_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const RECONNECT_RETRY_BASE_MS = 500;
 const RECONNECT_RETRY_MAX_MS = 30_000;
+const RAW_WRITE_DELIVERY_CAPABILITY = 1;
+const MAX_RAW_WRITE_DELIVERY_RECORDS = 256;
 const UPDATE_REQUEST_TOKEN = Symbol('terminal-host-update-request');
 const ACTIVE_TERMINAL_STATUSES = new Set(['running', 'starting', 'stopping']);
 const HOST_OPERATIONS = new Set([
@@ -50,6 +52,54 @@ function sendFrame(socket, payload) {
     runBestEffort('terminal-host-socket-write', () => socket.destroy(error));
     return false;
   }
+}
+
+function normalizedRawWriteDeliveryId(value) {
+  const id = String(value == null ? '' : value).trim();
+  return id.length <= 240 && /^[A-Za-z0-9:._-]+$/.test(id) ? id : '';
+}
+
+function normalizedTerminalHostCapabilities(value) {
+  return Number(value?.rawWriteDelivery) >= RAW_WRITE_DELIVERY_CAPABILITY
+    ? { rawWriteDelivery: RAW_WRITE_DELIVERY_CAPABILITY }
+    : {};
+}
+
+function rawWriteFingerprint(value) {
+  return crypto.createHash('sha256').update(String(value == null ? '' : value), 'utf8').digest('hex');
+}
+
+function terminalHostInstanceKey(discovery) {
+  const endpoint = String(discovery?.endpoint || '');
+  const token = String(discovery?.token || '');
+  const pid = Number(discovery?.pid);
+  if (!endpoint || !token || !Number.isSafeInteger(pid) || pid <= 0) return '';
+  return crypto.createHash('sha256')
+    .update(JSON.stringify([endpoint, token, pid]), 'utf8')
+    .digest('hex');
+}
+
+function rejectedRawWriteDeliveryError(message, deliveryId, code = 'DELIVERY_REJECTED') {
+  const error = new Error(message);
+  error.code = code;
+  error.deliveryId = deliveryId;
+  error.deliveryState = 'rejected';
+  return error;
+}
+
+function unknownRawWriteDeliveryError(error, deliveryId) {
+  const value = error instanceof Error ? error : new Error(String(error || '명령창 입력 전송 상태를 확인하지 못했습니다.'));
+  value.deliveryId = deliveryId;
+  value.deliveryState = 'unknown';
+  return value;
+}
+
+function unsentRawWriteDeliveryError(error, deliveryId) {
+  const value = error instanceof Error ? error : new Error(String(error || '명령창 입력을 보내기 전에 연결하지 못했습니다.'));
+  if (!value.code) value.code = 'TERMINAL_WRITE_NOT_SENT';
+  value.deliveryId = deliveryId;
+  value.deliveryState = 'rejected';
+  return value;
 }
 
 function incompatibleHostError(message, discovery) {
@@ -392,6 +442,11 @@ class TerminalHostServer {
     this.endpoint = options.endpoint || endpointFor(this.platform, `${path.dirname(this.discoveryFile)}:terminal-host`);
     this.token = options.token || crypto.randomBytes(32).toString('hex');
     this.runtime = String(options.runtime || TERMINAL_HOST_RUNTIME);
+    this.capabilities = normalizedTerminalHostCapabilities(
+      Object.hasOwn(options, 'capabilities')
+        ? options.capabilities
+        : { rawWriteDelivery: RAW_WRITE_DELIVERY_CAPABILITY },
+    );
     this.server = null;
     this.clients = new Set();
     this.shutdownTimer = null;
@@ -417,6 +472,7 @@ class TerminalHostServer {
       token: this.token,
       pid: process.pid,
       platform: this.platform,
+      capabilities: { ...this.capabilities },
       updatedAt: new Date().toISOString(),
     };
   }
@@ -535,7 +591,11 @@ class TerminalHostServer {
       clearTimeout(client.authTimer);
       client.authTimer = null;
       this.cancelIdleShutdown();
-      this.enqueueFrame(client, { type: 'ready', sessions: this.manager.list() });
+      this.enqueueFrame(client, {
+        type: 'ready',
+        sessions: this.manager.list(),
+        capabilities: { ...this.capabilities },
+      });
       return;
     }
     if (message.type === 'control' && message.operation === 'shutdown-if-idle') {
@@ -750,6 +810,9 @@ class TerminalHostClient extends EventEmitter {
     this.reconnectAttempts = 0;
     this.reconnectTimer = null;
     this.discovery = null;
+    this.capabilities = {};
+    this.rawWriteDeliveries = new Map();
+    this.rawWriteInFlight = new Map();
     this.updateShutdown = false;
   }
 
@@ -929,6 +992,7 @@ class TerminalHostClient extends EventEmitter {
 
   connectExisting() {
     this.discovery = null;
+    this.capabilities = {};
     const discovery = readHostDiscovery(this.discoveryFile, fs, this.expectedRuntime);
     this.discovery = discovery;
     return new Promise((resolve, reject) => {
@@ -981,6 +1045,7 @@ class TerminalHostClient extends EventEmitter {
       }
       if (message.type === 'ready') {
         this.sessions = Array.isArray(message.sessions) ? message.sessions : [];
+        this.capabilities = normalizedTerminalHostCapabilities(message.capabilities);
         this.sessionsRevision += 1;
         this.connected = true;
         if (this.handshake) this.handshake.resolve();
@@ -1015,6 +1080,7 @@ class TerminalHostClient extends EventEmitter {
     if (socket && socket !== this.socket) return;
     const wasConnected = this.connected;
     this.connected = false;
+    this.capabilities = {};
     if (this.handshake) this.handshake.reject(new Error('명령창 연결이 닫혔습니다.'));
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
@@ -1034,12 +1100,17 @@ class TerminalHostClient extends EventEmitter {
     const socket = this.socket;
     this.socket = null;
     this.connected = false;
+    this.capabilities = {};
     this.buffer = '';
     this.decoder = new StringDecoder('utf8');
     if (socket) socket.destroy();
   }
 
-  async requestWithToken(requestToken, operation, args) {
+  async requestWithToken(requestToken, operation, args, transportAttempt = null) {
+    if (transportAttempt && typeof transportAttempt === 'object') {
+      transportAttempt.hostInstance = '';
+      transportAttempt.frameSent = false;
+    }
     if (this.updateShutdown && requestToken !== UPDATE_REQUEST_TOKEN) {
       throw new Error('업데이트를 준비하는 동안 명령창 작업을 요청할 수 없습니다.');
     }
@@ -1052,6 +1123,14 @@ class TerminalHostClient extends EventEmitter {
     if (!this.connected || !this.socket || this.socket.destroyed) {
       throw new Error('명령창이 연결되어 있지 않습니다.');
     }
+    if (transportAttempt && typeof transportAttempt === 'object') {
+      transportAttempt.hostInstance = terminalHostInstanceKey(this.discovery);
+    }
+    // Raw writes resolve their argument shape only after connect() selects the
+    // actual socket. This closes the race where a capability-aware host drops
+    // between an earlier check and send, then a legacy protocol-11 host accepts
+    // an unledgered retry under the old capability assumption.
+    const requestArgs = typeof args === 'function' ? args() : args;
     const requestId = String(++this.sequence);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -1059,7 +1138,9 @@ class TerminalHostClient extends EventEmitter {
         reject(new Error('명령창 작업이 제한 시간 안에 끝나지 않았습니다.'));
       }, REQUEST_TIMEOUT_MS);
       this.pending.set(requestId, { resolve, reject, timer });
-      if (!sendFrame(this.socket, { type: 'request', requestId, operation, args })) {
+      const frameSent = sendFrame(this.socket, { type: 'request', requestId, operation, args: requestArgs });
+      if (transportAttempt && typeof transportAttempt === 'object') transportAttempt.frameSent = frameSent;
+      if (!frameSent) {
         clearTimeout(timer);
         this.pending.delete(requestId);
         reject(new Error('명령창 연결이 요청을 보내기 전에 닫혔습니다.'));
@@ -1098,7 +1179,133 @@ class TerminalHostClient extends EventEmitter {
     return this.request('create', options);
   }
   bindAgentSession(id, binding) { return this.request('bindAgentSession', id, binding || {}); }
-  write(id, data) { return this.request('write', id, data); }
+  rawWriteDeliverySupported() {
+    return this.capabilities.rawWriteDelivery === RAW_WRITE_DELIVERY_CAPABILITY;
+  }
+  rawWriteDeliveryRecord(deliveryId) {
+    return this.rawWriteDeliveries.get(normalizedRawWriteDeliveryId(deliveryId)) || null;
+  }
+  rememberRawWriteDelivery(deliveryId, target, fingerprint) {
+    const id = normalizedRawWriteDeliveryId(deliveryId);
+    if (!id) return;
+    this.rawWriteDeliveries.delete(id);
+    this.rawWriteDeliveries.set(id, { target, fingerprint, timestamp: new Date().toISOString() });
+    while (this.rawWriteDeliveries.size > MAX_RAW_WRITE_DELIVERY_RECORDS) {
+      this.rawWriteDeliveries.delete(this.rawWriteDeliveries.keys().next().value);
+    }
+  }
+  async deliverRawWrite(id, data, deliveryId, target, fingerprint) {
+    const firstAttempt = { hostInstance: '', frameSent: false, deliverySupported: false };
+    let result;
+    try {
+      result = await this.requestWithToken(null, 'write', () => {
+        firstAttempt.deliverySupported = this.rawWriteDeliverySupported();
+        return firstAttempt.deliverySupported
+          ? [id, data, { deliveryId }]
+          : [id, data];
+      }, firstAttempt);
+    } catch (error) {
+      if (['rejected', 'unknown'].includes(error?.deliveryState)) throw error;
+      // A host that did not advertise raw-write idempotency may have already
+      // written the bytes. Never retry that ambiguous legacy request.
+      if (firstAttempt.frameSent && !firstAttempt.deliverySupported) {
+        throw unknownRawWriteDeliveryError(error, deliveryId);
+      }
+      const retryAttempt = { hostInstance: '', frameSent: false, deliverySupported: false };
+      try {
+        result = await this.requestWithToken(null, 'write', () => {
+          if (firstAttempt.frameSent
+            && firstAttempt.hostInstance
+            && retryAttempt.hostInstance !== firstAttempt.hostInstance) {
+            throw unknownRawWriteDeliveryError(
+              new Error('명령창 연결 프로그램이 교체되어 이전 입력을 안전하게 재시도하지 않았습니다.'),
+              deliveryId,
+            );
+          }
+          retryAttempt.deliverySupported = this.rawWriteDeliverySupported();
+          if (firstAttempt.frameSent && !retryAttempt.deliverySupported) {
+            throw unknownRawWriteDeliveryError(
+              new Error('다시 연결된 명령창이 안전한 입력 재시도를 지원하지 않습니다.'),
+              deliveryId,
+            );
+          }
+          return retryAttempt.deliverySupported
+            ? [id, data, { deliveryId }]
+            : [id, data];
+        }, retryAttempt);
+      } catch (retryError) {
+        if (retryError?.deliveryState === 'unknown') throw retryError;
+        if (retryError?.deliveryState === 'rejected') {
+          if (!firstAttempt.frameSent) throw retryError;
+          throw unknownRawWriteDeliveryError(retryError, deliveryId);
+        }
+        if (!firstAttempt.frameSent && !retryAttempt.frameSent) {
+          throw unsentRawWriteDeliveryError(retryError, deliveryId);
+        }
+        throw unknownRawWriteDeliveryError(retryError, deliveryId);
+      }
+    }
+    const response = result && typeof result === 'object' ? result : { ok: true };
+    if (response.deliveryState === 'unknown') return response;
+    this.rememberRawWriteDelivery(deliveryId, target, fingerprint);
+    return {
+      ...response,
+      ok: true,
+      deliveryId,
+      deliveryState: 'accepted',
+    };
+  }
+  write(id, data, options = {}) {
+    const requestedDeliveryId = String(options?.deliveryId || '').trim();
+    if (!requestedDeliveryId) return this.request('write', id, data);
+    const deliveryId = normalizedRawWriteDeliveryId(requestedDeliveryId);
+    if (!deliveryId) {
+      return Promise.reject(rejectedRawWriteDeliveryError(
+        '터미널 입력 전달 요청 식별자가 올바르지 않습니다.',
+        '',
+        'DELIVERY_ID_INVALID',
+      ));
+    }
+    const target = String(id == null ? '' : id);
+    const payload = String(data == null ? '' : data);
+    const fingerprint = rawWriteFingerprint(payload);
+    const known = this.rawWriteDeliveryRecord(deliveryId);
+    if (known) {
+      if (known.target !== target || known.fingerprint !== fingerprint) {
+        return Promise.reject(rejectedRawWriteDeliveryError(
+          '이 터미널 입력 요청은 다른 명령창 또는 다른 내용에 이미 사용됐습니다.',
+          deliveryId,
+          'DELIVERY_ID_CONFLICT',
+        ));
+      }
+      return Promise.resolve({
+        ok: true,
+        duplicate: true,
+        deliveryId,
+        deliveryState: 'accepted',
+      });
+    }
+    const inFlight = this.rawWriteInFlight.get(deliveryId);
+    if (inFlight) {
+      if (inFlight.target !== target || inFlight.fingerprint !== fingerprint) {
+        return Promise.reject(rejectedRawWriteDeliveryError(
+          '이 터미널 입력 요청은 다른 명령창 또는 다른 내용에 이미 사용됐습니다.',
+          deliveryId,
+          'DELIVERY_ID_CONFLICT',
+        ));
+      }
+      return inFlight.promise.then(result => ({ ...result, duplicate: true }));
+    }
+    const pending = {
+      target,
+      fingerprint,
+      promise: this.deliverRawWrite(id, payload, deliveryId, target, fingerprint),
+    };
+    this.rawWriteInFlight.set(deliveryId, pending);
+    return pending.promise.finally(() => {
+      if (this.rawWriteInFlight.get(deliveryId) === pending) this.rawWriteInFlight.delete(deliveryId);
+    });
+  }
   command(id, command, options) { return this.request('command', id, command, options || {}); }
   respond(id, choiceKey) { return this.request('respond', id, choiceKey); }
   resize(id, cols, rows) { return this.request('resize', id, cols, rows); }
@@ -1240,6 +1447,8 @@ class TerminalHostClient extends EventEmitter {
       pending.reject(new Error('명령창 연결 프로그램이 종료되었습니다.'));
     }
     this.pending.clear();
+    this.capabilities = {};
+    this.rawWriteInFlight.clear();
   }
 }
 
