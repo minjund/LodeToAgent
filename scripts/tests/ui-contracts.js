@@ -1740,7 +1740,7 @@ function registerUiContractTests(context) {
       id: 'notice-attention', status: 'waiting', updatedAt: '2026-08-12T01:01:00.000Z', messages: [],
       attention: {
         category: 'required', required: true, kind: 'input', source: 'input-tool',
-        requestId: 'request-a', requestedAt: '2026-08-12T01:01:00.000Z', summary: '환경을 고르세요.',
+        requestId: 'request-a|request-b', requestedAt: '2026-08-12T01:01:00.000Z', summary: '환경을 고르세요.',
       },
     };
     core.state.snapshot = { sessions: [result, attention] };
@@ -1765,7 +1765,10 @@ function registerUiContractTests(context) {
     assert.equal(core.isProjectNoticeSeen('attention', attention), true,
       '같은 requestId의 문구나 갱신 시각 변화만으로 프로젝트 알림이 되살아나면 안 됩니다.');
     attention.attention = { ...attention.attention, requestId: 'request-b' };
-    assert.equal(core.isProjectNoticeSeen('attention', attention), false, '새 요청 ID는 다시 프로젝트에 표시해야 합니다.');
+    assert.equal(core.isProjectNoticeSeen('attention', attention), true,
+      '함께 확인한 요청 중 하나가 해결되어도 남은 기존 요청을 새 알림처럼 표시하면 안 됩니다.');
+    attention.attention = { ...attention.attention, requestId: 'request-b|request-c' };
+    assert.equal(core.isProjectNoticeSeen('attention', attention), false, '새 요청 ID만 다시 프로젝트에 표시해야 합니다.');
 
     const firstPrompt = { fingerprint: 'prompt-a', target: { id: 'terminal-a' } };
     assert.equal(core.markProjectNoticeSeen('terminal', attention, firstPrompt), true);

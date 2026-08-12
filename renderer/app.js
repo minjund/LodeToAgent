@@ -1150,45 +1150,56 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (targets.length) saveResultReviews();
     return targets.length;
   }
-  function projectNoticeStamp(kind, sessionOrId, prompt = null) {
+  function projectNoticeIdentities(kind, sessionOrId, prompt = null) {
     const session = resultReviewSnapshot(sessionOrId);
-    if (!session) return "";
-    if (kind === "result") return resultReviewStamp(session);
+    if (!session?.id) return [];
+    const sessionId = String(session.id);
+    if (kind === "result") {
+      const stamp = resultReviewStamp(session);
+      return stamp ? [{ key: JSON.stringify(["result", sessionId]), stamp }] : [];
+    }
     if (kind === "terminal") {
       const targetId = String(prompt?.target?.id || "");
       const fingerprint = String(prompt?.fingerprint || "")
         || resultContentFingerprint([prompt?.kind, prompt?.title, prompt?.question, prompt?.summary].filter(Boolean).join("\n"));
-      return fingerprint ? JSON.stringify(["terminal", targetId, fingerprint]) : "";
+      const stamp = fingerprint ? JSON.stringify(["terminal", targetId, fingerprint]) : "";
+      return stamp ? [{ key: JSON.stringify(["terminal", sessionId, targetId]), stamp }] : [];
     }
-    if (kind !== "attention") return "";
+    if (kind !== "attention") return [];
     const attention = session.attention || {};
+    const source = String(attention.source || "");
     const requestIds = [...new Set(String(attention.requestId || "")
       .split("|")
       .map(value => value.trim())
       .filter(Boolean))].sort();
-    if (requestIds.length) return JSON.stringify(["attention", String(attention.source || ""), requestIds]);
+    if (requestIds.length) {
+      return requestIds.map(requestId => ({
+        key: JSON.stringify(["attention", sessionId, source, requestId]),
+        stamp: JSON.stringify(["attention", source, requestId]),
+      }));
+    }
     const summary = String(attention.summary || attention.question || session.statusDetail || "").trim();
-    return JSON.stringify([
+    const stamp = JSON.stringify([
       "attention",
-      String(attention.source || ""),
+      source,
       String(attention.kind || ""),
       String(attention.requestedAt || ""),
       resultContentFingerprint(summary),
     ]);
+    return [{ key: JSON.stringify(["attention", sessionId, source, String(attention.kind || "")]), stamp }];
   }
-  function projectNoticeKey(kind, sessionOrId, prompt = null) {
-    const session = resultReviewSnapshot(sessionOrId);
-    if (!session?.id) return "";
-    return JSON.stringify([
-      String(kind || ""),
-      String(session.id),
-      kind === "terminal" ? String(prompt?.target?.id || "") : "",
-    ]);
+  function projectNoticeStamp(kind, sessionOrId, prompt = null) {
+    const identities = projectNoticeIdentities(kind, sessionOrId, prompt);
+    if (!identities.length) return "";
+    return identities.length === 1
+      ? identities[0].stamp
+      : JSON.stringify(identities.map(identity => identity.stamp));
   }
   function isProjectNoticeSeen(kind, sessionOrId, prompt = null) {
-    const key = projectNoticeKey(kind, sessionOrId, prompt);
-    const stamp = projectNoticeStamp(kind, sessionOrId, prompt);
-    return Boolean(key && stamp && state.projectNoticeAcks.get(key)?.stamp === stamp);
+    const identities = projectNoticeIdentities(kind, sessionOrId, prompt);
+    return Boolean(identities.length && identities.every(({ key, stamp }) => (
+      state.projectNoticeAcks.get(key)?.stamp === stamp
+    )));
   }
   function loadProjectNoticeAcks() {
     try {
@@ -1219,11 +1230,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       const kind = String(entry?.kind || "");
       const session = entry?.session || entry?.sessionId;
       const prompt = entry?.prompt || null;
-      const key = projectNoticeKey(kind, session, prompt);
-      const stamp = projectNoticeStamp(kind, session, prompt);
-      if (!key || !stamp || state.projectNoticeAcks.get(key)?.stamp === stamp) return;
-      state.projectNoticeAcks.set(key, { stamp, seenAt });
-      changed += 1;
+      projectNoticeIdentities(kind, session, prompt).forEach(({ key, stamp }) => {
+        if (state.projectNoticeAcks.get(key)?.stamp === stamp) return;
+        state.projectNoticeAcks.set(key, { stamp, seenAt });
+        changed += 1;
+      });
     });
     if (changed) saveProjectNoticeAcks();
     return changed;
