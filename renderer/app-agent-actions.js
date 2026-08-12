@@ -472,7 +472,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     // Use the latest observed fields so opening a past record cannot revive an
     // already idle session as "running" while retaining the complete history.
     for (const field of [
-      "status", "statusDetail", "statusObserved", "updatedAt", "completedAt", "completionObserved",
+      "status", "activityState", "statusDetail", "statusObserved", "updatedAt", "completedAt", "completionObserved",
       "attention", "outcome", "responseIntent", "runtimePresence", "executions",
     ]) {
       if (Object.prototype.hasOwnProperty.call(snapshot, field)) selected[field] = snapshot[field];

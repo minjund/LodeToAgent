@@ -575,9 +575,10 @@ function registerGenericAgentTests(context) {
       ],
     }), 'utf8');
     const questionStat = fs.statSync(questionFile);
-    const waiting = parseGeneric({ file: questionFile, mtimeMs: questionStat.mtimeMs, size: questionStat.size }, 'gemini');
-    assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
+    const inferredQuestion = parseGeneric({ file: questionFile, mtimeMs: questionStat.mtimeMs, size: questionStat.size }, 'gemini');
+    assert.equal(inferredQuestion.status, 'running');
+    assert.equal(inferredQuestion.statusDetail, '실시간 이벤트 수신 중');
+    assert.equal(inferredQuestion.responseIntent.source, 'assistant-message');
   });
 
   test('Gemini/Grok 스트리밍 메시지는 같은 ID의 최종 내용만 시간순으로 표시한다', () => {
@@ -649,6 +650,7 @@ function registerGenericAgentTests(context) {
       [['claude-message-1', '첫 번째 답변\n두 번째 문단', 'done']],
     );
     assert.equal(state.status, 'completed');
+    assert.equal(state.completionObserved, true);
     assert.equal(state.usage.total, 14);
 
     const errorState = {

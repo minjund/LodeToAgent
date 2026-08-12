@@ -413,6 +413,7 @@ function markRuntime(session, presence) {
   if (presence.interactionMode === 'batch' && !finalStatusObserved) {
     session.conversationStatus = session.status;
     session.status = 'running';
+    session.activityState = 'working';
     session.statusDetail = '화면 밖에서 AI가 계속 작업 중';
     session.statusObserved = true;
   }
@@ -441,6 +442,7 @@ function syntheticRuntimeSession(processInfo, now = Date.now()) {
     sourceLabel: `${environmentLabel}에서 실행 중인 프로그램`,
     clientKind: 'external-cli',
     status: 'running',
+    activityState: 'working',
     statusDetail: 'AI 프로그램 실행 중',
     statusObserved: true,
     startedAt: processInfo.startedAt || updatedAt,

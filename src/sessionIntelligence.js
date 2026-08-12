@@ -219,7 +219,9 @@ function attentionFor(session) {
   } else if (permissionExecution) {
     category = 'required';
     kind = 'approval';
-  } else if (session.status === 'waiting' && responseIntent.source === 'input-tool') {
+  } else if (session.status === 'waiting'
+    && (responseIntent.category === 'required' || responseIntent.required === true)
+    && responseIntent.source === 'input-tool') {
     category = 'required';
     kind = 'input';
   } else if (responseIntent.category === 'optional') {
@@ -245,7 +247,12 @@ function attentionFor(session) {
     actionable,
     kind,
     summary: category !== 'none' ? text(summaries[kind], 420) : '',
-    requestedAt: category !== 'none' ? latestActivity(session) : null,
+    requestId: category === 'required'
+      ? text(permissionExecution?.id || responseIntent.requestId || '', 240)
+      : '',
+    requestedAt: category !== 'none'
+      ? (responseIntent.requestedAt || permissionExecution?.startedAt || latestActivity(session))
+      : null,
     source: permissionExecution
       ? 'execution-approval'
       : responseIntent.source && responseIntent.source !== 'none'

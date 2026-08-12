@@ -6,7 +6,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   const CONTEXT_DRAWER_MIN_WIDTH = 1680;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
-    $, $$, esc, state, motionPreference, motionState, STATUS, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState,
+    $, $$, esc, state, motionPreference, motionState, STATUS, sessionStatusLabel = (session, status = session?.status) => STATUS[status] || status, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState,
     providerInfo, isLiveSession, controlRoomStatus = session => session?.status, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionOriginPath, sessionWorkspaceLabel,
     readablePreview = value => ({ full: String(value || "").trim(), text: String(value || "").trim(), truncated: false }),
     pendingConversationDelivery = () => null,
@@ -229,7 +229,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const provider = providerInfo(session.provider);
     const presentationStatus = controlRoomStatus(session);
     const delivery = pendingConversationDelivery(session);
-    const presentationLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : STATUS[presentationStatus] || presentationStatus;
+    const presentationLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : sessionStatusLabel(session, presentationStatus);
     const subagentMode = state.drawerMode === "subagent" && Boolean(session.parentId);
     const executionMode = state.drawerMode === "execution" && Boolean(state.drawerExecutionId);
     // A main conversation is an actual terminal surface, not a terminal-styled

@@ -18,6 +18,7 @@ const { assistantResponseIntent, isUserInputTool } = require('./agentMonitor/res
 const {
   MAX_FILES_PER_PROVIDER,
   MAX_JSON_BYTES,
+  jsonlReadBudget,
   readJson,
   readJsonLines,
   safeStat,
@@ -31,7 +32,22 @@ const STALE_TURN_THRESHOLD_MS = 5 * 60_000;
 const LIST_CACHE_MS = 60_000;
 const PINNED_FILE_CACHE_MS = 60_000;
 const CARD_JSONL_BYTES = 4 * 1024 * 1024;
+const STARTUP_INPUT_RECOVERY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const STARTUP_INPUT_RECOVERY_MAX_FILES = 20;
+const STARTUP_INPUT_RECOVERY_MAX_TOTAL_BYTES = 20 * 1024 * 1024;
 const sessionCollectionIndexes = new WeakMap();
+
+function isRecentPendingInputSession(session, now = Date.now()) {
+  const intent = session && session.responseIntent || {};
+  if (session?.status !== 'waiting' || intent.source !== 'input-tool'
+    || (intent.category !== 'required' && intent.required !== true)) return false;
+  // The file timestamp is only a discovery hint. The request event timestamp is
+  // authoritative so a touched old transcript cannot resurrect a stale prompt.
+  const requestedAt = Date.parse(intent.requestedAt || '');
+  if (!Number.isFinite(requestedAt)) return false;
+  const age = Number(now) - requestedAt;
+  return age >= 0 && age <= STARTUP_INPUT_RECOVERY_MAX_AGE_MS;
+}
 
 function collectionIndexes(session) {
   const cached = sessionCollectionIndexes.get(session);
@@ -227,6 +243,7 @@ function baseSession(provider, externalId, file, stat) {
     clientKind: '',
     utilityKind: '',
     status: 'idle',
+    activityState: 'idle',
     statusDetail: '',
     statusObserved: false,
     responseIntent: { category: 'none', required: false, optional: false, requestText: '', confidence: 'low', source: 'none' },
@@ -583,6 +600,8 @@ class AgentMonitor extends EventEmitter {
     this.pinnedFileCache = new Map();
     this.pinnedSessions = [];
     this.historyHomes = [];
+    this.startupRecoveryKeys = new Set();
+    this.startupRecoveredFiles = new Map();
     this.timer = null;
     this.scanning = false;
     this.lastSnapshot = { generatedAt: new Date().toISOString(), sessions: [], summary: buildSummary([], {}) };
@@ -676,6 +695,7 @@ class AgentMonitor extends EventEmitter {
     const timeSensitive = Boolean(cached && (
       cached.status === 'running'
       || cached.status === 'starting'
+      || ['thinking', 'working', 'juggling'].includes(cached.activityState)
       || (cached.executions || []).some(execution => execution.status === 'running')
     ));
     if (cached && (!timeSensitive || Date.now() - parsedAt < ACTIVE_THRESHOLD_MS)) return cached;
@@ -761,6 +781,9 @@ class AgentMonitor extends EventEmitter {
     this.scanning = true;
     try {
       const sessions = [];
+      const includedFiles = new Set();
+      const startupRecoveryCandidates = [];
+      const scanStartedAt = Date.now();
 
       for (const [homeIndex, history] of this.historyHomes.entries()) {
         const roots = {
@@ -772,15 +795,41 @@ class AgentMonitor extends EventEmitter {
         const cacheMs = history.kind === 'wsl' ? 5_000 : LIST_CACHE_MS;
         const addSessions = (provider, predicate, max, parser) => {
           const key = `${history.kind}:${history.distro || homeIndex}:${provider}`;
-          const infos = history.files && Array.isArray(history.files[provider])
-            ? this.hintedFiles(history.files[provider], max)
-            : this.files(key, roots[provider], predicate, max, 6, cacheMs);
+          const recoverStartupInput = provider === 'codex' && !this.startupRecoveryKeys.has(key);
+          const discoveryMax = max + (recoverStartupInput ? STARTUP_INPUT_RECOVERY_MAX_FILES : 0);
+          const discoveredInfos = history.files && Array.isArray(history.files[provider])
+            ? this.hintedFiles(history.files[provider], discoveryMax)
+            : this.files(key, roots[provider], predicate, discoveryMax, 6, cacheMs);
+          const infos = discoveredInfos.slice(0, max);
+          if (recoverStartupInput) {
+            this.startupRecoveryKeys.add(key);
+            for (const info of discoveredInfos.slice(max)) {
+              startupRecoveryCandidates.push({ info, parser, history, key });
+            }
+          }
+          const recoveredInfos = [];
+          for (const [file, recovery] of this.startupRecoveredFiles) {
+            if (recovery.key !== key) continue;
+            const stat = safeStat(file);
+            if (stat && stat.isFile()) recoveredInfos.push({ file, mtimeMs: stat.mtimeMs, size: stat.size });
+            else this.startupRecoveredFiles.delete(file);
+          }
           const pinnedInfos = this.pinnedFiles(provider, history, roots[provider], predicate);
-          const uniqueInfos = [...infos, ...pinnedInfos]
+          const uniqueInfos = [...infos, ...recoveredInfos, ...pinnedInfos]
             .filter((info, index, list) => list.findIndex(other => other.file === info.file) === index);
           for (const info of uniqueInfos) {
+            includedFiles.add(info.file);
             const value = this.parseFile(info, parser);
-            if (!value) continue;
+            const recovered = this.startupRecoveredFiles.has(info.file);
+            if (!value) {
+              if (recovered) this.startupRecoveredFiles.delete(info.file);
+              continue;
+            }
+            if (recovered && !isRecentPendingInputSession(value)) {
+              this.startupRecoveredFiles.delete(info.file);
+              const intent = value.responseIntent || {};
+              if (value.status === 'waiting' && intent.source === 'input-tool') continue;
+            }
             const copy = cloneSessionForScan(value);
             // Provider health checks and detached memory extraction turns are
             // implementation details, not user work. Keep them out of the
@@ -795,6 +844,38 @@ class AgentMonitor extends EventEmitter {
         addSessions('codex', (_f, name) => name.endsWith('.jsonl'), MAX_FILES_PER_PROVIDER, item => parseCodex(item, { maxBytes: this.cardJsonlBytes }));
         addSessions('gemini', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'gemini', { maxBytes: this.cardJsonlBytes }));
         addSessions('grok', (_f, name) => /\.(json|jsonl)$/i.test(name), 50, item => parseGeneric(item, 'grok', { maxBytes: this.cardJsonlBytes }));
+      }
+
+      let recoveryFilesRead = 0;
+      let recoveryBytesRead = 0;
+      const recoveryPaths = new Set();
+      const orderedRecoveryCandidates = startupRecoveryCandidates
+        .filter(candidate => !includedFiles.has(candidate.info.file))
+        .filter((candidate, index, list) => list.findIndex(other => other.info.file === candidate.info.file) === index)
+        .sort((left, right) => right.info.mtimeMs - left.info.mtimeMs);
+      for (const candidate of orderedRecoveryCandidates) {
+        if (recoveryFilesRead >= STARTUP_INPUT_RECOVERY_MAX_FILES) break;
+        const readCost = jsonlReadBudget(candidate.info.size, this.cardJsonlBytes);
+        if (recoveryBytesRead + readCost > STARTUP_INPUT_RECOVERY_MAX_TOTAL_BYTES) continue;
+        recoveryFilesRead += 1;
+        recoveryBytesRead += readCost;
+        const value = this.parseFile(candidate.info, candidate.parser);
+        const postStat = safeStat(candidate.info.file);
+        if (!value || !postStat || !postStat.isFile()
+          || postStat.size !== candidate.info.size || postStat.mtimeMs !== candidate.info.mtimeMs
+          || !isRecentPendingInputSession(value, scanStartedAt)) continue;
+        const copy = cloneSessionForScan(value);
+        if (copy.utilityKind || recoveryPaths.has(copy.id)) continue;
+        recoveryPaths.add(copy.id);
+        this.startupRecoveredFiles.set(candidate.info.file, { key: candidate.key });
+        copy.environment = {
+          kind: candidate.history.kind,
+          distro: candidate.history.distro,
+          label: candidate.history.label,
+          home: candidate.history.home,
+        };
+        if (candidate.history.kind === 'wsl') copy.sourceLabel = candidate.history.label;
+        sessions.push(copy);
       }
 
       const managed = this.managedSessions();

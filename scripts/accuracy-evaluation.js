@@ -100,8 +100,8 @@ try {
   const responding = parseClaude(jsonl(path.join(temp, 'states', 'responding.jsonl'), [
     { type: 'user', timestamp: new Date(now - 1_000).toISOString(), message: { role: 'user', content: '계속 진행해줘' } },
   ]));
-  check('states.question.status', waitingQuestion.status === 'waiting');
-  check('states.question.detail', waitingQuestion.statusDetail === '내 답변을 기다리는 중');
+  check('states.question.status', waitingQuestion.status === 'completed');
+  check('states.question.detail', waitingQuestion.statusDetail === '작업 완료');
   check('states.input-tool.status', waitingTool.status === 'waiting');
   check('states.input-tool.detail', waitingTool.statusDetail === '내 답변을 기다리는 중');
   check('states.idle.status', idle.status === 'completed');

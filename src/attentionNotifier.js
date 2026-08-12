@@ -1,26 +1,52 @@
 'use strict';
 
 const ACTIVE_STATUSES = new Set(['starting', 'running', 'waiting']);
-const EXPLICIT_ATTENTION_SOURCES = new Set(['execution-approval', 'input-tool']);
+const NOTIFIABLE_ATTENTION_SOURCES = new Set(['execution-approval', 'input-tool']);
+const STARTUP_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function timestamp(value) {
   const parsed = Date.parse(value || '');
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function explicitAttentionFingerprint(session) {
+function explicitAttentionFingerprints(session) {
   const attention = session && session.attention || {};
-  if (attention.category !== 'required' || !EXPLICIT_ATTENTION_SOURCES.has(attention.source)) return '';
-  return [
+  if (attention.category !== 'required' || !NOTIFIABLE_ATTENTION_SOURCES.has(attention.source)) return [];
+  if (attention.requestId) {
+    return [...new Set(String(attention.requestId)
+      .split('|')
+      .map(requestId => requestId.trim())
+      .filter(Boolean)
+      .map(requestId => `${attention.source}:${requestId}`))];
+  }
+  return [[
     attention.source,
     attention.requestedAt || session.updatedAt || '',
     attention.summary || '',
-  ].join(':');
+  ].join(':')];
+}
+
+function explicitAttentionFingerprint(session) {
+  return explicitAttentionFingerprints(session)[0] || '';
+}
+
+function attentionFingerprintKey(sessionId, fingerprint) {
+  return `${sessionId}\u0000${fingerprint}`;
+}
+
+function isStartupRecoveryCandidate(session, snapshotAt) {
+  const attention = session && session.attention || {};
+  if (session.status !== 'waiting' || attention.category !== 'required' || attention.source !== 'input-tool') return false;
+  const requestedAt = timestamp(attention.requestedAt) || timestamp(session.updatedAt);
+  if (!requestedAt) return false;
+  const age = snapshotAt - requestedAt;
+  return age >= 0 && age <= STARTUP_RECOVERY_WINDOW_MS;
 }
 
 function observedCompletionAt(session) {
   if (!session || session.status !== 'completed' || session.parentId) return 0;
-  if (!session.completionObserved && !session.runId) return 0;
+  const hasObservedFlag = Object.prototype.hasOwnProperty.call(session, 'completionObserved');
+  if (hasObservedFlag ? !session.completionObserved : !session.runId) return 0;
   return timestamp(session.completedAt || session.endedAt || session.updatedAt);
 }
 
@@ -36,6 +62,7 @@ class AttentionNotifier {
     this.onOpen = options.onOpen || (() => {});
     this.onFallback = options.onFallback || (() => {});
     this.attentionFingerprints = null;
+    this.notifiedAttentionFingerprints = new Set();
     this.sessionStatuses = null;
     this.lastSnapshotAt = 0;
     this.promptFingerprints = new Set();
@@ -50,8 +77,8 @@ class AttentionNotifier {
     for (const session of sessions) {
       if (!session.id) continue;
       const id = String(session.id);
-      const fingerprint = explicitAttentionFingerprint(session);
-      if (fingerprint) nextAttention.set(id, fingerprint);
+      const fingerprints = explicitAttentionFingerprints(session);
+      if (fingerprints.length) nextAttention.set(id, new Set(fingerprints));
       nextStatuses.set(id, String(session.status || ''));
     }
 
@@ -60,17 +87,30 @@ class AttentionNotifier {
       this.attentionFingerprints = nextAttention;
       this.sessionStatuses = nextStatuses;
       this.lastSnapshotAt = snapshotAt;
-      return [];
+      for (const [id, fingerprints] of nextAttention) {
+        for (const fingerprint of fingerprints) this.rememberAttentionFingerprint(id, fingerprint);
+      }
+      const recoveredIds = [];
+      for (const session of sessions) {
+        if (!session.id || !isStartupRecoveryCandidate(session, snapshotAt)) continue;
+        this.notify(session, 'attention');
+        recoveredIds.push(String(session.id));
+      }
+      return recoveredIds;
     }
 
     const notifiedIds = [];
     for (const session of sessions) {
       if (!session.id) continue;
       const id = String(session.id);
-      const fingerprint = nextAttention.get(id);
-      if (fingerprint && this.attentionFingerprints.get(id) !== fingerprint) {
+      const fingerprints = nextAttention.get(id) || new Set();
+      const freshFingerprints = [...fingerprints].filter(fingerprint => (
+        !this.notifiedAttentionFingerprints.has(attentionFingerprintKey(id, fingerprint))
+      ));
+      if (freshFingerprints.length) {
         this.notify(session, 'attention');
         notifiedIds.push(id);
+        for (const fingerprint of freshFingerprints) this.rememberAttentionFingerprint(id, fingerprint);
       }
 
       const completedAt = observedCompletionAt(session);
@@ -100,6 +140,13 @@ class AttentionNotifier {
     return this.notify({ ...session, notificationDetail: prompt.title || prompt.question || '' }, 'attention');
   }
 
+  rememberAttentionFingerprint(sessionId, fingerprint) {
+    this.notifiedAttentionFingerprints.add(attentionFingerprintKey(sessionId, fingerprint));
+    if (this.notifiedAttentionFingerprints.size > 2_000) {
+      this.notifiedAttentionFingerprints.delete(this.notifiedAttentionFingerprints.values().next().value);
+    }
+  }
+
   notify(session, event = 'attention') {
     if (!this.enabled) return null;
     let supported = false;
@@ -113,7 +160,8 @@ class AttentionNotifier {
       return null;
     }
     try {
-      const copy = this.copy(session, event) || {};
+      const detail = String(session.notificationDetail || session.attention?.summary || '');
+      const copy = this.copy(session, event, detail) || {};
       const notification = new this.Notification({
         title: String(copy.title || (event === 'completed' ? '작업 완료' : '확인 필요')),
         body: String(copy.body || session.title || 'AI 작업 상태가 변경되었습니다.'),
@@ -135,6 +183,7 @@ class AttentionNotifier {
       try { notification.close(); } catch {}
     }
     this.notifications.clear();
+    this.notifiedAttentionFingerprints.clear();
   }
 }
 

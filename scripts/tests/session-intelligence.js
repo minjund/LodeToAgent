@@ -14,6 +14,7 @@ function registerSessionIntelligenceTests(context) {
       externalId: 'thread-1', cwd: 'D:\\project', title: '결제 검토', context: { percent: 82 },
       responseIntent: {
         category: 'required', required: true, requestText: '배포 방식을 선택해 주세요?',
+        requestId: 'request-user-input-1', requestedAt: '2026-07-21T03:59:30.000Z',
         confidence: 'high', source: 'input-tool',
       },
       messages: [{ role: 'assistant', text: '배포 방식을 선택해 주세요?', timestamp: '2026-07-21T04:00:00.000Z' }],
@@ -26,6 +27,8 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(result.attention.required, true);
     assert.equal(result.attention.kind, 'input');
     assert.equal(result.attention.source, 'input-tool');
+    assert.equal(result.attention.requestId, 'request-user-input-1');
+    assert.equal(result.attention.requestedAt, '2026-07-21T03:59:30.000Z');
     assert.equal(result.progress.totalSteps, 2);
     assert.equal(result.progress.completedSteps, 1);
     assert.equal(result.progress.failedSteps, 1);
@@ -53,8 +56,9 @@ function registerSessionIntelligenceTests(context) {
         confidence: 'high', source: 'assistant-message',
       },
     }, [], now);
-    assert.equal(cleanWaiting.attention.category, 'none', '일반 문장의 질문·승인 추정은 확인 필요로 분류하지 않아야 합니다.');
+    assert.equal(cleanWaiting.attention.category, 'none', '일반 assistant 문장 추정은 명시적 확인 요청으로 승격하면 안 됩니다.');
     assert.equal(cleanWaiting.attention.required, false);
+    assert.equal(cleanWaiting.attention.actionable, false);
     assert.equal(cleanWaiting.health.level, 'healthy', '응답 요청은 실제 상태 위험 신호와 분리해야 합니다.');
     assert.equal(cleanWaiting.health.signals.length, 0);
 

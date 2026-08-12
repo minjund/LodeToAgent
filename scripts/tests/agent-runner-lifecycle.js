@@ -86,6 +86,8 @@ function registerAgentRunnerLifecycleTests(context) {
     assert.equal(oversized.outputOverflow, true);
     assert.equal(oversized.stdoutBuffer, '');
     assert.equal(oversized.state.status, 'failed');
+    assert.equal(oversized.state.activityState, 'error');
+    assert.equal(oversized.state.completionObserved, false);
     assert.equal(oversized.state.lifecycle.some(item => item.id === 'output-overflow'), true);
     assert.deepStrictEqual(signals, [[-5_101, 'SIGKILL']]);
   });

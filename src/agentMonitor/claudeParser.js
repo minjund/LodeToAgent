@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('path');
+const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createExecutionTracker, reconcileExecutionActivities } = require('./executionActivity');
+const { structuredInputRequestText } = require('./responseIntent');
 
 function createClaudeParser(dependencies) {
   const {
@@ -48,6 +50,7 @@ function createClaudeParser(dependencies) {
       at,
       isError: /^(?:failed|error)$/.test(notification.status),
     });
+    observeActivity(state, 'working', at);
     return notification;
   }
 
@@ -102,6 +105,7 @@ function createClaudeParser(dependencies) {
       detail,
       at: timestamp(row.timestamp, state.latestTs),
     };
+    observeActivity(state, 'error', row.timestamp);
     addLifecycle(session, {
       id: `error:${row.uuid || row.requestId || row.timestamp || session.externalId}`,
       type: 'error',
@@ -315,7 +319,10 @@ function createClaudeParser(dependencies) {
     const id = `${row.uuid || row.requestId || session.externalId}:${index}`;
     if (kind === 'text' && item.text) {
       const text = row.message.role === 'user' ? visibleUserText(item.text) : item.text;
-      if (text) addMessage(session, { id, role: row.message.role, text, timestamp: row.timestamp });
+      if (text) {
+        addMessage(session, { id, role: row.message.role, text, timestamp: row.timestamp });
+        if (row.message.role === 'user') observeActivity(state, 'thinking', row.timestamp);
+      }
     } else if (kind === 'tool_use') {
       const name = item.name || 'tool';
       const callId = item.id || id;
@@ -324,6 +331,7 @@ function createClaudeParser(dependencies) {
       if (isClaudeAgentTool(name)) recordClaudeAgentCall(session, state, row, callId, args);
       if (isClaudeMessageTool(name)) recordClaudeMessageCall(session, state, row, callId, args);
       state.executionTracker.recordCall({ name, callId, args, rawInput: item.input, at: row.timestamp });
+      observeActivity(state, isUserInputTool(name) ? 'notification' : 'working', row.timestamp);
       addMessage(session, {
         id,
         role: 'tool',
@@ -352,6 +360,7 @@ function createClaudeParser(dependencies) {
         at: row.timestamp,
         isError: item.is_error === true,
       });
+      observeActivity(state, 'working', row.timestamp);
       recordClaudeAgentToolResult(session, state, item, row.timestamp);
       settleLifecycle(session, item.tool_use_id, item.is_error ? 'failed' : 'done', row.timestamp);
       addLifecycle(session, {
@@ -362,6 +371,7 @@ function createClaudeParser(dependencies) {
         timestamp: row.timestamp,
       });
     } else if (kind === 'thinking') {
+      observeActivity(state, 'thinking', row.timestamp);
       addLifecycle(session, {
         id,
         type: 'reasoning',
@@ -415,7 +425,12 @@ function createClaudeParser(dependencies) {
     if (role === 'user') {
       const toolResults = content.filter(item => item && item.type === 'tool_result');
       toolResults
-        .forEach(item => state.pendingUserInputCalls.delete(String(item.tool_use_id || '')));
+        .forEach(item => {
+          const callId = String(item.tool_use_id || '');
+          state.pendingUserInputCalls.delete(callId);
+          state.pendingUserInputAt.delete(callId);
+          state.pendingUserInputText.delete(callId);
+        });
       if (!internalUserRow && toolResults.length === 0) state.failure = null;
       const rawUser = content
         .filter(item => !item.type || item.type === 'text')
@@ -427,6 +442,9 @@ function createClaudeParser(dependencies) {
         if (detectedUtility) session.utilityKind = detectedUtility;
         const visibleUser = visibleUserText(rawUser);
         if (visibleUser) {
+          state.pendingUserInputCalls.clear();
+          state.pendingUserInputAt.clear();
+          state.pendingUserInputText.clear();
           session.utilityKind = '';
           state.latestUser = visibleUser;
           state.lastConversationRole = 'user';
@@ -444,7 +462,12 @@ function createClaudeParser(dependencies) {
         state.lastConversationRole = 'assistant';
       }
       content.filter(item => item && item.type === 'tool_use' && isUserInputTool(item.name))
-        .forEach(item => state.pendingUserInputCalls.add(String(item.id || item.name)));
+        .forEach(item => {
+          const callId = String(item.id || item.name);
+          state.pendingUserInputCalls.add(callId);
+          if (!state.pendingUserInputAt.has(callId)) state.pendingUserInputAt.set(callId, timestamp(row.timestamp, state.latestTs));
+          state.pendingUserInputText.set(callId, structuredInputRequestText(item.input));
+        });
       if (String(row.message.stop_reason || '').toLowerCase() === 'end_turn') {
         state.lastTurnFinished = true;
         if (!structuredFailure(row)) state.failure = null;
@@ -468,6 +491,8 @@ function createClaudeParser(dependencies) {
       lastConversationRole: '',
       lastAssistantText: '',
       pendingUserInputCalls: new Set(),
+      pendingUserInputAt: new Map(),
+      pendingUserInputText: new Map(),
       toolCalls: new Map(),
       executionTracker: createExecutionTracker({ compactText, timestamp }),
       claudeMessageCalls: new Map(),
@@ -475,6 +500,8 @@ function createClaudeParser(dependencies) {
       lastTurnFinished: false,
       subagentCompletedAt: null,
       failure: null,
+      activityState: 'idle',
+      activityAt: 0,
     };
     for (const row of rows) {
       state.latestTs = timestamp(row.timestamp, state.latestTs);
@@ -492,16 +519,23 @@ function createClaudeParser(dependencies) {
           ? compactText(visibleUser.split(/\r?\n/)[0], 6000)
           : visibleUser;
         if (queueTitle) {
+          state.pendingUserInputCalls.clear();
+          state.pendingUserInputAt.clear();
+          state.pendingUserInputText.clear();
           session.utilityKind = '';
           state.latestUser = queueTitle;
           state.lastRole = 'user';
           state.lastConversationRole = 'user';
           state.failure = null;
+          observeActivity(state, 'thinking', row.timestamp);
         }
       }
       if (row.type === 'last-prompt' && !state.latestUser && row.lastPrompt) {
         const visibleUser = visibleUserText(row.lastPrompt);
-        if (visibleUser) state.latestUser = visibleUser;
+        if (visibleUser) {
+          state.latestUser = visibleUser;
+          observeActivity(state, 'thinking', row.timestamp);
+        }
       }
       if (row.type === 'system' && row.subtype === 'init') {
         session.model = row.model || session.model;
@@ -515,6 +549,7 @@ function createClaudeParser(dependencies) {
       }
       if (row.type === 'system' && /turn_duration|turn_complete|stop/i.test(String(row.subtype || ''))) {
         state.lastTurnFinished = true;
+        observeActivity(state, 'attention', row.timestamp);
       }
       if (row.message && row.message.role) processMessageRow(session, state, row);
       recordStructuredFailure(session, state, row);
@@ -537,11 +572,19 @@ function createClaudeParser(dependencies) {
     session.context = contextInfo(currentInput, modelContextWindow('claude', session.model, 0));
     const age = Date.now() - fileInfo.mtimeMs;
     const pendingUserInput = state.pendingUserInputCalls.size > 0;
+    const inputRequestId = [...state.pendingUserInputCalls].sort().join('|');
+    const inputRequestedAt = inputRequestId
+      ? inputRequestId.split('|').map(callId => state.pendingUserInputAt.get(callId)).filter(Boolean).sort().at(0) || null
+      : null;
+    const inputRequestText = structuredInputRequestText([...state.pendingUserInputCalls]
+      .map(callId => state.pendingUserInputText.get(callId))
+      .filter(Boolean));
     const responseIntent = assistantResponseIntent(state.lastAssistantText);
     session.responseIntent = pendingUserInput
       ? {
         category: 'required', required: true, optional: false,
-        requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        requestId: inputRequestId, requestedAt: inputRequestedAt,
         confidence: 'high', source: 'input-tool',
       }
       : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
@@ -551,15 +594,12 @@ function createClaudeParser(dependencies) {
       }
     }
     const activeSubagents = session.collaboration.spawns.filter(record => record.status === 'running');
-    const conversationalInput = state.lastConversationRole === 'assistant'
-      && responseIntent.required
-      && (state.lastTurnFinished || age >= ACTIVE_THRESHOLD_MS);
     if (state.failure) {
       session.status = 'failed';
       session.statusDetail = state.failure.detail;
       session.completedAt = state.failure.at;
       session.statusObserved = true;
-    } else if (!session.depth && (pendingUserInput || conversationalInput)) {
+    } else if (!session.depth && pendingUserInput) {
       session.status = 'waiting';
       session.statusDetail = '내 답변을 기다리는 중';
     } else if (!session.depth && activeSubagents.length) {
@@ -592,6 +632,14 @@ function createClaudeParser(dependencies) {
       waitingForUser: session.status === 'waiting',
     });
     session.statusObserved = session.status === 'failed' || age < ACTIVE_THRESHOLD_MS;
+    session.activityState = finalizedActivityState({
+      status: session.status,
+      completionObserved: session.completionObserved,
+      pendingInput: pendingUserInput,
+      activeSubagents: activeSubagents.length > 0,
+      recent: age < STALE_TURN_THRESHOLD_MS,
+      observed: state.activityState,
+    });
     trimSession(session);
     return session;
   }

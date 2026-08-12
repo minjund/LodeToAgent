@@ -94,10 +94,12 @@ function makeSession(id, provider, opts) {
     cwd: opts.cwd,
     branch: '',
     status: 'starting',
+    activityState: 'thinking',
     statusDetail: 'AI 프로그램 시작 중',
     startedAt: now,
     updatedAt: now,
     endedAt: null,
+    completionObserved: false,
     usage: blankUsage(),
     turnUsage: blankUsage(),
     context: { used: 0, window: context.tokens, percent: 0, source: context.source },
@@ -186,6 +188,7 @@ function handleClaude(state, event) {
     state.externalId = event.session_id || state.externalId;
     state.model = event.model || state.model;
     state.status = 'running';
+    state.activityState = 'thinking';
     state.statusDetail = 'AI 반복 작업 중';
     addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start', status: 'done' });
   }
@@ -195,6 +198,7 @@ function handleClaude(state, event) {
       setClaudeStreamMessageId(state, inner.message.id);
     }
     if (inner.type === 'content_block_delta' && inner.delta && inner.delta.type === 'text_delta') {
+      if (inner.delta.text) state.completionObserved = true;
       addMessage(state, 'assistant', inner.delta.text, {
         id: state.__claudeStreamMessageId || 'live-answer',
         append: true,
@@ -209,9 +213,14 @@ function handleClaude(state, event) {
     const blocks = Array.isArray(event.message.content) ? event.message.content : [];
     const messageId = event.message.id || event.uuid || state.__claudeStreamMessageId || 'live-answer';
     const text = blocks.filter(block => block.type === 'text').map(block => block.text).filter(Boolean).join('\n');
-    if (text) addMessage(state, 'assistant', text, { id: messageId, status: 'done' });
+    if (text) {
+      state.completionObserved = true;
+      addMessage(state, 'assistant', text, { id: messageId, status: 'done' });
+    }
     for (const block of blocks) {
       if (block.type === 'tool_use') {
+        state.completionObserved = true;
+        state.activityState = 'working';
         addMessage(state, 'tool', block.input, { id: block.id, type: 'tool', title: block.name, status: 'running' });
         addLifecycle(state, 'tool', block.name || '도구 실행', { id: block.id, status: 'running' });
       }
@@ -220,6 +229,8 @@ function handleClaude(state, event) {
   }
   if (event.type === 'result') {
     state.status = event.is_error ? 'failed' : 'completed';
+    state.completionObserved = !event.is_error && Boolean(state.completionObserved || event.result);
+    state.activityState = event.is_error ? 'error' : (state.completionObserved ? 'attention' : 'idle');
     state.statusDetail = event.is_error ? (event.result || '실행 실패') : '작업 완료';
     state.endedAt = new Date().toISOString();
     state.usage = usageFrom(event.usage || event);
@@ -237,24 +248,36 @@ function handleCodex(state, event) {
   if (event.type === 'thread.started') {
     state.externalId = event.thread_id || state.externalId;
     state.status = 'running';
+    state.activityState = 'thinking';
     state.statusDetail = '스레드 시작';
     addLifecycle(state, 'session-start', '스레드 시작', { id: 'session-start' });
   } else if (event.type === 'turn.started') {
     state.status = 'running';
+    state.completionObserved = false;
+    state.activityState = 'thinking';
     state.statusDetail = '턴 실행 중';
     addLifecycle(state, 'turn-start', '턴 시작', { id: `turn:${state.lifecycle.length}`, status: 'running' });
   } else if (event.type === 'item.started' || event.type === 'item.completed' || event.type === 'item.updated') {
     const item = event.item || {};
     const done = event.type === 'item.completed';
-    if (item.type === 'agent_message') addMessage(state, 'assistant', item.text, { id: item.id, status: done ? 'done' : 'streaming' });
-    else if (item.type === 'reasoning') addLifecycle(state, 'reasoning', '추론', { id: item.id, status: done ? 'done' : 'running' });
+    if (item.type === 'agent_message') {
+      if (item.text) state.completionObserved = true;
+      addMessage(state, 'assistant', item.text, { id: item.id, status: done ? 'done' : 'streaming' });
+    }
+    else if (item.type === 'reasoning') {
+      state.activityState = 'thinking';
+      addLifecycle(state, 'reasoning', '추론', { id: item.id, status: done ? 'done' : 'running' });
+    }
     else {
+      state.completionObserved = true;
+      state.activityState = 'working';
       const title = item.command || item.name || item.type || '작업 항목';
       addMessage(state, 'tool', item.command || item.text || item.arguments || title, { id: item.id, type: 'tool', title, status: done ? 'done' : 'running' });
       addLifecycle(state, 'tool', clip(title, 100), { id: item.id, status: done ? 'done' : 'running' });
     }
   } else if (event.type === 'turn.completed') {
     state.status = 'completed';
+    state.activityState = state.completionObserved ? 'attention' : 'idle';
     state.statusDetail = '작업 완료';
     state.endedAt = new Date().toISOString();
     state.usage = usageFrom(event.usage);
@@ -262,6 +285,8 @@ function handleCodex(state, event) {
     addLifecycle(state, 'turn-complete', '턴 완료', { id: 'turn-complete', status: 'done' });
   } else if (event.type === 'turn.failed' || event.type === 'error') {
     state.status = 'failed';
+    state.completionObserved = false;
+    state.activityState = 'error';
     state.statusDetail = clip(event.message || event.error || 'Codex 실행 실패', 240);
     state.endedAt = new Date().toISOString();
     addLifecycle(state, 'error', '실행 실패', { id: 'run-error', detail: state.statusDetail, status: 'failed' });
@@ -274,26 +299,35 @@ function handleGemini(state, event) {
     state.externalId = event.session_id || event.sessionId || state.externalId;
     state.model = event.model || state.model;
     state.status = 'running';
+    state.activityState = 'thinking';
     state.statusDetail = '작업 시작';
     addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start' });
   } else if (type === 'message') {
     const role = /assistant|model/.test(String(event.role || event.author || '').toLowerCase()) ? 'assistant' : 'user';
     addMessage(state, role, event.content || event.text || event.message, { id: event.id, status: event.delta ? 'streaming' : 'done' });
+    if (role === 'assistant' && (event.content || event.text || event.message)) state.completionObserved = true;
+    if (role === 'user') state.activityState = 'thinking';
     state.statusDetail = role === 'assistant' ? '응답 스트리밍 중' : '요청 처리 중';
   } else if (type === 'tool_use') {
+    state.completionObserved = true;
+    state.activityState = 'working';
     const name = event.tool_name || event.name || '도구 실행';
     addMessage(state, 'tool', event.parameters || event.args, { id: event.id, type: 'tool', title: name, status: 'running' });
     addLifecycle(state, 'tool', name, { id: event.id, status: 'running' });
   } else if (type === 'tool_result') {
+    state.activityState = event.error ? 'error' : 'working';
     addLifecycle(state, 'tool-result', '도구 완료', { id: `result:${event.id || event.tool_id}`, status: event.error ? 'failed' : 'done' });
   } else if (type === 'result') {
     state.usage = usageFrom(event.stats || event.usage || event);
     state.turnUsage = state.usage;
     state.status = event.error ? 'failed' : 'completed';
+    state.completionObserved = !event.error && Boolean(state.completionObserved || event.result || event.output);
+    state.activityState = event.error ? 'error' : (state.completionObserved ? 'attention' : 'idle');
     state.statusDetail = event.error ? clip(event.error, 220) : '작업 완료';
     state.endedAt = new Date().toISOString();
     addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '작업 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
   } else if (type === 'error') {
+    state.activityState = 'error';
     addLifecycle(state, 'error', '경고 또는 오류', { id: event.id, detail: event.message || event.error, status: 'failed' });
   }
 }
@@ -305,24 +339,34 @@ function handleGrok(state, event) {
   if (event.model) state.model = event.model;
   if (/init|session_start|started/.test(type)) {
     state.status = 'running';
+    state.activityState = 'thinking';
     state.statusDetail = '작업 진행 중';
     addLifecycle(state, 'session-start', '작업 시작', { id: 'session-start' });
   }
   if (/message|agent_message|assistant/.test(type)) {
     const role = /user/.test(String(event.role || '')) ? 'user' : 'assistant';
     addMessage(state, role, event.text || event.content || event.message || event.delta, { id: event.id, status: event.delta ? 'streaming' : 'done' });
+    if (role === 'assistant' && (event.text || event.content || event.message || event.delta)) state.completionObserved = true;
+    if (role === 'user') state.activityState = 'thinking';
   }
   if (/tool.*(?:start|use|call)/.test(type)) {
+    state.completionObserved = true;
+    state.activityState = 'working';
     const name = event.tool_name || event.name || event.tool || '도구 실행';
     addMessage(state, 'tool', event.input || event.args || event.parameters, { id: event.id, type: 'tool', title: name, status: 'running' });
     addLifecycle(state, 'tool', name, { id: event.id, status: 'running' });
   }
-  if (/tool.*(?:result|end|complete)/.test(type)) addLifecycle(state, 'tool-result', '도구 완료', { id: `result:${event.id || event.tool_call_id}`, status: event.error ? 'failed' : 'done' });
+  if (/tool.*(?:result|end|complete)/.test(type)) {
+    state.activityState = event.error ? 'error' : 'working';
+    addLifecycle(state, 'tool-result', '도구 완료', { id: `result:${event.id || event.tool_call_id}`, status: event.error ? 'failed' : 'done' });
+  }
   const usage = usageFrom(event.usage || event.stats || {});
   if (usage.total) state.turnUsage = usage;
   if (/result|session_end|completed|done/.test(type)) {
     state.usage = usage.total ? usage : state.turnUsage;
     state.status = event.error ? 'failed' : 'completed';
+    state.completionObserved = !event.error && Boolean(state.completionObserved || event.result || event.output);
+    state.activityState = event.error ? 'error' : (state.completionObserved ? 'attention' : 'idle');
     state.statusDetail = event.error ? clip(event.error, 220) : '작업 완료';
     state.endedAt = new Date().toISOString();
     addLifecycle(state, 'session-end', state.status === 'failed' ? '실행 실패' : '작업 완료', { id: 'session-end', status: state.status === 'failed' ? 'failed' : 'done' });
@@ -453,6 +497,7 @@ class AgentRunner extends EventEmitter {
       });
     } catch (error) {
       state.status = 'failed';
+      state.activityState = 'error';
       state.statusDetail = error.message;
       atomicJson(path.join(dir, 'session.json'), state);
       return { ok: false, error: error.message };
@@ -466,6 +511,7 @@ class AgentRunner extends EventEmitter {
     };
     this.active.set(id, run);
     state.status = 'running';
+    state.activityState = 'thinking';
     state.statusDetail = '자세한 활동 기록 연결됨';
     addLifecycle(state, 'process-start', 'AI 프로그램 시작', { id: 'process-start', detail: '프로그램 실행 중', status: 'running' });
     this.persist(run);
@@ -482,9 +528,11 @@ class AgentRunner extends EventEmitter {
       this.flush(run, 'stderr');
       if (run.stopping) {
         state.status = 'cancelled';
+        state.activityState = 'idle';
         state.statusDetail = '사용자가 중지함';
       } else if (state.status === 'running' || state.status === 'starting' || state.status === 'paused') {
         state.status = code === 0 ? 'completed' : 'failed';
+        state.activityState = code === 0 ? (state.completionObserved ? 'attention' : 'idle') : 'error';
         state.statusDetail = code === 0 ? '작업 완료' : 'AI 프로그램 실행 실패';
       }
       state.endedAt = new Date().toISOString();
@@ -545,6 +593,8 @@ class AgentRunner extends EventEmitter {
     run.stdoutDecoder = null;
     run.stderrDecoder = null;
     run.state.status = 'failed';
+    run.state.activityState = 'error';
+    run.state.completionObserved = false;
     run.state.statusDetail = 'AI 프로그램 출력 한 줄이 안전한 크기를 초과했습니다.';
     run.state.endedAt = new Date().toISOString();
     run.state.updatedAt = run.state.endedAt;
@@ -584,7 +634,10 @@ class AgentRunner extends EventEmitter {
       else handleGrok(run.state, event);
     } else if (stream === 'stderr') {
       addLifecycle(run.state, 'log', 'AI 프로그램 상태', { detail: clip(line, 500), status: 'running' });
-      if (/error|failed|fatal/i.test(line)) run.state.statusDetail = clip(line, 240);
+      if (/error|failed|fatal/i.test(line)) {
+        run.state.activityState = 'error';
+        run.state.statusDetail = clip(line, 240);
+      }
     }
     run.state.updatedAt = new Date().toISOString();
     updateContext(run.state);
@@ -595,6 +648,7 @@ class AgentRunner extends EventEmitter {
   handleChildError(run, error) {
     if (!run || run.finalized) return;
     run.state.status = 'failed';
+    run.state.activityState = 'error';
     run.state.statusDetail = error.message;
     addLifecycle(run.state, 'error', '실행 중인 프로그램 오류', {
       id: 'process-error', detail: error.message, status: 'failed',
@@ -689,6 +743,7 @@ class AgentRunner extends EventEmitter {
     const applyState = () => {
       if (run.finalized) return { ok: false, error: '이미 종료된 작업은 상태를 바꿀 수 없습니다.' };
       run.state.status = paused ? 'paused' : 'running';
+      run.state.activityState = paused ? 'idle' : 'thinking';
       run.state.statusDetail = paused ? '사용자가 실행을 일시정지함' : '사용자가 실행을 다시 시작함';
       addLifecycle(run.state, paused ? 'process-pause' : 'process-resume', paused ? '실행 일시정지' : '실행 다시 시작', {
         id: `${paused ? 'pause' : 'resume'}:${Date.now()}`,
@@ -836,6 +891,7 @@ class AgentRunner extends EventEmitter {
       runBestEffort('runner-dispose-flush-stderr', () => this.flush(run, 'stderr'));
       run.finalized = true;
       run.state.status = 'cancelled';
+      run.state.activityState = 'idle';
       run.state.statusDetail = systemShutdown
         ? 'Windows 시스템 종료로 실행을 중지함'
         : (errors.length ? '프로그램 종료 중 실행 상태를 확인하지 못함' : '프로그램 종료로 실행을 중지함');

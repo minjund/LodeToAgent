@@ -8,6 +8,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     esc,
     state,
     STATUS,
+    sessionStatusLabel = (session, status = session?.status) => STATUS[status] || status,
     readablePreview,
     compact,
     timeAgo,
@@ -39,7 +40,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     ensureProjectOrder = projectKeys => projectKeys,
   } = context;
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const statusLabel = (status) => ({
+  const statusLabel = (status, session) => session ? sessionStatusLabel(session, status) : ({
     starting: t("ui.preparing"), running: t("ui.working"), waiting: t("ui.waiting_for_review"), idle: t("ui.idle"),
     completed: t("ui.completed"), failed: t("ui.problem"), cancelled: t("ui.stopped"),
   })[status] || STATUS[status] || status;
@@ -102,7 +103,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small></span>
           ${executionModeBadge(session, true)}
-          <span class="status-pill ${statusClass(presentationStatus)}">${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</span>
+          <span class="status-pill ${statusClass(presentationStatus)} activity-${esc(presentationStatus === "waiting" ? "notification" : session.activityState || "idle")}">${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, session))}</span>
         </span>
         <span class="agent-task-label">
           ${session.parentId ? t("graph.assigned_task", { source: "" }) : t("graph.current_goal")}
@@ -212,7 +213,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <em>${esc(identity)} · ${directChildren ? `${t("graph.helper_ai_count", { count: directChildren })} · ` : ""}${esc(timeAgo(session.updatedAt))}</em>
         ${sharedGoalCopy}${outcomeCopy}
       </span>
-      <span class="agent-flow-provider"><i>${esc(provider.mark)}</i><small>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</small></span>
+      <span class="agent-flow-provider"><i>${esc(provider.mark)}</i><small>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, session))}</small></span>
     </button>`;
   }
 
@@ -672,7 +673,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       data-control-summary="${esc(title.text)}"
       data-motion-key="control-main:${esc(root.id)}" data-motion-value="${esc(root.updatedAt || "")}:${esc(root.status || "")}"
       style="${providerStyle(root.provider)}">
-      <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><b>${esc(provider.label)}${root.model && root.model !== provider.label ? ` · ${esc(root.model)}` : ""}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus))}</em></span>
+      <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><b>${esc(provider.label)}${root.model && root.model !== provider.label ? ` · ${esc(root.model)}` : ""}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, root))}</em></span>
       <strong title="${esc(title.full)}">${esc(title.text)}</strong>
       <span class="control-main-now"><small>${esc(t("graph.current_work"))}</small><b title="${esc(current.full)}">${esc(current.text)}</b></span>
       <span class="control-main-meta"><small>${esc(t("control.unit_counts", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small><b>PTY ${state.inlineTerminalSessionId === root.id ? "↑" : "↓"}</b></span>
@@ -933,7 +934,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       if (recent.length >= 5) break;
     }
     const stageTone = normalizeObservationStatus(delivery ? "running" : presentationStatus);
-    const stageLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus);
+    const stageLabel = delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, session);
     const activityCountLabel = observations.length > recent.length
       ? t("graph.recent_of_total_events", { recent: recent.length, total: observations.length })
       : t("common.events", { count: observations.length });

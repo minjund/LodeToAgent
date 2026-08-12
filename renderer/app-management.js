@@ -11,6 +11,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     readablePreview = value => ({ text: String(value || "") }),
     currentActivity = session => ({ title: session.statusDetail || "", detail: "" }),
     latestWorkCopy = session => session.statusDetail || "",
+    sessionStatusLabel = (session, status = session?.status) => status,
     isLiveSession = session => ["starting", "running"].includes(session && session.status),
     isResultReviewComplete = () => false,
     resultReviewTargets = () => [],
@@ -673,10 +674,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       if (session.parentId) factors.push(t("management.supervision_factor_delegated"));
       return factors.join(" · ");
     };
-    const statusLabel = status => ({
-      starting: t("ui.preparing"), running: t("ui.working"), paused: t("management.attention.paused"),
-      waiting: t("ui.waiting_for_review"), failed: t("ui.problem"), completed: t("ui.completed"),
-    })[status] || status;
+    const statusLabel = session => sessionStatusLabel(session, session.status);
     const controlLabel = mode => t(`management.supervision_control_${mode}`);
     const queue = ordered.map(session => {
       const index = ordered.findIndex(candidate => candidate.id === session.id);
@@ -725,7 +723,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
         <header class="supervision-primary-head">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <div><small data-supervision-focus-kind="${selectedIsRecommended ? "recommended" : "selected"}">${esc(focusLabel)} · ${esc(role)}</small><h3>${esc(readablePreview(selected.agentName || selected.title, 96).text)}</h3><p>${esc(provider.label)} · ${esc(selected.model || t("session.model_unknown"))}${parent ? ` · ${esc(t("management.supervision_parent", { parent: readablePreview(parent.agentName || parent.title, 46).text }))}` : ""}</p></div>
-          <span class="supervision-status ${esc(selected.status || "")}"><i aria-hidden="true"></i>${esc(statusLabel(selected.status))}</span>
+          <span class="supervision-status ${esc(selected.status || "")}"><i aria-hidden="true"></i>${esc(statusLabel(selected))}</span>
         </header>
         <div class="supervision-mobile-now">
           <div><span>${esc(t("management.supervision_current_behavior"))}</span><b>${esc(prioritySummary(activity.title || selected.statusDetail))}</b><small>${esc(prioritySummary(latestWorkCopy(selected) || activity.detail || selected.statusDetail))}</small></div>

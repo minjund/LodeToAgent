@@ -6,6 +6,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   const observedText = (value) => window.LoadToAgentI18n.observedText(value);
   const PROJECTLESS_WORKSPACE = "__projectless__";
   const SESSION_RETENTION_MS = 30 * 60 * 1000;
+  const LIVE_ACTIVITY_STATES = new Set(["thinking", "working", "juggling", "notification"]);
   const SESSION_ARCHIVE_STORAGE_KEY = "loadtoagent:session-archives:v1";
   const RESULT_REVIEW_STORAGE_KEY = "loadtoagent:result-reviews:v1";
   const PROJECT_DISMISSALS_STORAGE_KEY = "loadtoagent:project-dismissals:v1";
@@ -340,6 +341,21 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     starting: "ui.preparing", running: "ui.working", paused: "management.status.paused", waiting: "ui.waiting_for_review", idle: "ui.idle",
     completed: "ui.completed", failed: "ui.problem", cancelled: "ui.stopped",
   });
+  const ACTIVITY_STATUS = localizedLookup({
+    thinking: "ui.agent_thinking", working: "ui.agent_working", juggling: "ui.agent_working",
+    notification: "ui.agent_waiting", error: "ui.problem", idle: "ui.agent_idle",
+  });
+  const sessionStatusLabel = (session, presentedStatus = session && session.status) => {
+    const status = String(presentedStatus || "");
+    if (["completed", "failed", "cancelled", "paused"].includes(status)) return STATUS[status] || status;
+    const activityState = String(session && session.activityState || "");
+    const explicitWaiting = session?.attention?.category === "required"
+      && ["execution-approval", "input-tool"].includes(session.attention.source);
+    if (status === "waiting" || activityState === "notification" || explicitWaiting) return ACTIVITY_STATUS.notification;
+    if (["thinking", "working", "juggling"].includes(activityState)) return ACTIVITY_STATUS[activityState];
+    if (status === "idle" || activityState === "idle") return ACTIVITY_STATUS.idle;
+    return STATUS[status] || status;
+  };
   const VIEW_TITLES = localizedLookup({
     all: "ui.recent_conversations_and_tasks", active: "ui.active_tasks", waiting: "ui.tasks_needing_review",
     runtime: "runtime.title", terminal: "app.nav.session_terminal", tmux: "app.nav.tmux", settings: "settings.title",
@@ -884,7 +900,10 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return { title: observedText(session.statusDetail || t("ui.temporarily_idle")), detail: observedText((message && message.text) || ""), type: "activity" };
   }
   function isLiveSession(session) {
-    return session && (session.status === "running" || session.status === "starting");
+    if (!session) return false;
+    const status = String(session.status || "").toLowerCase();
+    const activityState = String(session.activityState || "").toLowerCase();
+    return status === "running" || status === "starting" || LIVE_ACTIVITY_STATES.has(activityState);
   }
   function hasRunningExecution(session) {
     return Boolean((session?.executions || []).some((execution) => execution?.status === "running"));
@@ -1142,9 +1161,12 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function controlRoomStatus(session, now = Date.now()) {
     // Retention controls where a recently active session is shown, not what
-    // state it is in. Preserve the observed provider status so an idle or
-    // completed session is never presented as waiting for user input.
+    // state it is in. Only a live terminal permission prompt temporarily
+    // overrides the provider status for presentation.
     isControlRoomSession(session, now);
+    const explicitWaiting = session?.attention?.category === "required"
+      && ["execution-approval", "input-tool"].includes(session.attention.source);
+    if (window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || explicitWaiting) return "waiting";
     return session?.status;
   }
   function sessionRetentionMinutes(session, now = Date.now()) {
@@ -1260,6 +1282,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     restoreRenderFocus,
     preserveFocusDuringRender,
     STATUS,
+    sessionStatusLabel,
     VIEW_TITLES,
     VIEW_META,
     GUIDE_STORAGE_KEY,
