@@ -276,6 +276,86 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     return [...roots.values()];
   }
 
+  function projectNoticeModel() {
+    const rootSessions = displaySessions().filter((session) => !session.parentId);
+    const allVisibleSessions = visibleSessions();
+    const allSessionsById = new Map(allVisibleSessions.map((session) => [String(session.id || ""), session]));
+    const rootSessionFor = (session) => {
+      let current = session;
+      const visited = new Set();
+      while (current?.parentId && !visited.has(String(current.id || ""))) {
+        visited.add(String(current.id || ""));
+        const parent = allSessionsById.get(String(current.parentId || ""));
+        if (!parent) break;
+        current = parent;
+      }
+      return current || session;
+    };
+    const actorsForRoot = (root) => {
+      const queue = [root];
+      const seen = new Set();
+      const actors = [];
+      while (queue.length) {
+        const session = queue.shift();
+        if (!session?.id || seen.has(String(session.id))) continue;
+        seen.add(String(session.id));
+        actors.push(session);
+        queue.push(...(session.childIds || []).map(id => allSessionsById.get(String(id))).filter(Boolean));
+      }
+      return actors;
+    };
+    const ownerMatches = (root, projectPath) => normalizedProjectPath(controlRoomProject(root).path) === normalizedProjectPath(projectPath);
+    const resultEntries = (root) => {
+      if (controlRoomStatus(root) !== "completed" || typeof context.resultReviewTargets !== "function") return [];
+      return context.resultReviewTargets(root)
+        .filter(session => !context.isProjectNoticeSeen?.("result", session))
+        .map(session => ({ kind: "result", session }));
+    };
+    const attentionEntries = (root) => actorsForRoot(root).flatMap((session) => {
+      const entries = [];
+      if (typeof context.needsManagementInbox === "function"
+        ? context.needsManagementInbox(session)
+        : Boolean(session?.attention?.required || session?.attention?.category === "required")) {
+        if (!context.isProjectNoticeSeen?.("attention", session)) entries.push({ kind: "attention", session });
+      }
+      const prompt = window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null;
+      if (prompt && !context.isProjectNoticeSeen?.("terminal", session, prompt)) entries.push({ kind: "terminal", session, prompt });
+      return entries;
+    });
+    const signalsForProject = (projectPath) => rootSessions
+      .filter(root => ownerMatches(root, projectPath))
+      .map(root => ({ root, result: resultEntries(root), attention: attentionEntries(root) }))
+      .filter(signal => signal.result.length || signal.attention.length);
+    return { rootSessionFor, actorsForRoot, signalsForProject, resultEntries, attentionEntries };
+  }
+
+  function projectNoticeSignals(projectPath) {
+    return projectNoticeModel().signalsForProject(projectPath);
+  }
+
+  function acknowledgeProjectNotices(projectPath) {
+    if (!projectPath || projectPath === "all" || projectPath === PROJECTLESS_WORKSPACE) return 0;
+    const entries = projectNoticeSignals(projectPath).flatMap(signal => [...signal.result, ...signal.attention]);
+    return context.markProjectNoticesSeen?.(entries) || 0;
+  }
+
+  function acknowledgeSessionNotices(sessionOrId) {
+    const sessions = visibleSessions();
+    const session = typeof sessionOrId === "object"
+      ? sessionOrId
+      : sessions.find(item => String(item.id || "") === String(sessionOrId || ""));
+    if (!session) return 0;
+    const model = projectNoticeModel();
+    const root = model.rootSessionFor(session);
+    const actors = session.parentId ? [session] : model.actorsForRoot(root);
+    const actorIds = new Set(actors.map(actor => String(actor.id || "")));
+    const entries = [
+      ...model.resultEntries(root).filter(entry => actorIds.has(String(entry.session?.id || ""))),
+      ...model.attentionEntries(root).filter(entry => actorIds.has(String(entry.session?.id || ""))),
+    ];
+    return context.markProjectNoticesSeen?.(entries) || 0;
+  }
+
   function renderWorkspaces() {
     const rootSessions = displaySessions().filter((session) => !session.parentId);
     const liveRootSessions = controlRoomRootSessions();
@@ -301,10 +381,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       const root = rootSessionFor(session);
       return sessionOriginPath(root) || sessionOriginPath(session);
     };
-    const sessionNeedsAttention = (session) => typeof context.needsManagementInbox === "function"
-      ? context.needsManagementInbox(session)
-        || Boolean(window.LoadToAgentTerminal?.pendingPromptForSession?.(session))
-      : Boolean(session?.attention?.required || session?.attention?.category === "required" || ["waiting", "failed", "paused"].includes(session?.status));
     const sessionsForProject = (item) => allVisibleSessions.filter((session) => (
       !isProjectlessSession(rootSessionFor(session))
       && projectContainsPath(item.path, sessionProjectPath(session))
@@ -317,17 +393,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       });
       return [...roots.values()];
     };
-    const topLevelRootSessions = uniqueRootSessions(rootSessions);
     const projectLiveSessions = (item) => uniqueRootSessions(sessionsForProject(item).filter(isControlRoomSession));
-    const projectResultReadySessions = (item) => {
-      const projectPath = normalizedProjectPath(item.path);
-      return topLevelRootSessions.filter((root) => (
-        normalizedProjectPath(controlRoomProject(root).path) === projectPath
-        && controlRoomStatus(root) === "completed"
-        && typeof context.resultReviewTargets === "function"
-        && context.resultReviewTargets(root).length > 0
-      ));
-    };
+    const noticeModel = projectNoticeModel();
+    const noticesByProject = new Map(projects.map(project => [
+      normalizedProjectPath(project.path),
+      noticeModel.signalsForProject(project.path),
+    ]));
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
     const nonFolderWork = (name) => /관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹|다시 시작한 작업/.test(String(name || ""));
@@ -388,8 +459,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
     const sidebarProjectStates = new Map(projects.map((project) => {
       const live = projectLiveSessions(project);
-      const attention = live.filter(sessionNeedsAttention);
-      const resultReady = projectResultReadySessions(project);
+      const notices = noticesByProject.get(normalizedProjectPath(project.path)) || [];
+      const attention = notices.filter(signal => signal.attention.length).map(signal => signal.root);
+      const resultReady = notices.filter(signal => signal.result.length).map(signal => signal.root);
       return [normalizedProjectPath(project.path), {
         live,
         attention,
@@ -427,6 +499,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
           <button type="button" class="workspace-item project-sidebar-item ${selected ? "selected" : ""}"
             data-workspace="${esc(item.path)}" title="${esc(item.path)}"
             data-live-session-count="${live.length}"
+            data-attention-session-count="${attention.length}"
             data-result-ready-count="${resultReady.length}"
             data-project-priority="${priority}"
             draggable="${canReorderSidebarProjects ? "true" : "false"}"
@@ -1192,6 +1265,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     matchesWorkspaceFilter,
     unlinkedLiveTmuxSessions,
     controlRoomRootSessions,
+    projectNoticeSignals,
+    acknowledgeProjectNotices,
+    acknowledgeSessionNotices,
     renderWorkspaces: (...args) => preserveFocusDuringRender(() => renderWorkspaces(...args)),
     renderGlobalStats: (...args) => preserveFocusDuringRender(() => renderGlobalStats(...args)),
     formatBytes,
