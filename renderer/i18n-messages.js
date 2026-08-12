@@ -271,6 +271,8 @@
     "studio.sidebar.project_summary": {"ko":"{status} · 세션 {count}","en":"{status} · {count} sessions","zh-CN":"{status} · {count} 个会话"},
     "studio.sidebar.overall_summary": {"ko":"진행 중 {active} · 전체 {total}","en":"{active} active · {total} total","zh-CN":"进行中 {active} · 共 {total}"},
     "studio.sidebar.needs_review": {"ko":"확인 필요","en":"Needs review","zh-CN":"需要确认"},
+    "studio.sidebar.result_ready": {"ko":"완료 결과","en":"Result ready","zh-CN":"结果已就绪"},
+    "studio.sidebar.result_ready_label": {"ko":"확인할 완료 결과 {count}건","en":"{count} completed results ready to review","zh-CN":"有 {count} 个完成结果待查看"},
     "studio.review.what": {"ko":"지금 확인할 내용","en":"What needs your attention","zh-CN":"现在需要确认的内容"},
     "studio.review.approval": {"ko":"승인이 필요해요","en":"Approval needed","zh-CN":"需要批准"},
     "studio.review.response": {"ko":"답변을 기다리고 있어요","en":"Waiting for your response","zh-CN":"正在等待您的回复"},

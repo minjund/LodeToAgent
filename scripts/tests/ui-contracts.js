@@ -1622,11 +1622,26 @@ function registerUiContractTests(context) {
     const expired = { ...ended, id: 'expired', messages: [{ role: 'assistant', timestamp: new Date(now - 31 * 60 * 1000).toISOString() }] };
     assert.equal(core.isControlRoomSession({ ...expired, status: 'running' }, now), true);
     assert.equal(core.isControlRoomSession(expired, now), false);
-    const child = { ...ended, id: 'child', parentId: 'root' };
+    const child = { ...ended, id: 'child', parentId: 'root', childIds: ['grandchild'] };
+    const grandchild = { ...ended, id: 'grandchild', parentId: 'child', status: 'running', activityState: 'working', childIds: [] };
     const rootSession = { ...ended, id: 'root', childIds: ['child'] };
-    core.state.snapshot = { sessions: [rootSession, child] };
+    core.state.snapshot = { sessions: [rootSession, child, grandchild] };
+    assert.equal(core.workflowHasActiveDescendant(rootSession), true);
+    assert.equal(core.isWorkflowLive(rootSession), true);
+    assert.equal(core.controlRoomStatus(rootSession, now), 'running',
+      '중첩 서브에이전트가 실행 중이면 완료된 메인 AI를 작업 중으로 표시해야 합니다.');
+    assert.equal(core.isResultReviewCandidate(rootSession), false,
+      '하위 작업이 남아 있는 메인 AI의 결과를 완료 확인 대상으로 먼저 노출하면 안 됩니다.');
+    assert.equal(core.archiveSession(rootSession), false,
+      '하위 작업이 남아 있는 메인 AI를 지난 기록으로 이동하면 안 됩니다.');
+    grandchild.status = 'completed';
+    grandchild.activityState = 'attention';
+    core.state.snapshot = { sessions: [rootSession, child, grandchild] };
+    assert.equal(core.isWorkflowLive(rootSession), false);
+    assert.equal(core.controlRoomStatus(rootSession, now), 'completed');
+    assert.equal(core.isResultReviewCandidate(rootSession), true);
     assert.equal(core.isControlRoomSession({ ...rootSession, status: 'running' }, now), true);
-    assert.equal(core.isControlRoomSession({ ...child, status: 'running' }, now), true);
+    assert.equal(core.isControlRoomSession({ ...child, status: 'running', activityState: 'working' }, now), true);
     assert.equal(core.archiveSession('root'), true);
     assert.equal(core.isControlRoomSession(child, now), false);
     assert.ok(values.get(core.SESSION_ARCHIVE_STORAGE_KEY));
@@ -2080,7 +2095,7 @@ function registerUiContractTests(context) {
     assert.ok(source.includes('graph.progress_basis_note'), '기록된 단계 비율을 전체 계획 진척률로 오해하지 않도록 근거 안내가 필요합니다.');
   });
 
-  test('AI 카드는 오른쪽 대화창 대신 바로 아래 PTY를 토글하고 상세 화면에 요약과 토큰을 둔다', () => {
+  test('메인 담당 AI만 바로 아래 PTY를 토글하고 실행·도움 노드는 기존 상세를 연다', () => {
     const graph = fs.readFileSync(path.join(root, 'renderer', 'app-graph-view.js'), 'utf8');
     const events = fs.readFileSync(path.join(root, 'renderer', 'app-events-sessions.js'), 'utf8');
     const orchestration = fs.readFileSync(path.join(root, 'renderer', 'app-graph-orchestration.js'), 'utf8');
@@ -2089,8 +2104,29 @@ function registerUiContractTests(context) {
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-workflow-map.css'), 'utf8');
 
-    assert.ok(graph.includes('data-inline-pty-trigger='), 'AI 카드에 인라인 PTY 토글 대상이 없습니다.');
-    const inlinePanelIndex = graph.indexOf('${state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}');
+    const graphNodeSource = graph.slice(graph.indexOf('function graphNode('), graph.indexOf('function compactGraphNode('));
+    const compactGraphSource = graph.slice(graph.indexOf('function compactGraphNode('), graph.indexOf('function providerFlowLane('));
+    const helperNodeSource = graph.slice(graph.indexOf('function controlRoomChildNode('), graph.indexOf('function controlRoomExecutionNode('));
+    const executionNodeSource = graph.slice(graph.indexOf('function controlRoomExecutionNode('), graph.indexOf('function controlRoomRetainedDecision('));
+    const controlRoomSource = graph.slice(graph.indexOf('function controlRoomSession('), graph.indexOf('function runtimeSeparatedOverview('));
+
+    assert.match(graphNodeSource, /const inlinePtyAttributes = session\.parentId\s*\? ""\s*:\s*` data-inline-pty-trigger=/,
+      '선택 흐름의 PTY 트리거가 메인 담당 AI로 제한되지 않았습니다.');
+    assert.match(controlRoomSource, /const controlRoomPtyAttributes = root\.parentId\s*\? ""\s*:\s*` data-inline-pty-trigger=/,
+      '처리 중 화면의 PTY 트리거가 메인 담당 AI로 제한되지 않았습니다.');
+    assert.match(controlRoomSource, /class="control-room-main"\$\{controlRoomPtyAttributes\}/,
+      '처리 중 화면의 메인 담당 AI에 PTY 토글 속성을 연결하지 않았습니다.');
+    assert.doesNotMatch(helperNodeSource, /data-inline-pty-trigger=/,
+      '실행 중 도움 AI 노드가 PTY를 열고 있습니다.');
+    assert.ok(helperNodeSource.includes('data-open-subagent-chat='),
+      '실행 중 도움 AI 노드의 기존 읽기 전용 상세 경로가 없습니다.');
+    assert.doesNotMatch(compactGraphSource, /data-inline-pty-trigger=/,
+      '작업 흐름 탐색 노드가 PTY 토글로 바뀌었습니다.');
+    assert.doesNotMatch(executionNodeSource, /data-inline-pty-trigger=/,
+      '실행 명령 노드가 PTY 토글로 바뀌었습니다.');
+    assert.ok(executionNodeSource.includes('${esc(command.text)}</em>'),
+      '실행 중인 컴퓨터 작업 노드에 실제 명령어가 보이지 않습니다.');
+    const inlinePanelIndex = graph.indexOf('${!focus.parentId && state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}');
     const detailPanelIndex = graph.indexOf('${workflowDetailPanel(focus)}', inlinePanelIndex);
     assert.ok(inlinePanelIndex >= 0 && detailPanelIndex > inlinePanelIndex, 'PTY가 선택한 AI 영역과 작업 상세 정보 사이에 배치되지 않았습니다.');
     assert.ok(graph.includes('tab("summary"'), '작업 상세 화면에 요약 탭이 없습니다.');
@@ -2106,6 +2142,8 @@ function registerUiContractTests(context) {
     assert.ok(orchestration.includes('preserveRuntimeConnection && name === "data-connection"'),
       'snapshot reconcile이 런타임 연결 상태를 지워 한 프레임 깜빡이면 안 됩니다.');
     assert.ok(inlineTerminal.includes('terminal.mountForAgent(session'), '인라인 PTY가 실제 에이전트 터미널 호스트를 마운트하지 않습니다.');
+    assert.ok(inlineTerminal.includes('if (!isMainSession(session)) return { ok: false, reason: "not-main-session" };'),
+      '렌더러를 우회해도 하위 AI PTY 마운트를 막는 런타임 계약이 없습니다.');
     assert.match(
       inlineTerminal,
       /const createIfMissing\s*=\s*!session\.parentId[\s\S]*terminal\.mountForAgent\(session,\s*\{[\s\S]*createIfMissing,/,
@@ -2117,6 +2155,207 @@ function registerUiContractTests(context) {
     assert.ok(html.includes('<script src="inline-agent-terminal.js"></script>'), '인라인 PTY 런타임이 로드되지 않습니다.');
     assert.ok(styles.includes('.agent-inline-terminal-link'), '선택한 AI와 PTY의 시각적 연결 표시가 없습니다.');
     assert.ok(styles.indexOf('.agent-inline-terminal') < styles.indexOf('.workflow-detail'), 'PTY가 작업 상세보다 먼저 배치된 시각 계약이 없습니다.');
+  });
+
+  test('프로젝트 선택은 화면 렌더를 기다리게 하지 않고 최상위 AI PTY 사전 연결을 시작한다', () => {
+    const filters = fs.readFileSync(path.join(root, 'renderer', 'app-events-filters.js'), 'utf8');
+    const actions = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
+    const terminal = fs.readFileSync(path.join(root, 'renderer', 'terminal.js'), 'utf8');
+    const drawerTerminal = fs.readFileSync(path.join(root, 'renderer', 'drawer-terminal.js'), 'utf8');
+    const drawer = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
+    const eventHelper = filters.slice(
+      filters.indexOf('function preconnectSelectedWorkspace()'),
+      filters.indexOf('function bindFilterAndWorkspaceEvents()'),
+    );
+    const workspaceClick = filters.slice(
+      filters.indexOf('const handleWorkspaceClick = async'),
+      filters.indexOf('workspaceLists.forEach'),
+    );
+    const workspaceSelection = workspaceClick.slice(
+      workspaceClick.indexOf('const item = event.target.closest("[data-workspace]")'),
+      workspaceClick.indexOf('if (activeList.id === "projectSidebarList" && state.workspace !== "all")'),
+    );
+
+    assert.ok(actions.includes('function preconnectProjectAgentTerminals(workspace = state.workspace)'),
+      '선택 프로젝트의 최상위 AI를 수집하는 사전 연결 orchestration이 없습니다.');
+    assert.match(actions, /session\.parentId \|\| !isLiveSession\(session\)/,
+      '사전 연결 후보가 active 최상위 AI로 제한되지 않았습니다.');
+    assert.match(terminal, /ensureForAgent, preconnectForAgents, bindAgentConnection/,
+      '터미널 공개 API가 batch 사전 연결 함수를 전달하지 않습니다.');
+    assert.ok(terminal.includes("if (agentSession.parentId) return { ok: false, reason: 'parent-controlled', targets: [] };"),
+      '중앙 mount API가 하위 AI의 PTY host 연결을 막지 않습니다.');
+    assert.ok(drawerTerminal.includes("if (session?.parentId) return { ok: false, reason: 'parent-controlled', targets: [] };"),
+      'drawer terminal이 하위 AI PTY mount를 fail-closed 하지 않습니다.');
+    assert.match(drawer, /if \(selected\?\.parentId\) return openSubagentConversation\(id, options\);/,
+      '일반 drawer 진입점을 우회한 하위 AI가 읽기 전용 상세 경로로 전환되지 않습니다.');
+    assert.match(eventHelper, /void Promise\.resolve\(preconnectProjectAgentTerminals\(state\.workspace\)\)\.catch/,
+      '프로젝트 PTY 사전 연결이 fire-and-forget으로 시작되지 않습니다.');
+    assert.doesNotMatch(eventHelper, /await\s+(?:Promise\.resolve\()?preconnectProjectAgentTerminals/,
+      '프로젝트 선택 이벤트가 느린 PTY 준비 완료를 기다리고 있습니다.');
+    assert.match(
+      workspaceSelection,
+      /if \(activeList\.id === "projectSidebarList" && state\.view !== "all"\) selectView[\s\S]*else renderSessions\("filter"\);\s*preconnectSelectedWorkspace\(\);/,
+      '프로젝트 결과 화면을 먼저 렌더한 뒤 PTY 사전 연결을 백그라운드로 시작해야 합니다.',
+    );
+  });
+
+  test('터미널은 한글 글리프를 압축하지 않고 휠 이동을 짧게 보간한다', () => {
+    const terminal = fs.readFileSync(path.join(root, 'renderer', 'terminal.js'), 'utf8');
+    const optionsSource = terminal.slice(
+      terminal.indexOf('function xtermOptions('),
+      terminal.indexOf('function syncXtermTheme()'),
+    );
+
+    assert.match(optionsSource, /letterSpacing:\s*0,/, '음수 자간이 한글 대체 글꼴을 겹쳐 보이게 하면 안 됩니다.');
+    assert.doesNotMatch(optionsSource, /letterSpacing:\s*-\d/, '터미널 글리프 셀 간격을 강제로 압축하면 안 됩니다.');
+    assert.match(
+      optionsSource,
+      /smoothScrollDuration:\s*reduceMotion\s*\?\s*0\s*:\s*TERMINAL_SMOOTH_SCROLL_MS/,
+      '휠 스크롤은 동작 줄이기 설정을 존중하면서 짧게 보간해야 합니다.',
+    );
+    assert.match(terminal, /const TERMINAL_SMOOTH_SCROLL_MS\s*=\s*100;/,
+      '휠 스크롤 보간은 입력이 밀리지 않는 짧은 시간이어야 합니다.');
+  });
+
+  test('프로젝트 사이드바는 드래그와 키보드로 위치를 바꾸고 순서를 저장한다', () => {
+    const dashboardSource = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
+    const filterEvents = fs.readFileSync(path.join(root, 'renderer', 'app-events-filters.js'), 'utf8');
+    const quality = fs.readFileSync(path.join(root, 'renderer', 'app-quality.js'), 'utf8');
+    const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-studio-shell.css'), 'utf8');
+    const sidebarMarkup = dashboardSource.slice(
+      dashboardSource.indexOf('const sidebarPriorityRank'),
+      dashboardSource.indexOf('const desktopHtml'),
+    );
+    const sortableBinding = filterEvents.slice(
+      filterEvents.indexOf('const bindSortableSidebarProjects'),
+      filterEvents.indexOf('$("#loadMoreBtn")'),
+    );
+
+    assert.match(sidebarMarkup, /sidebarProjectOrder\s*=\s*ensureProjectOrder\([\s\S]*sidebarProjectRank/,
+      '사이드바가 저장된 프로젝트 순서를 적용하지 않습니다.');
+    assert.ok(sidebarMarkup.includes('data-project-sortable="${esc(normalizedProjectPath(item.path))}"'),
+      '프로젝트 경로를 정규화한 정렬 키가 없습니다.');
+    assert.ok(sidebarMarkup.includes('draggable="${canReorderSidebarProjects ? "true" : "false"}"'),
+      '프로젝트가 둘 이상일 때 드래그 가능한 항목을 만들지 않습니다.');
+    assertIncludesAll(sidebarMarkup, [
+      'aria-grabbed="false"',
+      'aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"',
+      'aria-describedby="projectReorderHelp"',
+      'project-sidebar-drag-handle',
+    ]);
+    assertIncludesAll(sortableBinding, [
+      'container.addEventListener("dragstart"',
+      'container.addEventListener("dragover"',
+      'container.addEventListener("drop"',
+      'container.addEventListener("dragend"',
+      'moveProjectOrder(sourceId, targetId, placeAfter)',
+      'saveDashboardPreferences();',
+      'renderWorkspaces();',
+      'renderSessions("reorder")',
+      'event.altKey',
+      '"ArrowUp", "ArrowDown"',
+    ]);
+    assert.ok(filterEvents.includes('bindSortableSidebarProjects($("#projectSidebarList"))'),
+      '왼쪽 프로젝트 목록에 정렬 이벤트를 연결하지 않았습니다.');
+    assert.match(filterEvents, /Date\.now\(\) - sidebarProjectDragEndedAt < 250/,
+      '드래그 직후 click이 프로젝트 선택으로 실행되는 것을 막아야 합니다.');
+    assert.ok(quality.includes('projectOrder: (state.projectOrder || [])'),
+      '변경한 프로젝트 순서를 대시보드 환경설정에 저장하지 않습니다.');
+    assertIncludesAll(styles, [
+      '.project-sidebar-group.project-sort-dragging',
+      '.project-sidebar-group[data-project-drop-edge]::after',
+      '.project-sidebar-drag-handle',
+      'cursor: grab',
+      'cursor: grabbing',
+    ]);
+    assertIncludesAll(dashboardSource, [
+      'projectResultReadySessions',
+      'controlRoomStatus(root) === "completed"',
+      'context.resultReviewTargets(root).length > 0',
+      'priority: attention.length ? "attention" : resultReady.length ? "result-ready"',
+    ]);
+    assertIncludesAll(sidebarMarkup, [
+      'data-result-ready-count=',
+      'project-sidebar-result-ready',
+    ]);
+    assertIncludesAll(styles, ['.project-sidebar-group.has-result-ready', '.project-sidebar-result-ready']);
+
+    const sidebar = { dataset: {}, innerHTML: '' };
+    const sandbox = {
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentI18n: { t: (key, params = {}) => `${key}:${params.count ?? ''}` },
+      },
+      document: { body: { dataset: {} } },
+      Intl,
+    };
+    vm.runInNewContext(dashboardSource, sandbox, { filename: 'app-dashboard.js' });
+    const state = { projectOrder: [] };
+    const dashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({ state, visibleSessions: () => [] });
+    dashboard.ensureProjectOrder(['project:a', 'project:b', 'project:c']);
+    assert.equal(dashboard.moveProjectOrder('project:c', 'project:a', false), true);
+    assert.deepStrictEqual(Array.from(state.projectOrder), ['project:c', 'project:a', 'project:b']);
+    assert.equal(dashboard.moveProjectOrder('project:c', 'project:b', true), true);
+    assert.deepStrictEqual(Array.from(state.projectOrder), ['project:a', 'project:b', 'project:c']);
+
+    const completed = {
+      id: 'completed-root', provider: 'codex', status: 'completed', completionObserved: true,
+      cwd: 'D:\\repo\\nested\\worktree', originCwd: 'D:\\repo\\nested\\worktree', childIds: [],
+      updatedAt: '2026-08-12T01:00:00.000Z', messages: [],
+    };
+    const premature = {
+      ...completed, id: 'premature-root', cwd: 'D:\\repo\\nested', originCwd: 'D:\\repo\\nested',
+      childIds: ['running-child'], updatedAt: '2026-08-12T01:01:00.000Z',
+    };
+    const runningChild = {
+      ...completed, id: 'running-child', parentId: premature.id, status: 'running', completionObserved: false,
+      childIds: [], updatedAt: '2026-08-12T01:02:00.000Z',
+    };
+    const resultSessions = [completed, premature, runningChild];
+    const resultState = {
+      snapshot: { sessions: resultSessions, tmux: { distros: [] } },
+      workspaces: [
+        { name: '상위', path: 'D:\\repo' },
+        { name: '하위', path: 'D:\\repo\\nested' },
+      ],
+      workspace: 'all', projectOrder: [], dismissedProjects: new Set(), providerMap: new Map(),
+      providers: [], availability: {}, sessionOrder: [], view: 'all', search: '', sort: 'recent',
+      providerFilters: new Set(),
+    };
+    let resultReviewed = false;
+    const resultDashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({
+      $: selector => selector === '#projectSidebarList' ? sidebar : null,
+      esc: value => String(value),
+      uiLocale: () => 'ko-KR',
+      state: resultState,
+      visibleSessions: () => resultSessions,
+      isProviderVisible: () => true,
+      isControlRoomSession: session => session.status === 'running',
+      controlRoomStatus: session => session.id === premature.id ? 'running' : session.status,
+      resultReviewTargets: session => !resultReviewed && [completed.id, premature.id].includes(session.id) ? [session] : [],
+    });
+    resultDashboard.renderWorkspaces();
+    const projectMarkup = key => {
+      const marker = `data-project-sortable="${key}"`;
+      const start = sidebar.innerHTML.indexOf(marker);
+      const next = sidebar.innerHTML.indexOf('data-project-sortable="', start + marker.length);
+      return start < 0 ? '' : sidebar.innerHTML.slice(start, next < 0 ? sidebar.innerHTML.length : next);
+    };
+    const parentProjectMarkup = projectMarkup('d:/repo');
+    const nestedProjectMarkup = projectMarkup('d:/repo/nested');
+    assert.match(parentProjectMarkup, /data-result-ready-count="0"/,
+      '중첩 프로젝트의 완료 결과가 상위 프로젝트에도 중복 집계되면 안 됩니다.');
+    assert.match(nestedProjectMarkup, /data-result-ready-count="1"/,
+      '실제로 끝난 메인 세션만 소유 프로젝트의 완료 결과로 집계해야 합니다.');
+    assert.match(nestedProjectMarkup, /project-sidebar-result-ready/);
+    assert.equal((nestedProjectMarkup.match(/project-sidebar-result-ready/g) || []).length, 1,
+      '하위 작업이 실행 중인 메인 세션을 완료 결과로 먼저 세면 안 됩니다.');
+
+    resultReviewed = true;
+    resultDashboard.renderWorkspaces();
+    assert.equal(sidebar.innerHTML.includes('project-sidebar-result-ready'), false,
+      '결과 확인을 마친 뒤 프로젝트 완료 결과 배지가 남아 있으면 안 됩니다.');
+    assert.equal((sidebar.innerHTML.match(/data-result-ready-count="0"/g) || []).length, 2);
   });
 
   test('프로젝트 선택 화면은 진행 작업 정보 없이 선택 안내와 지속 모션만 제공한다', () => {

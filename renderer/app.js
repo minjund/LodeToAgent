@@ -908,6 +908,35 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function hasRunningExecution(session) {
     return Boolean((session?.executions || []).some((execution) => execution?.status === "running"));
   }
+  function workflowHasActiveDescendant(session) {
+    if (!session?.id) return false;
+    const sessions = state.snapshot?.sessions || [];
+    const byId = new Map(sessions.map(item => [String(item?.id || ""), item]));
+    const queue = [...(session.childIds || []).map(String)];
+    const seen = new Set([String(session.id)]);
+    while (queue.length) {
+      const id = queue.shift();
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const child = byId.get(id);
+      if (!child) continue;
+      if (isLiveSession(child)
+        || hasRunningExecution(child)
+        || (child.collaboration?.spawns || []).some(record => record?.status === "running")
+        || pendingConversationDelivery(child)) return true;
+      queue.push(...(child.childIds || []).map(String));
+    }
+    return false;
+  }
+  function isWorkflowLive(session) {
+    return Boolean(session && (
+      isLiveSession(session)
+      || hasRunningExecution(session)
+      || (session.collaboration?.spawns || []).some(record => record?.status === "running")
+      || pendingConversationDelivery(session)
+      || workflowHasActiveDescendant(session)
+    ));
+  }
   function sessionResponseTimestamp(session) {
     const assistantAt = Math.max(0, ...(session?.messages || [])
       .filter((message) => message?.role === "assistant")
@@ -1059,7 +1088,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       || (!session.attention?.category && session.attention?.required);
     const verified = session.outcome?.verified === true || session.evidence?.completion === "observed";
     const terminal = ["completed", "failed", "cancelled"].includes(String(session.status || ""));
-    return !required && (verified || terminal);
+    return !required && !isWorkflowLive(session) && (verified || terminal);
   }
   function isResultReviewComplete(sessionOrId) {
     const session = resultReviewSnapshot(sessionOrId);
@@ -1141,7 +1170,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       state.controlRoomObservedIds.add(String(session.id || ""));
       return true;
     }
-    if (isLiveSession(session)) {
+    if (isWorkflowLive(session)) {
       state.controlRoomObservedIds.add(String(session.id || ""));
       return true;
     }
@@ -1161,12 +1190,13 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function controlRoomStatus(session, now = Date.now()) {
     // Retention controls where a recently active session is shown, not what
-    // state it is in. Only a live terminal permission prompt temporarily
-    // overrides the provider status for presentation.
+    // state it is in. A parent can only look complete after its delegated and
+    // background work has also stopped.
     isControlRoomSession(session, now);
     const explicitWaiting = session?.attention?.category === "required"
       && ["execution-approval", "input-tool"].includes(session.attention.source);
     if (window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || explicitWaiting) return "waiting";
+    if (!["waiting", "paused", "failed"].includes(String(session?.status || "")) && isWorkflowLive(session)) return "running";
     return session?.status;
   }
   function sessionRetentionMinutes(session, now = Date.now()) {
@@ -1177,7 +1207,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const session = typeof sessionOrId === "object"
       ? sessionOrId
       : (state.snapshot?.sessions || []).find((item) => item.id === String(sessionOrId || ""));
-    if (!session || isLiveSession(session)) return false;
+    if (!session || isWorkflowLive(session)) return false;
     const responseAt = sessionResponseTimestamp(session);
     if (!responseAt) return false;
     const archivedAt = Date.now();
@@ -1324,6 +1354,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     currentActivity,
     isLiveSession,
     hasRunningExecution,
+    workflowHasActiveDescendant,
+    isWorkflowLive,
     sessionResponseTimestamp,
     conversationMessageKey,
     conversationDeliveryState,

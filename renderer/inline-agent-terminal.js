@@ -33,6 +33,10 @@
       || null;
   }
 
+  function isMainSession(session) {
+    return Boolean(session && !session.parentId);
+  }
+
   function shell() {
     return document.querySelector("[data-inline-agent-terminal]");
   }
@@ -139,6 +143,7 @@
     const root = shell();
     const terminal = window.LoadToAgentTerminal;
     if (!instance?.state || !session || !root || !terminal?.mountForAgent) return { ok: false, reason: "not-ready" };
+    if (!isMainSession(session)) return { ok: false, reason: "not-main-session" };
     if (root.dataset.inlineAgentTerminal !== session.id) return { ok: false, reason: "stale-shell" };
     const viewport = root.querySelector("#agentInlineTerminalViewport");
     if (!viewport) return { ok: false, reason: "missing-viewport" };
@@ -313,6 +318,14 @@
     const instance = app();
     const id = String(sessionId || "");
     if (!instance?.state || !id) return;
+    const session = instance.snapshotSession?.(id)
+      || instance.state?.details?.get?.(id)
+      || (instance.state?.snapshot?.sessions || []).find(item => item.id === id)
+      || null;
+    if (!isMainSession(session)) {
+      if (instance.state.inlineTerminalSessionId === id) close();
+      return;
+    }
     if (instance.state.inlineTerminalSessionId === id) {
       close();
       return;
@@ -335,6 +348,7 @@
     const root = shell();
     const button = root?.querySelector("[data-inline-terminal-resume]");
     if (!session || !button || button.getAttribute("aria-busy") === "true") return;
+    if (!isMainSession(session)) return;
     const sessionId = String(session.id || "");
     const signature = connectionSignature(session);
     const stillCurrent = () => {

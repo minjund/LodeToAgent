@@ -12,6 +12,7 @@ app.once('quit', () => {
 });
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+const reorderOnly = process.argv.includes('--reorder-only');
 
 async function waitFor(win, expression, message, attempts = 120) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -45,14 +46,86 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    await waitFor(win, 'Boolean(window.LoadToAgentApp?.initialized)', '앱 초기화를 기다리다 시간이 초과되었습니다.');
+    await win.webContents.executeJavaScript(`window.LoadToAgentI18n.setLocale('ko')`);
     await waitFor(
       win,
       `Boolean(window.LoadToAgentApp?.initialized
         && window.LoadToAgentApp.state.workspace === 'all'
         && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
+        && document.querySelector('#projectSelectionPrompt h2')?.textContent.trim() === '프로젝트를 선택해주세요'
         && document.querySelectorAll('#projectSidebarList [data-workspace]').length >= 2)`,
       '프로젝트 선택 초기 화면이 준비되지 않았습니다.',
     );
+
+    if (reorderOnly) {
+      const projectReorder = await win.webContents.executeJavaScript(`(() => {
+        const app = window.LoadToAgentApp;
+        const list = document.querySelector('#projectSidebarList');
+        const selector = '.project-sidebar-group[data-project-sortable]';
+        const groups = [...list.querySelectorAll(selector)];
+        if (groups.length < 2) return { available: false };
+        const originalKeys = groups.map(group => group.dataset.projectSortable);
+        const source = groups[groups.length - 1];
+        const target = groups[0];
+        const sourceKey = source.dataset.projectSortable;
+        const data = new Map();
+        const dataTransfer = {
+          effectAllowed: 'none',
+          dropEffect: 'none',
+          setData(type, value) { data.set(type, String(value)); },
+          getData(type) { return data.get(type) || ''; },
+          setDragImage() {},
+        };
+        const dispatchDrag = (node, type, clientY = 0) => {
+          const event = new Event(type, { bubbles: true, cancelable: true });
+          Object.defineProperties(event, {
+            dataTransfer: { value: dataTransfer },
+            clientY: { value: clientY },
+          });
+          node.dispatchEvent(event);
+          return event.defaultPrevented;
+        };
+        dispatchDrag(source.querySelector('.project-sidebar-item'), 'dragstart');
+        const targetBounds = target.getBoundingClientRect();
+        const dragoverAccepted = dispatchDrag(target, 'dragover', targetBounds.top + 1);
+        const dropAccepted = dispatchDrag(target, 'drop', targetBounds.top + 1);
+        const reorderedKeys = [...list.querySelectorAll(selector)].map(group => group.dataset.projectSortable);
+        const sourceAfterDrop = list.querySelector(
+          selector + '[data-project-sortable="' + CSS.escape(sourceKey) + '"] .project-sidebar-item',
+        );
+        sourceAfterDrop?.click();
+        const workspaceAfterDragClick = app.state.workspace;
+        const storedOrder = JSON.parse(localStorage.getItem(app.DASHBOARD_STORAGE_KEY) || '{}').projectOrder || [];
+        app.state.projectOrder = [];
+        app.loadQualityState();
+        app.renderWorkspaces();
+        const restoredKeys = [...list.querySelectorAll(selector)].map(group => group.dataset.projectSortable);
+        const cleaned = !list.querySelector('.project-sort-dragging, [data-project-drop-edge], [aria-grabbed="true"]');
+        return {
+          available: true,
+          sourceKey,
+          reorderedKeys,
+          restoredKeys,
+          storedOrder,
+          dragoverAccepted,
+          dropAccepted,
+          workspaceAfterDragClick,
+          cleaned,
+        };
+      })()`);
+      if (!projectReorder.available
+        || projectReorder.reorderedKeys[0] !== projectReorder.sourceKey
+        || projectReorder.storedOrder[0] !== projectReorder.sourceKey
+        || projectReorder.restoredKeys[0] !== projectReorder.sourceKey
+        || !projectReorder.dragoverAccepted || !projectReorder.dropAccepted
+        || projectReorder.workspaceAfterDragClick !== 'all'
+        || !projectReorder.cleaned) {
+        throw new Error(`프로젝트 드래그 순서·저장·클릭 억제 검증 실패: ${JSON.stringify(projectReorder)}`);
+      }
+      process.stdout.write(`프로젝트 드래그 순서 검증 통과\n${JSON.stringify(projectReorder, null, 2)}\n`);
+      return;
+    }
 
     const initial = await win.webContents.executeJavaScript(`(() => {
       const prompt = document.querySelector('#projectSelectionPrompt');
@@ -66,7 +139,7 @@ app.whenReady().then(async () => {
           initial: project.querySelector('.project-sidebar-icon')?.textContent.trim() || '',
           priority: project.dataset.projectPriority || '',
         }));
-      const priorityRank = { attention: 0, live: 1, idle: 2 };
+      const priorityRank = { attention: 0, 'result-ready': 1, live: 2, idle: 3 };
       const collator = new Intl.Collator('ko-KR', { numeric: true, sensitivity: 'base' });
       const expectedInitial = name => {
         const characters = Array.from(String(name || '').trim());
@@ -122,7 +195,7 @@ app.whenReady().then(async () => {
       || !initial.settingsRemovedFromTools || !initial.projectListNoHorizontalOverflow
       || !initial.projectInitialsMatch || !initial.designReady || initial.ongoingAnimations < 3 || !initial.processingNavigationHidden
       || !initial.fixedProjectOrder
-      || !['attention', 'live', 'idle'].every(priority => initial.projectOrder.some(project => project.priority === priority))
+      || !['result-ready', 'live', 'idle'].every(priority => initial.projectOrder.some(project => project.priority === priority))
       || !activeProjectsFirst || initial.liveVisible || initial.operationsVisible) {
       throw new Error(`프로젝트 초기 선택 화면 검증 실패: ${JSON.stringify(initial)}`);
     }

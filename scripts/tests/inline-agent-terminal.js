@@ -300,7 +300,7 @@ function registerInlineAgentTerminalTests(context) {
       '사용자가 PTY를 닫았다 재펼쳤도 자동 연결 실패 캐시가 초기화되지 않았습니다.');
   });
 
-  test('부모가 관리하는 하위 AI는 PTY를 자동 생성하거나 snapshot마다 no-target을 재시도하지 않는다', async () => {
+  test('부모가 관리하는 하위 AI는 signed target이 있어도 PTY를 열거나 마운트하지 않는다', async () => {
     let signedTarget = null;
     const harness = createInlineHarness(root, {
       session: {
@@ -316,11 +316,12 @@ function registerInlineAgentTerminalTests(context) {
         : { ok: true, target: signedTarget },
     });
 
-    await harness.sync();
-    await harness.sync();
-    await harness.sync();
-    assert.equal(harness.mountCalls.length, 1);
-    assert.equal(harness.mountCalls[0].options.createIfMissing, false);
+    const first = await harness.sync();
+    const repeated = await harness.sync();
+    assert.equal(first.reason, 'not-main-session');
+    assert.equal(repeated.reason, 'not-main-session');
+    assert.equal(harness.mountCalls.length, 0,
+      '하위 AI의 오래된 인라인 상태가 snapshot sync에서 PTY를 마운트했습니다.');
 
     signedTarget = {
       id: 'terminal:inline-parent-signed',
@@ -328,10 +329,14 @@ function registerInlineAgentTerminalTests(context) {
       kind: 'terminal',
     };
     const connected = await harness.sync();
-    assert.equal(connected.ok, true);
-    assert.equal(harness.mountCalls.length, 2,
-      'signed target이 나타났는데 하위 AI의 펼침 실패 캐시가 연결 재시도를 막았습니다.');
-    assert.deepStrictEqual(harness.mountCalls.map(call => call.options.createIfMissing), [false, false]);
+    assert.equal(connected.reason, 'not-main-session');
+    assert.equal(harness.mountCalls.length, 0,
+      'signed target이 나타난 하위 AI를 메인 담당 AI PTY처럼 마운트했습니다.');
+
+    harness.app.state.inlineTerminalSessionId = null;
+    harness.toggle(harness.session.id);
+    assert.equal(harness.app.state.inlineTerminalSessionId, null,
+      '하위 AI 클릭이 인라인 PTY 상태를 열었습니다.');
   });
 
   test('세션 연결 서명이 바뀌면 연결된 오래된 PTY를 재사용하지 않는다', async () => {

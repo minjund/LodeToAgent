@@ -5,6 +5,17 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.21 - 2026-08-12
+
+- Preconnect top-level AI terminals when a project is selected while keeping
+  subagent sessions task-only and avoiding duplicate replay hydration.
+- Improve Korean terminal glyph spacing and smooth scrollback movement, with
+  reduced-motion support.
+- Allow persistent project reordering from the sidebar by drag-and-drop or
+  keyboard controls.
+- Keep parent agents active while nested subagents are still running, and show
+  completed project results until they are reviewed.
+
 ## 1.6.20 - 2026-08-12
 
 - Distinguish provider activity as thinking, working, waiting for explicit

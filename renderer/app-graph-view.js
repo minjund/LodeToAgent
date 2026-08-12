@@ -67,12 +67,12 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
 
   function graphNode(session, options = {}) {
     const provider = providerInfo(session.provider);
+    const presentationStatus = controlRoomStatus(session);
+    const running = ["running", "starting"].includes(String(presentationStatus || ""));
     const activity = currentActivity(session);
     const context = session.context || {};
     const usage = session.usage || {};
     const percent = Math.max(0, Math.min(100, Number(context.percent || 0)));
-    const running = isLiveSession(session);
-    const presentationStatus = controlRoomStatus(session);
     const delivery = pendingConversationDelivery(session);
     const retained = isControlRoomSession(session) && !running && !delivery;
     const childCount = (session.childIds || []).length;
@@ -94,11 +94,14 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           role: session.agentRole ? ` / ${agentRoleLabel(session.agentRole)}` : "",
         })
       : t("graph.assigned_ai");
+    const inlinePtyAttributes = session.parentId
+      ? ""
+      : ` data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
     return `<article class="agent-node ${running ? "running" : ""} ${session.parentId ? "child-agent" : "root-agent"} ${options.focus ? "is-focus" : ""}"
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
-      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal" aria-label="${esc(t("graph.focus_relationships", { role }))}">
+      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}"${inlinePtyAttributes} aria-label="${esc(t("graph.focus_relationships", { role }))}">
         <span class="agent-node-top">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small></span>
@@ -146,6 +149,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const usage = session.usage || {};
     const directChildren = graphChildren(session, model).length;
     const presentationStatus = controlRoomStatus(session);
+    const presentationLive = ["running", "starting"].includes(String(presentationStatus || ""));
     const delivery = pendingConversationDelivery(session);
     const identity = session.parentId
       ? t("graph.helper_ai_named", { name: session.agentName || agentRoleLabel(session.agentRole) })
@@ -173,7 +177,9 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           ? `<span class="agent-flow-assignment"><small>${esc(t("graph.assignment_details"))}</small><strong title="${esc(assignedWork)}">${esc(assignedWork)}</strong></span>`
           : "";
       const workState = subagentWorkState(session);
-      const interaction = `data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}" aria-label="${esc(t("graph.view_child_flow", { task: primaryTask }))}"`;
+      const interaction = directChildren
+        ? `data-graph-focus="${esc(session.id)}" aria-label="${esc(t("graph.view_child_flow", { task: primaryTask }))}"`
+        : `data-open-subagent-chat="${esc(session.id)}" aria-label="${esc(t("graph.view_main_ai_conversation_for_task", { task: primaryTask }))}"`;
       const action = directChildren ? t("graph.view_child_subagents", { count: directChildren }) : t("graph.view_main_ai_conversation");
       return `<button type="button" class="agent-flow-row child-session work-${workState} ${statusClass(session.status)}"
         ${interaction}
@@ -201,8 +207,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         </span>
       </button>`;
     }
-    return `<button type="button" class="agent-flow-row ${isLiveSession(session) ? "running" : ""} ${statusClass(presentationStatus)}"
-      data-graph-focus="${esc(session.id)}" data-inline-pty-trigger="${esc(session.id)}"
+    return `<button type="button" class="agent-flow-row ${presentationLive ? "running" : ""} ${statusClass(presentationStatus)}"
+      data-graph-focus="${esc(session.id)}"
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
@@ -583,7 +589,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const assignmentPreview = controlRoomAgentGoal(child, 58);
     const workState = subagentWorkState(child);
     return `<button type="button" class="control-room-node helper-node is-${esc(workState)} ${child.status === "starting" ? "is-spawning" : ""}"
-      data-inline-pty-trigger="${esc(child.id)}" aria-expanded="${state.inlineTerminalSessionId === child.id ? "true" : "false"}" aria-controls="agentInlineTerminal"
+      data-open-subagent-chat="${esc(child.id)}"
       data-control-summary="${esc(assignmentPreview.text)}"
       data-motion-key="control-helper:${esc(child.id)}"
       data-motion-value="${esc(child.status || "")}:${esc(child.updatedAt || "")}"
@@ -602,7 +608,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       ? activity.runtime || state.platform?.localShellLabel || activity.tool || "이 컴퓨터에서 실행하는 작업"
       : activity.runtime || activity.tool || t("graph.background_task"));
     const executionLabel = runtime;
-    const ownerGoal = controlRoomAgentGoal(owner, 52);
     const running = activity.status === "running";
     const stateClass = running ? "is-running" : (activity.status === "unverified" ? "is-unverified" : "is-complete");
     return `<button type="button" class="control-room-node execution-node ${stateClass}"
@@ -613,7 +618,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       data-motion-value="${esc(activity.status || "")}:${esc(activity.updatedAt || activity.startedAt || "")}"
       aria-label="${esc(t("control.open_execution_detail", { task: summary.text }))}">
       <span class="control-node-icon">${activity.kind === "shell" ? "›_" : "◌"}</span>
-      <span class="control-node-copy"><small title="${esc(runtime)}">${esc(executionLabel)}</small><b title="${esc(summary.full)}">${esc(summary.text)}</b><em title="${esc(command.full)}">${esc(t("control.execution_context", { task: ownerGoal.text }))}</em></span>
+      <span class="control-node-copy"><small title="${esc(runtime)}">${esc(executionLabel)}</small><b title="${esc(summary.full)}">${esc(summary.text)}</b><em title="${esc(command.full)}">${esc(command.text)}</em></span>
       <span class="control-node-state"><i aria-hidden="true"></i><b>${esc(executionActivityStatus(activity))}</b></span>
     </button>`;
   }
@@ -632,12 +637,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   function controlRoomSession(root, model) {
     const provider = providerInfo(root.provider);
     const presentationStatus = controlRoomStatus(root);
+    const presentationLive = ["running", "starting"].includes(String(presentationStatus || ""));
     const delivery = pendingConversationDelivery(root);
     const waiting = presentationStatus === "waiting";
-    const retained = isControlRoomSession(root) && !isLiveSession(root) && !delivery;
+    const retained = isControlRoomSession(root) && !presentationLive && !delivery;
     const descendants = controlRoomDescendants(root, model);
     const actors = [root, ...descendants];
-    const inlineSession = actors.find(session => session.id === state.inlineTerminalSessionId) || null;
+    const inlineSession = state.inlineTerminalSessionId === root.id ? root : null;
     const terminalReviewSources = actors.map(session => ({
       session,
       prompt: window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null,
@@ -669,7 +675,10 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const current = controlRoomSummary(delivery ? t(deliverySummaryKey(delivery.phase)) : latestWorkCopy(root) || root.statusDetail || root.title, 74);
     const title = controlRoomAgentGoal(root, 64);
     const unitCount = activeUnits.length;
-    const main = `<button type="button" class="control-room-main" data-inline-pty-trigger="${esc(root.id)}" aria-expanded="${state.inlineTerminalSessionId === root.id ? "true" : "false"}" aria-controls="agentInlineTerminal"
+    const controlRoomPtyAttributes = root.parentId
+      ? ""
+      : ` data-inline-pty-trigger="${esc(root.id)}" aria-expanded="${state.inlineTerminalSessionId === root.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
+    const main = `<button type="button" class="control-room-main"${controlRoomPtyAttributes}
       data-control-summary="${esc(title.text)}"
       data-motion-key="control-main:${esc(root.id)}" data-motion-value="${esc(root.updatedAt || "")}:${esc(root.status || "")}"
       style="${providerStyle(root.provider)}">
@@ -754,13 +763,13 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           ? "다시 시작해 진행 중인 작업"
           : `${name}${/작업$/.test(name) ? "" : " 작업"}`;
       const projectTotals = allGroups.get(key) || { roots: projectRoots, tmuxEntries: projectTmuxEntries };
-      const activeCount = projectTotals.roots.filter((root) => isLiveSession(root)).length;
+      const activeCount = projectTotals.roots.filter((root) => ["running", "starting"].includes(String(controlRoomStatus(root) || ""))).length;
       const attentionCount = projectTotals.roots.filter((root) =>
         [root, ...controlRoomDescendants(root, model)].some(sessionNeedsReview)).length;
       const sessionSummary = attentionCount
         ? `확인할 결과 ${attentionCount}건${activeCount ? " · 다른 AI 작업도 진행 중" : ""}`
         : "AI가 작업 중";
-      const firstLiveRoot = projectTotals.roots.find((root) => isLiveSession(root));
+      const firstLiveRoot = projectTotals.roots.find((root) => ["running", "starting"].includes(String(controlRoomStatus(root) || "")));
       const currentWork = firstLiveRoot ? currentActivity(firstLiveRoot) : null;
       const currentWorkSummary = currentWork?.title
         ? `지금 하는 일: ${readablePreview(window.LoadToAgentI18n.observedText(currentWork.title), 48).text}`
@@ -1182,7 +1191,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
   }
 
   function inlineTerminalPanel(session) {
-    if (state.inlineTerminalSessionId !== session.id) return "";
+    if (session.parentId || state.inlineTerminalSessionId !== session.id) return "";
     const provider = providerInfo(session.provider);
     return `<section id="agentInlineTerminal" class="agent-inline-terminal" data-inline-agent-terminal="${esc(session.id)}" style="${providerStyle(session.provider)}" aria-label="${esc(`${provider.label} PTY`)}">
       <span class="agent-inline-terminal-link" aria-hidden="true"></span>
@@ -1321,7 +1330,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <div class="agent-workflow-stack downstream-stack ${shownChildren.length > 3 ? "density-many" : ""}">${downstream}</div>
         </section>
       </div>
-      ${state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}
+      ${!focus.parentId && state.inlineTerminalSessionId === focus.id ? inlineTerminalPanel(focus) : ""}
       ${workflowDetailPanel(focus)}
       ${workflowCommunicationPanel(focus, parent, model)}
     </div>`;

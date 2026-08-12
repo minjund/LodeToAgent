@@ -18,6 +18,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     isProviderVisible = () => true,
     isRuntimeLoopSession = () => false,
     isControlRoomSession = session => session?.status === "running" || session?.status === "starting",
+    controlRoomStatus = session => session?.status,
     preserveFocusDuringRender = callback => callback(),
   } = context;
 
@@ -316,7 +317,17 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       });
       return [...roots.values()];
     };
+    const topLevelRootSessions = uniqueRootSessions(rootSessions);
     const projectLiveSessions = (item) => uniqueRootSessions(sessionsForProject(item).filter(isControlRoomSession));
+    const projectResultReadySessions = (item) => {
+      const projectPath = normalizedProjectPath(item.path);
+      return topLevelRootSessions.filter((root) => (
+        normalizedProjectPath(controlRoomProject(root).path) === projectPath
+        && controlRoomStatus(root) === "completed"
+        && typeof context.resultReviewTargets === "function"
+        && context.resultReviewTargets(root).length > 0
+      ));
+    };
     const projectlessCount = rootSessions.filter(isProjectlessSession).length;
     const liveProjectlessCount = liveRootSessions.filter(isProjectlessSession).length;
     const nonFolderWork = (name) => /관련 작업 모음|컴퓨터 작업 창 묶음|컴퓨터 작업 창 그룹|작업 창 그룹|다시 시작한 작업/.test(String(name || ""));
@@ -378,34 +389,67 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const sidebarProjectStates = new Map(projects.map((project) => {
       const live = projectLiveSessions(project);
       const attention = live.filter(sessionNeedsAttention);
+      const resultReady = projectResultReadySessions(project);
       return [normalizedProjectPath(project.path), {
         live,
         attention,
-        priority: attention.length ? "attention" : live.length ? "live" : "idle",
+        resultReady,
+        priority: attention.length ? "attention" : resultReady.length ? "result-ready" : live.length ? "live" : "idle",
       }];
     }));
+    const sidebarPriorityRank = { attention: 0, "result-ready": 1, live: 2, idle: 3 };
+    const sidebarNameCollator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+    const defaultSidebarProjects = [...projects].sort((left, right) => {
+      const leftPriority = sidebarProjectStates.get(normalizedProjectPath(left.path))?.priority || "idle";
+      const rightPriority = sidebarProjectStates.get(normalizedProjectPath(right.path))?.priority || "idle";
+      return sidebarPriorityRank[leftPriority] - sidebarPriorityRank[rightPriority]
+        || sidebarNameCollator.compare(String(left.name || ""), String(right.name || ""))
+        || sidebarNameCollator.compare(normalizedProjectPath(left.path), normalizedProjectPath(right.path));
+    });
+    const sidebarProjectOrder = ensureProjectOrder(defaultSidebarProjects.map((item) => normalizedProjectPath(item.path)));
+    const sidebarProjectRank = new Map(sidebarProjectOrder.map((key, index) => [key, index]));
+    const sidebarProjects = defaultSidebarProjects.sort((left, right) =>
+      Number(sidebarProjectRank.get(normalizedProjectPath(left.path)) ?? Number.MAX_SAFE_INTEGER)
+      - Number(sidebarProjectRank.get(normalizedProjectPath(right.path)) ?? Number.MAX_SAFE_INTEGER));
+    const canReorderSidebarProjects = sidebarProjects.length > 1;
     const sidebarProjectItem = (item) => {
       const projectState = sidebarProjectStates.get(normalizedProjectPath(item.path))
-        || { live: [], attention: [], priority: "idle" };
-      const { live, attention, priority } = projectState;
+        || { live: [], attention: [], resultReady: [], priority: "idle" };
+      const { live, attention, resultReady, priority } = projectState;
       const selected = normalizedProjectPath(state.workspace) === normalizedProjectPath(item.path);
-      return `<div class="project-sidebar-group ${selected ? "selected" : ""} ${attention.length ? "has-attention" : ""}">
+      const filterLabel = t("project.filter_named", { name: item.name, count: item.count });
+      const accessibleLabel = resultReady.length
+        ? `${filterLabel}. ${t("studio.sidebar.result_ready_label", { count: resultReady.length })}`
+        : filterLabel;
+      return `<div class="project-sidebar-group ${selected ? "selected" : ""} ${attention.length ? "has-attention" : ""} ${resultReady.length ? "has-result-ready" : ""}"
+        data-project-sortable="${esc(normalizedProjectPath(item.path))}">
         <div class="project-sidebar-row">
           <button type="button" class="workspace-item project-sidebar-item ${selected ? "selected" : ""}"
             data-workspace="${esc(item.path)}" title="${esc(item.path)}"
             data-live-session-count="${live.length}"
+            data-result-ready-count="${resultReady.length}"
             data-project-priority="${priority}"
+            draggable="${canReorderSidebarProjects ? "true" : "false"}"
+            ${canReorderSidebarProjects ? 'aria-grabbed="false" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-describedby="projectReorderHelp"' : ""}
+            aria-label="${esc(accessibleLabel)}"
             aria-pressed="${selected ? "true" : "false"}">
+            ${canReorderSidebarProjects ? `<span class="project-sidebar-drag-handle" aria-hidden="true" title="${esc(t("project.reorder_hint"))}"></span>` : ""}
             <span class="project-sidebar-icon" aria-hidden="true">${esc(projectInitial(item.name))}</span>
             <span class="project-sidebar-copy"><strong>${esc(item.name)}</strong><small>${esc(t("studio.sidebar.project_summary", {
-              status: live.length ? t("project.in_progress") : t("studio.sidebar.waiting"),
+              status: attention.length
+                ? t("studio.sidebar.needs_review")
+                : resultReady.length
+                  ? t("studio.sidebar.result_ready")
+                  : live.length ? t("project.in_progress") : t("studio.sidebar.waiting"),
               count: Number(item.count || 0),
             }))}</small></span>
             ${attention.length
               ? `<span class="project-sidebar-attention"><i aria-hidden="true"></i><b>${attention.length}</b><small>${esc(t("studio.sidebar.needs_review"))}</small></span>`
-              : live.length
-                ? `<span class="project-sidebar-live" aria-label="${esc(t("studio.sidebar.live_label", { count: live.length }))}"><i aria-hidden="true"></i></span>`
-                : `<span class="project-sidebar-chevron" aria-hidden="true">›</span>`}
+              : resultReady.length
+                ? `<span class="project-sidebar-result-ready" aria-label="${esc(t("studio.sidebar.result_ready_label", { count: resultReady.length }))}"><i aria-hidden="true"></i><b>${resultReady.length}</b><small>${esc(t("studio.sidebar.result_ready"))}</small></span>`
+                : live.length
+                  ? `<span class="project-sidebar-live" aria-label="${esc(t("studio.sidebar.live_label", { count: live.length }))}"><i aria-hidden="true"></i></span>`
+                  : `<span class="project-sidebar-chevron" aria-hidden="true">›</span>`}
           </button>
           <button type="button" class="project-sidebar-remove" data-remove-workspace="${esc(item.path)}"
             aria-label="${esc(t("workspace.remove_named", { name: item.name }))}"
@@ -413,15 +457,6 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         </div>
       </div>`;
     };
-    const sidebarPriorityRank = { attention: 0, live: 1, idle: 2 };
-    const sidebarNameCollator = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
-    const sidebarProjects = [...projects].sort((left, right) => {
-      const leftPriority = sidebarProjectStates.get(normalizedProjectPath(left.path))?.priority || "idle";
-      const rightPriority = sidebarProjectStates.get(normalizedProjectPath(right.path))?.priority || "idle";
-      return sidebarPriorityRank[leftPriority] - sidebarPriorityRank[rightPriority]
-        || sidebarNameCollator.compare(String(left.name || ""), String(right.name || ""))
-        || sidebarNameCollator.compare(normalizedProjectPath(left.path), normalizedProjectPath(right.path));
-    });
     const sidebarHtml = sidebarProjects.map(sidebarProjectItem).join("")
       + (projectlessCount
         ? `<button type="button" class="workspace-item project-sidebar-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"

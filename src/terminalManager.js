@@ -408,6 +408,21 @@ function safeTmuxName(value, fallback = '') {
   return text;
 }
 
+function managedTmuxServerKey(options = {}) {
+  return JSON.stringify([
+    String(options.distro || ''),
+    String(options.tmuxSocket || ''),
+  ]);
+}
+
+function managedTmuxSessionKey(options = {}) {
+  return JSON.stringify([
+    String(options.distro || ''),
+    String(options.tmuxSocket || ''),
+    String(options.managedTmuxSession || ''),
+  ]);
+}
+
 function shellQuote(value) {
   return `'${String(value == null ? '' : value).replace(/'/g, `'"'"'`)}'`;
 }
@@ -1495,11 +1510,15 @@ class TerminalManager extends EventEmitter {
     this.quarantinedStoreFile = '';
     this.sessions = new Map();
     this.transitionPromises = new Map();
+    this.persistedSessionReconciliationDeferred = options.deferPersistedSessionReconciliation === true;
     this.loadPersistedSessions();
     this.reconcilePersistedBoundDirectSessions();
-    this.reconcilePersistedManagedSessions();
-    this.deduplicateAgentBridgeSessions({ bootstrap: true });
-    this.deduplicateAgentResumeSessions({ bootstrap: true });
+    if (!this.persistedSessionReconciliationDeferred) {
+      const managedPresence = this.managedSessionPresenceInventory();
+      this.reconcilePersistedManagedSessions({ managedPresence });
+      this.deduplicateAgentBridgeSessions({ bootstrap: true, managedPresenceCache: managedPresence });
+      this.deduplicateAgentResumeSessions({ bootstrap: true, managedPresence });
+    }
   }
 
   persistenceError(operation, error) {
@@ -1704,9 +1723,13 @@ class TerminalManager extends EventEmitter {
   }
 
   recoverPersistedSessions() {
-    this.reconcilePersistedManagedSessions();
-    this.deduplicateAgentBridgeSessions();
-    this.deduplicateAgentResumeSessions({ bootstrap: true });
+    const managedPresence = this.managedSessionPresenceInventory();
+    this.reconcilePersistedManagedSessions({ managedPresence, persist: false });
+    this.deduplicateAgentBridgeSessions({
+      bootstrap: this.persistedSessionReconciliationDeferred,
+      managedPresenceCache: managedPresence,
+    });
+    this.deduplicateAgentResumeSessions({ bootstrap: true, managedPresence });
     const recovered = [];
     for (const session of this.sessions.values()) {
       if (!session.recoveryPending) continue;
@@ -1714,7 +1737,7 @@ class TerminalManager extends EventEmitter {
       if (session.options.sessionBackend === 'managed-tmux') {
         let managedSessionExists;
         try {
-          managedSessionExists = this.managedSessionExistsOrMarkUncertain(session, 'recover');
+          managedSessionExists = this.managedSessionExistsOrMarkUncertain(session, 'recover', managedPresence);
         } catch (_managedStateUnconfirmed) {
           continue;
         }
@@ -1771,11 +1794,12 @@ class TerminalManager extends EventEmitter {
       }
       recovered.push(publicSession(session, true));
     }
+    this.persistedSessionReconciliationDeferred = false;
     this.persistNow();
     return recovered;
   }
 
-  reconcilePersistedManagedSessions() {
+  reconcilePersistedManagedSessions({ managedPresence = null, persist = true } = {}) {
     let changed = false;
     for (const session of this.sessions.values()) {
       if (session.options.sessionBackend !== 'managed-tmux'
@@ -1785,7 +1809,7 @@ class TerminalManager extends EventEmitter {
         continue;
       }
       try {
-        const exists = this.managedSessionExistsOrMarkUncertain(session, 'reconcile');
+        const exists = this.managedSessionExistsOrMarkUncertain(session, 'reconcile', managedPresence);
         session.status = exists ? 'detached' : 'stopped';
         if (!exists) session.recoveryPending = false;
         session.updatedAt = new Date().toISOString();
@@ -1795,7 +1819,7 @@ class TerminalManager extends EventEmitter {
         changed = true;
       }
     }
-    if (changed) this.persistNow();
+    if (changed && persist) this.persistNow();
     return changed;
   }
 
@@ -1853,7 +1877,7 @@ class TerminalManager extends EventEmitter {
     return changed;
   }
 
-  deduplicateAgentBridgeSessions({ bootstrap = false } = {}) {
+  deduplicateAgentBridgeSessions({ bootstrap = false, managedPresenceCache = null } = {}) {
     const groups = new Map();
     const removed = [];
     const removedByKey = new Map();
@@ -1874,12 +1898,7 @@ class TerminalManager extends EventEmitter {
           break;
         }
         try {
-          const exists = this.managedSessionExistsConfirmed(session.options);
-          if (exists && typeof exists.then === 'function') {
-            const error = new Error('중복 관리형 명령창의 비동기 상태 확인을 동기 정리에 사용할 수 없습니다.');
-            error.code = 'MANAGED_SESSION_ASYNC_PROBE_UNSUPPORTED';
-            throw error;
-          }
+          const exists = this.managedSessionExistsCached(session, managedPresenceCache);
           managedPresence.set(session.id, Boolean(exists));
         } catch (error) {
           managedStateError = error;
@@ -1955,7 +1974,7 @@ class TerminalManager extends EventEmitter {
     return removed;
   }
 
-  deduplicateAgentResumeSessions({ bootstrap = false } = {}) {
+  deduplicateAgentResumeSessions({ bootstrap = false, managedPresence = null } = {}) {
     const groups = new Map();
     let changed = false;
     for (const session of this.sessions.values()) {
@@ -1975,7 +1994,7 @@ class TerminalManager extends EventEmitter {
         }
         if (session.options.sessionBackend !== 'managed-tmux') continue;
         try {
-          if (this.managedSessionExistsConfirmed(session.options)) live.push(session);
+          if (this.managedSessionExistsCached(session, managedPresence)) live.push(session);
         } catch (error) {
           probeError = error;
           break;
@@ -2142,6 +2161,7 @@ class TerminalManager extends EventEmitter {
   }
 
   duplicateCreationResult(session, details = {}) {
+    const includeReplay = details.includeReplay !== false;
     const requestedDeliveryId = normalizedDeliveryId(details.deliveryId);
     const deliveryRecord = (session.deliveries || []).find(record => (
       (requestedDeliveryId && record.id === requestedDeliveryId)
@@ -2164,7 +2184,7 @@ class TerminalManager extends EventEmitter {
       || !['starting', 'running'].includes(session.status)
       || Boolean(session.recoverySkippedReason);
     return {
-      ...publicSession(session, true),
+      ...publicSession(session, includeReplay),
       ok: true,
       reused: true,
       duplicate: true,
@@ -2240,10 +2260,10 @@ class TerminalManager extends EventEmitter {
     return false;
   }
 
-  duplicateDeliveryResult(found, requestedDeliveryId = '') {
+  duplicateDeliveryResult(found, requestedDeliveryId = '', includeReplay = true) {
     const state = found.record.state === 'accepted' ? 'accepted' : 'unknown';
     return {
-      ...publicSession(found.session, true),
+      ...publicSession(found.session, includeReplay),
       ok: true,
       reused: true,
       duplicate: true,
@@ -2257,6 +2277,7 @@ class TerminalManager extends EventEmitter {
   }
 
   create(rawOptions = {}) {
+    const includeReplay = rawOptions.includeReplay !== false;
     const launchOptions = normalizeLaunchOptions(rawOptions, this.platform);
     if (launchOptions.type === 'agent'
       && launchOptions.sessionBackend === 'managed-tmux'
@@ -2350,6 +2371,7 @@ class TerminalManager extends EventEmitter {
         fingerprint,
         target: deliveryTarget,
         initialCommandInArgs,
+        includeReplay,
       });
     }
     if (creationId && launchOptions.transient) {
@@ -2415,12 +2437,12 @@ class TerminalManager extends EventEmitter {
       if (fingerprint && knownDelivery.record.fingerprint && knownDelivery.record.fingerprint !== fingerprint) {
         throw rejectedDeliveryError('이 전달 요청은 다른 내용에 이미 사용됐습니다.', 'DELIVERY_ID_CONFLICT', deliveryId);
       }
-      return this.duplicateDeliveryResult(knownDelivery);
+      return this.duplicateDeliveryResult(knownDelivery, '', includeReplay);
     }
     const matchingPrepared = deliveryId && fingerprint
       ? this.preparedDeliveryRecord(deliveryTarget, fingerprint)
       : null;
-    if (matchingPrepared) return this.duplicateDeliveryResult(matchingPrepared, deliveryId);
+    if (matchingPrepared) return this.duplicateDeliveryResult(matchingPrepared, deliveryId, includeReplay);
     if (rawOptions.reuseBridge) {
       const reusable = this.reusableAgentBridge(launchOptions, activeBridgeCandidates);
       if (reusable) {
@@ -2430,7 +2452,7 @@ class TerminalManager extends EventEmitter {
           ? this.command(reusable.id, initialCommand, { deliveryId })
           : { ok: true, deliveryId, deliveryState: 'accepted' };
         return {
-          ...publicSession(reusable, true),
+          ...publicSession(reusable, includeReplay),
           ...delivery,
           reused: true,
           reconnected,
@@ -2537,7 +2559,7 @@ class TerminalManager extends EventEmitter {
       this.persistNow();
       if (creationId && error?.code !== 'DELIVERY_LEDGER_UNAVAILABLE') {
         return {
-          ...publicSession(session, true),
+          ...publicSession(session, includeReplay),
           ok: true,
           reused: false,
           creationId,
@@ -2561,7 +2583,7 @@ class TerminalManager extends EventEmitter {
     if (!persistedAfterSpawn) this.persistNow();
     const creationUnavailable = !['starting', 'running'].includes(session.status);
     return {
-      ...publicSession(session, true),
+      ...publicSession(session, includeReplay),
       reused: false,
       creationId,
       creationDuplicate: false,
@@ -3339,6 +3361,66 @@ class TerminalManager extends EventEmitter {
     throw new Error('이 명령창에서는 이 버튼을 사용할 수 없습니다.');
   }
 
+  managedSessionPresenceInventory() {
+    const presence = new Map();
+    const listSessions = this.managedTmuxRuntime?.listSessionsStrict;
+    if (typeof listSessions !== 'function') return presence;
+    const groups = new Map();
+    for (const session of this.sessions.values()) {
+      if (session.options.sessionBackend !== 'managed-tmux'
+        || session.process
+        || session.terminationPending
+        || session.terminationUncertain) continue;
+      const serverKey = managedTmuxServerKey(session.options);
+      if (!groups.has(serverKey)) groups.set(serverKey, { options: session.options, sessions: [] });
+      groups.get(serverKey).sessions.push(session);
+    }
+    for (const group of groups.values()) {
+      let listed;
+      try {
+        listed = listSessions.call(this.managedTmuxRuntime, group.options);
+        if (listed && typeof listed.then === 'function') {
+          const error = new Error('동기 상태 판정에서 비동기 tmux 목록을 사용할 수 없습니다.');
+          error.code = 'MANAGED_SESSION_ASYNC_PROBE_UNSUPPORTED';
+          throw error;
+        }
+        if (!(listed instanceof Set) && !Array.isArray(listed)) {
+          throw new Error('관리형 명령창 목록 결과가 올바르지 않습니다.');
+        }
+      } catch (error) {
+        for (const session of group.sessions) {
+          presence.set(managedTmuxSessionKey(session.options), { error });
+        }
+        continue;
+      }
+      const names = listed instanceof Set ? listed : new Set(listed.map(value => String(value || '')));
+      for (const session of group.sessions) {
+        presence.set(managedTmuxSessionKey(session.options), {
+          exists: names.has(String(session.options.managedTmuxSession || '')),
+        });
+      }
+    }
+    return presence;
+  }
+
+  managedSessionExistsCached(session, managedPresence = null) {
+    const key = managedTmuxSessionKey(session?.options);
+    if (managedPresence instanceof Map && managedPresence.has(key)) {
+      const cached = managedPresence.get(key);
+      if (cached?.error) throw cached.error;
+      return Boolean(cached?.exists);
+    }
+    const result = this.managedSessionExistsConfirmed(session.options);
+    if (result && typeof result.then === 'function') {
+      const error = new Error('동기 상태 판정에서 비동기 tmux 확인 결과를 사용할 수 없습니다.');
+      error.code = 'MANAGED_SESSION_ASYNC_PROBE_UNSUPPORTED';
+      throw error;
+    }
+    const exists = Boolean(result);
+    if (managedPresence instanceof Map) managedPresence.set(key, { exists });
+    return exists;
+  }
+
   managedSessionExistsConfirmed(options) {
     const probe = typeof this.managedTmuxRuntime.existsStrict === 'function'
       ? this.managedTmuxRuntime.existsStrict
@@ -3347,15 +3429,9 @@ class TerminalManager extends EventEmitter {
     return probe.call(this.managedTmuxRuntime, options);
   }
 
-  managedSessionExistsOrMarkUncertain(session, intent = 'probe') {
+  managedSessionExistsOrMarkUncertain(session, intent = 'probe', managedPresence = null) {
     try {
-      const result = this.managedSessionExistsConfirmed(session.options);
-      if (result && typeof result.then === 'function') {
-        const error = new Error('동기 상태 판정에서 비동기 tmux 확인 결과를 사용할 수 없습니다.');
-        error.code = 'MANAGED_SESSION_ASYNC_PROBE_UNSUPPORTED';
-        throw error;
-      }
-      return Boolean(result);
+      return this.managedSessionExistsCached(session, managedPresence);
     } catch (cause) {
       const error = new Error(`관리형 명령창 작업의 실행 여부를 확인하지 못했습니다: ${cause?.message || cause}`);
       error.code = 'MANAGED_SESSION_STATE_UNCONFIRMED';

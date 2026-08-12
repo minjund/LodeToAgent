@@ -61,7 +61,10 @@ async function run(config = parseConfig()) {
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   try {
-    manager = new TerminalManager({ storeFile: config.storeFile });
+    manager = new TerminalManager({
+      storeFile: config.storeFile,
+      deferPersistedSessionReconciliation: true,
+    });
     manager.recoverPersistedSessions();
     host = new TerminalHostServer({ manager, discoveryFile: config.discoveryFile, onShutdown: stop });
     bridge = new BridgeServer({ terminalManager: manager, home: config.bridgeHome, platform: process.platform });

@@ -131,6 +131,8 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   }
 
   function openDrawer(id, options = {}) {
+    const selected = snapshotSession(id) || state.details.get(id);
+    if (selected?.parentId) return openSubagentConversation(id, options);
     rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = id;
