@@ -149,20 +149,33 @@ app.whenReady().then(async () => {
     }
     fs.copyFileSync(outputs.light, path.join(outputDir, 'loadtoagent-result-review.png'));
 
-    const reviewCleared = await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
-      const completed = control.markResultReviewComplete('fixture-project-result-ready');
-      control.renderWorkspaces();
+    await win.webContents.executeJavaScript(`(() => {
       const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
         .find(item => item.dataset.workspace === 'D:\\\\fixture-other');
+      projectButton?.click();
+    })()`);
+    await waitFor(
+      win,
+      `!([...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture-other')
+        ?.querySelector('.project-sidebar-result-ready'))`,
+      '프로젝트를 확인한 뒤 완료 결과 배지가 사라지지 않았습니다.',
+    );
+    const projectResultSeen = await win.webContents.executeJavaScript(`(() => {
+      const control = window.LoadToAgentApp;
+      const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture-other');
+      const session = control.state.snapshot.sessions.find(item => item.id === 'fixture-project-result-ready');
       return {
-        completed,
         count: Number(projectButton?.dataset.resultReadyCount || 0),
         badgeExists: Boolean(projectButton?.querySelector('.project-sidebar-result-ready')),
+        pendingResultCount: control.resultReviewTargets(session).length,
+        actualReviewComplete: control.isResultReviewComplete(session),
       };
     })()`);
-    if (reviewCleared.completed !== 1 || reviewCleared.count !== 0 || reviewCleared.badgeExists) {
-      throw new Error(`결과 확인 후 프로젝트 완료 배지가 사라지지 않았습니다: ${JSON.stringify(reviewCleared)}`);
+    if (projectResultSeen.count !== 0 || projectResultSeen.badgeExists
+      || projectResultSeen.pendingResultCount !== 1 || projectResultSeen.actualReviewComplete) {
+      throw new Error(`프로젝트 완료 결과 열람 상태가 올바르지 않습니다: ${JSON.stringify(projectResultSeen)}`);
     }
 
     await win.webContents.executeJavaScript(`(() => {
@@ -190,23 +203,47 @@ app.whenReady().then(async () => {
       `Boolean(document.querySelector('.home-attention-item[data-open-session="fixture-waiting"]'))`,
       `구조화된 선택 요청이 확인 필요로 표시되지 않았습니다: ${JSON.stringify(homeDebug)}`,
     );
+    await waitFor(
+      win,
+      `Boolean([...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture')
+        ?.querySelector('.project-sidebar-attention'))`,
+      '확인 필요가 있는 프로젝트 배지를 찾지 못했습니다.',
+    );
+    await win.webContents.executeJavaScript(`(() => {
+      const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture');
+      projectButton?.click();
+    })()`);
+    await waitFor(
+      win,
+      `!([...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture')
+        ?.querySelector('.project-sidebar-attention'))`,
+      '프로젝트를 확인한 뒤 확인 필요 배지가 사라지지 않았습니다.',
+    );
     const attention = await win.webContents.executeJavaScript(`(() => {
       const control = window.LoadToAgentApp;
       const byId = id => control.state.snapshot.sessions.find(session => session.id === id);
+      const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
+        .find(item => item.dataset.workspace === 'D:\\\\fixture');
       return {
         structuredQuestion: control.needsManagementInbox(byId('fixture-waiting')),
         failedRun: control.needsManagementInbox(byId('fixture-failed')),
         optionalOffer: control.needsManagementInbox(byId('fixture-optional')),
+        projectAttentionCount: Number(projectButton?.dataset.attentionSessionCount || 0),
+        projectAttentionBadge: Boolean(projectButton?.querySelector('.project-sidebar-attention')),
         visibleIds: [...document.querySelectorAll('.home-attention-item[data-open-session]')]
           .map(item => item.dataset.openSession),
       };
     })()`);
     if (!attention.structuredQuestion || attention.failedRun || attention.optionalOffer
+      || attention.projectAttentionCount !== 0 || attention.projectAttentionBadge
       || attention.visibleIds.includes('fixture-failed') || attention.visibleIds.includes('fixture-optional')) {
       throw new Error(`확인 필요 표시 조건이 올바르지 않습니다: ${JSON.stringify(attention)}`);
     }
 
-    process.stdout.write(`확인 필요·작업 완료 UI 검증 통과\n${JSON.stringify({ completion, attention, themeStates, reviewCleared }, null, 2)}\n${Object.values(outputs).join('\n')}\n`);
+    process.stdout.write(`확인 필요·작업 완료 UI 검증 통과\n${JSON.stringify({ completion, attention, themeStates, projectResultSeen }, null, 2)}\n${Object.values(outputs).join('\n')}\n`);
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

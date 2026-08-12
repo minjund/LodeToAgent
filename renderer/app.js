@@ -9,6 +9,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   const LIVE_ACTIVITY_STATES = new Set(["thinking", "working", "juggling", "notification"]);
   const SESSION_ARCHIVE_STORAGE_KEY = "loadtoagent:session-archives:v1";
   const RESULT_REVIEW_STORAGE_KEY = "loadtoagent:result-reviews:v1";
+  const PROJECT_NOTICE_ACK_STORAGE_KEY = "loadtoagent:project-notice-acks:v1";
   const PROJECT_DISMISSALS_STORAGE_KEY = "loadtoagent:project-dismissals:v1";
   const loadProjectDismissals = () => {
     try {
@@ -42,6 +43,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     projectOrder: [],
     sessionArchives: new Map(),
     resultReviews: new Map(),
+    projectNoticeAcks: new Map(),
     controlRoomObservedIds: new Set(),
     selectedId: null,
     drawerTab: "chat",
@@ -1148,6 +1150,87 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     if (targets.length) saveResultReviews();
     return targets.length;
   }
+  function projectNoticeStamp(kind, sessionOrId, prompt = null) {
+    const session = resultReviewSnapshot(sessionOrId);
+    if (!session) return "";
+    if (kind === "result") return resultReviewStamp(session);
+    if (kind === "terminal") {
+      const targetId = String(prompt?.target?.id || "");
+      const fingerprint = String(prompt?.fingerprint || "")
+        || resultContentFingerprint([prompt?.kind, prompt?.title, prompt?.question, prompt?.summary].filter(Boolean).join("\n"));
+      return fingerprint ? JSON.stringify(["terminal", targetId, fingerprint]) : "";
+    }
+    if (kind !== "attention") return "";
+    const attention = session.attention || {};
+    const requestIds = [...new Set(String(attention.requestId || "")
+      .split("|")
+      .map(value => value.trim())
+      .filter(Boolean))].sort();
+    if (requestIds.length) return JSON.stringify(["attention", String(attention.source || ""), requestIds]);
+    const summary = String(attention.summary || attention.question || session.statusDetail || "").trim();
+    return JSON.stringify([
+      "attention",
+      String(attention.source || ""),
+      String(attention.kind || ""),
+      String(attention.requestedAt || ""),
+      resultContentFingerprint(summary),
+    ]);
+  }
+  function projectNoticeKey(kind, sessionOrId, prompt = null) {
+    const session = resultReviewSnapshot(sessionOrId);
+    if (!session?.id) return "";
+    return JSON.stringify([
+      String(kind || ""),
+      String(session.id),
+      kind === "terminal" ? String(prompt?.target?.id || "") : "",
+    ]);
+  }
+  function isProjectNoticeSeen(kind, sessionOrId, prompt = null) {
+    const key = projectNoticeKey(kind, sessionOrId, prompt);
+    const stamp = projectNoticeStamp(kind, sessionOrId, prompt);
+    return Boolean(key && stamp && state.projectNoticeAcks.get(key)?.stamp === stamp);
+  }
+  function loadProjectNoticeAcks() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(PROJECT_NOTICE_ACK_STORAGE_KEY) || "{}");
+      state.projectNoticeAcks = new Map(Object.entries(saved)
+        .filter(([key, value]) => key && typeof value?.stamp === "string" && value.stamp)
+        .map(([key, value]) => [key, { stamp: value.stamp, seenAt: Number(value.seenAt || 0) }]));
+    } catch (error) {
+      reportRecoverableError("project-notice-acks-load", error);
+      state.projectNoticeAcks = new Map();
+    }
+  }
+  function saveProjectNoticeAcks() {
+    try {
+      const recent = [...state.projectNoticeAcks.entries()]
+        .sort((left, right) => Number(right[1]?.seenAt || 0) - Number(left[1]?.seenAt || 0))
+        .slice(0, 1_000);
+      state.projectNoticeAcks = new Map(recent);
+      localStorage.setItem(PROJECT_NOTICE_ACK_STORAGE_KEY, JSON.stringify(Object.fromEntries(recent)));
+    } catch (error) {
+      reportRecoverableError("project-notice-acks-save", error);
+    }
+  }
+  function markProjectNoticesSeen(entries = []) {
+    const seenAt = Date.now();
+    let changed = 0;
+    entries.forEach((entry) => {
+      const kind = String(entry?.kind || "");
+      const session = entry?.session || entry?.sessionId;
+      const prompt = entry?.prompt || null;
+      const key = projectNoticeKey(kind, session, prompt);
+      const stamp = projectNoticeStamp(kind, session, prompt);
+      if (!key || !stamp || state.projectNoticeAcks.get(key)?.stamp === stamp) return;
+      state.projectNoticeAcks.set(key, { stamp, seenAt });
+      changed += 1;
+    });
+    if (changed) saveProjectNoticeAcks();
+    return changed;
+  }
+  function markProjectNoticeSeen(kind, sessionOrId, prompt = null) {
+    return markProjectNoticesSeen([{ kind, session: sessionOrId, prompt }]) > 0;
+  }
   function saveSessionArchives() {
     try {
       const recent = [...state.sessionArchives.entries()]
@@ -1289,6 +1372,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   loadSessionArchives();
   loadResultReviews();
+  loadProjectNoticeAcks();
   return {
     $,
     $$,
@@ -1302,6 +1386,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     SESSION_RETENTION_MS,
     SESSION_ARCHIVE_STORAGE_KEY,
     RESULT_REVIEW_STORAGE_KEY,
+    PROJECT_NOTICE_ACK_STORAGE_KEY,
     state,
     saveProjectDismissals,
     motionPreference,
@@ -1370,6 +1455,12 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     loadResultReviews,
     saveResultReviews,
     markResultReviewComplete,
+    projectNoticeStamp,
+    isProjectNoticeSeen,
+    loadProjectNoticeAcks,
+    saveProjectNoticeAcks,
+    markProjectNoticesSeen,
+    markProjectNoticeSeen,
     isSessionManuallyArchived,
     isControlRoomSession,
     controlRoomStatus,

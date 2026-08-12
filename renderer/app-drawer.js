@@ -13,6 +13,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
     lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml, agentCommandComposer,
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
+    acknowledgeSessionNotices = () => 0, renderWorkspaces = () => {},
   } = context;
   let drawerFocusToken = null;
   let terminalRefreshQueued = false;
@@ -140,6 +141,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.drawerExecutionId = null;
     state.drawerTab = options.tab === "summary" ? "summary" : "chat";
     state.drawerForceLatest = state.drawerTab === "chat";
+    if (acknowledgeSessionNotices(selected || id) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id, true);
@@ -160,6 +162,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     state.drawerTab = "chat";
     state.agentCommandRoutes.delete(id);
     state.drawerForceLatest = true;
+    if (acknowledgeSessionNotices(child) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id);

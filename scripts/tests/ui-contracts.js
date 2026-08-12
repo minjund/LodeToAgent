@@ -1710,6 +1710,70 @@ function registerUiContractTests(context) {
     assert.deepStrictEqual(Array.from(core.resultReviewTargets(rootSession), session => session.id), []);
   });
 
+  test('프로젝트 알림 확인은 현재 신호만 숨기고 새 결과와 새 요청을 다시 표시한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
+    const values = new Map();
+    const sandbox = {
+      localStorage: {
+        getItem: key => values.get(key) || null,
+        setItem: (key, value) => values.set(key, value),
+      },
+      document: { documentElement: { dataset: {} } },
+      window: {
+        LoadToAgentAppFactories: {},
+        LoadToAgentRendererUtils: {
+          $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
+          providerLabel: value => value, reportRecoverableError: () => {},
+        },
+        matchMedia: () => ({ matches: false, addEventListener: () => {} }),
+        LoadToAgentI18n: { t: key => key, observedText: value => value },
+      },
+    };
+    vm.runInNewContext(source, sandbox, { filename: 'app.js' });
+    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const result = {
+      id: 'notice-result', status: 'completed', updatedAt: '2026-08-12T01:00:00.000Z',
+      completionObserved: true, messages: [], attention: { category: 'none', required: false },
+      outcome: { verified: true, completedAt: '2026-08-12T01:00:00.000Z', summary: '첫 완료 결과' },
+    };
+    const attention = {
+      id: 'notice-attention', status: 'waiting', updatedAt: '2026-08-12T01:01:00.000Z', messages: [],
+      attention: {
+        category: 'required', required: true, kind: 'input', source: 'input-tool',
+        requestId: 'request-a', requestedAt: '2026-08-12T01:01:00.000Z', summary: '환경을 고르세요.',
+      },
+    };
+    core.state.snapshot = { sessions: [result, attention] };
+
+    assert.equal(core.isProjectNoticeSeen('result', result), false);
+    assert.equal(core.markProjectNoticeSeen('result', result), true);
+    assert.equal(core.isProjectNoticeSeen('result', result), true);
+    assert.equal(core.isResultReviewComplete(result), false, '프로젝트 알림 열람이 실제 결과 확인 완료로 바뀌면 안 됩니다.');
+    assert.deepStrictEqual(Array.from(core.resultReviewTargets(result), session => session.id), ['notice-result']);
+    assert.ok(values.get(core.PROJECT_NOTICE_ACK_STORAGE_KEY));
+
+    const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
+    reloaded.state.snapshot = core.state.snapshot;
+    assert.equal(reloaded.isProjectNoticeSeen('result', result), true, '프로젝트 알림 열람 상태가 재시작 후 유지되어야 합니다.');
+    result.outcome = { ...result.outcome, summary: '새 완료 결과' };
+    assert.equal(reloaded.isProjectNoticeSeen('result', result), false, '새 결과 내용은 다시 프로젝트에 표시해야 합니다.');
+
+    assert.equal(core.markProjectNoticeSeen('attention', attention), true);
+    assert.equal(core.isProjectNoticeSeen('attention', attention), true);
+    attention.updatedAt = '2026-08-12T01:02:00.000Z';
+    attention.attention = { ...attention.attention, summary: '환경을 지금 고르세요.' };
+    assert.equal(core.isProjectNoticeSeen('attention', attention), true,
+      '같은 requestId의 문구나 갱신 시각 변화만으로 프로젝트 알림이 되살아나면 안 됩니다.');
+    attention.attention = { ...attention.attention, requestId: 'request-b' };
+    assert.equal(core.isProjectNoticeSeen('attention', attention), false, '새 요청 ID는 다시 프로젝트에 표시해야 합니다.');
+
+    const firstPrompt = { fingerprint: 'prompt-a', target: { id: 'terminal-a' } };
+    assert.equal(core.markProjectNoticeSeen('terminal', attention, firstPrompt), true);
+    assert.equal(core.isProjectNoticeSeen('terminal', attention, firstPrompt), true);
+    assert.equal(core.isProjectNoticeSeen('terminal', attention, { ...firstPrompt, fingerprint: 'prompt-b' }), false,
+      '새 PTY 승인 요청은 다시 프로젝트에 표시해야 합니다.');
+  });
+
   test('서브에이전트 대화에 메인 AI의 SendMessage 후속 지시를 시간순으로 합친다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
     const sandbox = {
@@ -2220,6 +2284,7 @@ function registerUiContractTests(context) {
   test('프로젝트 사이드바는 드래그와 키보드로 위치를 바꾸고 순서를 저장한다', () => {
     const dashboardSource = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
     const filterEvents = fs.readFileSync(path.join(root, 'renderer', 'app-events-filters.js'), 'utf8');
+    const drawerSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
     const quality = fs.readFileSync(path.join(root, 'renderer', 'app-quality.js'), 'utf8');
     const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-studio-shell.css'), 'utf8');
     const sidebarMarkup = dashboardSource.slice(
@@ -2269,12 +2334,23 @@ function registerUiContractTests(context) {
       'cursor: grabbing',
     ]);
     assertIncludesAll(dashboardSource, [
-      'projectResultReadySessions',
-      'controlRoomStatus(root) === "completed"',
-      'context.resultReviewTargets(root).length > 0',
+      'projectNoticeSignals',
+      'acknowledgeProjectNotices',
+      'acknowledgeSessionNotices',
+      'context.isProjectNoticeSeen?.("result", session)',
+      'context.isProjectNoticeSeen?.("attention", session)',
+      'context.isProjectNoticeSeen?.("terminal", session, prompt)',
       'priority: attention.length ? "attention" : resultReady.length ? "result-ready"',
     ]);
+    assert.match(filterEvents, /acknowledgeProjectNotices\(requestedWorkspace\);[\s\S]*renderWorkspaces\(\);/,
+      '프로젝트 선택은 현재 알림을 먼저 확인 처리한 뒤 사이드바를 다시 그려야 합니다.');
+    assertIncludesAll(drawerSource, [
+      'acknowledgeSessionNotices(selected || id)',
+      'acknowledgeSessionNotices(child)',
+      'renderWorkspaces()',
+    ]);
     assertIncludesAll(sidebarMarkup, [
+      'data-attention-session-count=',
       'data-result-ready-count=',
       'project-sidebar-result-ready',
     ]);
@@ -2323,6 +2399,7 @@ function registerUiContractTests(context) {
       providerFilters: new Set(),
     };
     let resultReviewed = false;
+    const seenNotices = new Set();
     const resultDashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({
       $: selector => selector === '#projectSidebarList' ? sidebar : null,
       esc: value => String(value),
@@ -2333,6 +2410,15 @@ function registerUiContractTests(context) {
       isControlRoomSession: session => session.status === 'running',
       controlRoomStatus: session => session.id === premature.id ? 'running' : session.status,
       resultReviewTargets: session => !resultReviewed && [completed.id, premature.id].includes(session.id) ? [session] : [],
+      isProjectNoticeSeen: (kind, session) => seenNotices.has(`${kind}:${session.id}`),
+      markProjectNoticesSeen: entries => {
+        let changed = 0;
+        entries.forEach(entry => {
+          const key = `${entry.kind}:${entry.session.id}`;
+          if (!seenNotices.has(key)) { seenNotices.add(key); changed += 1; }
+        });
+        return changed;
+      },
     });
     resultDashboard.renderWorkspaces();
     const projectMarkup = key => {
@@ -2350,6 +2436,16 @@ function registerUiContractTests(context) {
     assert.match(nestedProjectMarkup, /project-sidebar-result-ready/);
     assert.equal((nestedProjectMarkup.match(/project-sidebar-result-ready/g) || []).length, 1,
       '하위 작업이 실행 중인 메인 세션을 완료 결과로 먼저 세면 안 됩니다.');
+
+    assert.equal(resultDashboard.acknowledgeProjectNotices('D:\\repo\\nested'), 1);
+    resultDashboard.renderWorkspaces();
+    assert.equal(sidebar.innerHTML.includes('project-sidebar-result-ready'), false,
+      '프로젝트를 확인한 뒤 완료 결과 배지가 남아 있으면 안 됩니다.');
+    completed.updatedAt = '2026-08-12T02:00:00.000Z';
+    seenNotices.clear();
+    resultDashboard.renderWorkspaces();
+    assert.match(projectMarkup('d:/repo/nested'), /data-result-ready-count="1"/,
+      '새 완료 결과 신호가 생기면 프로젝트 배지가 다시 표시되어야 합니다.');
 
     resultReviewed = true;
     resultDashboard.renderWorkspaces();

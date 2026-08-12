@@ -15,6 +15,8 @@ GitHub release notes remain the authoritative version history.
   keyboard controls.
 - Keep parent agents active while nested subagents are still running, and show
   completed project results until they are reviewed.
+- Clear project completion and attention badges after their current notices are
+  opened, while resurfacing the badges for new results or requests.
 
 ## 1.6.20 - 2026-08-12
 
