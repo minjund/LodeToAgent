@@ -1112,7 +1112,11 @@ function registerUiContractTests(context) {
       '"ui.agent_idle": {"ko":"대기"',
     ]);
     assert.ok(monitorWorker.includes('activityState: session.activityState'), 'compact snapshot에 activityState가 전달되지 않습니다.');
-    assert.ok(monitorWorker.includes('session.status,\n    session.activityState,'), 'activityState만 바뀐 snapshot을 게시하지 못합니다.');
+    assert.match(
+      monitorWorker,
+      /session\.status,\r?\n\s+session\.activityState,/,
+      'activityState만 바뀐 snapshot을 게시하지 못합니다.',
+    );
     assert.ok(agentActions.includes('"status", "activityState", "statusDetail"'), '상세 화면이 최신 activityState를 덮어쓰지 못합니다.');
     const terminalBlock = html.slice(html.indexOf('id="terminalSection"'), html.indexOf('id="tmuxSection"'));
     const tmuxBlock = html.slice(html.indexOf('id="tmuxSection"'), html.indexOf('id="liveSection"'));
