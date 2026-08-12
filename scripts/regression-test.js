@@ -21,6 +21,7 @@ const { registerUpdateDownloadLimitTests } = require('./tests/update-download-li
 const { registerTmuxControlProxyLifecycleTests } = require('./tests/tmux-control-proxy-lifecycle');
 const { registerTerminalBoundConversationTests } = require('./tests/terminal-bound-conversation');
 const { registerBridgeBackpressureTests } = require('./tests/bridge-backpressure');
+const { registerProjectPtyPreconnectTests } = require('./tests/project-pty-preconnect');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -42,12 +43,13 @@ registerUpdateDownloadLimitTests(context);
 registerTmuxControlProxyLifecycleTests(context);
 registerTerminalBoundConversationTests(context);
 registerBridgeBackpressureTests(context);
+registerProjectPtyPreconnectTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 257) {
-  throw new Error(`회귀 테스트 등록 수가 257개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 266) {
+  throw new Error(`회귀 테스트 등록 수가 266개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

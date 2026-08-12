@@ -4,7 +4,19 @@ window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
 
 window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, saveProjectDismissals = () => {}, discardDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {} } = context;
+  const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, saveProjectDismissals = () => {}, moveProjectOrder = () => false, discardDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {}, preconnectProjectAgentTerminals = () => Promise.resolve([]) } = context;
+
+  let sidebarProjectDragEndedAt = 0;
+
+  function preconnectSelectedWorkspace() {
+    try {
+      void Promise.resolve(preconnectProjectAgentTerminals(state.workspace)).catch((error) => {
+        window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
+      });
+    } catch (error) {
+      window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
+    }
+  }
 
   function bindFilterAndWorkspaceEvents() {
     const normalizedProjectPath = value => String(value || "")
@@ -31,6 +43,96 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       items[next].focus();
       return true;
     };
+    const bindSortableSidebarProjects = (container) => {
+      if (!container) return;
+      const selector = ".project-sidebar-group[data-project-sortable]";
+      let draggedProjectId = "";
+      const projectId = (node) => String(node?.dataset.projectSortable || "");
+      const clearDropState = () => {
+        container.querySelectorAll(selector).forEach((group) => {
+          group.classList.remove("project-sort-dragging");
+          group.removeAttribute("data-project-drop-edge");
+          group.querySelector(".project-sidebar-item[draggable='true']")?.setAttribute("aria-grabbed", "false");
+        });
+      };
+      const finishDrag = () => {
+        const completedDrag = Boolean(draggedProjectId);
+        clearDropState();
+        draggedProjectId = "";
+        if (completedDrag) sidebarProjectDragEndedAt = Date.now();
+      };
+      const commitPosition = (sourceId, targetId, placeAfter, focusSource = false) => {
+        if (!moveProjectOrder(sourceId, targetId, placeAfter)) return false;
+        saveDashboardPreferences();
+        renderWorkspaces();
+        renderSessions("reorder");
+        announce(t("project.position_changed"));
+        if (focusSource) requestAnimationFrame(() => container
+          .querySelector(`${selector}[data-project-sortable="${CSS.escape(sourceId)}"] .project-sidebar-item`)
+          ?.focus({ preventScroll: true }));
+        return true;
+      };
+      container.addEventListener("dragstart", (event) => {
+        const item = event.target.closest(".project-sidebar-item[draggable='true']");
+        const group = item?.closest(selector);
+        if (!group || event.target.closest("[data-remove-workspace]")) return;
+        draggedProjectId = projectId(group);
+        if (!draggedProjectId) {
+          event.preventDefault();
+          return;
+        }
+        group.classList.add("project-sort-dragging");
+        item.setAttribute("aria-grabbed", "true");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", draggedProjectId);
+          event.dataTransfer.setData("application/x-loadtoagent-project-sidebar", container.id);
+          event.dataTransfer.setDragImage(item, 20, 20);
+        }
+      });
+      container.addEventListener("dragover", (event) => {
+        if (!draggedProjectId) return;
+        const target = event.target.closest(selector);
+        if (!target || projectId(target) === draggedProjectId) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        container.querySelectorAll(`${selector}[data-project-drop-edge]`).forEach((group) => group.removeAttribute("data-project-drop-edge"));
+        const bounds = target.getBoundingClientRect();
+        target.dataset.projectDropEdge = event.clientY > bounds.top + bounds.height / 2 ? "bottom" : "top";
+      });
+      container.addEventListener("drop", (event) => {
+        if (!draggedProjectId) return;
+        const target = event.target.closest(selector);
+        if (!target || projectId(target) === draggedProjectId) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const bounds = target.getBoundingClientRect();
+        const changed = commitPosition(
+          draggedProjectId,
+          projectId(target),
+          event.clientY > bounds.top + bounds.height / 2,
+        );
+        finishDrag();
+        if (!changed) clearDropState();
+      });
+      container.addEventListener("dragend", finishDrag);
+      container.addEventListener("dragleave", (event) => {
+        if (!container.contains(event.relatedTarget)) clearDropState();
+      });
+      container.addEventListener("keydown", (event) => {
+        const item = event.target.closest(".project-sidebar-item[draggable='true']");
+        if (!item || event.target !== item || !event.altKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
+        const group = item.closest(selector);
+        const groups = Array.from(container.querySelectorAll(selector));
+        const current = groups.indexOf(group);
+        const offset = event.key === "ArrowUp" ? -1 : 1;
+        const target = groups[current + offset];
+        if (current < 0 || !target) return;
+        event.preventDefault();
+        event.stopPropagation();
+        commitPosition(projectId(group), projectId(target), offset > 0, true);
+      });
+    };
     $("#loadMoreBtn").addEventListener("click", () => {
       const previousCount = document.querySelectorAll("#sessionGrid [data-session-id]").length;
       state.visibleLimit += 30;
@@ -42,6 +144,11 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList"), $("#projectSidebarList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
       const activeList = event.currentTarget;
+      if (activeList.id === "projectSidebarList" && Date.now() - sidebarProjectDragEndedAt < 250) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       const openSession = activeList.id === "projectSidebarList"
         ? event.target.closest("[data-open-session]")
         : null;
@@ -63,6 +170,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         saveProjectDismissals();
         if (state.workspace === remove.dataset.removeWorkspace) state.workspace = "all";
         render();
+        preconnectSelectedWorkspace();
         syncFilterResetButton();
         saveDashboardPreferences();
         requestAnimationFrame(() => {
@@ -88,6 +196,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         renderGlobalStats();
         if (activeList.id === "projectSidebarList" && state.view !== "all") selectView("all", { motionKind: "filter" });
         else renderSessions("filter");
+        preconnectSelectedWorkspace();
         if (activeList.id === "projectSidebarList" && state.workspace !== "all") {
           const selectedFlow = $("#liveSessionGrid")?.querySelector(".control-room-project-group");
           if (selectedFlow) {
@@ -124,9 +233,11 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         }
       }
     };
+    bindSortableSidebarProjects($("#projectSidebarList"));
     workspaceLists.forEach((list) => {
       list.addEventListener("click", handleWorkspaceClick);
       list.addEventListener("keydown", (event) => {
+        if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) return;
         const horizontal = event.currentTarget.id === "workspaceList";
         moveFocus(event, event.currentTarget, "[data-workspace]", horizontal ? ["ArrowLeft", "ArrowUp"] : ["ArrowUp"], horizontal ? ["ArrowRight", "ArrowDown"] : ["ArrowDown"]);
       });
@@ -145,6 +256,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.visibleLimit = 30;
       renderWorkspaces();
       renderSessions("filter");
+      preconnectSelectedWorkspace();
       syncFilterResetButton();
       saveDashboardPreferences();
       announce(t("filter.workspace_results", { project: event.target.selectedOptions[0]?.textContent || t("control.all_projects"), count: filteredSessions().length }));
@@ -155,6 +267,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.visibleLimit = 30;
       renderWorkspaces();
       renderSessions("filter");
+      preconnectSelectedWorkspace();
       syncFilterResetButton();
       saveDashboardPreferences();
       announce(t("filter.workspace_results", { project: event.target.selectedOptions[0]?.textContent || t("project.all"), count: filteredSessions().length }));
@@ -317,6 +430,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       renderProviderFilter();
       renderProviderOverview();
       renderSessions("filter");
+      preconnectSelectedWorkspace();
       syncFilterResetButton();
       saveDashboardPreferences();
       announce(window.LoadToAgentI18n.t("filter.reset_done", { count: filteredSessions().length }));
@@ -376,6 +490,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.visibleLimit = 30;
       if (state.view !== "all") selectView("all", { motionKind: "filter" });
       else render();
+      preconnectSelectedWorkspace();
       syncFilterResetButton();
       saveDashboardPreferences();
       toast(t(response.alreadyAdded ? "control.project_already_ready" : "control.project_added_ready"));

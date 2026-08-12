@@ -236,7 +236,9 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
       sessionBackend: 'direct', transient: false, cols: 120, rows: 32,
     };
     const firstCreation = creationFixture.manager.create(creationRequest);
-    const duplicateCreation = creationFixture.manager.create(creationRequest);
+    const duplicateCreation = creationFixture.manager.create({ ...creationRequest, includeReplay: false });
+    assert.equal(Object.hasOwn(firstCreation, 'replay'), true, 'create는 기본적으로 replay를 반환해야 합니다.');
+    assert.equal(Object.hasOwn(duplicateCreation, 'replay'), false, 'metadata-only 중복 create가 replay를 반환하면 안 됩니다.');
     assert.equal(duplicateCreation.id, firstCreation.id);
     assert.equal(duplicateCreation.creationDuplicate, true);
     assert.equal(duplicateCreation.creationUnavailable, false);
@@ -245,6 +247,13 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
       .find(session => session.id === firstCreation.id);
     assert.equal(persistedCreation.creationId, creationRequest.creationId);
     assert.match(persistedCreation.creationPayloadFingerprint, /^[a-f0-9]{64}$/u);
+    const metadataOnlyFresh = creationFixture.manager.create({
+      ...creationRequest,
+      creationId: 'create:fresh-grok-metadata-only',
+      deliveryId: 'start:fresh-grok-metadata-only',
+      includeReplay: false,
+    });
+    assert.equal(Object.hasOwn(metadataOnlyFresh, 'replay'), false, 'metadata-only 신규 create가 replay를 반환하면 안 됩니다.');
     assert.throws(
       () => creationFixture.manager.create({ ...creationRequest, initialCommand: '다른 생성 payload' }),
       error => error.code === 'CREATION_ID_CONFLICT'
@@ -263,7 +272,9 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
     const duplicateAfterAcceptedCommand = creationFixture.manager.create({
       ...creationRequest,
       deliveryId: 'start:fresh-grok-after-command-response-loss',
+      includeReplay: false,
     });
+    assert.equal(Object.hasOwn(duplicateAfterAcceptedCommand, 'replay'), false);
     assert.equal(duplicateAfterAcceptedCommand.deliveryState, 'accepted');
     assert.equal(duplicateAfterAcceptedCommand.promptSent, true);
     assert.equal(duplicateAfterAcceptedCommand.originalDeliveryId, creationRequest.deliveryId);
@@ -327,7 +338,8 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
 
     const restartedCreation = managerFixture(root, { storeFile: creationStoreFile });
     restartedCreation.manager.recoverPersistedSessions();
-    const afterHostRestart = restartedCreation.manager.create(creationRequest);
+    const afterHostRestart = restartedCreation.manager.create({ ...creationRequest, includeReplay: false });
+    assert.equal(Object.hasOwn(afterHostRestart, 'replay'), false);
     assert.equal(afterHostRestart.id, firstCreation.id);
     assert.equal(afterHostRestart.creationDuplicate, true);
     assert.equal(afterHostRestart.creationUnavailable, true);
@@ -347,12 +359,15 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
       ...creationRequest,
       creationId: 'create:fresh-grok-failed',
       deliveryId: 'start:fresh-grok-failed',
+      includeReplay: false,
     });
     const reusedFailure = failedCreation.manager.create({
       ...creationRequest,
       creationId: 'create:fresh-grok-failed',
       deliveryId: 'start:fresh-grok-failed',
     });
+    assert.equal(Object.hasOwn(failedResult, 'replay'), false, 'metadata-only 실패 create가 replay를 반환하면 안 됩니다.');
+    assert.equal(Object.hasOwn(reusedFailure, 'replay'), true, '실패 create 재시도도 기본 replay 동작을 유지해야 합니다.');
     assert.equal(failedResult.status, 'failed');
     assert.equal(failedResult.creationFailed, true);
     assert.equal(reusedFailure.id, failedResult.id);

@@ -5,6 +5,7 @@
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
   const TERMINAL_VIEW_KEY = 'loadtoagent:terminal-view:v1';
+  const TERMINAL_SMOOTH_SCROLL_MS = 100;
   const tmuxTargetKey = (distroName, paneId) => JSON.stringify([String(distroName || ''), String(paneId || '')]);
   const XTERM_THEMES = Object.freeze({
     dark: Object.freeze({
@@ -733,6 +734,7 @@
   }
 
   function xtermOptions(readOnly = false) {
+    const reduceMotion = document.documentElement?.dataset?.motion === 'reduced';
     return {
       allowProposedApi: false,
       cursorBlink: !readOnly,
@@ -742,9 +744,10 @@
       screenReaderMode: true,
       fontFamily: '"Cascadia Mono", "Cascadia Code", Consolas, "D2Coding", monospace',
       fontSize: state.terminalFontSize,
-      letterSpacing: -2,
+      letterSpacing: 0,
       lineHeight: state.terminalFontSize >= 17 ? 1.32 : 1.28,
       scrollback: 5_000,
+      smoothScrollDuration: reduceMotion ? 0 : TERMINAL_SMOOTH_SCROLL_MS,
       theme: xtermTheme(),
     };
   }
@@ -775,11 +778,11 @@
   });
 
   const {
-    agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, startAgent, openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
+    agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, startAgent, openForAgent, resumeForAgent, ensureForAgent, preconnectForAgents, bindAgentConnection, resetForAgent,
   } = window.LoadToAgentTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
-    tmuxTargetKey,
+    tmuxTargetKey, ensureSessionTerminal,
     syncComposer: (...args) => composer?.sync(...args),
   });
 
@@ -808,6 +811,7 @@
     if (!agentSession?.id || !mount?.appendChild) {
       return { ok: false, reason: 'invalid-mount', targets: [] };
     }
+    if (agentSession.parentId) return { ok: false, reason: 'parent-controlled', targets: [] };
     const generation = ++state.embeddedGeneration;
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
     const mountTargets = () => agentTargets(agentSession).filter(item => item.kind !== 'terminal'
@@ -1315,6 +1319,7 @@
     openForAgent,
     resumeForAgent,
     ensureForAgent,
+    preconnectForAgents,
     bindAgentConnection,
     hasTerminalSession: terminalId => state.sessions.some(item => item.id === String(terminalId || '')),
     resetForAgent,

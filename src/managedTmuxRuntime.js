@@ -56,6 +56,19 @@ class ManagedTmuxRuntime {
     }
   }
 
+  listSessionsStrict(options) {
+    try {
+      const output = this.execute(options, ['list-sessions', '-F', '#{session_name}']);
+      return new Set(String(output || '')
+        .split(/\r?\n/u)
+        .map(value => value.trim())
+        .filter(Boolean));
+    } catch (error) {
+      if (confirmedMissingTmuxSession(error)) return new Set();
+      throw error;
+    }
+  }
+
   existsStrict(options) {
     try {
       this.execute(options, ['has-session', '-t', `=${options.managedTmuxSession}`]);

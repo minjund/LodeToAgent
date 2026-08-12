@@ -356,6 +356,25 @@ html[data-theme] .project-sidebar-group.has-attention {
   background: var(--theme-warning-soft);
 }
 
+html[data-theme] .project-sidebar-group.has-result-ready:not(.has-attention) {
+  border-color: var(--theme-info-border);
+  background: var(--theme-info-soft);
+}
+
+html[data-theme] .project-sidebar-result-ready i {
+  background: var(--theme-info);
+  box-shadow: 0 0 9px color-mix(in srgb, var(--theme-info) 58%, transparent);
+}
+
+html[data-theme] .project-sidebar-result-ready b {
+  background: color-mix(in srgb, var(--theme-info) 17%, transparent);
+  color: var(--theme-info);
+}
+
+html[data-theme] .project-sidebar-result-ready small {
+  color: var(--theme-info);
+}
+
 html[data-theme] :is(.project-sidebar-copy strong, .project-sidebar-session b) {
   color: var(--theme-text);
 }

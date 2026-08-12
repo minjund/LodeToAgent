@@ -14,8 +14,56 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     providerInfo,
     isLiveSession,
     conversationMessageKey,
+    PROJECTLESS_WORKSPACE = "__projectless__",
+    controlRoomRootSessions = () => [],
+    controlRoomProject = session => ({ path: session?.cwd || session?.workspace || "" }),
   } = context;
   const pendingQuickResponses = new Map();
+  let projectPreconnectGeneration = 0;
+
+  const normalizedProjectPath = value => String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "")
+    .toLocaleLowerCase();
+
+  function preconnectProjectAgentTerminals(workspace = state.workspace) {
+    const requestedWorkspace = String(workspace || "");
+    const requestedKey = normalizedProjectPath(requestedWorkspace);
+    const generation = ++projectPreconnectGeneration;
+    const stillSelected = () => generation === projectPreconnectGeneration
+      && normalizedProjectPath(state.workspace) === requestedKey;
+    if (!requestedKey || requestedWorkspace === "all" || requestedWorkspace === PROJECTLESS_WORKSPACE) {
+      return Promise.resolve([]);
+    }
+
+    return Promise.resolve().then(async () => {
+      if (!stillSelected()) return [];
+      const terminal = window.LoadToAgentTerminal;
+      if (!terminal || typeof terminal.preconnectForAgents !== "function") return [];
+      const candidates = controlRoomRootSessions().filter((session) => {
+        if (!session?.id || session.parentId || !isLiveSession(session)) return false;
+        try {
+          const projectKey = normalizedProjectPath(controlRoomProject(session)?.path);
+          return projectKey === requestedKey || projectKey.startsWith(`${requestedKey}/`);
+        } catch (_error) {
+          return false;
+        }
+      });
+      if (!candidates.length || !stillSelected()) return [];
+      const outcomes = await terminal.preconnectForAgents(candidates, { shouldStart: stillSelected });
+      for (const outcome of outcomes || []) {
+        if (outcome?.status !== "rejected") continue;
+        const error = outcome.reason;
+        if (error?.deliveryState === "rejected"
+          || ["TERMINAL_PRECONNECT_CANCELLED", "TERMINAL_ENSURE_SUPERSEDED"].includes(error?.code)) continue;
+        window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect", error);
+      }
+      return outcomes || [];
+    }).catch((error) => {
+      window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect", error);
+      return [{ status: "rejected", reason: error }];
+    });
+  }
 
   function emitTerminalDelivery(sessionId, deliveryState, target = null) {
     if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
@@ -492,6 +540,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.session_not_found"));
+    if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     const support = agentResumeSupport(session);
     if (!support.supported) return context.toast(support.reason || t("agent.cannot_reconnect"));
     state.agentCommandSending.add(sessionId);
@@ -754,6 +803,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
     if (!session || !window.LoadToAgentTerminal?.resetForAgent) return context.toast(t("agent.session_not_found"));
+    if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     state.agentCommandSending.add(sessionId);
     try {
       if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
@@ -823,6 +873,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   async function openAgentTerminal(sessionId) {
     const session = snapshotSession(sessionId);
     if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.terminal_info_not_found"));
+    if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     const routeContext = routedAgentCommandContext(session);
     const target = chosenAgentCommandTarget(session, routeContext.route);
     if (!target)
@@ -1066,5 +1117,6 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     controlManagedRun,
     quickRespond,
     prepareReassignment,
+    preconnectProjectAgentTerminals,
   };
 };

@@ -6,12 +6,14 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   const {
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
-    syncComposer, tmuxTargetKey,
+    syncComposer, tmuxTargetKey, ensureSessionTerminal,
   } = context;
   const terminalLabel = typeof terminalTypeLabel === 'function'
     ? terminalTypeLabel
     : terminal => String(terminal?.type || t('terminal.type.terminal'));
   const ensurePromises = new Map();
+  let preconnectRefreshPromise = null;
+  const MAX_PRECONNECTED_TERMINAL_HOSTS = 8;
   const SHA256_ROUND_CONSTANTS = Object.freeze([
     0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
     0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -385,6 +387,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
   function agentTargets(agentSession) {
     if (!agentSession || !agentSession.id) return [];
+    if (agentSession.parentId) return [];
     const targets = [];
     const connectionSignature = agentConnectionSignature(agentSession);
     const blockedTerminalIds = new Set(state.sessions
@@ -643,6 +646,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   }
 
   async function openForAgent(agentSession, targetId = '', draft = '') {
+    if (agentSession?.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
     await init();
     const target = requiredAgentTarget(agentSession, targetId);
     if (target.kind !== 'terminal') throw rejectedError(t('terminal.agent.target_expired'));
@@ -744,6 +748,8 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   }
 
   async function resumeForAgent(agentSession, draft = '', sendDraft = false, options = {}) {
+    if (!agentSession?.id) throw rejectedError(t('terminal.resume.no_session_info'));
+    if (agentSession.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
     await initializeBeforeDelivery();
     const connectionSignature = agentConnectionSignature(agentSession);
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
@@ -773,10 +779,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     // created by the previous send is already running. Reuse the explicit
     // bridge target so a delayed receipt cannot spawn a second Claude process
     // for the same session and prompt.
-    try {
-      await refreshSessions();
-    } catch (error) {
-      throw markRejectedBeforeDelivery(error);
+    if (!options.inventoryFresh) {
+      try {
+        await refreshSessions();
+      } catch (error) {
+        throw markRejectedBeforeDelivery(error);
+      }
     }
     await retireMismatchedConnections(agentSession, connectionSignature);
     const reusable = state.sessions.find(session =>
@@ -806,7 +814,14 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       };
       const promptSent = Boolean(sendDraft && prompt && deliveryState === 'accepted');
       if (sendDraft && prompt) emitCommandDelivery(agentSession, target, deliveryState);
-      if (options.focus === false) return { ...target, promptSent, deliveryState, background: true, reused: true };
+      if (options.focus === false) return {
+        ...target,
+        promptSent,
+        deliveryState,
+        background: true,
+        reused: true,
+        terminal: reusable,
+      };
       try {
         state.mode = 'general';
         moveWorkbench('general');
@@ -871,13 +886,16 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       transient: false,
       cols: 120,
       rows: 32,
+      includeReplay: options.includeReplay !== false,
     });
     if (!created || !created.id) throw new Error(t('terminal.agent.resume_terminal_failed'));
     connectionSignatures().set(created.id, connectionSignature);
-    try {
-      await refreshSessions();
-    } catch (error) {
-      reportPostDeliveryError('terminal-agent-post-create-refresh', error);
+    if (!options.skipPostCreateRefresh) {
+      try {
+        await refreshSessions();
+      } catch (error) {
+        reportPostDeliveryError('terminal-agent-post-create-refresh', error);
+      }
     }
     let deliveryState = normalizedDeliveryState(created, created.promptSent ? 'accepted' : '');
     if (sendDraft && prompt && !created.promptSent && !['accepted', 'unknown'].includes(deliveryState)) {
@@ -900,6 +918,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       deliveryState,
       background: true,
       reused: Boolean(created.reused),
+      terminal: created,
     };
     try {
       state.mode = 'general';
@@ -975,7 +994,9 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         && !excludedTerminalIds.has(String(target.terminalId || target.id || ''))
         && targetMatchesConnection(target, signature, agentSession)) || null;
     const existing = existingTarget();
-    if (existing && bindAgentConnection(agentSession, existing)) return { ...existing, reused: true };
+    if (existing && bindAgentConnection(agentSession, existing)) {
+      return { ...existing, reused: true, terminal: terminalConnectionRecord(existing) };
+    }
 
     const pending = ensurePromises.get(agentSession.id);
     if (pending) {
@@ -995,14 +1016,18 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const task = (async () => {
       const target = await (async () => {
         await initializeBeforeDelivery();
-        try {
-          await refreshSessions();
-        } catch (error) {
-          throw markRejectedBeforeDelivery(error);
+        if (!options.inventoryFresh) {
+          try {
+            await refreshSessions();
+          } catch (error) {
+            throw markRejectedBeforeDelivery(error);
+          }
         }
         await retireMismatchedConnections(agentSession, signature);
         const refreshed = existingTarget();
-        if (refreshed && bindAgentConnection(agentSession, refreshed)) return { ...refreshed, reused: true };
+        if (refreshed && bindAgentConnection(agentSession, refreshed)) {
+          return { ...refreshed, reused: true, terminal: terminalConnectionRecord(refreshed) };
+        }
 
         const support = resumeSupport(agentSession);
         if (!support.supported) throw rejectedError(support.reason || t('terminal.agent.no_input_target'));
@@ -1018,6 +1043,9 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         return resumeForAgent(agentSession, '', false, {
           focus: false,
           excludeTerminalIds: [...excludedTerminalIds],
+          inventoryFresh: true,
+          includeReplay: options.includeReplay,
+          skipPostCreateRefresh: options.skipPostCreateRefresh,
         });
       })();
       if (record.superseded) {
@@ -1033,7 +1061,78 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return task;
   }
 
+  async function preconnectForAgents(agentSessions, options = {}) {
+    const unique = new Map();
+    for (const session of Array.isArray(agentSessions) ? agentSessions : []) {
+      if (!session?.id || session.parentId || unique.has(session.id)) continue;
+      unique.set(session.id, session);
+    }
+    const candidates = [...unique.values()];
+    if (!candidates.length) return [];
+    const shouldStart = typeof options.shouldStart === 'function' ? options.shouldStart : () => true;
+    const mayStart = () => {
+      try {
+        return shouldStart() !== false;
+      } catch (_error) {
+        return false;
+      }
+    };
+    const cancelledError = () => {
+      const error = new Error('Project terminal preconnection was cancelled.');
+      error.code = 'TERMINAL_PRECONNECT_CANCELLED';
+      return error;
+    };
+
+    try {
+      const alreadyInitialized = Boolean(state.initialized);
+      await initializeBeforeDelivery();
+      if (alreadyInitialized) {
+        if (!preconnectRefreshPromise) {
+          const refresh = Promise.resolve().then(() => refreshSessions());
+          const pendingRefresh = refresh.finally(() => {
+            if (preconnectRefreshPromise === pendingRefresh) preconnectRefreshPromise = null;
+          });
+          preconnectRefreshPromise = pendingRefresh;
+        }
+        await preconnectRefreshPromise;
+      }
+    } catch (error) {
+      return candidates.map(() => ({ status: 'rejected', reason: error }));
+    }
+
+    const settled = await Promise.allSettled(candidates.map((session) => {
+      if (!mayStart()) return Promise.reject(cancelledError());
+      return ensureForAgent(session, {
+        focus: false,
+        inventoryFresh: true,
+        includeReplay: false,
+        skipPostCreateRefresh: true,
+      });
+    }));
+
+    if (typeof ensureSessionTerminal !== 'function') return settled;
+    for (let index = 0; index < settled.length && mayStart(); index += 1) {
+      const outcome = settled[index];
+      if (outcome.status !== 'fulfilled') continue;
+      const terminalId = String(outcome.value?.terminalId || outcome.value?.id || '');
+      if (!terminalId) continue;
+      const alreadyHydrating = Boolean(state.terminals?.has?.(terminalId));
+      if (!alreadyHydrating && Number(state.terminals?.size || 0) >= MAX_PRECONNECTED_TERMINAL_HOSTS) continue;
+      const terminal = outcome.value?.terminal
+        || state.sessions.find(session => session.id === terminalId)
+        || { id: terminalId };
+      try {
+        await ensureSessionTerminal(terminal);
+      } catch (error) {
+        outcome.hydrationError = error;
+      }
+    }
+    return settled;
+  }
+
   async function resetForAgent(agentSession, options = {}) {
+    if (!agentSession?.id) throw rejectedError(t('terminal.resume.no_session_info'));
+    if (agentSession.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
     await init();
     const provider = String(agentSession?.provider || '').toLowerCase();
     if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
@@ -1081,6 +1180,6 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   return {
     agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent,
     freshAgentLaunchOptions, startAgent,
-    openForAgent, resumeForAgent, ensureForAgent, bindAgentConnection, resetForAgent,
+    openForAgent, resumeForAgent, ensureForAgent, preconnectForAgents, bindAgentConnection, resetForAgent,
   };
 };

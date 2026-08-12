@@ -251,6 +251,61 @@ function createHierarchyAttacher(dependencies) {
     };
   }
 
+  function reconcileWorkflowStates(sessions, byId, parents) {
+    const protectedStatuses = new Set(['failed', 'waiting', 'paused']);
+    const activeStatuses = new Set(['running', 'starting']);
+    const parentIds = new Set(parents.map(parent => parent.id));
+    const workflowById = new Map();
+    const visiting = new Set();
+
+    const reconcile = session => {
+      if (workflowById.has(session.id)) return workflowById.get(session.id);
+      if (visiting.has(session.id)) return activeStatuses.has(session.status);
+      visiting.add(session.id);
+
+      const childWorkflowById = new Map();
+      for (const childId of session.childIds || []) {
+        const child = byId.get(childId);
+        if (child) childWorkflowById.set(childId, reconcile(child));
+      }
+
+      if (parentIds.has(session.id)) {
+        const collaboration = session.collaboration;
+        const retainedByTask = new Map((collaboration.retainedAgents || []).map(agent => [agent.taskName, agent]));
+        for (const record of collaboration.spawns || []) {
+          const child = record.childId && byId.get(record.childId);
+          if (child) synchronizeSpawn(session, collaboration, retainedByTask, record, child);
+        }
+        updateMetrics(collaboration);
+      }
+
+      const runningChildIds = new Set(((session.collaboration && session.collaboration.spawns) || [])
+        .filter(record => record.status === 'running' && record.childId)
+        .map(record => record.childId));
+      const activeChildCount = [...childWorkflowById]
+        .filter(([childId, active]) => active || runningChildIds.has(childId))
+        .length;
+      const hasActiveChildWorkflow = activeChildCount > 0;
+
+      if (hasActiveChildWorkflow && !protectedStatuses.has(session.status)) {
+        session.status = 'running';
+        session.activityState = 'juggling';
+        session.statusDetail = activeChildCount === 1
+          ? '도움 AI 작업 진행 중'
+          : `도움 AI ${activeChildCount}개 작업 진행 중`;
+        session.completionObserved = false;
+        session.completedAt = null;
+      }
+
+      const workflowActive = activeStatuses.has(session.status) || hasActiveChildWorkflow;
+      visiting.delete(session.id);
+      workflowById.set(session.id, workflowActive);
+      return workflowActive;
+    };
+
+    for (const session of sessions) reconcile(session);
+  }
+
   return function attachHierarchy(sessions) {
     const byId = indexExistingRelationships(sessions);
     const parents = sessions.filter(session => session.collaboration
@@ -265,8 +320,9 @@ function createHierarchyAttacher(dependencies) {
         synchronizeSpawn(parent, collaboration, retainedByTask, record, child);
       }
       inferUnrecordedChildren(parent, collaboration, byId);
-      updateMetrics(collaboration);
     }
+
+    reconcileWorkflowStates(sessions, byId, parents);
   };
 }
 

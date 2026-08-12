@@ -758,6 +758,105 @@ function registerCollaborationSummaryTests(context) {
     assert.equal(child.delegation.assignment, '버튼의 실제 동작을 검사해줘');
   });
 
+  test('실행 중인 중첩 서브에이전트 상태를 완료된 조상까지 아래에서 위로 전파한다', () => {
+    const baseAt = Date.now() - 10_000;
+    const parseHierarchySession = ({ id, parentId = '', depth = 0, status, offset }) => {
+      const at = value => new Date(baseAt + offset + value).toISOString();
+      const source = parentId
+        ? { subagent: { thread_spawn: { parent_thread_id: parentId, depth, agent_path: `/root/${id}` } } }
+        : 'cli';
+      const rows = [
+        { timestamp: at(0), type: 'session_meta', payload: { id, cwd: 'D:\\repo', source } },
+        { timestamp: at(100), type: 'event_msg', payload: { type: 'task_started', turn_id: `${id}-turn` } },
+        { timestamp: at(200), type: 'event_msg', payload: { type: 'agent_message', message: `${id} 결과를 정리했습니다.` } },
+      ];
+      if (status === 'completed') {
+        rows.push({
+          timestamp: at(300),
+          type: 'event_msg',
+          payload: {
+            type: 'task_complete',
+            turn_id: `${id}-turn`,
+            completed_at: at(300),
+            last_agent_message: `${id} 결과를 정리했습니다.`,
+          },
+        });
+      }
+      return parseCodex(jsonl(path.join(temp, 'codex', `hierarchy-${id}.jsonl`), rows));
+    };
+
+    const root = parseHierarchySession({ id: 'nested-root', status: 'completed', offset: 0 });
+    const middle = parseHierarchySession({
+      id: 'nested-middle', parentId: 'nested-root', depth: 1, status: 'completed', offset: 1_000,
+    });
+    const leaf = parseHierarchySession({
+      id: 'nested-leaf', parentId: 'nested-middle', depth: 2, status: 'running', offset: 2_000,
+    });
+    assert.deepStrictEqual([root.status, middle.status, leaf.status], ['completed', 'completed', 'running']);
+
+    attachHierarchy([root, middle, leaf]);
+
+    assert.deepStrictEqual(
+      [root.status, root.activityState, root.completionObserved, root.completedAt],
+      ['running', 'juggling', false, null],
+    );
+    assert.deepStrictEqual(
+      [middle.status, middle.activityState, middle.completionObserved, middle.completedAt],
+      ['running', 'juggling', false, null],
+    );
+    assert.equal(root.collaboration.metrics.currentlyRunning, 1);
+    assert.equal(middle.collaboration.metrics.currentlyRunning, 1);
+
+    const completedRoot = parseHierarchySession({ id: 'completed-root', status: 'completed', offset: 4_000 });
+    const completedChild = parseHierarchySession({
+      id: 'completed-child', parentId: 'completed-root', depth: 1, status: 'completed', offset: 5_000,
+    });
+    attachHierarchy([completedRoot, completedChild]);
+    assert.deepStrictEqual(
+      [completedRoot.status, completedRoot.activityState, completedRoot.completionObserved, Boolean(completedRoot.completedAt)],
+      ['completed', 'attention', true, true],
+      '새로 완료된 자식만 있으면 부모의 실제 완료 상태를 유지해야 합니다.',
+    );
+    assert.equal(completedRoot.collaboration.metrics.currentlyRunning, 0);
+  });
+
+  test('보호된 중간 상태는 유지하면서 하위 실행 신호를 그 조상에게 전달한다', () => {
+    const protectedStates = [
+      ['failed', 'error'],
+      ['waiting', 'notification'],
+      ['paused', 'idle'],
+    ];
+    for (const [protectedStatus, protectedActivity] of protectedStates) {
+      const suffix = protectedStatus;
+      const root = parseCodex(jsonl(path.join(temp, 'codex', `protected-root-${suffix}.jsonl`), [
+        { timestamp: '2026-08-12T05:00:00Z', type: 'session_meta', payload: { id: `protected-root-${suffix}`, cwd: 'D:\\repo' } },
+      ]));
+      const middle = parseCodex(jsonl(path.join(temp, 'codex', `protected-middle-${suffix}.jsonl`), [
+        { timestamp: '2026-08-12T05:00:01Z', type: 'session_meta', payload: { id: `protected-middle-${suffix}`, source: { subagent: { thread_spawn: { parent_thread_id: `protected-root-${suffix}`, depth: 1, agent_path: `/root/middle_${suffix}` } } } } },
+      ]));
+      const leaf = parseCodex(jsonl(path.join(temp, 'codex', `protected-leaf-${suffix}.jsonl`), [
+        { timestamp: new Date().toISOString(), type: 'session_meta', payload: { id: `protected-leaf-${suffix}`, source: { subagent: { thread_spawn: { parent_thread_id: `protected-middle-${suffix}`, depth: 2, agent_path: `/root/middle_${suffix}/leaf` } } } } },
+        { timestamp: new Date().toISOString(), type: 'event_msg', payload: { type: 'task_started', turn_id: `leaf-${suffix}` } },
+      ]));
+      root.status = 'completed';
+      root.activityState = 'attention';
+      root.completionObserved = true;
+      root.completedAt = '2026-08-12T05:00:00.000Z';
+      middle.status = protectedStatus;
+      middle.activityState = protectedActivity;
+      middle.statusDetail = `명시적 ${protectedStatus}`;
+
+      attachHierarchy([root, middle, leaf]);
+
+      assert.deepStrictEqual([middle.status, middle.activityState], [protectedStatus, protectedActivity]);
+      assert.deepStrictEqual(
+        [root.status, root.activityState, root.completionObserved, root.completedAt],
+        ['running', 'juggling', false, null],
+        `${protectedStatus} 상태 아래의 실행 중 작업도 조상에 전달해야 합니다.`,
+      );
+    }
+  });
+
   test('암호화된 spawn 지시와 직전 메인 AI 설명을 실제 원문으로 혼동하지 않는다', () => {
     const parent = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-encrypted-assignment.jsonl'), [
       { timestamp: '2026-07-14T02:15:00Z', type: 'session_meta', payload: { id: 'encrypted-assignment', cwd: 'D:\\repo' } },

@@ -249,6 +249,7 @@
   }
 
   async function mount(session, options = {}) {
+    if (session?.parentId) return { ok: false, reason: 'parent-controlled', targets: [] };
     if (!session?.id || !viewport()?.isConnected) return { ok: false, reason: 'invalid-mount', targets: [] };
     const signature = connectionSignature(session);
     const embeddedBefore = window.LoadToAgentTerminal?.embeddedState?.() || {};

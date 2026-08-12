@@ -966,6 +966,9 @@ function registerTerminalLifecycleTests(context) {
   test('터미널 호스트 장애 뒤 살아 있는 관리형 tmux 세션에 같은 ID로 재접속한다', () => {
     const storeFile = path.join(temp, 'managed-tmux-recovery.json');
     const spawned = [];
+    const liveManagedSessions = new Set();
+    const listedServers = [];
+    let individualExistsProbes = 0;
     class FakePty {
       constructor(pid) { this.pid = pid; }
       onData() {}
@@ -976,12 +979,18 @@ function registerTerminalLifecycleTests(context) {
     }
     const runtime = {
       exists: () => true,
+      existsStrict: () => { individualExistsProbes += 1; return true; },
+      listSessionsStrict: options => {
+        listedServers.push([options.distro || '', options.tmuxSocket]);
+        return new Set(liveManagedSessions);
+      },
       stop: () => ({ ok: true }),
     };
     const managerOptions = {
       platform: 'darwin',
       storeFile,
       managedTmuxRuntime: runtime,
+      deferPersistedSessionReconciliation: true,
       killTree: () => {},
       ptyModule: {
         spawn: (file, args) => {
@@ -997,23 +1006,40 @@ function registerTerminalLifecycleTests(context) {
       cwd: root,
       args: [],
     });
+    const secondCreated = beforeCrash.create({
+      type: 'agent',
+      provider: 'claude',
+      cwd: root,
+      args: [],
+    });
+    liveManagedSessions.add(created.managedTmuxSession);
+    liveManagedSessions.add(secondCreated.managedTmuxSession);
     beforeCrash.persistNow();
 
     const afterCrash = new TerminalManager(managerOptions);
+    assert.deepStrictEqual(listedServers, [], 'daemon용 manager 생성자는 managed session reconcile을 먼저 실행하면 안 됩니다.');
     const recovered = afterCrash.recoverPersistedSessions();
 
-    assert.equal(recovered.length, 1);
+    assert.equal(recovered.length, 2);
     assert.equal(recovered[0].id, created.id);
+    assert.equal(recovered[1].id, secondCreated.id);
     assert.equal(recovered[0].status, 'running');
     assert.equal(recovered[0].managedTmuxSession, created.managedTmuxSession);
-    assert.equal(spawned.length, 2);
-    assert.equal(spawned[1].file, 'tmux');
-    assert.deepStrictEqual(spawned[1].args, [
+    assert.equal(spawned.length, 4);
+    assert.equal(spawned[2].file, 'tmux');
+    assert.deepStrictEqual(spawned[2].args, [
       '-L', 'loadtoagent',
       'attach-session', '-t', `=${created.managedTmuxSession}`,
     ]);
+    assert.deepStrictEqual(spawned[3].args, [
+      '-L', 'loadtoagent',
+      'attach-session', '-t', `=${secondCreated.managedTmuxSession}`,
+    ]);
+    assert.deepStrictEqual(listedServers, [['', 'loadtoagent']], '같은 tmux 서버는 복구 중 한 번만 목록을 조회해야 합니다.');
+    assert.equal(individualExistsProbes, 0, '목록으로 확인한 managed session을 has-session으로 다시 조회하면 안 됩니다.');
     assert.match(afterCrash.get(created.id, true).replay, /실행 중이던 작업에 다시 연결/);
     afterCrash.close(created.id);
+    afterCrash.close(secondCreated.id);
   });
 
   test('관리형 AI 터미널 close는 tmux 작업과 저장 기록을 함께 제거한다', () => {
@@ -2050,6 +2076,7 @@ function registerTerminalLifecycleTests(context) {
       execFileSync: () => { throw missingTmuxError; },
     });
     missingRuntime.available = () => true;
+    assert.deepStrictEqual([...missingRuntime.listSessionsStrict({ tmuxSocket: 'test' })], []);
     assert.equal(missingRuntime.existsStrict({ tmuxSocket: 'test', managedTmuxSession: 'missing' }), false);
     assert.deepStrictEqual(missingRuntime.stopStrict({ tmuxSocket: 'test', managedTmuxSession: 'missing' }), { ok: true });
     const infrastructureError = new Error('WSL 배포판을 찾을 수 없습니다.');
@@ -2061,6 +2088,10 @@ function registerTerminalLifecycleTests(context) {
     });
     unavailableRuntime.available = () => true;
     assert.throws(
+      () => unavailableRuntime.listSessionsStrict({ distro: 'Missing', tmuxSocket: 'test' }),
+      error => error === infrastructureError,
+    );
+    assert.throws(
       () => unavailableRuntime.existsStrict({ distro: 'Missing', tmuxSocket: 'test', managedTmuxSession: 'missing' }),
       error => error === infrastructureError,
     );
@@ -2068,6 +2099,23 @@ function registerTerminalLifecycleTests(context) {
       () => unavailableRuntime.stopStrict({ distro: 'Missing', tmuxSocket: 'test', managedTmuxSession: 'missing' }),
       error => error === infrastructureError,
     );
+
+    const listCommands = [];
+    const listingRuntime = new ManagedTmuxRuntime({
+      platform: 'win32',
+      execFileSync: (file, args) => {
+        listCommands.push([file, args]);
+        return 'managed-one\r\nmanaged-two\n';
+      },
+    });
+    assert.deepStrictEqual(
+      [...listingRuntime.listSessionsStrict({ distro: 'Ubuntu', tmuxSocket: 'loadtoagent' })],
+      ['managed-one', 'managed-two'],
+    );
+    assert.deepStrictEqual(listCommands, [[
+      'wsl.exe',
+      ['-d', 'Ubuntu', '--', 'tmux', '-L', 'loadtoagent', 'list-sessions', '-F', '#{session_name}'],
+    ]]);
 
     let releaseKill;
     let releaseStop;
@@ -2921,8 +2969,11 @@ function registerTerminalLifecycleTests(context) {
       recoveryArgs: ['--resume', 'send-reuse'],
       initialCommand: '두 번째 질문',
       initialCommandInArgs: true,
+      includeReplay: false,
     });
 
+    assert.equal(Object.hasOwn(first, 'replay'), true);
+    assert.equal(Object.hasOwn(second, 'replay'), false, 'metadata-only 재사용 응답이 replay를 반환하면 안 됩니다.');
     assert.equal(second.id, first.id);
     assert.equal(second.reused, true);
     assert.equal(second.promptSent, true);
@@ -2973,8 +3024,10 @@ function registerTerminalLifecycleTests(context) {
     };
 
     const first = manager.create(request);
-    const retry = manager.create(request);
+    const retry = manager.create({ ...request, includeReplay: false });
 
+    assert.equal(Object.hasOwn(first, 'replay'), true);
+    assert.equal(Object.hasOwn(retry, 'replay'), false, 'metadata-only delivery 중복 응답이 replay를 반환하면 안 됩니다.');
     assert.equal(retry.id, first.id);
     assert.equal(retry.reused, true);
     assert.equal(retry.duplicate, true);
@@ -3023,7 +3076,12 @@ function registerTerminalLifecycleTests(context) {
         },
       },
     });
-    const retryWithNewId = rendererRestart.create({ ...request, deliveryId: 'delivery:dedup:renderer-restart' });
+    const retryWithNewId = rendererRestart.create({
+      ...request,
+      deliveryId: 'delivery:dedup:renderer-restart',
+      includeReplay: false,
+    });
+    assert.equal(Object.hasOwn(retryWithNewId, 'replay'), false, 'metadata-only prepared delivery 중복 응답이 replay를 반환하면 안 됩니다.');
     assert.equal(retryWithNewId.duplicate, true);
     assert.equal(retryWithNewId.deliveryState, 'unknown');
     assert.deepStrictEqual(rendererRestartProcesses, []);
