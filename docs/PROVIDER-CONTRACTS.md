@@ -4,7 +4,9 @@ LoadToAgent는 제공사별 이벤트를 아래 공통 단계로 정규화합니
 
 `queued → session-start → turn-start → reasoning/tool/message → turn-complete → session-end`
 
-상태는 `starting`, `running`, `paused`, `waiting`, `idle`, `completed`, `failed`, `cancelled` 중 하나입니다. `paused`는 LoadToAgent가 시작하고 사용자가 일시정지한 관리 실행에만 사용합니다. 구조화 완료 이벤트가 없는 외부 세션은 파일 갱신 시각과 마지막 메시지 역할을 이용해 `running`, `waiting`, `idle`을 구분합니다. 명시적인 사용자 입력 도구가 응답을 기다리거나 최종 assistant 메시지가 질문·선택 요청으로 끝나면, WCC 사용 여부와 관계없이 `waiting`으로 분류합니다. 이후 실제 사용자 메시지가 기록되면 해당 대기는 해제됩니다.
+수명주기 상태는 `starting`, `running`, `paused`, `waiting`, `idle`, `completed`, `failed`, `cancelled` 중 하나입니다. 이와 별도로 현재 활동을 `thinking`, `working`, `juggling`, `notification`, `attention`, `error`, `idle`로 보존합니다. 화면은 사용자 요청 직후 `생각 중`, 도구 실행 중 `작업 중`, 구조화 입력·권한 요청은 `대기 중`으로 표시합니다. `paused`는 LoadToAgent가 시작하고 사용자가 일시정지한 관리 실행에만 사용합니다.
+
+`waiting`과 확인 알림은 `request_user_input`, `AskUserQuestion`, 실제 권한 승인처럼 식별 가능한 요청에만 사용합니다. 최종 assistant 문장의 물음표는 응답 의도 참고값으로만 남기며 단독으로 `waiting`이나 시스템 알림을 만들지 않습니다. 구조화 요청은 호출 ID로 중복을 제거하고, 일치하는 도구 결과·새 사용자 메시지·완료 또는 중단 수명주기에서 해제합니다.
 
 ## 관리 인텔리전스 계약
 

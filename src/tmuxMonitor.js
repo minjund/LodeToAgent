@@ -524,7 +524,7 @@ class TmuxMonitor {
     const history = [
       procProcess,
       'find "$HOME/.claude/projects" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|claude|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
-      'find "$HOME/.codex/sessions" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -80 | while read -r MT SZ FILE; do printf "F|~|codex|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
+      'find "$HOME/.codex/sessions" -type f -name "*.jsonl" -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -100 | while read -r MT SZ FILE; do printf "F|~|codex|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
       'find "$HOME/.gemini/tmp" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|gemini|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
       'find "$HOME/.grok/sessions" -type f \\( -name "*.json" -o -name "*.jsonl" \\) -printf "%T@ %s %p\\n" 2>/dev/null | sort -nr | head -50 | while read -r MT SZ FILE; do printf "F|~|grok|~|%s|~|%s|~|%s\\n" "$MT" "$SZ" "$FILE"; done',
     ];
@@ -586,7 +586,7 @@ class TmuxMonitor {
         kind: 'wsl',
         distro: item.name,
         label: `WSL · ${item.name}`,
-        files: Object.fromEntries(Object.entries(item.historyFiles || {}).map(([provider, files]) => [provider, files.slice(0, 40).map(info => ({ ...info, file: linuxPathToUnc(item.name, info.file) }))])),
+        files: Object.fromEntries(Object.entries(item.historyFiles || {}).map(([provider, files]) => [provider, files.slice(0, provider === 'codex' ? 100 : 40).map(info => ({ ...info, file: linuxPathToUnc(item.name, info.file) }))])),
       }));
   }
 }

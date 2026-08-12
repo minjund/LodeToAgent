@@ -5,6 +5,17 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.20 - 2026-08-12
+
+- Distinguish provider activity as thinking, working, waiting for explicit
+  input, and completed across Claude, Codex, Gemini, Grok, and managed runs.
+- Notify only for structured input, permission requests, and meaningful root
+  completions while showing the actual question text in the notification.
+- Deduplicate concurrent and repeated input requests by stable request ID,
+  without hiding separate terminal edit approvals or shell permissions.
+- Recover recent unresolved Codex input requests after startup with bounded
+  scanning, and keep transient thinking or working sessions in the live view.
+
 ## 1.6.19 - 2026-08-11
 
 - Keep only the English, Korean, and Simplified Chinese Electron locale packs

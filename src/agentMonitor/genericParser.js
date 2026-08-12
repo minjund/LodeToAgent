@@ -1,7 +1,9 @@
 'use strict';
 
 const path = require('path');
+const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createExecutionTracker } = require('./executionActivity');
+const { structuredInputRequestText } = require('./responseIntent');
 
 const TOOL_START_PATTERN = /tool_use|tool-call|tool_start/;
 const TOOL_END_PATTERN = /tool_result|tool-result|tool_end/;
@@ -140,11 +142,24 @@ function createGenericParser(dependencies) {
       completedAt: null,
       failed: false,
       pendingUserInputCalls: new Set(),
+      pendingUserInputAt: new Map(),
+      pendingUserInputText: new Map(),
       toolCalls: new Map(),
       executionTracker: createExecutionTracker({ compactText, timestamp }),
+      activityState: 'idle',
+      activityAt: 0,
+      activeSubagents: false,
     };
     for (const event of events) {
       const type = String(event.type || event.event || event.kind || '').toLowerCase();
+      const role = String(event.role || event.author || event.sender || '').toLowerCase();
+      const startsUserTurn = !TOOL_START_PATTERN.test(type) && !TOOL_END_PATTERN.test(type)
+        && (role === 'user' || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type));
+      if (startsUserTurn) {
+        state.pendingUserInputCalls.clear();
+        state.pendingUserInputAt.clear();
+        state.pendingUserInputText.clear();
+      }
       if (state.completed && (TOOL_START_PATTERN.test(type)
         || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type))) {
         state.completed = false;
@@ -165,18 +180,45 @@ function createGenericParser(dependencies) {
         recordToolStart(session, state, event);
         state.running = true;
         const toolName = event.tool_name || event.name || event.tool;
-        if (isUserInputTool(toolName)) state.pendingUserInputCalls.add(String(event.id || toolName));
+        observeActivity(state, isUserInputTool(toolName) ? 'notification' : 'working', event.timestamp);
+        if (isUserInputTool(toolName)) {
+          const requestId = String(event.id || toolName);
+          state.pendingUserInputCalls.add(requestId);
+          if (!state.pendingUserInputAt.has(requestId)) state.pendingUserInputAt.set(requestId, timestamp(event.timestamp, session.updatedAt));
+          state.pendingUserInputText.set(requestId, structuredInputRequestText(event.parameters || event.args || event.input || event));
+        }
       }
       if (TOOL_END_PATTERN.test(type)) {
         recordToolEnd(session, state, event);
-        state.pendingUserInputCalls.delete(String(event.tool_call_id || event.tool_use_id || event.id || ''));
+        observeActivity(state, 'working', event.timestamp);
+        const requestId = String(event.tool_call_id || event.tool_use_id || event.id || '');
+        state.pendingUserInputCalls.delete(requestId);
+        state.pendingUserInputAt.delete(requestId);
+        state.pendingUserInputText.delete(requestId);
+      }
+      if (/^(?:user_message|prompt|request|turn_start|session_start)$/.test(type)
+        || /reasoning|thinking/.test(type)) observeActivity(state, 'thinking', event.timestamp);
+      if (/(?:sub[_-]?agent|agent).*(?:start|spawn|running|active)/.test(type)) {
+        state.activeSubagents = true;
+        observeActivity(state, 'juggling', event.timestamp);
+      }
+      if (/(?:sub[_-]?agent|agent).*(?:complete|finish|end|stop|interrupt)/.test(type)) {
+        state.activeSubagents = false;
+        observeActivity(state, 'working', event.timestamp);
       }
       if (type === 'result' || /session_end|completed/.test(type)) {
         state.running = false;
         state.completed = true;
         state.completedAt = timestamp(event.timestamp, session.updatedAt);
+        state.pendingUserInputCalls.clear();
+        state.pendingUserInputAt.clear();
+        state.pendingUserInputText.clear();
+        observeActivity(state, 'attention', event.timestamp);
       }
-      if (type === 'error' || event.error) state.failed = true;
+      if (type === 'error' || event.error) {
+        state.failed = true;
+        observeActivity(state, 'error', event.timestamp);
+      }
       const usage = normalizeUsage(event);
       if (usage.total) session.usage = usage;
     }
@@ -248,6 +290,7 @@ function createGenericParser(dependencies) {
       usages,
       lastConversationRole: lastConversation && lastConversation.role || '',
       lastAssistantText: lastConversation && lastConversation.role === 'assistant' ? lastConversation.text : '',
+      lastConversationAt: lastConversation && lastConversation.timestamp || null,
     };
   }
 
@@ -260,19 +303,26 @@ function createGenericParser(dependencies) {
     session.context = contextInfo(session.turnUsage.total || session.usage.total, context);
     const age = Date.now() - fileInfo.mtimeMs;
     const pendingUserInput = eventState.pendingUserInputCalls.size > 0;
+    const inputRequestId = [...eventState.pendingUserInputCalls].sort().join('|');
+    const inputRequestedAt = inputRequestId
+      ? inputRequestId.split('|').map(callId => eventState.pendingUserInputAt.get(callId)).filter(Boolean).sort().at(0) || null
+      : null;
+    const inputRequestText = structuredInputRequestText([...eventState.pendingUserInputCalls]
+      .map(callId => eventState.pendingUserInputText.get(callId))
+      .filter(Boolean));
     const responseIntent = assistantResponseIntent(messageState.lastAssistantText);
+    if (messageState.lastConversationRole === 'user') observeActivity(eventState, 'thinking', messageState.lastConversationAt);
     session.responseIntent = pendingUserInput
       ? {
         category: 'required', required: true, optional: false,
-        requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+        requestId: inputRequestId, requestedAt: inputRequestedAt,
         confidence: 'high', source: 'input-tool',
       }
       : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
-    const conversationalInput = messageState.lastConversationRole === 'assistant'
-      && responseIntent.required;
     session.status = eventState.failed
       ? 'failed'
-      : (pendingUserInput || (!eventState.running && conversationalInput)
+      : (pendingUserInput
         ? 'waiting'
         : (eventState.completed
           ? 'completed'
@@ -293,6 +343,14 @@ function createGenericParser(dependencies) {
     }
     session.statusObserved = eventState.running || session.status === 'waiting' || session.status === 'failed';
     session.executions = eventState.executionTracker.finalize();
+    session.activityState = finalizedActivityState({
+      status: session.status,
+      completionObserved: session.completionObserved,
+      pendingInput: pendingUserInput,
+      activeSubagents: eventState.activeSubagents,
+      recent: age < STALE_TURN_THRESHOLD_MS,
+      observed: eventState.activityState,
+    });
     trimSession(session);
     return session;
   }

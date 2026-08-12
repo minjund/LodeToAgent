@@ -17,6 +17,7 @@ const processMonitor = new ProcessMonitor();
 const monitor = new AgentMonitor({
   runsDir: workerData.runsDir,
   home: workerData.home,
+  historyHomes: tmuxMonitor.historyHomes(),
   intervalMs: workerData.intervalMs || 1200,
 });
 
@@ -194,6 +195,7 @@ function cardSession(session) {
     sourceLabel: session.sourceLabel,
     clientKind: session.clientKind || '',
     status: session.status,
+    activityState: session.activityState || '',
     statusDetail: clip(session.statusDetail, 180),
     statusObserved: session.statusObserved,
     responseIntent: session.responseIntent,
@@ -245,6 +247,7 @@ function fingerprint(snapshot, tmux, automations) {
     session.id,
     session.updatedAt,
     session.status,
+    session.activityState,
     session.usage && session.usage.total,
     session.context && session.context.used,
     session.originCwd,
@@ -256,7 +259,7 @@ function fingerprint(snapshot, tmux, automations) {
     session.collaboration && session.collaboration.communications && session.collaboration.communications.length,
     session.collaboration && session.collaboration.communications && session.collaboration.communications.at(-1) && session.collaboration.communications.at(-1).id,
     (session.executions || []).map(activity => `${activity.id}:${activity.status}:${activity.mode}:${activity.backgroundId || ''}:${activity.updatedAt || ''}`).join(','),
-    session.attention && `${session.attention.category}:${session.attention.kind}:${session.attention.required}:${session.attention.actionable}`,
+    session.attention && `${session.attention.category}:${session.attention.kind}:${session.attention.required}:${session.attention.actionable}:${session.attention.source || ''}:${session.attention.requestId || ''}`,
     session.progress && `${session.progress.stage}:${session.progress.percent}:${session.progress.currentStep}`,
     session.health && `${session.health.level}:${session.health.signals.map(signal => signal.code).join(',')}`,
     session.outcome && `${session.outcome.status}:${session.outcome.artifacts.length}:${session.outcome.checks.length}`,
@@ -339,7 +342,7 @@ parentPort.on('message', message => {
     const runtime = lastPublishedSessions.find(item => item.id === message.sessionId) || null;
     const stored = monitor.detailSession(message.sessionId);
     const merged = stored && runtime
-      ? { ...stored, status: runtime.status, statusDetail: runtime.statusDetail, statusObserved: runtime.statusObserved, runtimePresence: runtime.runtimePresence || [] }
+      ? { ...stored, status: runtime.status, activityState: runtime.activityState, statusDetail: runtime.statusDetail, statusObserved: runtime.statusObserved, runtimePresence: runtime.runtimePresence || [] }
       : (stored || runtime);
     const session = enrichSession(merged, lastPublishedSessions, Date.now());
     parentPort.postMessage({ type: 'detail-result', requestId: message.requestId, session });

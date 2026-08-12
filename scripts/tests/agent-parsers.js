@@ -8,11 +8,22 @@ const {
 } = require('../../src/agentMonitor');
 const { bridgeLinkScore } = require('../../src/processMonitor');
 const { MAX_JSON_BYTES } = require('../../src/agentMonitor/sessionFiles');
-const { assistantRequestsUserResponse, assistantResponseIntent } = require('../../src/agentMonitor/responseIntent');
+const {
+  assistantRequestsUserResponse, assistantResponseIntent, structuredInputRequestText,
+} = require('../../src/agentMonitor/responseIntent');
+const { observeActivity } = require('../../src/agentMonitor/activityState');
 
 function registerClaudeParserTests(context) {
   const { test, temp, jsonl } = context;
   test('Claude 대화, 도구, usage를 정규화한다', () => {
+    const orderedActivity = { activityState: 'thinking', activityAt: Date.parse('2026-07-14T00:00:01Z') };
+    observeActivity(orderedActivity, 'working', null);
+    assert.deepEqual(orderedActivity, {
+      activityState: 'thinking', activityAt: Date.parse('2026-07-14T00:00:01Z'),
+    }, '시각 없는 partial event가 이미 정렬된 activity를 덮으면 안 됩니다.');
+    observeActivity(orderedActivity, 'working', '2026-07-14T00:00:02Z');
+    assert.equal(orderedActivity.activityState, 'working');
+
     const file = path.join(temp, 'claude', 'project', '11111111-1111-1111-1111-111111111111.jsonl');
     const info = jsonl(file, [
       { type: 'user', uuid: 'u1', timestamp: '2026-07-14T01:00:00Z', cwd: 'D:\\repo', gitBranch: 'main', message: { role: 'user', content: '로그인 버그를 고쳐줘' } },
@@ -59,8 +70,9 @@ function registerClaudeParserTests(context) {
       { type: 'assistant', uuid: 'question-a', timestamp: '2026-07-14T01:10:01Z', message: { role: 'assistant', content: [{ type: 'text', text: 'WSL과 Windows 중 어떤 환경으로 진행할까요?' }] } },
       { type: 'system', subtype: 'turn_complete', timestamp: '2026-07-14T01:10:02Z' },
     ]));
-    assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
+    assert.equal(waiting.status, 'completed');
+    assert.equal(waiting.statusDetail, '작업 완료');
+    assert.equal(waiting.responseIntent.source, 'assistant-message');
 
     const now = Date.now();
     const recentBackground = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'question-with-recent-background.jsonl'), [
@@ -69,7 +81,7 @@ function registerClaudeParserTests(context) {
       { type: 'user', timestamp: new Date(now - 2_000).toISOString(), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'recent-bg', content: 'Command running in background with ID: recent-42' }] } },
       { type: 'assistant', timestamp: new Date(now - 1_000).toISOString(), message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '배포 환경은 Windows와 WSL 중 무엇으로 할까요?' }] } },
     ]));
-    assert.equal(recentBackground.status, 'waiting');
+    assert.equal(recentBackground.status, 'completed');
     assert.deepStrictEqual(recentBackground.executions.map(item => [item.mode, item.status]), [['background', 'running']]);
 
     const staleAt = new Date(now - 10 * 60_000).toISOString();
@@ -78,9 +90,10 @@ function registerClaudeParserTests(context) {
       { type: 'user', timestamp: staleAt, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'stale-bg', content: 'Command running in background with ID: stale-42' }] } },
       { type: 'assistant', timestamp: staleAt, message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '계속 진행할까요?' }] } },
     ]));
-    assert.equal(staleBackground.status, 'waiting');
+    assert.equal(staleBackground.status, 'completed');
     assert.deepStrictEqual(staleBackground.executions.map(item => [item.mode, item.status]), [['background', 'unverified']]);
     assert.equal(staleBackground.executions[0].statusDetail, '최근 실행 활동이 확인되지 않음');
+    assertClaudeActivityStates({ temp, jsonl });
   });
 
   test('Claude 구조화 오류는 실패로 표시하고 다음 정상 턴에서 해제한다', () => {
@@ -470,6 +483,49 @@ function registerCodexParserTests(context) {
       '오래 실행 중인 연결의 실제 대화를 보여줘',
       '정확한 대화를 불러왔습니다.',
     ]);
+
+    const recoveryRoot = path.join(home, '.codex', 'sessions', '2026', '08', '12');
+    const requestedAt = new Date(Date.now() - 60_000).toISOString();
+    const recoveryId = 'startup-recovery-input';
+    const recoveryFile = path.join(recoveryRoot, `rollout-${recoveryId}.jsonl`);
+    jsonl(recoveryFile, [
+      { timestamp: requestedAt, type: 'session_meta', payload: { id: recoveryId, cwd: 'D:\\repo' } },
+      { timestamp: requestedAt, type: 'event_msg', payload: { type: 'task_started', turn_id: 'recovery-turn' } },
+      { timestamp: requestedAt, type: 'response_item', payload: { type: 'function_call', call_id: 'recovery-input-1', name: 'request_user_input', arguments: JSON.stringify({ questions: [{ question: '복구할 환경을 선택해 주세요.' }] }) } },
+    ]);
+    const recoveryTime = new Date(Date.now() - 60_000);
+    fs.utimesSync(recoveryFile, recoveryTime, recoveryTime);
+    for (let index = 0; index < 80; index += 1) {
+      const id = `recovery-newer-${String(index).padStart(3, '0')}`;
+      const file = path.join(recoveryRoot, `rollout-${id}.jsonl`);
+      const timestamp = new Date(Date.now() - index * 500).toISOString();
+      jsonl(file, [
+        { timestamp, type: 'session_meta', payload: { id, cwd: 'D:\\other' } },
+        { timestamp, type: 'event_msg', payload: { type: 'user_message', message: `최근 복구 대화 ${index}` } },
+      ]);
+      const newerTime = new Date(Date.now() - index * 500);
+      fs.utimesSync(file, newerTime, newerTime);
+    }
+    const recoveryMonitor = new AgentMonitor({ home });
+    const recovered = recoveryMonitor.scanNow().sessions.find(session => session.externalId === recoveryId);
+    assert.ok(recovered, '최근 80개 밖의 unresolved request_user_input을 startup에 복구하지 못했습니다.');
+    assert.deepStrictEqual(
+      [recovered.status, recovered.responseIntent.source, recovered.responseIntent.requestText],
+      ['waiting', 'input-tool', '복구할 환경을 선택해 주세요.'],
+    );
+    assert.ok(
+      recoveryMonitor.scanNow().sessions.some(session => session.externalId === recoveryId),
+      '복구한 입력 대기 세션은 다음 snapshot에서도 유지되어야 합니다.',
+    );
+    fs.appendFileSync(recoveryFile, `${JSON.stringify({
+      timestamp: new Date().toISOString(),
+      type: 'response_item',
+      payload: { type: 'function_call_output', call_id: 'recovery-input-1', output: '{"answers":{"environment":"Windows"}}' },
+    })}\n`, 'utf8');
+    fs.utimesSync(recoveryFile, recoveryTime, recoveryTime);
+    const answered = recoveryMonitor.scanNow().sessions.find(session => session.externalId === recoveryId);
+    assert.ok(answered);
+    assert.notEqual(answered.responseIntent.source, 'input-tool');
   });
 
   test('Codex thread, turn, item, token_count와 사용자 응답 대기를 정규화한다', () => {
@@ -534,8 +590,9 @@ function registerCodexParserTests(context) {
       { timestamp: '2026-07-14T03:00:03Z', type: 'event_msg', payload: { type: 'agent_message', phase: 'final_answer', message: question } },
       { timestamp: '2026-07-14T03:00:04Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'question-turn', last_agent_message: question } },
     ]));
-    assert.equal(waiting.status, 'waiting');
-    assert.equal(waiting.statusDetail, '내 답변을 기다리는 중');
+    assert.equal(waiting.status, 'completed');
+    assert.equal(waiting.statusDetail, '작업 완료');
+    assert.equal(waiting.responseIntent.source, 'assistant-message');
 
     const answered = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-question-answered.jsonl'), [
       { timestamp: '2026-07-14T03:10:00Z', type: 'session_meta', payload: { id: 'question-answered', cwd: 'D:\\repo' } },
@@ -558,13 +615,25 @@ function registerCodexParserTests(context) {
     assert.equal(restartedSubagent.completionObserved, false);
     assert.equal(restartedSubagent.completedAt, null);
 
-    const structured = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-input-tool.jsonl'), [
+    const structuredRows = [
       { timestamp: '2026-07-14T03:20:00Z', type: 'session_meta', payload: { id: 'input-tool', cwd: 'D:\\repo' } },
       { timestamp: '2026-07-14T03:20:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'input-turn' } },
-      { timestamp: '2026-07-14T03:20:02Z', type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'input-1', arguments: '{}' } },
-    ]));
+      { timestamp: '2026-07-14T03:20:02Z', type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'input-1', arguments: JSON.stringify({ questions: [{ header: '환경', question: 'WSL과 Windows 중 어디서 실행할까요?' }] }) } },
+      { timestamp: '2026-07-14T03:20:03Z', type: 'response_item', payload: { type: 'function_call', name: 'request_user_input', call_id: 'input-2', arguments: JSON.stringify({ questions: [{ header: '범위', question: '전체 프로젝트를 검사할까요?' }] }) } },
+      { timestamp: '2026-07-14T03:20:04Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'input-1', output: '{"answers":{"environment":"WSL"}}' } },
+    ];
+    const structured = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-input-tool.jsonl'), structuredRows));
     assert.equal(structured.status, 'waiting');
     assert.equal(structured.statusDetail, '내 답변을 기다리는 중');
+    assert.equal(structured.responseIntent.requestText, '전체 프로젝트를 검사할까요?');
+    assert.equal(structured.responseIntent.requestId, 'input-2');
+
+    const structuredAnswered = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-input-tool-answered.jsonl'), [
+      ...structuredRows,
+      { timestamp: '2026-07-14T03:20:05Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'input-2', output: '{"answers":{"scope":"all"}}' } },
+    ]));
+    assert.notEqual(structuredAnswered.status, 'waiting');
+    assert.notEqual(structuredAnswered.responseIntent.source, 'input-tool');
 
     assert.equal(assistantRequestsUserResponse('실행 환경을 골라주세요:\n- WSL\n- Windows'), true);
     assert.equal(assistantRequestsUserResponse('수정을 완료했습니다.'), false);
@@ -575,6 +644,22 @@ function registerCodexParserTests(context) {
     assert.equal(assistantRequestsUserResponse('Please send the log file.'), true);
     assert.equal(assistantRequestsUserResponse('To continue, please confirm the branch.'), true);
     assert.equal(assistantRequestsUserResponse('Could you select one?\n- WSL\n- Windows'), true);
+    assert.equal(structuredInputRequestText({
+      questions: [
+        { header: '환경', question: '  WSL과   Windows 중 어디서 실행할까요? ', options: [{ label: '노출 금지' }] },
+        { prompt: '전체 프로젝트를 검사할까요?' },
+      ],
+      message: '질문 배열보다 우선하면 안 됩니다.',
+    }), 'WSL과 Windows 중 어디서 실행할까요?\n전체 프로젝트를 검사할까요?');
+    assert.equal(structuredInputRequestText({ header: '환경 선택' }), '환경 선택');
+    assert.equal(structuredInputRequestText('{malformed-json'), '');
+    const cyclicInput = { questions: [] };
+    cyclicInput.questions.push(cyclicInput);
+    assert.doesNotThrow(() => structuredInputRequestText(cyclicInput));
+    const throwingInput = {};
+    Object.defineProperty(throwingInput, 'question', { get() { throw new Error('읽기 실패'); } });
+    assert.equal(structuredInputRequestText(throwingInput), '');
+    assert.equal(structuredInputRequestText({ question: '가'.repeat(600) }).length, 420);
     assert.deepStrictEqual(
       assistantResponseIntent('필요하시면 이 SQL을 OPS 스크립트 파일로 저장해 드리겠습니다. 저장할까요?'),
       {
@@ -584,6 +669,7 @@ function registerCodexParserTests(context) {
     );
     assert.equal(assistantRequestsUserResponse('원하시면 변경 내역도 문서화해 드릴까요?'), false);
     assert.equal(assistantResponseIntent('배포 전에 대상 환경을 선택해 주세요.').category, 'required');
+    assertCodexActivityStates({ temp, jsonl });
   });
 
   test('Codex 데스크톱의 new-chat 임시 경로를 프로젝트 없는 세션으로 분류한다', () => {
@@ -786,6 +872,7 @@ function registerCodexRecoveryTests(context) {
     assert.equal(boundedGeneric.fullHistory, true);
     assert.equal(boundedGeneric.truncated, true);
     assert.equal(boundedGeneric.externalId, 'oversized-session');
+    assertGenericActivityStates({ temp, jsonl });
   });
 
   test('부모 로그에 spawn 이벤트가 없어도 자식 세션으로 메인 대화 이력을 복원한다', () => {
@@ -889,6 +976,203 @@ function registerCodexRecoveryTests(context) {
     }
   });
 
+}
+
+function assertClaudeActivityStates({ temp, jsonl }) {
+    const thinking = parseClaude(jsonl(path.join(temp, 'activity', 'claude-thinking.jsonl'), [
+      { type: 'user', timestamp: '2026-08-12T01:00:00Z', message: { role: 'user', content: '원인을 분석해줘' } },
+    ]));
+    assert.deepStrictEqual([thinking.status, thinking.activityState], ['running', 'thinking']);
+
+    const working = parseClaude(jsonl(path.join(temp, 'activity', 'claude-working.jsonl'), [
+      { type: 'user', timestamp: '2026-08-12T01:01:00Z', message: { role: 'user', content: '파일을 읽어줘' } },
+      { type: 'assistant', timestamp: '2026-08-12T01:01:01Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'read-1', name: 'Read', input: { file_path: 'README.md' } }] } },
+      { type: 'assistant', timestamp: '2026-08-12T01:01:02Z', message: { role: 'assistant', content: [{ type: 'text', text: '읽은 내용을 정리하고 있습니다.' }] } },
+    ]));
+    assert.deepStrictEqual([working.status, working.activityState], ['running', 'working']);
+
+    const juggling = parseClaude(jsonl(path.join(temp, 'activity', 'claude-juggling.jsonl'), [
+      { type: 'user', timestamp: '2026-08-12T01:02:00Z', message: { role: 'user', content: '도움 AI와 조사해줘' } },
+      { type: 'assistant', timestamp: '2026-08-12T01:02:01Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'agent-1', name: 'Agent', input: { description: '조사', prompt: '구현을 조사해줘' } }] } },
+      { type: 'user', timestamp: '2026-08-12T01:02:02Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'agent-1', content: 'Agent launched successfully\nagentId: helper-1\nworking in the background' }] } },
+    ]));
+    assert.deepStrictEqual([juggling.status, juggling.activityState], ['running', 'juggling']);
+
+    const claudeQuestionRows = [
+      { type: 'user', timestamp: '2026-08-12T01:03:00Z', message: { role: 'user', content: '배포를 준비해줘' } },
+      { type: 'assistant', timestamp: '2026-08-12T01:03:01Z', message: { role: 'assistant', content: [{ type: 'tool_use', id: 'ask-1', name: 'AskUserQuestion', input: { questions: [{ header: '환경', question: 'Windows와 WSL 중 어디서 실행할까요?' }] } }] } },
+    ];
+    const notification = parseClaude(jsonl(path.join(temp, 'activity', 'claude-notification.jsonl'), claudeQuestionRows));
+    assert.deepStrictEqual([notification.status, notification.activityState], ['waiting', 'notification']);
+    assert.equal(notification.responseIntent.requestText, 'Windows와 WSL 중 어디서 실행할까요?');
+
+    const answeredNotification = parseClaude(jsonl(path.join(temp, 'activity', 'claude-notification-answered.jsonl'), [
+      ...claudeQuestionRows,
+      { type: 'user', timestamp: '2026-08-12T01:03:02Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'ask-1', content: 'WSL' }] } },
+    ]));
+    assert.notEqual(answeredNotification.status, 'waiting');
+    assert.notEqual(answeredNotification.responseIntent.source, 'input-tool');
+
+    const attention = parseClaude(jsonl(path.join(temp, 'activity', 'claude-attention.jsonl'), [
+      { type: 'user', timestamp: '2026-08-12T01:04:00Z', message: { role: 'user', content: '검사를 끝내줘' } },
+      { type: 'assistant', timestamp: '2026-08-12T01:04:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '검사를 완료했습니다.' }] } },
+    ]));
+    assert.deepStrictEqual([attention.status, attention.activityState], ['completed', 'attention']);
+
+    const failed = parseClaude(jsonl(path.join(temp, 'activity', 'claude-error.jsonl'), [
+      { type: 'assistant', timestamp: '2026-08-12T01:05:00Z', error: 'provider_failed', message: { role: 'assistant', content: [{ type: 'text', text: '실행에 실패했습니다.' }] } },
+    ]));
+    assert.deepStrictEqual([failed.status, failed.activityState], ['failed', 'error']);
+
+    const idleFile = path.join(temp, 'activity', 'claude-idle.jsonl');
+    const idleInfo = jsonl(idleFile, [
+      { type: 'user', timestamp: '2026-08-12T01:06:00Z', message: { role: 'user', content: '오래된 요청' } },
+    ]);
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(idleFile, old, old);
+    idleInfo.mtimeMs = fs.statSync(idleFile).mtimeMs;
+    const idle = parseClaude(idleInfo);
+    assert.deepStrictEqual([idle.status, idle.activityState], ['idle', 'idle']);
+}
+
+function assertCodexActivityStates({ temp, jsonl }) {
+    const meta = id => ({ timestamp: '2026-08-12T02:00:00Z', type: 'session_meta', payload: { id, cwd: 'D:\\repo' } });
+    const started = { timestamp: '2026-08-12T02:00:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-1' } };
+
+    const thinking = parseCodex(jsonl(path.join(temp, 'activity', 'codex-thinking.jsonl'), [
+      meta('activity-thinking'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'agent_reasoning', text: '원인 분석' } },
+    ]));
+    assert.deepStrictEqual([thinking.status, thinking.activityState], ['running', 'thinking']);
+
+    const working = parseCodex(jsonl(path.join(temp, 'activity', 'codex-working.jsonl'), [
+      meta('activity-working'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'response_item', payload: { type: 'function_call', call_id: 'shell-1', name: 'shell_command', arguments: '{"command":"npm test"}' } },
+      { timestamp: '2026-08-12T02:00:03Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'shell-1', output: 'passed' } },
+      { timestamp: '2026-08-12T02:00:04Z', type: 'event_msg', payload: { type: 'agent_message', message: '검사 결과를 정리하고 있습니다.' } },
+      { timestamp: '2026-08-12T02:00:05Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '마지막 응답을 준비했습니다.' }] } },
+    ]));
+    assert.deepStrictEqual([working.status, working.activityState], ['running', 'working']);
+
+    const juggling = parseCodex(jsonl(path.join(temp, 'activity', 'codex-juggling.jsonl'), [
+      meta('activity-juggling'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'sub_agent_activity', kind: 'started', event_id: 'child-started', agent_thread_id: 'child-1', agent_path: '/root/helper' } },
+    ]));
+    assert.deepStrictEqual([juggling.status, juggling.activityState], ['running', 'juggling']);
+
+    const notification = parseCodex(jsonl(path.join(temp, 'activity', 'codex-notification.jsonl'), [
+      meta('activity-notification'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'response_item', payload: { type: 'function_call', call_id: 'ask-1', name: 'request_user_input', arguments: '{}' } },
+    ]));
+    assert.deepStrictEqual([notification.status, notification.activityState], ['waiting', 'notification']);
+
+    const attention = parseCodex(jsonl(path.join(temp, 'activity', 'codex-attention.jsonl'), [
+      meta('activity-attention'), started,
+      { timestamp: '2026-08-12T02:00:01.500Z', type: 'response_item', payload: { type: 'function_call', call_id: 'ask-before-complete', name: 'request_user_input', arguments: '{}' } },
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-08-12T02:00:02Z', last_agent_message: '완료' } },
+    ]));
+    assert.deepStrictEqual([attention.status, attention.activityState], ['completed', 'attention']);
+
+    const metadataOnly = parseCodex(jsonl(path.join(temp, 'activity', 'codex-metadata-only.jsonl'), [
+      meta('activity-metadata-only'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-08-12T02:00:02Z' } },
+    ]));
+    assert.deepStrictEqual([metadataOnly.status, metadataOnly.activityState, metadataOnly.completionObserved], ['idle', 'idle', false]);
+
+    const aborted = parseCodex(jsonl(path.join(temp, 'activity', 'codex-aborted.jsonl'), [
+      meta('activity-aborted'), started,
+      { timestamp: '2026-08-12T02:00:01.500Z', type: 'response_item', payload: { type: 'function_call', call_id: 'ask-before-abort', name: 'request_user_input', arguments: '{}' } },
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'turn_aborted' } },
+    ]));
+    assert.deepStrictEqual([aborted.status, aborted.activityState], ['idle', 'idle']);
+
+    const failed = parseCodex(jsonl(path.join(temp, 'activity', 'codex-error.jsonl'), [
+      meta('activity-error'), started,
+      { timestamp: '2026-08-12T02:00:02Z', type: 'event_msg', payload: { type: 'error', message: '실패' } },
+    ]));
+    assert.deepStrictEqual([failed.status, failed.activityState], ['failed', 'error']);
+
+    const idleFile = path.join(temp, 'activity', 'codex-idle.jsonl');
+    const idleInfo = jsonl(idleFile, [meta('activity-idle'), started]);
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(idleFile, old, old);
+    idleInfo.mtimeMs = fs.statSync(idleFile).mtimeMs;
+    const idle = parseCodex(idleInfo);
+    assert.deepStrictEqual([idle.status, idle.activityState], ['idle', 'idle']);
+}
+
+function assertGenericActivityStates({ temp, jsonl }) {
+    const generic = (name, rows) => parseGeneric(jsonl(path.join(temp, 'activity', `${name}.jsonl`), rows), 'gemini');
+    const thinking = generic('generic-thinking', [
+      { type: 'user_message', role: 'user', timestamp: '2026-08-12T03:00:00Z', text: '원인을 분석해줘' },
+    ]);
+    assert.deepStrictEqual([thinking.status, thinking.activityState], ['running', 'thinking']);
+
+    const working = generic('generic-working', [
+      { type: 'user_message', role: 'user', timestamp: '2026-08-12T03:00:59Z', text: '테스트를 실행해줘' },
+      { type: 'tool_use', id: 'tool-1', name: 'shell', timestamp: '2026-08-12T03:01:00Z', input: { command: 'npm test' } },
+    ]);
+    assert.deepStrictEqual([working.status, working.activityState], ['running', 'working']);
+
+    const juggling = generic('generic-juggling', [
+      { type: 'sub_agent_started', id: 'child-1', timestamp: '2026-08-12T03:02:00Z' },
+    ]);
+    assert.deepStrictEqual([juggling.status, juggling.activityState], ['running', 'juggling']);
+
+    const notification = generic('generic-notification', [
+      { type: 'tool_use', id: 'ask-1', name: 'request_user_input', timestamp: '2026-08-12T03:03:00Z', input: { questions: [{ header: '범위', question: '전체 프로젝트를 검사할까요?' }] } },
+    ]);
+    assert.deepStrictEqual([notification.status, notification.activityState], ['waiting', 'notification']);
+    assert.equal(notification.responseIntent.requestText, '전체 프로젝트를 검사할까요?');
+
+    const answeredNotification = generic('generic-notification-answered', [
+      { type: 'tool_use', id: 'ask-1', name: 'request_user_input', timestamp: '2026-08-12T03:03:00Z', input: { message: '검사 범위를 입력해 주세요.' } },
+      { type: 'user_message', role: 'user', timestamp: '2026-08-12T03:03:01Z', text: '전체 프로젝트로 진행해줘' },
+    ]);
+    assert.notEqual(answeredNotification.status, 'waiting');
+    assert.notEqual(answeredNotification.responseIntent.source, 'input-tool');
+
+    const attention = generic('generic-attention', [
+      { type: 'result', timestamp: '2026-08-12T03:04:00Z' },
+    ]);
+    assert.deepStrictEqual([attention.status, attention.activityState], ['completed', 'attention']);
+
+    const failed = generic('generic-error', [
+      { type: 'error', timestamp: '2026-08-12T03:05:00Z', error: 'provider failed' },
+    ]);
+    assert.deepStrictEqual([failed.status, failed.activityState], ['failed', 'error']);
+
+    const idleFile = path.join(temp, 'activity', 'generic-idle.jsonl');
+    const idleInfo = jsonl(idleFile, [
+      { type: 'user_message', role: 'user', timestamp: '2026-08-12T03:06:00Z', text: '오래된 요청' },
+    ]);
+    const old = new Date(Date.now() - 10 * 60_000);
+    fs.utimesSync(idleFile, old, old);
+    idleInfo.mtimeMs = fs.statSync(idleFile).mtimeMs;
+    const idle = parseGeneric(idleInfo, 'grok');
+    assert.deepStrictEqual([idle.status, idle.activityState], ['idle', 'idle']);
+
+    const cacheHome = path.join(temp, 'activity-cache-home');
+    const cacheFile = path.join(cacheHome, '.gemini', 'tmp', 'cached-thinking.jsonl');
+    const initialNow = Date.parse('2026-08-12T04:00:00Z');
+    jsonl(cacheFile, [
+      { type: 'user_message', role: 'user', timestamp: '2026-08-12T03:59:30Z', text: '캐시 상태를 확인해줘' },
+    ]);
+    const cachedMtime = new Date(initialNow - 30_000);
+    fs.utimesSync(cacheFile, cachedMtime, cachedMtime);
+    const originalNow = Date.now;
+    let observedNow = initialNow;
+    try {
+      Date.now = () => observedNow;
+      const monitor = new AgentMonitor({ home: cacheHome });
+      const fresh = monitor.scanNow().sessions.find(session => session.externalId === 'cached-thinking');
+      assert.deepStrictEqual([fresh.status, fresh.activityState], ['idle', 'thinking']);
+      observedNow += 6 * 60_000;
+      const stale = monitor.scanNow().sessions.find(session => session.externalId === 'cached-thinking');
+      assert.deepStrictEqual([stale.status, stale.activityState], ['idle', 'idle'], '일시적 activity cache는 stale 시점에 다시 평가해야 합니다.');
+    } finally {
+      Date.now = originalNow;
+    }
 }
 
 function registerAgentParserTests(context) {

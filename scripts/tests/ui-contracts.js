@@ -1081,6 +1081,9 @@ function registerUiContractTests(context) {
   test('필수 UI 영역과 초보자용 안내 계약이 존재한다', () => {
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const monitorWorker = fs.readFileSync(path.join(root, 'src', 'monitorWorker.js'), 'utf8');
+    const appSource = fs.readFileSync(path.join(root, 'renderer', 'app.js'), 'utf8');
+    const agentActions = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
+    const messages = fs.readFileSync(path.join(root, 'renderer', 'i18n-messages.js'), 'utf8');
     for (const id of REQUIRED_UI_IDS) assert.ok(html.includes(`id="${id}"`));
     for (const id of RUN_COMPOSER_IDS) assert.ok(html.includes(`id="${id}"`));
     assertIncludesAll(html, BEGINNER_GUIDE_LABELS, label => `${label} 문구가 없습니다.`);
@@ -1100,6 +1103,17 @@ function registerUiContractTests(context) {
       MONITOR_WORKER_CONTRACTS,
       contract => `${contract} 협업 전송 계약이 없습니다.`,
     );
+    assertIncludesAll(appSource, ['const ACTIVITY_STATUS', 'sessionStatusLabel', 'session.activityState']);
+    assert.ok(appSource.includes('pendingPromptForSession?.(session) || explicitWaiting'), '터미널·구조화 승인 요청을 대기 중 배지로 우선 표시하지 않습니다.');
+    assertIncludesAll(messages, [
+      '"ui.agent_thinking": {"ko":"생각 중"',
+      '"ui.agent_working": {"ko":"작업 중"',
+      '"ui.agent_waiting": {"ko":"대기 중"',
+      '"ui.agent_idle": {"ko":"대기"',
+    ]);
+    assert.ok(monitorWorker.includes('activityState: session.activityState'), 'compact snapshot에 activityState가 전달되지 않습니다.');
+    assert.ok(monitorWorker.includes('session.status,\n    session.activityState,'), 'activityState만 바뀐 snapshot을 게시하지 못합니다.');
+    assert.ok(agentActions.includes('"status", "activityState", "statusDetail"'), '상세 화면이 최신 activityState를 덮어쓰지 못합니다.');
     const terminalBlock = html.slice(html.indexOf('id="terminalSection"'), html.indexOf('id="tmuxSection"'));
     const tmuxBlock = html.slice(html.indexOf('id="tmuxSection"'), html.indexOf('id="liveSection"'));
     for (const tmuxOnlyId of TMUX_ONLY_IDS) {
@@ -1568,6 +1582,20 @@ function registerUiContractTests(context) {
     const responseAt = new Date(now - 5 * 60 * 1000).toISOString();
     const ended = { id: 'ended', status: 'completed', messages: [{ role: 'assistant', timestamp: responseAt }] };
     assert.equal(core.isControlRoomSession(ended, now), false);
+    const transientActivities = ['thinking', 'working', 'juggling', 'notification'];
+    for (const activityState of transientActivities) {
+      const transient = {
+        id: `generic-${activityState}`,
+        status: 'idle',
+        activityState,
+        updatedAt: new Date(now - 18_000).toISOString(),
+        messages: [{ role: 'user', timestamp: new Date(now - 18_000).toISOString() }],
+      };
+      assert.equal(core.isLiveSession(transient), true, `${activityState} activity가 live 분류에서 빠졌습니다.`);
+      assert.equal(core.isControlRoomSession(transient, now), true, `${activityState} activity가 관제에서 빠졌습니다.`);
+    }
+    assert.equal(core.isLiveSession({ id: 'observed-attention', status: 'idle', activityState: 'attention' }), false);
+    assert.equal(core.isLiveSession({ id: 'observed-error', status: 'idle', activityState: 'error' }), false);
     const waitingWithBackground = {
       ...ended,
       id: 'waiting-background',

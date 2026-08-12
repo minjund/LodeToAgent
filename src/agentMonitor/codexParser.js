@@ -1,8 +1,10 @@
 'use strict';
 
 const path = require('path');
+const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createCodexCollaboration } = require('./codexCollaboration');
 const { createExecutionTracker, reconcileExecutionActivities } = require('./executionActivity');
+const { structuredInputRequestText } = require('./responseIntent');
 
 const COLLABORATION_TOOLS = new Set([
   'spawn_agent',
@@ -91,16 +93,21 @@ function createCodexParser(dependencies) {
       latestDelegationNarration: '',
       activeTurn: false,
       lastTurnCompleted: false,
+      turnHadMeaningfulOutput: false,
       lastFinalAnswer: '',
       lastAssistantText: '',
       lastConversationRole: '',
       pendingUserInputCalls: new Set(),
+      pendingUserInputAt: new Map(),
+      pendingUserInputText: new Map(),
       latestTs: session.updatedAt,
       observedWindow: Number(meta.context_window || 0),
       messageObservations: new Map(),
       collaboration: createCodexCollaboration(session, { compactText, timestamp }),
       executionTracker: createExecutionTracker({ compactText, timestamp }),
       sessionStartedMs: Date.parse(session.startedAt || '') || 0,
+      activityState: 'idle',
+      activityAt: 0,
     };
   }
 
@@ -132,6 +139,7 @@ function createCodexParser(dependencies) {
     if (payload.kind === 'completed' || payload.kind === 'interrupted') {
       record.completedAt = timestamp(payload.occurred_at_ms || row.timestamp, record.completedAt || session.updatedAt);
     }
+    observeActivity(state, payload.kind === 'started' ? 'juggling' : 'working', payload.occurred_at_ms || row.timestamp);
     state.collaboration.addCommunication({
       id: `activity:${payload.event_id || payload.agent_thread_id}:${payload.kind}`,
       kind: payload.kind === 'started' ? 'started' : 'status',
@@ -149,9 +157,11 @@ function createCodexParser(dependencies) {
     if (payload.type === 'task_started') {
       state.activeTurn = true;
       state.lastTurnCompleted = false;
+      state.turnHadMeaningfulOutput = false;
       state.latestDelegationNarration = '';
       session.completedAt = null;
       session.completionObserved = false;
+      observeActivity(state, 'thinking', payload.started_at || row.timestamp);
       addLifecycle(session, {
         id: payload.turn_id,
         type: 'turn-start',
@@ -164,7 +174,12 @@ function createCodexParser(dependencies) {
       state.lastTurnCompleted = true;
       settleRunningLifecycle(session, payload.completed_at || row.timestamp);
       session.completedAt = timestamp(payload.completed_at || row.timestamp, session.updatedAt);
-      session.completionObserved = true;
+      state.turnHadMeaningfulOutput = state.turnHadMeaningfulOutput || Boolean(compactText(payload.last_agent_message));
+      session.completionObserved = state.turnHadMeaningfulOutput;
+      state.pendingUserInputCalls.clear();
+      state.pendingUserInputAt.clear();
+      state.pendingUserInputText.clear();
+      observeActivity(state, session.completionObserved ? 'attention' : 'idle', payload.completed_at || row.timestamp);
       if (payload.last_agent_message) {
         state.lastFinalAnswer = compactText(payload.last_agent_message, 6000);
         state.lastAssistantText = state.lastFinalAnswer;
@@ -191,6 +206,10 @@ function createCodexParser(dependencies) {
       }
       state.latestUser = text;
       state.lastConversationRole = 'user';
+      state.pendingUserInputCalls.clear();
+      state.pendingUserInputAt.clear();
+      state.pendingUserInputText.clear();
+      observeActivity(state, 'thinking', row.timestamp);
       const key = `u:${payload.client_id || row.timestamp}:${text}`;
       addCodexMessage(session, state.messageObservations, { id: key, role: 'user', text, timestamp: row.timestamp }, 'event');
     } else if (payload.type === 'agent_message') {
@@ -200,10 +219,12 @@ function createCodexParser(dependencies) {
       if (text) {
         state.lastAssistantText = text;
         state.lastConversationRole = 'assistant';
+        state.turnHadMeaningfulOutput = true;
       }
       const key = `a:${row.timestamp}:${text}`;
       addCodexMessage(session, state.messageObservations, { id: key, role: 'assistant', text, timestamp: row.timestamp }, 'event');
     } else if (payload.type === 'agent_reasoning') {
+      observeActivity(state, 'thinking', row.timestamp);
       addLifecycle(session, {
         id: `r:${row.timestamp}`,
         type: 'reasoning',
@@ -212,6 +233,18 @@ function createCodexParser(dependencies) {
         status: 'running',
         timestamp: row.timestamp,
       });
+    } else if (payload.type === 'turn_aborted') {
+      state.activeTurn = false;
+      state.lastTurnCompleted = false;
+      state.lastAssistantText = '';
+      state.lastConversationRole = '';
+      state.pendingUserInputCalls.clear();
+      state.pendingUserInputAt.clear();
+      state.pendingUserInputText.clear();
+      session.completedAt = null;
+      session.completionObserved = false;
+      settleRunningLifecycle(session, row.timestamp);
+      observeActivity(state, 'idle', row.timestamp);
     } else if (payload.type === 'token_count' && payload.info) {
       session.usage = codexUsage(payload.info.total_token_usage);
       session.turnUsage = codexUsage(payload.info.last_token_usage);
@@ -220,6 +253,7 @@ function createCodexParser(dependencies) {
       session.status = 'failed';
       session.statusDetail = compactText(payload.message || payload.error || payload.type, 240);
       state.activeTurn = false;
+      observeActivity(state, 'error', row.timestamp);
     }
   }
 
@@ -294,7 +328,14 @@ function createCodexParser(dependencies) {
       rawInput: payload.arguments || payload.input,
       at: row.timestamp,
     });
-    if (isUserInputTool(name)) state.pendingUserInputCalls.add(String(callId || name));
+    state.turnHadMeaningfulOutput = true;
+    observeActivity(state, isUserInputTool(name) ? 'notification' : 'working', row.timestamp);
+    if (isUserInputTool(name)) {
+      const requestId = String(callId || name);
+      state.pendingUserInputCalls.add(requestId);
+      if (!state.pendingUserInputAt.has(requestId)) state.pendingUserInputAt.set(requestId, timestamp(row.timestamp, state.latestTs));
+      state.pendingUserInputText.set(requestId, structuredInputRequestText(args));
+    }
 
     let collaborationMessageProtected = false;
     if (collaborationTool) {
@@ -338,7 +379,11 @@ function createCodexParser(dependencies) {
       at: row.timestamp,
       isError: payload.is_error === true || payload.status === 'failed',
     });
+    state.turnHadMeaningfulOutput = true;
+    observeActivity(state, 'working', row.timestamp);
     state.pendingUserInputCalls.delete(String(payload.call_id || ''));
+    state.pendingUserInputAt.delete(String(payload.call_id || ''));
+    state.pendingUserInputText.delete(String(payload.call_id || ''));
     const output = jsonObject(payload.output);
     if (call && call.name === 'spawn_agent') {
       const record = state.collaboration.ensureSpawn(payload.call_id);
@@ -362,6 +407,7 @@ function createCodexParser(dependencies) {
     const taskName = collaborationTaskName(from === (session.agentPath || '/root') ? to : from);
     const kind = envelope.type === 'FINAL_ANSWER' ? 'result' : (envelope.type === 'NEW_TASK' ? 'assignment' : 'message');
     const text = envelope.payload || (envelope.type ? '' : rawText);
+    observeActivity(state, 'working', row.timestamp);
     const communication = state.collaboration.addCommunication({
       id: payload.id || `agent-message:${row.timestamp}:${from}:${to}`,
       kind,
@@ -402,11 +448,16 @@ function createCodexParser(dependencies) {
     if (role === 'user') {
       state.latestUser = text;
       state.lastConversationRole = 'user';
+      state.pendingUserInputCalls.clear();
+      state.pendingUserInputAt.clear();
+      state.pendingUserInputText.clear();
+      observeActivity(state, 'thinking', row.timestamp);
     }
     if (role === 'assistant') {
       state.latestDelegationNarration = text;
       state.lastAssistantText = text;
       state.lastConversationRole = 'assistant';
+      state.turnHadMeaningfulOutput = true;
     }
     const key = payload.id || `message:${role}:${row.timestamp}:${text.slice(0, 80)}`;
     addCodexMessage(session, state.messageObservations, { id: key, role, text, timestamp: row.timestamp }, 'response');
@@ -472,18 +523,23 @@ function createCodexParser(dependencies) {
     if (session.status !== 'failed') {
       const turnAge = Date.now() - fileInfo.mtimeMs;
       const pendingUserInput = state.pendingUserInputCalls.size > 0;
+      const inputRequestId = [...state.pendingUserInputCalls].sort().join('|');
+      const inputRequestedAt = inputRequestId
+        ? inputRequestId.split('|').map(callId => state.pendingUserInputAt.get(callId)).filter(Boolean).sort().at(0) || null
+        : null;
+      const inputRequestText = structuredInputRequestText([...state.pendingUserInputCalls]
+        .map(callId => state.pendingUserInputText.get(callId))
+        .filter(Boolean));
       const responseIntent = assistantResponseIntent(state.lastAssistantText || state.lastFinalAnswer);
       session.responseIntent = pendingUserInput
         ? {
           category: 'required', required: true, optional: false,
-          requestText: responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+          requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
+          requestId: inputRequestId, requestedAt: inputRequestedAt,
           confidence: 'high', source: 'input-tool',
         }
         : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };
-      const conversationalInput = state.lastConversationRole === 'assistant'
-        && responseIntent.required
-        && (state.lastTurnCompleted || turnAge >= ACTIVE_THRESHOLD_MS);
-      if (!session.depth && (pendingUserInput || conversationalInput)) {
+      if (!session.depth && pendingUserInput) {
         session.status = 'waiting';
         session.statusDetail = '내 답변을 기다리는 중';
         session.statusObserved = true;
@@ -492,8 +548,8 @@ function createCodexParser(dependencies) {
         session.statusDetail = '턴 실행 중';
         session.statusObserved = true;
       } else if (state.lastTurnCompleted) {
-        session.status = 'completed';
-        session.statusDetail = '작업 완료';
+        session.status = session.completionObserved ? 'completed' : 'idle';
+        session.statusDetail = session.completionObserved ? '작업 완료' : '다음 요청 대기';
         session.statusObserved = false;
       } else {
         session.status = 'idle';
@@ -501,6 +557,14 @@ function createCodexParser(dependencies) {
         session.statusObserved = Date.now() - fileInfo.mtimeMs < ACTIVE_THRESHOLD_MS;
       }
     }
+    session.activityState = finalizedActivityState({
+      status: session.status,
+      completionObserved: session.completionObserved,
+      pendingInput: state.pendingUserInputCalls.size > 0,
+      activeSubagents: session.collaboration.spawns.some(record => record.status === 'running'),
+      recent: Date.now() - fileInfo.mtimeMs < STALE_TURN_THRESHOLD_MS,
+      observed: state.activityState,
+    });
     trimSession(session);
     return session;
   }

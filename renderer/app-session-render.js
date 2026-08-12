@@ -10,6 +10,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     state,
     PROJECTLESS_WORKSPACE,
     STATUS,
+    sessionStatusLabel = session => STATUS[session?.status] || session?.status,
     VIEW_TITLES,
     captureMotionLayout,
     playMotionLayout,
@@ -88,7 +89,10 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const accessibleId = `session-${String(session.id || "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
     const originPath = sessionOriginPath(session);
     const originLabel = sessionWorkspaceLabel(session);
-    return `<article class="session-card session-record ${opts.live ? "live-card" : ""} ${statusClass(session.status)} ${session.parentId ? "subagent" : ""}"
+    const explicitWaiting = session?.attention?.category === "required"
+      && ["execution-approval", "input-tool"].includes(session.attention.source);
+    const presentationStatus = window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || explicitWaiting ? "waiting" : session.status;
+    return `<article class="session-card session-record ${opts.live ? "live-card" : ""} ${statusClass(presentationStatus)} ${session.parentId ? "subagent" : ""}"
       data-session-id="${esc(session.id)}"
       data-session-sortable="${esc(session.id)}"
       data-motion-key="session:${esc(session.id)}"
@@ -100,7 +104,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       <div class="card-head">
         <span class="provider-mark">${esc(provider.mark)}</span>
         <div class="card-head-main"><div class="card-provider-line"><b>${esc(provider.label)}</b><span>${esc(session.model || t("session.model_unknown"))}</span></div></div>
-        <span class="status-pill ${statusClass(session.status)}">${esc(STATUS[session.status] || session.status)}</span>
+        <span class="status-pill ${statusClass(presentationStatus)} activity-${esc(presentationStatus === "waiting" ? "notification" : session.activityState || "idle")}">${esc(sessionStatusLabel(session, presentationStatus))}</span>
       </div>
       <h3 id="${accessibleId}-title" class="card-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</h3>
       <div class="card-subtitle"><span class="origin-project" title="${esc(isProjectlessSession(session) ? window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project") : originPath)}"

@@ -1,9 +1,99 @@
 'use strict';
 
 const USER_INPUT_TOOL_PATTERN = /^(?:request_user_input|ask_user_question|askuserquestion|request_input|get_user_input)$/i;
+const STRUCTURED_REQUEST_MAX_CHARS = 420;
+const STRUCTURED_REQUEST_MAX_BYTES = 32_000;
+const STRUCTURED_REQUEST_MAX_ITEMS = 8;
 
 function isUserInputTool(name) {
   return USER_INPUT_TOOL_PATTERN.test(String(name || '').trim());
+}
+
+function safeField(value, key) {
+  if (!value || typeof value !== 'object') return undefined;
+  try {
+    return Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizedStructuredText(value) {
+  if (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean') return '';
+  return String(value)
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function structuredInputValue(value) {
+  if (typeof value !== 'string') return value;
+  const text = value.trim();
+  if (!text) return '';
+  if (!/^[{[]/.test(text)) return text;
+  if (text.length > STRUCTURED_REQUEST_MAX_BYTES) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extracts only provider-owned user-input fields. This intentionally ignores
+ * option descriptions and arbitrary object keys so a notification cannot leak
+ * the rest of a tool payload.
+ */
+function structuredInputRequestText(value, maxChars = STRUCTURED_REQUEST_MAX_CHARS) {
+  const limit = Math.max(1, Math.min(Number(maxChars) || STRUCTURED_REQUEST_MAX_CHARS, STRUCTURED_REQUEST_MAX_CHARS));
+  const root = structuredInputValue(value);
+  const parts = [];
+  const seenParts = new Set();
+  const seenObjects = new Set();
+
+  const add = (candidate) => {
+    const text = normalizedStructuredText(candidate);
+    if (!text || seenParts.has(text)) return false;
+    seenParts.add(text);
+    parts.push(text);
+    return true;
+  };
+
+  const extractPreferred = (candidate, depth = 0) => {
+    if (depth > 4 || candidate == null) return false;
+    if (typeof candidate !== 'object') return add(candidate);
+    if (seenObjects.has(candidate)) return false;
+    seenObjects.add(candidate);
+    for (const key of ['question', 'prompt', 'message', 'header']) {
+      const field = safeField(candidate, key);
+      if (field == null) continue;
+      if (extractPreferred(field, depth + 1)) return true;
+    }
+    return false;
+  };
+
+  const extractQuestions = (candidate, depth = 0) => {
+    if (depth > 4 || candidate == null) return;
+    if (!Array.isArray(candidate)) {
+      extractPreferred(candidate, depth);
+      return;
+    }
+    for (const item of candidate.slice(0, STRUCTURED_REQUEST_MAX_ITEMS)) {
+      extractPreferred(item, depth + 1);
+    }
+  };
+
+  if (Array.isArray(root)) {
+    extractQuestions(root);
+  } else if (root && typeof root === 'object') {
+    const questions = safeField(root, 'questions');
+    if (questions != null) extractQuestions(questions);
+    if (!parts.length) extractPreferred(root);
+  } else {
+    add(root);
+  }
+
+  return parts.join('\n').slice(0, limit).trim();
 }
 
 function conversationalTail(value) {
@@ -94,4 +184,5 @@ module.exports = {
   conversationalTail,
   isUserInputTool,
   requestExcerpt,
+  structuredInputRequestText,
 };

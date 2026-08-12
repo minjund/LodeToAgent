@@ -143,6 +143,13 @@ function readJsonLines(file, maxBytes = MAX_JSONL_BYTES) {
   return { rows, truncated: start > 0, firstTimestamp };
 }
 
+function jsonlReadBudget(size, maxBytes = MAX_JSONL_BYTES) {
+  const fileSize = Number.isFinite(Number(size)) ? Math.max(0, Number(size)) : 0;
+  const tailBytes = boundedBytes(maxBytes, MAX_JSONL_BYTES, MAX_JSONL_BYTES);
+  return Math.min(fileSize, tailBytes)
+    + (fileSize > tailBytes ? Math.min(fileSize, MAX_JSONL_HEAD_BYTES) : 0);
+}
+
 function walkRecent(root, predicate, max = MAX_FILES_PER_PROVIDER, maxDepth = 6) {
   if (!root || !fs.existsSync(root)) return [];
   const out = [];
@@ -168,6 +175,7 @@ module.exports = {
   MAX_JSONL_BYTES,
   readJson,
   readJsonLines,
+  jsonlReadBudget,
   safeStat,
   walkRecent,
 };

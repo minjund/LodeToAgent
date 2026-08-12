@@ -697,20 +697,23 @@ function createAttentionNotifier() {
     enabled: DESKTOP_NOTIFICATIONS_ENABLED,
     Notification,
     isSupported: () => Notification.isSupported(),
-    copy: (session, event) => {
+    copy: (session, event, detail) => {
       const provider = providerList().find(item => item.id === session.provider);
+      const notificationDetail = String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 240);
       return {
         title: mainText(event === 'completed' ? 'completionTitle' : 'attentionTitle'),
         body: mainText('attentionBody', {
           provider: provider && provider.label || session.provider || 'AI',
-          title: session.title || '이름 없는 작업',
+          title: event === 'completed'
+            ? (session.title || '이름 없는 작업')
+            : (notificationDetail || session.title || '이름 없는 작업'),
         }),
       };
     },
     onOpen: openAttentionSession,
-    onFallback: session => {
+    onFallback: (session, event) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(true);
-      openAttentionSession(session);
+      openAttentionSession(session, event);
     },
   });
 }
