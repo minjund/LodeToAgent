@@ -2,7 +2,7 @@
 
 const assert = require('assert');
 const { EventEmitter } = require('events');
-const { AttentionNotifier } = require('../../src/attentionNotifier');
+const { AttentionNotifier, completionNotificationSummary } = require('../../src/attentionNotifier');
 
 class FakeNotification extends EventEmitter {
   static created = [];
@@ -110,10 +110,13 @@ function registerAttentionNotifierTests(context) {
       status: 'completed',
       completionObserved: true,
       completedAt: '2026-08-06T01:00:05.000Z',
+      outcome: { summary: '  배포와\n검증을\u0000 완료했습니다.  ' },
+      result: '결과 fallback은 outcome보다 뒤여야 합니다.',
+      messages: [{ role: 'assistant', text: '메시지 fallback도 outcome보다 뒤여야 합니다.' }],
     };
     assert.deepEqual(notifier.sync({ generatedAt: '2026-08-06T01:00:05.000Z', sessions: [completed] }), ['task-a']);
     assert.deepEqual(FakeNotification.created[2].options, {
-      title: '작업 완료', body: 'Claude · 배포 작업', silent: false,
+      title: '작업 완료', body: '배포와 검증을 완료했습니다.', silent: false,
     });
     assert.deepEqual(notifier.sync({ generatedAt: '2026-08-06T01:00:06.000Z', sessions: [completed] }), []);
 
@@ -231,6 +234,48 @@ function registerAttentionNotifierTests(context) {
     assert.deepEqual(startup.sync(startupSnapshot), [], '시작 복구 알림은 같은 요청에 한 번만 보내야 합니다.');
     assert.equal(FakeNotification.created.length, 2);
     startup.dispose();
+
+    FakeNotification.created = [];
+    const summaries = new AttentionNotifier({
+      Notification: FakeNotification,
+      isSupported: () => true,
+      copy: (_session, _event, detail) => ({ title: '작업 완료', body: detail || 'AI 최종 답변 없음' }),
+    });
+    summaries.notify({
+      title: '사용자 요청',
+      outcome: { summary: '   ' },
+      result: '  실제\t최종\u0007 답변  ',
+      messages: [{ role: 'assistant', text: '이전 답변' }],
+    }, 'completed');
+    summaries.notify({
+      title: '사용자 요청', result: '',
+      messages: [
+        { role: 'assistant', text: '이전 답변' },
+        { role: 'assistant', text: '\n\t' },
+        { role: 'assistant', text: `최신 답변 ${'가'.repeat(260)}` },
+      ],
+    }, 'completed');
+    summaries.notify({ title: '  사용자\n요청  ', messages: [] }, 'completed');
+    summaries.notify({
+      title: '사용자 요청', outcome: { summary: '완료 요약' },
+      notificationDetail: '직접 승인', attention: { summary: '기존 승인 요약' },
+    }, 'attention');
+    assert.equal(FakeNotification.created[0].options.body, '실제 최종 답변', 'result를 outcome 다음 fallback으로 사용해야 합니다.');
+    assert.equal(FakeNotification.created[1].options.body, `최신 답변 ${'가'.repeat(234)}`,
+      '최신 non-empty assistant 답변을 사용하고 240자로 제한해야 합니다.');
+    assert.equal([...FakeNotification.created[1].options.body].length, 240);
+    assert.equal(completionNotificationSummary({ title: '사용자 요청', messages: [] }), '',
+      'AI 답변이 없을 때 사용자 요청 title을 완료 detail로 재사용하면 안 됩니다.');
+    assert.equal(completionNotificationSummary({
+      title: '새 사용자 요청',
+      messages: [
+        { role: 'assistant', text: '직전 턴 답변' },
+        { role: 'user', text: '새 사용자 요청' },
+      ],
+    }), '', '마지막 사용자 요청보다 앞선 assistant 답변을 새 완료 detail로 재사용하면 안 됩니다.');
+    assert.equal(FakeNotification.created[2].options.body, 'AI 최종 답변 없음');
+    assert.equal(FakeNotification.created[3].options.body, '직접 승인', 'attention 본문 선택은 기존 동작을 유지해야 합니다.');
+    summaries.dispose();
   });
 
   test('새 메인 턴이 시작되면 직전 턴의 순간적인 완료 알림 후보를 취소한다', () => {
@@ -239,9 +284,8 @@ function registerAttentionNotifierTests(context) {
     const notifier = new AttentionNotifier({
       Notification: FakeNotification,
       isSupported: () => true,
-      completionStabilityMs: 2_000,
-      setTimeout: callback => {
-        const timer = { callback, cancelled: false, unref() {} };
+      setTimeout: (callback, delay) => {
+        const timer = { callback, delay, cancelled: false, unref() {} };
         timers.push(timer);
         return timer;
       },
@@ -277,6 +321,7 @@ function registerAttentionNotifierTests(context) {
       generatedAt: '2026-08-13T01:46:39.500Z', sessions: [transientCompletion, childCompleted],
     }), []);
     assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, 8_000, '자동 후속 턴이 이어질 시간을 기다린 뒤에만 완료를 알려야 합니다.');
     assert.equal(FakeNotification.created.length, 0, '첫 completed 관측만으로 알림을 보내면 안 됩니다.');
 
     const nextTurnRunning = {
@@ -305,6 +350,176 @@ function registerAttentionNotifierTests(context) {
     }), []);
     assert.equal(FakeNotification.created.length, 1, '같은 완료 상태를 중복 알리면 안 됩니다.');
     notifier.dispose();
+
+    FakeNotification.created = [];
+    const guardedTimers = [];
+    const guarded = new AttentionNotifier({
+      Notification: FakeNotification,
+      isSupported: () => true,
+      completionStabilityMs: 2_000,
+      setTimeout: callback => {
+        const timer = { callback, cancelled: false, unref() {} };
+        guardedTimers.push(timer);
+        return timer;
+      },
+      clearTimeout: timer => { timer.cancelled = true; },
+    });
+    const guardedRoot = {
+      id: 'codex:guarded-root', provider: 'codex', title: '전체 작업', status: 'running',
+      completionObserved: false, completedAt: null, parentId: null, childIds: ['codex:guarded-child'],
+      executions: [], collaboration: { spawns: [] }, updatedAt: '2026-08-13T02:00:00.000Z',
+    };
+    const guardedChild = {
+      id: 'codex:guarded-child', provider: 'codex', title: '하위 작업', status: 'running',
+      parentId: guardedRoot.id, childIds: [], executions: [], collaboration: { spawns: [] },
+      updatedAt: '2026-08-13T02:00:00.000Z',
+    };
+    guarded.sync({ generatedAt: '2026-08-13T02:00:00.000Z', sessions: [guardedRoot, guardedChild] });
+
+    const guardedCompleted = {
+      ...guardedRoot, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T02:00:01.000Z', updatedAt: '2026-08-13T02:00:01.000Z',
+    };
+    assert.deepEqual(guarded.sync({
+      generatedAt: '2026-08-13T02:00:01.100Z', sessions: [guardedCompleted, guardedChild],
+    }), []);
+    assert.equal(guardedTimers.length, 0, 'active child가 있으면 root completed 후보를 만들면 안 됩니다.');
+
+    const guardedChildPaused = { ...guardedChild, status: 'paused' };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:01.200Z', sessions: [guardedCompleted, guardedChildPaused],
+    });
+    assert.equal(guardedTimers.length, 0, 'paused child가 있으면 root completed 후보를 만들면 안 됩니다.');
+
+    const guardedChildCompleted = {
+      ...guardedChild, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T02:00:02.000Z', updatedAt: '2026-08-13T02:00:02.000Z',
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.100Z', sessions: [guardedCompleted, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 1, '하위 작업이 끝나면 root 완료 후보를 만들어야 합니다.');
+
+    const requestedSpawn = {
+      ...guardedCompleted,
+      collaboration: {
+        metrics: { currentlyRunning: 0 },
+        spawns: [{ callId: 'requested-reviewer', childId: 'codex:requested-reviewer', status: 'requested', completedAt: null }],
+      },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.150Z', sessions: [requestedSpawn, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 1, '미완료 requested spawn을 새 완료 후보로 만들면 안 됩니다.');
+    assert.equal(guardedTimers[0].cancelled, true,
+      'childId가 확인된 미완료 requested spawn이 생기면 pending 완료를 취소해야 합니다.');
+    guardedTimers[0].callback();
+    assert.equal(FakeNotification.created.length, 0);
+
+    const terminalRequestedSpawns = {
+      ...guardedCompleted,
+      collaboration: {
+        metrics: { currentlyRunning: 0 },
+        spawns: [
+          { callId: 'failed-reviewer', childId: 'codex:failed-reviewer', status: 'failed', completedAt: '2026-08-13T02:00:02.160Z' },
+          { callId: 'completed-request', childId: 'codex:completed-request', status: 'requested', completedAt: '2026-08-13T02:00:02.170Z' },
+          { callId: 'terminal-child-request', childId: guardedChildCompleted.id, status: 'requested', completedAt: null },
+        ],
+      },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.180Z', sessions: [terminalRequestedSpawns, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 2,
+      'failed spawn, completedAt이 있는 request, terminal child의 stale requested record는 완료를 영구 차단하면 안 됩니다.');
+
+    const aggregateRunning = {
+      ...terminalRequestedSpawns,
+      collaboration: { ...terminalRequestedSpawns.collaboration, metrics: { currentlyRunning: 1 } },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.190Z', sessions: [aggregateRunning, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 2, 'aggregate running 수치가 남아 있을 때 새 완료 후보를 만들면 안 됩니다.');
+    assert.equal(guardedTimers[1].cancelled, true,
+      'collaboration aggregate에 running spawn이 있으면 pending 완료를 취소해야 합니다.');
+    guardedTimers[1].callback();
+    assert.equal(FakeNotification.created.length, 0);
+
+    const aggregateCompleted = {
+      ...terminalRequestedSpawns,
+      collaboration: { ...terminalRequestedSpawns.collaboration, metrics: { currentlyRunning: 0 } },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.195Z', sessions: [aggregateCompleted, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 3);
+
+    const runningExecution = {
+      ...aggregateCompleted,
+      executions: [{ id: 'background-build', status: 'running' }],
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.200Z', sessions: [runningExecution, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers[2].cancelled, true, 'running execution이 생기면 pending 완료를 취소해야 합니다.');
+    guardedTimers[2].callback();
+    assert.equal(FakeNotification.created.length, 0);
+
+    const completedExecution = {
+      ...aggregateCompleted,
+      executions: [{ id: 'background-build', status: 'completed' }],
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.300Z', sessions: [completedExecution, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 4);
+
+    const activeSpawn = {
+      ...completedExecution,
+      collaboration: { spawns: [{ callId: 'reviewer', status: 'running' }] },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.400Z', sessions: [activeSpawn, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers[3].cancelled, true, 'active collaboration spawn이 생기면 pending 완료를 취소해야 합니다.');
+    guardedTimers[3].callback();
+    assert.equal(FakeNotification.created.length, 0);
+
+    const completedSpawn = {
+      ...completedExecution,
+      collaboration: { spawns: [{ callId: 'reviewer', status: 'completed' }] },
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.500Z', sessions: [completedSpawn, guardedChildCompleted],
+    });
+    assert.equal(guardedTimers.length, 5);
+
+    const nestedChild = {
+      ...guardedChild, id: 'codex:guarded-grandchild', parentId: guardedChild.id,
+      status: 'waiting', updatedAt: '2026-08-13T02:00:02.600Z',
+    };
+    const childWithDescendant = { ...guardedChildCompleted, childIds: [nestedChild.id] };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:02.600Z',
+      sessions: [completedSpawn, childWithDescendant, nestedChild],
+    });
+    assert.equal(guardedTimers[4].cancelled, true, '재귀 active descendant가 생기면 pending 완료를 취소해야 합니다.');
+    guardedTimers[4].callback();
+    assert.equal(FakeNotification.created.length, 0);
+
+    const nestedCompleted = {
+      ...nestedChild, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T02:00:03.000Z', updatedAt: '2026-08-13T02:00:03.000Z',
+    };
+    guarded.sync({
+      generatedAt: '2026-08-13T02:00:03.100Z',
+      sessions: [completedSpawn, childWithDescendant, nestedCompleted],
+    });
+    assert.equal(guardedTimers.length, 6);
+    guardedTimers[5].callback();
+    assert.equal(FakeNotification.created.length, 1, '모든 active work가 끝난 뒤 root 완료를 한 번 알려야 합니다.');
+    guarded.dispose();
   });
 
   test('시스템 알림을 지원하지 않으면 앱 내 대체 알림 경로를 사용한다', () => {

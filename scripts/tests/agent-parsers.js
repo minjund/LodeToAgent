@@ -427,6 +427,57 @@ function registerClaudeParserTests(context) {
     assert.equal(queued.status, 'running');
     assert.equal(queued.completionObserved, false);
     assert.equal(queued.completedAt, null);
+
+    const outOfOrderStopFile = path.join(temp, 'claude', 'project', 'out-of-order-stop.jsonl');
+    const outOfOrderStopInfo = jsonl(outOfOrderStopFile, [
+      { type: 'user', timestamp: '2026-07-14T03:00:00Z', message: { role: 'user', content: '첫 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T03:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '첫 작업 완료' }] } },
+      { type: 'queue-operation', operation: 'enqueue', timestamp: '2026-07-14T03:00:04Z', content: '두 번째 작업을 계속해줘' },
+      { type: 'system', subtype: 'stop_hook_summary', timestamp: '2026-07-14T03:00:02Z' },
+    ]);
+    fs.utimesSync(outOfOrderStopFile, queuedActive, queuedActive);
+    outOfOrderStopInfo.mtimeMs = fs.statSync(outOfOrderStopFile).mtimeMs;
+    const outOfOrderStop = parseClaude(outOfOrderStopInfo);
+    assert.equal(outOfOrderStop.status, 'running');
+    assert.equal(outOfOrderStop.completionObserved, false);
+    assert.equal(outOfOrderStop.completedAt, null);
+
+    const streamingAfterCompleteFile = path.join(temp, 'claude', 'project', 'streaming-after-complete.jsonl');
+    const streamingAfterCompleteInfo = jsonl(streamingAfterCompleteFile, [
+      { type: 'user', timestamp: '2026-07-14T04:00:00Z', message: { role: 'user', content: '첫 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T04:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '첫 작업 완료' }] } },
+      { type: 'assistant', timestamp: '2026-07-14T04:00:04Z', message: { role: 'assistant', content: [{ type: 'text', text: '후속 확인을 진행 중입니다.' }] } },
+      { type: 'system', subtype: 'turn_complete', timestamp: '2026-07-14T04:00:02Z' },
+    ]);
+    fs.utimesSync(streamingAfterCompleteFile, queuedActive, queuedActive);
+    streamingAfterCompleteInfo.mtimeMs = fs.statSync(streamingAfterCompleteFile).mtimeMs;
+    const streamingAfterComplete = parseClaude(streamingAfterCompleteInfo);
+    assert.equal(streamingAfterComplete.status, 'running');
+    assert.equal(streamingAfterComplete.activityState, 'working');
+    assert.equal(streamingAfterComplete.completionObserved, false);
+    assert.equal(streamingAfterComplete.completedAt, null);
+
+    const emptyEndAfterUser = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'empty-end-after-user.jsonl'), [
+      { type: 'user', timestamp: '2026-07-14T05:00:00Z', message: { role: 'user', content: '첫 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T05:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '이전 답변' }] } },
+      { type: 'user', timestamp: '2026-07-14T05:01:00Z', message: { role: 'user', content: '새 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T05:01:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [] } },
+    ]));
+    assert.equal(emptyEndAfterUser.status, 'completed');
+    assert.equal(emptyEndAfterUser.title, '새 작업');
+    assert.equal(emptyEndAfterUser.result, '');
+    assert.equal(emptyEndAfterUser.responseIntent.source, 'none');
+
+    const emptyEndAfterQueue = parseClaude(jsonl(path.join(temp, 'claude', 'project', 'empty-end-after-queue.jsonl'), [
+      { type: 'user', timestamp: '2026-07-14T06:00:00Z', message: { role: 'user', content: '첫 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T06:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '이전 답변' }] } },
+      { type: 'queue-operation', operation: 'enqueue', timestamp: '2026-07-14T06:01:00Z', content: 'queue 후속 작업' },
+      { type: 'assistant', timestamp: '2026-07-14T06:01:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [] } },
+    ]));
+    assert.equal(emptyEndAfterQueue.status, 'completed');
+    assert.equal(emptyEndAfterQueue.title, 'queue 후속 작업');
+    assert.equal(emptyEndAfterQueue.result, '');
+    assert.equal(emptyEndAfterQueue.responseIntent.source, 'none');
   });
 
   test('Claude 내부 명령 안내를 숨기고 최근 실제 요청을 제목으로 사용한다', () => {
@@ -689,6 +740,122 @@ function registerCodexParserTests(context) {
     assert.equal(assistantRequestsUserResponse('원하시면 변경 내역도 문서화해 드릴까요?'), false);
     assert.equal(assistantResponseIntent('배포 전에 대상 환경을 선택해 주세요.').category, 'required');
     assertCodexActivityStates({ temp, jsonl });
+  });
+
+  test('Codex 완료 뒤 실제 작업 신호가 이어지면 완료 상태를 해제한다', () => {
+    const completedRows = id => [
+      { timestamp: '2026-07-14T05:00:00Z', type: 'session_meta', payload: { id, cwd: 'D:\\repo' } },
+      { timestamp: '2026-07-14T05:00:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-1' } },
+      { timestamp: '2026-07-14T05:00:02Z', type: 'event_msg', payload: { type: 'user_message', message: '첫 작업을 완료해줘' } },
+      { timestamp: '2026-07-14T05:00:03Z', type: 'event_msg', payload: { type: 'agent_message', message: '첫 작업 완료' } },
+      { timestamp: '2026-07-14T05:00:04Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-07-14T05:00:04Z', last_agent_message: '첫 작업 완료' } },
+    ];
+    const cases = [
+      {
+        name: 'function-call',
+        activityState: 'working',
+        row: { timestamp: '2026-07-14T05:00:05Z', type: 'response_item', payload: { type: 'function_call', call_id: 'shell-2', name: 'shell_command', arguments: '{"command":"npm test"}' } },
+      },
+      {
+        name: 'reasoning',
+        activityState: 'thinking',
+        row: { timestamp: '2026-07-14T05:00:05Z', type: 'event_msg', payload: { type: 'agent_reasoning', text: '후속 작업을 확인 중' } },
+      },
+      {
+        name: 'event-assistant',
+        activityState: 'working',
+        row: { timestamp: '2026-07-14T05:00:05Z', type: 'event_msg', payload: { type: 'agent_message', message: '후속 작업을 진행 중입니다.' } },
+      },
+      {
+        name: 'response-assistant',
+        activityState: 'working',
+        row: { timestamp: '2026-07-14T05:00:05Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '후속 응답을 생성 중입니다.' }] } },
+      },
+      {
+        name: 'subagent-started',
+        activityState: 'juggling',
+        row: { timestamp: '2026-07-14T05:00:05Z', type: 'event_msg', payload: { type: 'sub_agent_activity', kind: 'started', event_id: 'spawn-2', agent_thread_id: 'child-2', agent_path: '/root/worker' } },
+      },
+    ];
+    for (const scenario of cases) {
+      const session = parseCodex(jsonl(path.join(temp, 'codex', `rollout-resume-${scenario.name}.jsonl`), [
+        ...completedRows(`resume-${scenario.name}`),
+        scenario.row,
+      ]));
+      assert.equal(session.status, 'running', scenario.name);
+      assert.equal(session.activityState, scenario.activityState, scenario.name);
+      assert.equal(session.completionObserved, false, scenario.name);
+      assert.equal(session.completedAt, null, scenario.name);
+    }
+
+    const toolOutput = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-resume-tool-output.jsonl'), [
+      ...completedRows('resume-tool-output').slice(0, -2),
+      { timestamp: '2026-07-14T05:00:02.500Z', type: 'response_item', payload: { type: 'function_call', call_id: 'shell-before-complete', name: 'shell_command', arguments: '{"command":"npm test"}' } },
+      ...completedRows('resume-tool-output').slice(-2),
+      { timestamp: '2026-07-14T05:00:05Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'shell-before-complete', output: 'Exit code: 0' } },
+    ]));
+    assert.equal(toolOutput.status, 'running');
+    assert.equal(toolOutput.activityState, 'working');
+    assert.equal(toolOutput.completionObserved, false);
+    assert.equal(toolOutput.completedAt, null);
+
+    const followedUp = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-resume-followup.jsonl'), [
+      { timestamp: '2026-07-14T06:00:00Z', type: 'session_meta', payload: { id: 'resume-followup', cwd: 'D:\\repo' } },
+      { timestamp: '2026-07-14T06:00:01Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-1' } },
+      { timestamp: '2026-07-14T06:00:02Z', type: 'event_msg', payload: { type: 'user_message', message: '도움 AI와 작업해줘' } },
+      { timestamp: '2026-07-14T06:00:03Z', type: 'response_item', payload: { type: 'function_call', call_id: 'spawn-1', name: 'spawn_agent', arguments: '{"task_name":"worker","message":"첫 작업"}' } },
+      { timestamp: '2026-07-14T06:00:04Z', type: 'event_msg', payload: { type: 'sub_agent_activity', kind: 'completed', event_id: 'spawn-1', agent_thread_id: 'child-1', agent_path: '/root/worker' } },
+      { timestamp: '2026-07-14T06:00:05Z', type: 'event_msg', payload: { type: 'agent_message', message: '첫 작업 완료' } },
+      { timestamp: '2026-07-14T06:00:06Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-07-14T06:00:06Z', last_agent_message: '첫 작업 완료' } },
+      { timestamp: '2026-07-14T06:00:07Z', type: 'response_item', payload: { type: 'function_call', call_id: 'followup-1', name: 'followup_task', arguments: '{"target":"child-1","message":"후속 검사를 계속해줘"}' } },
+    ]));
+    assert.equal(followedUp.status, 'running');
+    assert.equal(followedUp.completionObserved, false);
+    assert.equal(followedUp.completedAt, null);
+    assert.equal(followedUp.collaboration.spawns[0].status, 'running');
+    assert.equal(followedUp.collaboration.spawns[0].completedAt, null);
+    assert.equal(followedUp.collaboration.spawns[0].lastSentAt, '2026-07-14T06:00:07.000Z');
+
+    const mismatchedTurnCompletion = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-stale-turn-completion.jsonl'), [
+      ...completedRows('stale-turn-completion'),
+      { timestamp: '2026-07-14T05:01:00Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-2', started_at: '2026-07-14T05:01:00Z' } },
+      { timestamp: '2026-07-14T05:01:01Z', type: 'event_msg', payload: { type: 'user_message', message: '두 번째 작업을 계속해줘' } },
+      { timestamp: '2026-07-14T05:01:02Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-07-14T05:01:02Z', last_agent_message: '첫 작업 완료' } },
+    ]));
+    assert.equal(mismatchedTurnCompletion.status, 'running');
+    assert.equal(mismatchedTurnCompletion.completionObserved, false);
+    assert.equal(mismatchedTurnCompletion.completedAt, null);
+    assert.equal(mismatchedTurnCompletion.result, '');
+
+    const staleTimestampCompletion = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-stale-timestamp-completion.jsonl'), [
+      ...completedRows('stale-timestamp-completion'),
+      { timestamp: '2026-07-14T05:02:00Z', type: 'event_msg', payload: { type: 'agent_reasoning', text: '후속 작업 분석 중' } },
+      { timestamp: '2026-07-14T05:02:01Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-1', completed_at: '2026-07-14T05:00:04Z', last_agent_message: '첫 작업 완료' } },
+    ]));
+    assert.equal(staleTimestampCompletion.status, 'running');
+    assert.equal(staleTimestampCompletion.completionObserved, false);
+    assert.equal(staleTimestampCompletion.completedAt, null);
+    assert.equal(staleTimestampCompletion.result, '');
+
+    const currentTurnAnswer = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-current-turn-answer.jsonl'), [
+      ...completedRows('current-turn-answer'),
+      { timestamp: '2026-07-14T05:03:00Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-2' } },
+      { timestamp: '2026-07-14T05:03:01Z', type: 'event_msg', payload: { type: 'user_message', message: '두 번째 답변을 작성해줘' } },
+      { timestamp: '2026-07-14T05:03:02Z', type: 'event_msg', payload: { type: 'agent_message', message: '두 번째 답변' } },
+      { timestamp: '2026-07-14T05:03:03Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-2' } },
+    ]));
+    assert.equal(currentTurnAnswer.status, 'completed');
+    assert.equal(currentTurnAnswer.completionObserved, true);
+    assert.equal(currentTurnAnswer.result, '두 번째 답변');
+
+    const emptyCurrentTurn = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-empty-current-turn.jsonl'), [
+      ...completedRows('empty-current-turn'),
+      { timestamp: '2026-07-14T05:04:00Z', type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn-2' } },
+      { timestamp: '2026-07-14T05:04:01Z', type: 'event_msg', payload: { type: 'user_message', message: '빈 후속 턴' } },
+      { timestamp: '2026-07-14T05:04:02Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn-2' } },
+    ]));
+    assert.equal(emptyCurrentTurn.completionObserved, false);
+    assert.equal(emptyCurrentTurn.result, '');
   });
 
   test('Codex 데스크톱의 new-chat 임시 경로를 프로젝트 없는 세션으로 분류한다', () => {
@@ -1254,6 +1421,54 @@ function assertGenericActivityStates({ temp, jsonl }) {
       { type: 'result', timestamp: '2026-08-12T03:04:00Z' },
     ]);
     assert.deepStrictEqual([attention.status, attention.activityState], ['completed', 'attention']);
+
+    for (const eventType of ['tool_completed', 'sub_agent_completed', 'agent_completed', 'request_completed', 'item.completed']) {
+      const itemCompletion = generic(`generic-item-${eventType.replace(/\W/g, '-')}`, [
+        { type: eventType, id: `item-${eventType}`, timestamp: '2026-08-12T03:04:01Z' },
+      ]);
+      assert.notEqual(itemCompletion.status, 'completed', eventType);
+      assert.equal(itemCompletion.completionObserved, false, eventType);
+      assert.equal(itemCompletion.completedAt, null, eventType);
+    }
+
+    for (const eventType of ['session_end', 'turn.completed', 'task_completed', 'response_completed']) {
+      const terminal = generic(`generic-terminal-${eventType.replace(/\W/g, '-')}`, [
+        { type: eventType, timestamp: '2026-08-12T03:04:02Z' },
+      ]);
+      assert.equal(terminal.status, 'completed', eventType);
+      assert.equal(terminal.completionObserved, true, eventType);
+    }
+
+    const resumedCases = [
+      {
+        name: 'tool-output',
+        row: { type: 'tool_result', tool_call_id: 'tool-before-result', timestamp: '2026-08-12T03:04:05Z', output: 'done' },
+        prefix: [{ type: 'tool_use', id: 'tool-before-result', name: 'shell', timestamp: '2026-08-12T03:04:03Z' }],
+      },
+      { name: 'reasoning', row: { type: 'reasoning_delta', timestamp: '2026-08-12T03:04:05Z', text: '후속 분석 중' } },
+      { name: 'assistant', row: { type: 'assistant_message', timestamp: '2026-08-12T03:04:05Z', content: '후속 응답 생성 중' } },
+      { name: 'subagent', row: { type: 'sub_agent_started', timestamp: '2026-08-12T03:04:05Z' } },
+      { name: 'agent-completed', row: { type: 'agent_completed', timestamp: '2026-08-12T03:04:05Z' } },
+    ];
+    for (const scenario of resumedCases) {
+      const resumed = generic(`generic-resumed-${scenario.name}`, [
+        ...(scenario.prefix || []),
+        { type: 'result', timestamp: '2026-08-12T03:04:04Z' },
+        scenario.row,
+      ]);
+      assert.equal(resumed.status, 'running', scenario.name);
+      assert.equal(resumed.completionObserved, false, scenario.name);
+      assert.equal(resumed.completedAt, null, scenario.name);
+    }
+
+    const staleTerminal = generic('generic-stale-terminal', [
+      { type: 'result', timestamp: '2026-08-12T03:04:03Z' },
+      { type: 'assistant_message', timestamp: '2026-08-12T03:04:05Z', content: '새 응답을 생성 중' },
+      { type: 'session_end', timestamp: '2026-08-12T03:04:04Z' },
+    ]);
+    assert.equal(staleTerminal.status, 'running');
+    assert.equal(staleTerminal.completionObserved, false);
+    assert.equal(staleTerminal.completedAt, null);
 
     const failed = generic('generic-error', [
       { type: 'error', timestamp: '2026-08-12T03:05:00Z', error: 'provider failed' },

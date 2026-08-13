@@ -218,6 +218,30 @@ function registerSessionIntelligenceTests(context) {
     assert.equal(result.outcome.artifacts.find(item => item.kind === 'commit').verified, false, '로그에 언급된 커밋 해시는 저장소 검증 없이 확인된 것으로 표시하면 안 됩니다.');
     assert.equal(result.outcome.checks[0].status, 'passed');
     assert.equal(result.controlCapabilities.stop, false);
+
+    const withoutCurrentAnswer = enrichSession({
+      ...session,
+      id: 'empty-current-answer',
+      result: '',
+      statusDetail: '작업 완료',
+      messages: [
+        { role: 'assistant', text: '이전 턴 답변', timestamp: '2026-07-21T03:59:00.000Z' },
+        { role: 'user', text: '새 작업', timestamp: '2026-07-21T04:00:00.000Z' },
+      ],
+    }, [], Date.parse('2026-07-21T04:01:00.000Z'));
+    assert.equal(withoutCurrentAnswer.outcome.summary, '작업 완료', '새 턴에 답변이 없으면 이전 assistant 답변을 재사용하면 안 됩니다.');
+
+    const withCurrentAnswer = enrichSession({
+      ...session,
+      id: 'current-answer',
+      result: '',
+      messages: [
+        { role: 'assistant', text: '이전 턴 답변', timestamp: '2026-07-21T03:59:00.000Z' },
+        { role: 'user', text: '새 작업', timestamp: '2026-07-21T04:00:00.000Z' },
+        { role: 'assistant', text: '새 턴 최종 답변', timestamp: '2026-07-21T04:00:05.000Z' },
+      ],
+    }, [], Date.parse('2026-07-21T04:01:00.000Z'));
+    assert.equal(withCurrentAnswer.outcome.summary, '새 턴 최종 답변');
   });
 
   test('장시간 신호가 없는 관리 실행은 정체 상태와 제어 기능을 노출한다', () => {

@@ -82,4 +82,21 @@ function activityFor(command, options = {}) {
   assert.equal(activity.exitCode, 0);
 }
 
-process.stdout.write('실행 작업 감지 테스트 6개 통과\n');
+{
+  const { tracker, activity } = activityFor('npm run watch', { callId: 'long-running' });
+  for (let index = 0; index < 125; index += 1) {
+    const callId = `completed-${index}`;
+    tracker.recordCall({
+      name: 'shell_command', callId, args: { command: `echo ${index}` },
+      at: `2026-07-27T00:01:${String(index % 60).padStart(2, '0')}.000Z`,
+    });
+    tracker.recordOutput({
+      name: 'shell_command', callId, output: 'exit code: 0',
+      at: `2026-07-27T00:02:${String(index % 60).padStart(2, '0')}.000Z`,
+    });
+  }
+  const projected = tracker.finalize(120);
+  assert.equal(projected.some(item => item.id === activity.id && item.status === 'running'), true);
+}
+
+process.stdout.write('실행 작업 감지 테스트 7개 통과\n');

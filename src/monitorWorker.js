@@ -117,6 +117,26 @@ function selectCardMessages(messages) {
   return [...selected].sort((a, b) => a - b).map(index => cardMessage(list[index]));
 }
 
+function normalizedFingerprintText(value, limit) {
+  return clip(value, limit).replace(/\s+/g, ' ');
+}
+
+function completionPresentationFingerprint(session) {
+  const messages = Array.isArray(session && session.messages) ? session.messages : [];
+  let latestAssistantText = '';
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== 'assistant') continue;
+    latestAssistantText = message.text;
+    break;
+  }
+  return [
+    normalizedFingerprintText(session && session.result, 1200),
+    normalizedFingerprintText(session && session.outcome && session.outcome.summary, 800),
+    normalizedFingerprintText(latestAssistantText, 420),
+  ];
+}
+
 function cardCollaboration(value) {
   const collaboration = value || {};
   return {
@@ -162,7 +182,14 @@ function cardCollaboration(value) {
 }
 
 function cardExecutions(value) {
-  return (value || []).slice(-120).map(activity => ({
+  const activities = Array.isArray(value) ? value : [];
+  const tailStart = Math.max(0, activities.length - 120);
+  const selected = new Set();
+  for (let index = tailStart; index < activities.length; index += 1) selected.add(index);
+  for (let index = 0; index < tailStart; index += 1) {
+    if (activities[index] && activities[index].status === 'running') selected.add(index);
+  }
+  return [...selected].sort((a, b) => a - b).map(index => activities[index]).map(activity => ({
     id: activity.id,
     callId: activity.callId,
     kind: activity.kind,
@@ -276,6 +303,7 @@ function fingerprint(snapshot, tmux, automations, sourcePlugins = []) {
     session.updatedAt,
     session.status,
     session.activityState,
+    completionPresentationFingerprint(session),
     session.usage && session.usage.total,
     session.context && session.context.used,
     session.originCwd,

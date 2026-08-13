@@ -132,6 +132,25 @@ loadtoagent run claude -- --model claude-sonnet-4-6
 
 이제 외부 터미널과 LoadToAgent 대시보드가 같은 LoadToAgent 전용 세션을 조작합니다. AI 카드에서 `터미널에서 열기`를 누르면 새 셸을 만들지 않고 정확히 연결된 기존 터미널을 열며, 왼쪽에는 해당 세션의 이전 대화가 계속 표시됩니다. 터미널 탭을 바꿔도 출력은 지워지지 않고, 최신 대화 기록도 자동으로 갱신됩니다. 다른 곳에서 임의로 시작한 세션은 계속 볼 수 있지만, 원래 앱이 지원하는 연결 방식이 없으면 보기 전용으로 유지됩니다.
 
+### Codex 작업을 두 터미널에서 함께 열기
+
+LoadToAgent가 직접 관리하는 Windows/macOS/Linux의 native direct Codex 터미널은 앱의 터미널 호스트가 소유한 하나의 localhost `codex app-server`를 공유합니다. 같은 작업을 일반 Codex CLI에서도 열려면 LoadToAgent에서 해당 direct Codex 작업을 먼저 연 뒤 공유 주소를 사용하세요.
+
+```powershell
+# PowerShell
+$codexSharedEndpoint = loadtoagent codex-endpoint
+codex --remote $codexSharedEndpoint resume <SESSION_ID>
+```
+
+```bash
+# macOS / Linux
+codex --remote "$(loadtoagent codex-endpoint)" resume <SESSION_ID>
+```
+
+이 주소는 `127.0.0.1`에만 열리며 Codex 서버가 다시 시작되면 바뀔 수 있으므로 저장하지 말고 매번 조회하세요. 대화 ID는 기존처럼 저장되지만 공유 서버 주소는 세션 기록에 저장되지 않습니다. 호스트보다 오래 살아야 하는 macOS/Linux managed-tmux Codex와 Windows WSL Codex에는 이 주소를 주입하지 않으므로 기존 백그라운드·재연결 수명이 유지됩니다. Claude, Gemini, Grok 실행 인자도 이 기능으로 변경되지 않습니다.
+
+공식 Codex Desktop에서 연 작업은 예외입니다. 현재 Desktop 앱의 app-server는 외부 연결 주소를 공개하지 않으므로 LoadToAgent나 별도 CLI가 그 writer에 동시에 붙을 수 없습니다. 턴 완료나 `attention` 표시는 writer 해제의 근거가 아니므로, LoadToAgent는 Desktop에서 시작한 작업에는 상태와 무관하게 독립 `codex resume`을 실행하지 않고 원래 Codex 앱에서 계속하도록 합니다. 이 제한은 [Codex App Server 문서](https://learn.chatgpt.com/docs/app-server)에 공개된 연결 방식 기준입니다.
+
 macOS와 WSL의 지속형 AI 터미널은 개인 tmux와 분리된 `tmux -L loadtoagent` 서버에서 실행됩니다. `터미널 화면 닫기`는 attach 화면만 분리하고 AI 작업은 백그라운드에서 계속합니다. 목록의 `기존 작업 다시 연결`은 새 AI 대화를 만들지 않고 같은 tmux 세션과 LoadToAgent 세션 ID에 다시 붙습니다. `AI 세션 종료`는 실제 tmux 작업을 끝내되 확인할 수 있도록 기록을 남기며, 중지된 기록은 별도로 제거할 수 있습니다.
 
 대시보드나 터미널 호스트가 예기치 않게 끝나도 tmux 작업이 살아 있으면 다음 실행에서 같은 세션으로 복구합니다. 저장된 tmux가 사라졌다면 중복 AI 대화를 자동 생성하지 않고 `작업 중지됨`으로 표시합니다. Windows 네이티브 AI 세션과 일반 명령창은 기존 직접 PTY/터미널 호스트 방식을 유지합니다. 두 방식 모두 실행 중·분리됨·자연 종료·시작 실패 기록은 사용자가 명시적으로 제거할 때까지 세션 터미널 목록에 남습니다.

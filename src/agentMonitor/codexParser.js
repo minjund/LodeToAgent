@@ -92,6 +92,7 @@ function createCodexParser(dependencies) {
       goalContexts: new Set(),
       latestDelegationNarration: '',
       activeTurn: false,
+      activeTurnId: '',
       lastTurnCompleted: false,
       turnHadMeaningfulOutput: false,
       lastFinalAnswer: '',
@@ -112,13 +113,40 @@ function createCodexParser(dependencies) {
     };
   }
 
-  function beginObservedTurn(session, state) {
-    const startingNewTurn = !state.activeTurn || state.lastTurnCompleted;
+  function beginObservedTurn(session, state, turnId = '') {
+    const observedTurnId = compactText(turnId, 180);
+    const switchingTurns = Boolean(observedTurnId && state.activeTurnId && observedTurnId !== state.activeTurnId);
+    const startingNewTurn = !state.activeTurn || state.lastTurnCompleted || switchingTurns;
     state.activeTurn = true;
     state.lastTurnCompleted = false;
-    if (startingNewTurn) state.turnHadMeaningfulOutput = false;
+    if (startingNewTurn) {
+      state.turnHadMeaningfulOutput = false;
+      state.lastFinalAnswer = '';
+      state.lastAssistantText = '';
+      state.lastConversationRole = '';
+      if (!observedTurnId) state.activeTurnId = '';
+    }
+    if (observedTurnId) state.activeTurnId = observedTurnId;
     session.completedAt = null;
     session.completionObserved = false;
+  }
+
+  function resumeAfterObservedCompletion(session, state, observedAt) {
+    if (!state.lastTurnCompleted && !session.completionObserved && !session.completedAt) return false;
+    const completedAt = Date.parse(session.completedAt || '');
+    const activityAt = Date.parse(timestamp(observedAt, null) || '');
+    if (Number.isFinite(completedAt) && Number.isFinite(activityAt) && activityAt < completedAt) return false;
+    beginObservedTurn(session, state);
+    return true;
+  }
+
+  function staleTaskCompletion(state, payload, row) {
+    const completionTurnId = compactText(payload.turn_id, 180);
+    if (state.activeTurn && state.activeTurnId && completionTurnId
+      && completionTurnId !== state.activeTurnId) return true;
+    const completedAt = Date.parse(timestamp(payload.completed_at || row.timestamp, null) || '');
+    return Boolean(state.activeTurn && state.activityAt && Number.isFinite(completedAt)
+      && completedAt < state.activityAt);
   }
 
   function recordSubagentActivity(session, state, payload, row, timing) {
@@ -128,6 +156,9 @@ function createCodexParser(dependencies) {
       const activityPath = String(payload.agent_path || '').replace(/\/$/, '');
       const nestedPrefix = `${String(session.agentPath).replace(/\/$/, '')}/`;
       if (!activityPath.startsWith(nestedPrefix)) return;
+    }
+    if (payload.kind === 'started') {
+      resumeAfterObservedCompletion(session, state, payload.occurred_at_ms || row.timestamp);
     }
 
     const childId = payload.agent_thread_id ? `codex:${payload.agent_thread_id}` : '';
@@ -165,7 +196,7 @@ function createCodexParser(dependencies) {
 
   function processEventMessage(session, state, row, payload, timing) {
     if (payload.type === 'task_started') {
-      beginObservedTurn(session, state);
+      beginObservedTurn(session, state, payload.turn_id);
       state.latestDelegationNarration = '';
       observeActivity(state, 'thinking', payload.started_at || row.timestamp);
       addLifecycle(session, {
@@ -176,6 +207,7 @@ function createCodexParser(dependencies) {
         timestamp: payload.started_at || row.timestamp,
       });
     } else if (payload.type === 'task_complete') {
+      if (staleTaskCompletion(state, payload, row)) return;
       state.activeTurn = false;
       state.lastTurnCompleted = true;
       settleRunningLifecycle(session, payload.completed_at || row.timestamp);
@@ -223,6 +255,8 @@ function createCodexParser(dependencies) {
       addCodexMessage(session, state.messageObservations, { id: key, role: 'user', text, timestamp: row.timestamp }, 'event');
     } else if (payload.type === 'agent_message') {
       const text = compactText(payload.message);
+      if (text) resumeAfterObservedCompletion(session, state, row.timestamp);
+      if (text) observeActivity(state, 'working', row.timestamp);
       if (text) state.latestDelegationNarration = text;
       if (payload.phase === 'final_answer') state.lastFinalAnswer = text;
       if (text) {
@@ -233,6 +267,7 @@ function createCodexParser(dependencies) {
       const key = `a:${row.timestamp}:${text}`;
       addCodexMessage(session, state.messageObservations, { id: key, role: 'assistant', text, timestamp: row.timestamp }, 'event');
     } else if (payload.type === 'agent_reasoning') {
+      resumeAfterObservedCompletion(session, state, row.timestamp);
       observeActivity(state, 'thinking', row.timestamp);
       addLifecycle(session, {
         id: `r:${row.timestamp}`,
@@ -244,7 +279,9 @@ function createCodexParser(dependencies) {
       });
     } else if (payload.type === 'turn_aborted') {
       state.activeTurn = false;
+      state.activeTurnId = '';
       state.lastTurnCompleted = false;
+      state.lastFinalAnswer = '';
       state.lastAssistantText = '';
       state.lastConversationRole = '';
       state.pendingUserInputCalls.clear();
@@ -298,6 +335,21 @@ function createCodexParser(dependencies) {
       });
     } else if (name === 'send_message' || name === 'followup_task') {
       const target = compactText(args.target, 180);
+      if (name === 'followup_task') {
+        const targetChildId = target
+          ? (target.startsWith('codex:') ? target : `codex:${target}`)
+          : '';
+        const record = state.collaboration.findSpawn({
+          childId: targetChildId,
+          agentPath: target,
+          taskName: collaborationTaskName(target),
+        });
+        if (record) {
+          record.status = 'running';
+          record.completedAt = null;
+          record.lastSentAt = timestamp(row.timestamp, record.lastSentAt || record.startedAt || session.updatedAt);
+        }
+      }
       state.collaboration.addCommunication({
         id: `${name}:${callId}`,
         kind: name === 'followup_task' ? 'followup' : 'message',
@@ -330,6 +382,7 @@ function createCodexParser(dependencies) {
     const args = jsonObject(payload.arguments || payload.input);
     const collaborationTool = payload.namespace === 'collaboration' || COLLABORATION_TOOLS.has(name);
     if (collaborationTool && !timing.ownCollaborationRow) return;
+    resumeAfterObservedCompletion(session, state, row.timestamp);
     state.collaboration.calls.set(String(callId || ''), { name, args, timestamp: row.timestamp });
     state.executionTracker.recordCall({
       name,
@@ -380,6 +433,7 @@ function createCodexParser(dependencies) {
   }
 
   function processToolOutput(session, state, row, payload) {
+    resumeAfterObservedCompletion(session, state, row.timestamp);
     settleLifecycle(session, payload.call_id, 'done', row.timestamp);
     const call = state.collaboration.calls.get(String(payload.call_id || ''));
     state.executionTracker.recordOutput({
@@ -399,6 +453,10 @@ function createCodexParser(dependencies) {
     const output = jsonObject(payload.output);
     if (call && call.name === 'spawn_agent') {
       const record = state.collaboration.ensureSpawn(payload.call_id);
+      const childExternalId = compactText(output.agent_id || output.agentId, 180);
+      if (childExternalId) {
+        record.childId = childExternalId.startsWith('codex:') ? childExternalId : `codex:${childExternalId}`;
+      }
       record.agentPath = compactText(output.task_name, 180) || record.agentPath;
       record.taskName = record.taskName || collaborationTaskName(record.agentPath);
     }
@@ -412,6 +470,7 @@ function createCodexParser(dependencies) {
 
   function processAgentMessage(session, state, row, payload, timing) {
     if (!timing.ownCollaborationRow) return;
+    resumeAfterObservedCompletion(session, state, row.timestamp);
     const rawText = codexContentText(payload.content);
     const envelope = agentEnvelope(rawText);
     const from = compactText(payload.author || envelope.sender, 180);
@@ -468,6 +527,8 @@ function createCodexParser(dependencies) {
       observeActivity(state, 'thinking', row.timestamp);
     }
     if (role === 'assistant') {
+      resumeAfterObservedCompletion(session, state, row.timestamp);
+      observeActivity(state, 'working', row.timestamp);
       state.latestDelegationNarration = text;
       state.lastAssistantText = text;
       state.lastConversationRole = 'assistant';
@@ -521,7 +582,7 @@ function createCodexParser(dependencies) {
     session.title = session.depth
       ? (session.taskName || `${session.agentName} 도움 AI`)
       : (compactText(state.latestUser || state.latestInternalGoal, 180) || 'GPT 작업');
-    session.result = state.lastFinalAnswer;
+    session.result = state.lastFinalAnswer || (state.lastTurnCompleted ? state.lastAssistantText : '');
     if (!session.depth && state.goalContexts.size) session.loop = { kind: 'goal', iteration: state.goalContexts.size };
     const collaboration = state.collaboration.finalize(session.collaboration.retainedAgents);
     session.collaboration.spawns = collaboration.spawns;

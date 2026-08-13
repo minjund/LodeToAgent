@@ -29,6 +29,7 @@ function waitFor(check, timeoutMs = 8_000) {
 async function run() {
   await app.whenReady();
   const decisions = [];
+  const openedInMain = [];
   let finishOldRevision = null;
   const manager = new AttentionPopupManager({
     BrowserWindow,
@@ -44,7 +45,10 @@ async function run() {
       return { ok: true };
     },
     onDismiss: () => ({ ok: true }),
-    onOpenMain: () => ({ ok: true }),
+    onOpenMain: request => {
+      openedInMain.push(request.id);
+      return { ok: true };
+    },
   });
   ipcMain.handle('attention-popup:ready', (event, payload) => manager.handleReady(event, payload));
   ipcMain.handle('attention-popup:resize', (event, payload) => manager.handleResize(event, payload));
@@ -55,11 +59,14 @@ async function run() {
   manager.reconcile('e2e', [
     {
       id: 'permission', type: 'permission', provider: 'Codex', project: 'LoadToAgent',
-      title: '명령 실행 권한', body: 'npm test 명령을 실행하도록 허용할까요?', detail: 'npm test',
+      title: '권한 요청', body: '', detail: 'npm test -- --runInBand', toolLabel: 'Bash',
+      meta: 'LoadToAgent · #Tzi', openMain: true, openMainLabel: '터미널로 이동', dismissible: false,
+      permissionSuggestions: [{ id: 'always-npm-test', label: '항상 허용 `npm test`', description: '이 명령 패턴에 다시 묻지 않습니다.' }],
     },
     {
       id: 'question', type: 'question', provider: 'Claude', project: 'LoadToAgent',
-      title: '실행 환경 선택', body: '작업을 계속하려면 답변이 필요합니다.',
+      title: '실행 환경 선택', body: '작업을 계속하려면 답변이 필요합니다.', canDeny: true,
+      denyLabel: '거부', openMain: true, openMainLabel: '터미널로 이동',
       questions: [{
         id: 'environment', header: '실행 환경', question: '어디서 실행할까요?', allowOther: true,
         options: [{ id: 'windows', value: 'Windows', label: 'Windows' }, { id: 'wsl', value: 'WSL', label: 'WSL' }],
@@ -79,11 +86,67 @@ async function run() {
   await waitFor(() => questionEntry.height > 300);
   const artifactDirectory = path.join(root, 'artifacts');
   fs.mkdirSync(artifactDirectory, { recursive: true });
-  const image = await questionEntry.window.webContents.capturePage();
-  const screenshot = path.join(artifactDirectory, 'attention-popup-question.png');
-  fs.writeFileSync(screenshot, image.toPNG());
+  const questionImage = await questionEntry.window.webContents.capturePage();
+  const questionScreenshot = path.join(artifactDirectory, 'attention-popup-question.png');
+  fs.writeFileSync(questionScreenshot, questionImage.toPNG());
 
   const permissionEntry = manager.windows.get('e2e\u0000permission');
+  await waitFor(() => permissionEntry.height > 180);
+  const permissionUi = await permissionEntry.window.webContents.executeJavaScript(`(() => {
+    const card = document.querySelector('#popupCard');
+    const group = document.querySelector('.permission-actions');
+    const suggestion = document.querySelector('.popup-button.suggestion');
+    const suggestionDescriptionId = suggestion?.getAttribute('aria-describedby') || '';
+    return {
+      role: card?.getAttribute('role'),
+      describedBy: card?.getAttribute('aria-describedby'),
+      title: document.querySelector('.popup-title')?.textContent,
+      tool: document.querySelector('.popup-tool-pill')?.textContent,
+      meta: document.querySelector('.popup-meta')?.textContent,
+      command: document.querySelector('.popup-command')?.textContent,
+      groupRole: group?.getAttribute('role'),
+      groupLabel: group?.getAttribute('aria-label'),
+      buttons: [...group.querySelectorAll('.popup-button')].map(button => button.getAttribute('aria-label') || button.textContent.trim()),
+      suggestionDescriptionId,
+      suggestionDescription: suggestionDescriptionId ? document.getElementById(suggestionDescriptionId)?.textContent : '',
+      errorRole: document.querySelector('.popup-error')?.getAttribute('role'),
+    };
+  })()`, true);
+  assert.deepStrictEqual(permissionUi, {
+    role: 'dialog',
+    describedBy: 'popupCommand',
+    title: '권한 요청',
+    tool: 'Bash',
+    meta: 'LoadToAgent · #Tzi',
+    command: 'npm test -- --runInBand',
+    groupRole: 'group',
+    groupLabel: '권한 선택',
+    buttons: ['허용', '거부', '항상 허용 `npm test`', '터미널로 이동'],
+    suggestionDescriptionId: 'permissionSuggestionDescription0',
+    suggestionDescription: '이 명령 패턴에 다시 묻지 않습니다.',
+    errorRole: 'alert',
+  });
+  const permissionImage = await permissionEntry.window.webContents.capturePage();
+  const permissionScreenshot = path.join(artifactDirectory, 'attention-popup-permission.png');
+  fs.writeFileSync(permissionScreenshot, permissionImage.toPNG());
+
+  const questionUi = await questionEntry.window.webContents.executeJavaScript(`(() => {
+    const card = document.querySelector('#popupCard');
+    const group = document.querySelector('.question-actions');
+    return {
+      describedBy: card?.getAttribute('aria-describedby'),
+      groupRole: group?.getAttribute('role'),
+      groupLabel: group?.getAttribute('aria-label'),
+      buttons: [...group.querySelectorAll('.popup-button')].map(button => button.textContent.trim()),
+    };
+  })()`, true);
+  assert.deepStrictEqual(questionUi, {
+    describedBy: 'popupBody',
+    groupRole: 'group',
+    groupLabel: '질문 응답',
+    buttons: ['답변 보내기', '거부', '터미널로 이동'],
+  });
+
   await permissionEntry.window.webContents.executeJavaScript("document.querySelector('.popup-button.allow').click()", true);
   await waitFor(() => decisions.some(item => item.request.id === 'permission'));
   await questionEntry.window.webContents.executeJavaScript("document.querySelector('input[value=\"Windows\"]').click(); document.querySelector('.popup-form').requestSubmit()", true);
@@ -92,6 +155,38 @@ async function run() {
   assert.deepStrictEqual(decisions.find(item => item.request.id === 'question').decision, {
     action: 'answer', answers: [{ questionId: 'environment', values: ['Windows'], otherText: '', text: '' }],
   });
+
+  manager.reconcile('e2e', [{
+    id: 'permission-suggestion', type: 'permission', title: '권한 요청', detail: 'npm test', toolLabel: 'Bash',
+    permissionSuggestions: [{ id: 'always-npm-test', label: '항상 허용 `npm test`' }],
+  }]);
+  const suggestionEntry = manager.windows.get('e2e\u0000permission-suggestion');
+  await waitFor(() => suggestionEntry?.ready && suggestionEntry.presented);
+  await suggestionEntry.window.webContents.executeJavaScript("document.querySelector('.popup-button.suggestion').click()", true);
+  await waitFor(() => decisions.some(item => item.request.id === 'permission-suggestion'));
+  assert.deepStrictEqual(decisions.find(item => item.request.id === 'permission-suggestion').decision, {
+    action: 'suggestion', suggestionId: 'always-npm-test',
+  });
+
+  manager.reconcile('e2e', [{
+    id: 'permission-open', type: 'permission', title: '권한 요청', detail: 'npm test', toolLabel: 'Bash',
+    openMain: true, openMainLabel: '터미널로 이동',
+  }]);
+  const openEntry = manager.windows.get('e2e\u0000permission-open');
+  await waitFor(() => openEntry?.ready && openEntry.presented);
+  await openEntry.window.webContents.executeJavaScript("document.querySelector('.popup-button.open-main').click()", true);
+  await waitFor(() => openedInMain.includes('permission-open'));
+  await waitFor(() => !manager.windows.has('e2e\u0000permission-open'));
+
+  manager.reconcile('e2e', [{
+    id: 'question-deny', type: 'question', title: '질문', body: '계속 진행할까요?', canDeny: true,
+    questions: [{ id: 'continue', question: '계속 진행할까요?', options: [{ id: 'yes', value: '예', label: '예' }] }],
+  }]);
+  const denyQuestionEntry = manager.windows.get('e2e\u0000question-deny');
+  await waitFor(() => denyQuestionEntry?.ready && denyQuestionEntry.presented);
+  await denyQuestionEntry.window.webContents.executeJavaScript("document.querySelector('.popup-button.question-deny').click()", true);
+  await waitFor(() => decisions.some(item => item.request.id === 'question-deny'));
+  assert.deepStrictEqual(decisions.find(item => item.request.id === 'question-deny').decision, { action: 'deny' });
 
   manager.reconcile('e2e', [{
     id: 'revision-race', type: 'permission', title: '갱신 전 권한', body: 'old revision',
@@ -104,7 +199,7 @@ async function run() {
     id: 'revision-race', type: 'permission', title: '갱신 후 권한', body: 'new revision',
   }]);
   await waitFor(() => raceEntry.window.webContents.executeJavaScript(
-    "document.querySelector('.popup-body')?.textContent === 'new revision' && !document.querySelector('.popup-button.deny')?.disabled",
+    "document.querySelector('.popup-command')?.textContent === 'new revision' && !document.querySelector('.popup-button.deny')?.disabled",
     true,
   ));
   finishOldRevision({ ok: true });
@@ -126,11 +221,11 @@ async function run() {
   manager.setEnabled(true);
   assert.equal(manager.status().windowCount, 1);
   manager.dispose();
-  return screenshot;
+  return { permissionScreenshot, questionScreenshot };
 }
 
-run().then(screenshot => {
-  process.stdout.write(`Attention popup integration passed: ${screenshot}\n`);
+run().then(({ permissionScreenshot, questionScreenshot }) => {
+  process.stdout.write(`Attention popup integration passed: ${permissionScreenshot}; ${questionScreenshot}\n`);
   app.quit();
 }, error => {
   process.stderr.write(`${error.stack}\n`);

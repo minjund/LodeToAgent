@@ -88,7 +88,7 @@ function authenticate(server, socket, provider = 'codex') {
 function registerBridgeBackpressureTests(context) {
   const { test, temp } = context;
 
-  test('브리지 started·output·state·error 프레임은 drain 전후 FIFO 순서와 종료를 보존한다', () => {
+  test('브리지 started·output·state·error 프레임은 drain 전후 FIFO 순서와 종료를 보존한다', async () => {
     const manager = new FakeBridgeManager();
     const server = new BridgeServer({
       terminalManager: manager,
@@ -118,6 +118,7 @@ function registerBridgeBackpressureTests(context) {
     const errorSocket = new FakeBridgeSocket({ blockFirstWrite: true });
     const errorClient = authenticate(server, errorSocket);
     server.consume(errorClient, Buffer.from(`${JSON.stringify({ type: 'unsupported' })}\n`, 'utf8'));
+    await errorClient.queue;
     assert.equal(errorSocket.frames.length, 1);
     errorSocket.releaseBackpressure();
     assert.deepStrictEqual(decodedFrames(errorSocket).map(frame => frame.type), ['started', 'error']);
@@ -133,11 +134,48 @@ function registerBridgeBackpressureTests(context) {
       }),
       '',
     ].join('\n'), 'utf8'));
+    await unauthClient.queue;
     assert.equal(manager.sequence, creationsBeforeRejectedAuth,
       '인증 전 오류로 종료를 예약한 같은 packet의 다음 run frame이 보이지 않는 PTY를 만들면 안 됩니다.');
     assert.equal(server.clients.get(unauthSocket)?.authenticated, false);
     assert.deepStrictEqual(decodedFrames(unauthSocket).map(frame => frame.type), ['error']);
     assert.equal(unauthSocket.ended, true);
+
+    let releasePreparation;
+    let preparationStarted;
+    const waitingForPreparation = new Promise(resolve => { preparationStarted = resolve; });
+    const disconnectedManager = new FakeBridgeManager();
+    const disconnectedServer = new BridgeServer({
+      terminalManager: disconnectedManager,
+      discoveryFile: path.join(temp, 'bridge-backpressure-disconnected-preparation.json'),
+      token: 'bridge-backpressure-disconnected-preparation-token',
+      beforeRun: () => {
+        preparationStarted();
+        return new Promise(resolve => { releasePreparation = resolve; });
+      },
+    });
+    const disconnectedSocket = new FakeBridgeSocket();
+    disconnectedServer.accept(disconnectedSocket);
+    const disconnectedClient = disconnectedServer.clients.get(disconnectedSocket);
+    disconnectedServer.consume(disconnectedClient, Buffer.from(`${JSON.stringify({
+      type: 'run',
+      token: disconnectedServer.token,
+      provider: 'codex',
+      args: [],
+      cwd: process.cwd(),
+      cols: 80,
+      rows: 24,
+    })}\n`, 'utf8'));
+    await waitingForPreparation;
+    assert.equal(disconnectedClient.preparing, true);
+    assert.equal(disconnectedClient.authTimer, null,
+      '유효한 run 요청이 app-server 준비를 기다리는 동안 인증 타임아웃이 소켓을 끊었습니다.');
+    disconnectedSocket.emit('close');
+    releasePreparation();
+    await disconnectedClient.queue;
+    assert.equal(disconnectedManager.sequence, 0,
+      'app-server 준비를 기다리는 사이 끊긴 클라이언트의 PTY를 뒤늦게 만들면 안 됩니다.');
+    disconnectedServer.dispose();
 
     server.dispose();
     assert.equal(socket.listenerCount('drain'), 0);

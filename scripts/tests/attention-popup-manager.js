@@ -272,7 +272,7 @@ test('sender validation binds IPC to the exact popup webContents and exact local
   manager.dispose();
 });
 
-test('permission decisions are allow/deny only, callback context remains main-only, and duplicates stay suppressed', async () => {
+test('permission decisions are allow/deny only without a server-provided suggestion, callback context remains main-only, and duplicates stay suppressed', async () => {
   const { manager, calls } = fixture({ enabled: true });
   manager.reconcile('permission-source', [permission('permission-1')]);
   const entry = [...manager.windows.values()][0];
@@ -293,6 +293,42 @@ test('permission decisions are allow/deny only, callback context remains main-on
   manager.reconcile('permission-source', []);
   assert.equal(manager.status().suppressedCount, 0);
   manager.dispose();
+});
+
+test('permission suggestions and question denial are canonicalized only from the displayed allowlists', () => {
+  const permissionRequest = normalizeRequest({
+    id: 'permission-with-suggestion',
+    type: 'permission',
+    toolLabel: 'BASH',
+    meta: 'media_dashboard · #TZi',
+    permissionSuggestions: [{ id: 'always-python', label: '항상 허용 `python -c *`', description: '이 명령 범위만 허용' }],
+  });
+  assert.equal(permissionRequest.toolLabel, 'BASH');
+  assert.equal(permissionRequest.meta, 'media_dashboard · #TZi');
+  assert.deepStrictEqual(permissionRequest.permissionSuggestions, [{
+    id: 'always-python', label: '항상 허용 `python -c *`', description: '이 명령 범위만 허용',
+  }]);
+  assert.deepStrictEqual(canonicalDecision(permissionRequest, {
+    action: 'suggestion', suggestionId: 'always-python', updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions' }],
+  }), { action: 'suggestion', suggestionId: 'always-python' });
+  assert.throws(
+    () => canonicalDecision(permissionRequest, { action: 'suggestion', suggestionId: 'forged' }),
+    error => error.code === 'ATTENTION_POPUP_INVALID_DECISION',
+  );
+
+  const questionRequest = normalizeRequest({
+    id: 'question-with-deny', type: 'question', canDeny: true,
+    questions: [{ id: 'environment', question: '어디서 실행할까요?' }],
+  });
+  assert.deepStrictEqual(canonicalDecision(questionRequest, { action: 'deny', answers: [{ questionId: 'forged' }] }), { action: 'deny' });
+  const answerOnly = normalizeRequest({
+    id: 'question-without-deny', type: 'question',
+    questions: [{ id: 'environment', question: '어디서 실행할까요?' }],
+  });
+  assert.throws(
+    () => canonicalDecision(answerOnly, { action: 'deny' }),
+    error => error.code === 'ATTENTION_POPUP_INVALID_DECISION',
+  );
 });
 
 test('a callback-resolved source leaves no stale suppression and the same terminal fingerprint can appear in a new lifecycle', async () => {
@@ -661,6 +697,11 @@ test('main, preload, settings, and terminal prompt sources wire the interactive 
   assert.match(main, /agents:terminal-prompt-resolved/);
   assert.match(main, /requiresText: selected\.requiresText === true/);
   assert.match(main, /result\.review\?\.required === true \|\| result\.review\?\.state === 'review-required'/);
+  assert.match(main, /permissionSuggestionId: suggestion\.id/);
+  assert.match(main, /attentionHookServer\?\.resolve\(context\.hookKey, \{ action: 'none' \}\)/);
+  assert.match(main, /openMainLabel: appLocale === 'ko' \? '터미널로 이동'/);
+  assert.match(main, /canDeny: true/);
+  assert.match(main, /openAttentionSession\(session, context\.kind === 'hook' \? 'terminal' : 'attention'\)/);
   assert.match(preload, /setAttentionPopups: preference => ipcRenderer\.invoke\('app:set-attention-popups'/);
   assert.match(preload, /ackAttentionActivation: result => ipcRenderer\.invoke\('app:ack-attention-activation'/);
   assert.match(preload, /syncAttentionPrompts: prompts => ipcRenderer\.invoke\('app:sync-attention-prompts'/);
@@ -677,6 +718,8 @@ test('main, preload, settings, and terminal prompt sources wire the interactive 
   assert.match(bootstrap, /mountTerminal: false/);
   assert.match(bootstrap, /terminal\.agentTargets\(session\)/);
   assert.match(bootstrap, /focus: activation\.preservePopupFocus !== true/);
+  assert.match(bootstrap, /payload\?\.event === 'terminal'/);
+  assert.match(bootstrap, /terminal\.openForAgent\(session, '', '', \{/);
   assert.match(terminal, /syncPendingPromptsToMain\(prompts\)/);
   assert.match(terminal, /resolveAttentionPrompt/);
   assert.match(index, /id="attentionPopupEnabled"[^>]*role="switch"/);

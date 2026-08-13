@@ -12,6 +12,7 @@ const {
   AttentionHookServer,
   buildOfficialHookResponse,
   normalizeHookRequest,
+  normalizePermissionSuggestions,
 } = require('../../src/attentionHookServer');
 const {
   AttentionHookInstaller,
@@ -167,6 +168,34 @@ function registerAttentionHookTests(context) {
       hook_event_name: 'PermissionRequest',
       tool_name: 'Bash',
       tool_input: { command: 'npm test', description: 'Run the test suite' },
+      permission_suggestions: [
+        {
+          type: 'addRules',
+          rules: [{ toolName: 'Bash', ruleContent: 'npm test', ignored: 'drop me' }],
+          behavior: 'allow',
+          destination: 'localSettings',
+          ignored: 'drop me',
+        },
+        {
+          type: 'replaceRules', rules: [{ toolName: 'Read' }], behavior: 'ask', destination: 'session',
+        },
+        {
+          type: 'removeRules', rules: [{ toolName: 'Bash', ruleContent: 'npm old' }],
+          behavior: 'deny', destination: 'projectSettings',
+        },
+        { type: 'setMode', mode: 'acceptEdits', destination: 'session' },
+        { type: 'addDirectories', directories: ['../shared'], destination: 'localSettings' },
+        { type: 'removeDirectories', directories: ['../legacy'], destination: 'userSettings' },
+        { type: 'unknownUpdate', destination: 'session' },
+        { type: 'setMode', mode: 'unsafe', destination: 'session' },
+        { type: 'setMode', mode: 'auto', destination: 'session' },
+        { type: 'addDirectories', directories: ['../cli-only'], destination: 'cliArg' },
+        {
+          type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 42 }],
+          behavior: 'allow', destination: 'localSettings',
+        },
+        { type: 'addDirectories', directories: ['../ok', 42], destination: 'session' },
+      ],
     });
     assert.equal(permission.provider, 'claude');
     assert.equal(permission.kind, 'permission');
@@ -177,12 +206,85 @@ function registerAttentionHookTests(context) {
     assert.equal(permission.toolName, 'Bash');
     assert.equal(permission.detail, 'Run the test suite');
     assert.match(permission.key, /^claude:[a-f0-9]{40}$/u);
+    assert.deepEqual(permission.permissionSuggestions.map(suggestion => ({
+      label: suggestion.label,
+      entry: suggestion.entry,
+    })), [
+      {
+        label: 'Bash(npm test)',
+        entry: {
+          type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+          behavior: 'allow', destination: 'localSettings',
+        },
+      },
+      {
+        label: 'Read',
+        entry: {
+          type: 'replaceRules', rules: [{ toolName: 'Read' }], behavior: 'ask', destination: 'session',
+        },
+      },
+      {
+        label: 'Bash(npm old)',
+        entry: {
+          type: 'removeRules', rules: [{ toolName: 'Bash', ruleContent: 'npm old' }],
+          behavior: 'deny', destination: 'projectSettings',
+        },
+      },
+      { label: 'acceptEdits', entry: { type: 'setMode', mode: 'acceptEdits', destination: 'session' } },
+      {
+        label: '../shared',
+        entry: { type: 'addDirectories', directories: ['../shared'], destination: 'localSettings' },
+      },
+      {
+        label: '../legacy',
+        entry: { type: 'removeDirectories', directories: ['../legacy'], destination: 'userSettings' },
+      },
+    ]);
+    assert.ok(permission.permissionSuggestions.every((suggestion, index) => (
+      new RegExp(`^permission-suggestion:${index}:[a-f0-9]{16}$`, 'u').test(suggestion.id)
+    )));
+    assert.deepEqual(normalizePermissionSuggestions([
+      {
+        type: 'addRules',
+        rules: Array.from({ length: 33 }, (_value, index) => ({ toolName: 'Bash', ruleContent: `command-${index}` })),
+        behavior: 'allow',
+        destination: 'localSettings',
+      },
+      { type: 'setMode', mode: 'auto', destination: 'session' },
+      { type: 'addDirectories', directories: ['../cli-only'], destination: 'cliArg' },
+    ]), [], 'oversized and unsupported official-looking updates must be excluded rather than truncated or broadened');
     assert.deepEqual(buildOfficialHookResponse(permission, { action: 'allow' }), {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',
         decision: { behavior: 'allow' },
       },
     });
+    const selectedSuggestion = permission.permissionSuggestions[0];
+    assert.deepEqual(buildOfficialHookResponse(permission, {
+      action: 'allow',
+      permissionSuggestionId: selectedSuggestion.id,
+      updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
+    }), {
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow', updatedPermissions: [selectedSuggestion.entry] },
+      },
+    });
+    assert.deepEqual(buildOfficialHookResponse(permission, {
+      action: 'allow',
+      updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
+    }), {
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    }, 'renderer-supplied updatedPermissions must never bypass the server-owned suggestion allowlist');
+    assert.throws(
+      () => buildOfficialHookResponse(permission, {
+        action: 'allow', permissionSuggestionId: 'permission-suggestion:999:forged',
+      }),
+      error => error.code === 'ATTENTION_HOOK_INVALID_PERMISSION_SUGGESTION',
+    );
     assert.deepEqual(buildOfficialHookResponse(permission, { action: 'deny', message: 'Not now' }), {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',
@@ -376,6 +478,24 @@ function registerAttentionHookTests(context) {
       tool_input: { questions: [{ id: 'q', question: 'Choose?', options: [{ label: 'A' }] }] },
     }, { provider: 'codex' });
     assert.deepEqual(buildOfficialHookResponse(direct, { action: 'allow', answer: 'A' }), {});
+    const codexPermission = normalizeHookRequest({
+      hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'npm test' },
+      permission_suggestions: [{
+        type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm test' }],
+        behavior: 'allow', destination: 'localSettings',
+      }],
+    }, { provider: 'codex' });
+    assert.deepEqual(codexPermission.permissionSuggestions, []);
+    assert.deepEqual(buildOfficialHookResponse(codexPermission, {
+      action: 'allow',
+      permissionSuggestionId: 'forged',
+      updatedPermissions: [{ type: 'setMode', mode: 'bypassPermissions', destination: 'session' }],
+    }), {
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    });
     await server.dispose();
   });
 

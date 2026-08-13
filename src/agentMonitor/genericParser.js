@@ -7,6 +7,35 @@ const { structuredInputRequest, structuredInputRequestText } = require('./respon
 
 const TOOL_START_PATTERN = /tool_use|tool-call|tool_start/;
 const TOOL_END_PATTERN = /tool_result|tool-result|tool_end/;
+const ROOT_COMPLETION_TYPES = new Set([
+  'result',
+  'completed',
+  'session_end', 'session_ended', 'session_completed',
+  'turn_completed',
+  'task_completed',
+  'response_completed',
+  'conversation_completed',
+  'run_completed',
+]);
+
+function canonicalEventType(type) {
+  return String(type || '').toLowerCase().replace(/[.\s-]+/g, '_');
+}
+
+function isToolCompletionEvent(type) {
+  const canonical = canonicalEventType(type);
+  return TOOL_END_PATTERN.test(type) || /^tool_(?:complete|completed)$/.test(canonical);
+}
+
+function isAgentCompletionEvent(type) {
+  const canonical = canonicalEventType(type);
+  return /^(?:sub_?)?agent(?:_.*)?_(?:complete|completed|finish|finished|end|ended|stop|stopped|interrupt|interrupted)$/.test(canonical);
+}
+
+function isRootCompletionEvent(type) {
+  if (isToolCompletionEvent(type) || isAgentCompletionEvent(type)) return false;
+  return ROOT_COMPLETION_TYPES.has(canonicalEventType(type));
+}
 
 function createGenericParser(dependencies) {
   const {
@@ -151,21 +180,30 @@ function createGenericParser(dependencies) {
       activityAt: 0,
       activeSubagents: false,
     };
+    const resumeAfterCompletion = (event, activity = 'working') => {
+      const observedAt = Date.parse(timestamp(event && event.timestamp, null) || '');
+      const completedAt = Date.parse(state.completedAt || '');
+      if (state.completed && Number.isFinite(observedAt) && Number.isFinite(completedAt) && observedAt < completedAt) return false;
+      const resumed = state.completed;
+      if (resumed) {
+        state.completed = false;
+        state.completedAt = null;
+        state.running = true;
+      }
+      observeActivity(state, activity, event && event.timestamp);
+      return resumed;
+    };
     for (const event of events) {
       const type = String(event.type || event.event || event.kind || '').toLowerCase();
       const role = String(event.role || event.author || event.sender || '').toLowerCase();
-      const startsUserTurn = !TOOL_START_PATTERN.test(type) && !TOOL_END_PATTERN.test(type)
+      const startsUserTurn = !TOOL_START_PATTERN.test(type) && !isToolCompletionEvent(type)
         && (role === 'user' || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type));
       if (startsUserTurn) {
+        resumeAfterCompletion(event, 'thinking');
         state.pendingUserInputCalls.clear();
         state.pendingUserInputAt.clear();
         state.pendingUserInputText.clear();
         state.pendingUserInputRequests.clear();
-      }
-      if (state.completed && (TOOL_START_PATTERN.test(type)
-        || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type))) {
-        state.completed = false;
-        state.completedAt = null;
       }
       if (type === 'init') {
         session.model = event.model || session.model;
@@ -179,6 +217,7 @@ function createGenericParser(dependencies) {
         });
       }
       if (TOOL_START_PATTERN.test(type)) {
+        resumeAfterCompletion(event, isUserInputTool(event.tool_name || event.name || event.tool) ? 'notification' : 'working');
         recordToolStart(session, state, event);
         state.running = true;
         const toolName = event.tool_name || event.name || event.tool;
@@ -191,7 +230,8 @@ function createGenericParser(dependencies) {
           state.pendingUserInputRequests.set(requestId, structuredInputRequest(event.parameters || event.args || event.input || event, requestId));
         }
       }
-      if (TOOL_END_PATTERN.test(type)) {
+      if (isToolCompletionEvent(type)) {
+        resumeAfterCompletion(event, 'working');
         recordToolEnd(session, state, event);
         observeActivity(state, 'working', event.timestamp);
         const requestId = String(event.tool_call_id || event.tool_use_id || event.id || '');
@@ -202,23 +242,33 @@ function createGenericParser(dependencies) {
       }
       if (/^(?:user_message|prompt|request|turn_start|session_start)$/.test(type)
         || /reasoning|thinking/.test(type)) observeActivity(state, 'thinking', event.timestamp);
+      if (/reasoning|thinking/.test(type)) resumeAfterCompletion(event, 'thinking');
       if (/(?:sub[_-]?agent|agent).*(?:start|spawn|running|active)/.test(type)) {
+        resumeAfterCompletion(event, 'juggling');
         state.activeSubagents = true;
         observeActivity(state, 'juggling', event.timestamp);
       }
-      if (/(?:sub[_-]?agent|agent).*(?:complete|finish|end|stop|interrupt)/.test(type)) {
+      if (isAgentCompletionEvent(type)) {
+        resumeAfterCompletion(event, 'working');
         state.activeSubagents = false;
         observeActivity(state, 'working', event.timestamp);
       }
-      if (type === 'result' || /session_end|completed/.test(type)) {
-        state.running = false;
-        state.completed = true;
-        state.completedAt = timestamp(event.timestamp, session.updatedAt);
-        state.pendingUserInputCalls.clear();
-        state.pendingUserInputAt.clear();
-        state.pendingUserInputText.clear();
-        state.pendingUserInputRequests.clear();
-        observeActivity(state, 'attention', event.timestamp);
+      const assistantActivity = (/^(?:assistant|model|agent)$/.test(role)
+        || /^(?:assistant|model|agent)(?:[_-](?:message|delta|content|response|stream.*))?$/.test(type))
+        && Boolean(compactText(event.text || event.content || event.message || event.response || event.delta));
+      if (assistantActivity && !isRootCompletionEvent(type)) resumeAfterCompletion(event, 'working');
+      if (isRootCompletionEvent(type)) {
+        const completedAt = Date.parse(timestamp(event.timestamp, session.updatedAt) || '');
+        if (!state.activityAt || !Number.isFinite(completedAt) || completedAt >= state.activityAt) {
+          state.running = false;
+          state.completed = true;
+          state.completedAt = timestamp(event.timestamp, session.updatedAt);
+          state.pendingUserInputCalls.clear();
+          state.pendingUserInputAt.clear();
+          state.pendingUserInputText.clear();
+          state.pendingUserInputRequests.clear();
+          observeActivity(state, 'attention', event.timestamp);
+        }
       }
       if (type === 'error' || event.error) {
         state.failed = true;

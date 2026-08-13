@@ -130,6 +130,7 @@ const MAIN_COPY = {
     attentionTitle: '확인 필요',
     attentionBody: '{provider} · {title}',
     completionTitle: '작업 완료',
+    completionFallback: 'AI 작업이 완료되었습니다.',
     terminalHostReconnecting: '명령창 연결을 자동으로 복구하는 중입니다.',
     terminalHostReconnected: '명령창 연결을 복구했습니다.',
     terminalHostReconnectFailed: '명령창 연결 복구가 지연되고 있습니다. 자동으로 다시 시도합니다: {reason}',
@@ -153,6 +154,7 @@ const MAIN_COPY = {
     attentionTitle: 'Confirmation needed',
     attentionBody: '{provider} · {title}',
     completionTitle: 'Task completed',
+    completionFallback: 'The AI task is complete.',
     terminalHostReconnecting: 'Restoring the terminal connection automatically.',
     terminalHostReconnected: 'Terminal connection restored.',
     terminalHostReconnectFailed: 'Terminal recovery is delayed and will retry automatically: {reason}',
@@ -176,6 +178,7 @@ const MAIN_COPY = {
     attentionTitle: '需要你的确认',
     attentionBody: '{provider} · {title}',
     completionTitle: '任务已完成',
+    completionFallback: 'AI 任务已完成。',
     terminalHostReconnecting: '正在自动恢复终端连接。',
     terminalHostReconnected: '终端连接已恢复。',
     terminalHostReconnectFailed: '终端连接恢复延迟，将自动重试：{reason}',
@@ -776,6 +779,23 @@ function popupSessionCopy(session, provider = '') {
   };
 }
 
+function popupSessionMeta(session, fallbackId = '') {
+  const workspace = popupText(session?.workspace || session?.title || '', 180);
+  const project = workspace ? path.basename(workspace.replace(/[\\/]+$/u, '')) : '';
+  const identity = popupText(session?.externalId || fallbackId, 512)
+    .replace(/^[^:]+:/u, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+  const tag = identity ? `#${identity.slice(-6)}` : '';
+  return [project, tag].filter(Boolean).join(' · ');
+}
+
+function popupAlwaysAllowLabel(scope = '') {
+  const value = popupText(scope, 400);
+  if (appLocale === 'ko') return value ? `항상 허용 \`${value}\`` : '항상 허용';
+  if (appLocale === 'zh-CN') return value ? `始终允许 \`${value}\`` : '始终允许';
+  return value ? `Always allow \`${value}\`` : 'Always allow';
+}
+
 function hookPopupRequest(request) {
   const session = sessionForAttention(request.sessionId, request.provider, request.agentId);
   const displaySessionId = session?.id || request.agentId || request.sessionId;
@@ -787,6 +807,7 @@ function hookPopupRequest(request) {
     createdAt: request.createdAt,
     title: popupText(request.title, 180),
     detail: popupText(request.detail, 8_000),
+    meta: popupSessionMeta(session, request.agentId || request.sessionId),
     ...popupSessionCopy(session, request.provider),
     context: {
       kind: 'hook', hookKey: request.key, sessionId: displaySessionId,
@@ -803,18 +824,32 @@ function hookPopupRequest(request) {
         allowOther: true,
       })),
       submitLabel: appLocale === 'ko' ? '답변 보내기' : appLocale === 'zh-CN' ? '发送回答' : 'Send answer',
+      canDeny: true,
+      denyLabel: appLocale === 'ko' ? '거부' : appLocale === 'zh-CN' ? '拒绝' : 'Deny',
+      openMain: true,
+      openMainLabel: appLocale === 'ko' ? '터미널로 이동' : appLocale === 'zh-CN' ? '转到终端' : 'Go to terminal',
+      dismissible: false,
     };
   }
   return {
     ...base,
     type: 'permission',
-    body: appLocale === 'ko'
-      ? `${popupText(request.toolName, 160) || 'AI 작업'} 실행을 허용할까요?`
-      : appLocale === 'zh-CN'
-        ? `允许执行 ${popupText(request.toolName, 160) || 'AI 操作'}吗？`
-        : `Allow ${popupText(request.toolName, 160) || 'this AI action'}?`,
+    title: appLocale === 'ko' ? '권한 요청' : appLocale === 'zh-CN' ? '权限请求' : 'Permission request',
+    body: '',
+    toolLabel: popupText(request.toolName, 100),
+    permissionSuggestions: (Array.isArray(request.permissionSuggestions) ? request.permissionSuggestions : [])
+      .slice(0, 20)
+      .map(suggestion => ({
+        id: popupText(suggestion?.id, 240),
+        label: popupAlwaysAllowLabel(suggestion?.label),
+        description: popupText(suggestion?.description, 1_000),
+      }))
+      .filter(suggestion => suggestion.id),
     allowLabel: appLocale === 'ko' ? '허용' : appLocale === 'zh-CN' ? '允许' : 'Allow',
     denyLabel: appLocale === 'ko' ? '거부' : appLocale === 'zh-CN' ? '拒绝' : 'Deny',
+    openMain: true,
+    openMainLabel: appLocale === 'ko' ? '터미널로 이동' : appLocale === 'zh-CN' ? '转到终端' : 'Go to terminal',
+    dismissible: false,
   };
 }
 
@@ -1100,7 +1135,16 @@ async function respondToTerminalAttention(request, decision, callback = {}) {
 async function handleAttentionPopupDecision(request, decision, callback = {}) {
   const context = callback.context || {};
   if (context.kind === 'hook') {
-    if (!attentionHookServer?.resolve(context.hookKey, decision)) throw new Error('이 권한 또는 질문 요청은 이미 해결되었습니다.');
+    const pending = hookAttentionRequests.get(String(context.hookKey || ''));
+    let resolvedDecision = decision;
+    if (decision.action === 'suggestion') {
+      const suggestion = pending?.provider === 'claude'
+        ? pending.permissionSuggestions?.find(item => item.id === decision.suggestionId)
+        : null;
+      if (!suggestion?.entry) throw new Error('이 항상 허용 범위는 더 이상 유효하지 않습니다.');
+      resolvedDecision = { action: 'allow', permissionSuggestionId: suggestion.id };
+    }
+    if (!attentionHookServer?.resolve(context.hookKey, resolvedDecision)) throw new Error('이 권한 또는 질문 요청은 이미 해결되었습니다.');
     return { ok: true };
   }
   if (context.kind === 'terminal') return respondToTerminalAttention(request, decision, callback);
@@ -1115,12 +1159,13 @@ function handleAttentionPopupDismiss(_request, meta = {}, callback = {}) {
 
 function handleAttentionPopupOpenMain(_request, callback = {}) {
   const context = callback.context || {};
+  if (context.kind === 'hook') attentionHookServer?.resolve(context.hookKey, { action: 'none' });
   const session = sessionForAttention(
     context.rawSessionId || context.sessionId,
     context.provider,
     context.agentId,
   );
-  if (session) openAttentionSession(session);
+  if (session) openAttentionSession(session, context.kind === 'hook' ? 'terminal' : 'attention');
   else showMainWindow();
   return { ok: true };
 }
@@ -1198,7 +1243,7 @@ function stopMonitorWorkerGracefully(worker, timeoutMs = 1_500) {
 function openAttentionSession(session, event = 'attention') {
   if (!isProviderVisible(session && session.provider)) return;
   pendingAttentionSessionId = String(session && session.id || '');
-  pendingAttentionEvent = event === 'completed' ? 'completed' : 'attention';
+  pendingAttentionEvent = event === 'completed' ? 'completed' : event === 'terminal' ? 'terminal' : 'attention';
   showMainWindow();
   if (!mainWindow || mainWindow.isDestroyed()) return;
   mainWindow.flashFrame(false);
@@ -1265,14 +1310,15 @@ function createAttentionNotifier() {
     isSupported: () => Notification.isSupported(),
     copy: (session, event, detail) => {
       const provider = providerList().find(item => item.id === session.provider);
-      const notificationDetail = String(detail || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+      const notificationDetail = [...String(detail || '').replace(/\s+/g, ' ').trim()].slice(0, 240).join('');
+      const notificationCopy = event === 'completed'
+        ? (notificationDetail || mainText('completionFallback'))
+        : (notificationDetail || session.title || '이름 없는 작업');
       return {
         title: mainText(event === 'completed' ? 'completionTitle' : 'attentionTitle'),
         body: mainText('attentionBody', {
           provider: provider && provider.label || session.provider || 'AI',
-          title: event === 'completed'
-            ? (session.title || '이름 없는 작업')
-            : (notificationDetail || session.title || '이름 없는 작업'),
+          title: notificationCopy,
         }),
       };
     },

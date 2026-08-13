@@ -170,9 +170,35 @@
         return;
       }
       const sessionId = String(payload && payload.sessionId || '');
-      const event = payload && payload.event === 'completed' ? 'completed' : 'attention';
+      const event = payload?.event === 'completed' ? 'completed' : payload?.event === 'terminal' ? 'terminal' : 'attention';
       const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
       if (session && !session.sourcePluginId && !isProviderVisible(session.provider)) return;
+      if (event === 'terminal') {
+        if (!session) {
+          toast(t('bootstrap.opened_attention_list'));
+          return;
+        }
+        const terminal = window.LoadToAgentTerminal;
+        if (session.parentId || session.sourcePluginId || session.controlCapabilities?.pty === false
+          || session.presentation?.conversationSurface === 'transcript'
+          || !terminal?.openForAgent) {
+          showAttentionSession(session);
+          return;
+        }
+        Promise.resolve(terminal.openForAgent(session, '', '', {
+          focus: true,
+          attentionActivation: true,
+          onTargetReady: () => {
+            if ($('#detailDrawer')?.classList.contains('open')) closeDrawer?.(false);
+            selectView('terminal');
+          },
+        })).catch(error => {
+          window.LoadToAgentRendererUtils.reportRecoverableError('attention-popup-open-terminal', error);
+          showAttentionSession(session);
+          toast(window.LoadToAgentI18n.errorText(error, 'agent.open_terminal_failed'));
+        });
+        return;
+      }
       selectView(event === 'completed' ? 'active' : 'waiting');
       if (session) {
         const options = event === 'attention' ? safeAttentionDrawerOptions : {};

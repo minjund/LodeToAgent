@@ -443,6 +443,7 @@ function createClaudeParser(dependencies) {
         if (detectedUtility) session.utilityKind = detectedUtility;
         const visibleUser = visibleUserText(rawUser);
         if (visibleUser) {
+          beginObservedTurn(session, state);
           state.pendingUserInputCalls.clear();
           state.pendingUserInputAt.clear();
           state.pendingUserInputText.clear();
@@ -462,6 +463,7 @@ function createClaudeParser(dependencies) {
       if (assistantText) {
         state.lastAssistantText = assistantText;
         state.lastConversationRole = 'assistant';
+        observeActivity(state, 'working', row.timestamp);
       }
       content.filter(item => item && item.type === 'tool_use' && isUserInputTool(item.name))
         .forEach(item => {
@@ -472,9 +474,8 @@ function createClaudeParser(dependencies) {
           state.pendingUserInputRequests.set(callId, structuredInputRequest(item.input, callId));
         });
       if (String(row.message.stop_reason || '').toLowerCase() === 'end_turn') {
-        state.lastTurnFinished = true;
+        finishObservedTurn(session, state, row.timestamp);
         if (!structuredFailure(row)) state.failure = null;
-        if (session.depth) state.subagentCompletedAt = timestamp(row.timestamp, state.latestTs);
       }
     }
     if (role === 'assistant' && row.message.usage) {
@@ -489,8 +490,19 @@ function createClaudeParser(dependencies) {
   function beginObservedTurn(session, state) {
     state.lastTurnFinished = false;
     state.subagentCompletedAt = null;
+    state.lastAssistantText = '';
+    state.lastConversationRole = '';
     session.completedAt = null;
     session.completionObserved = false;
+  }
+
+  function finishObservedTurn(session, state, observedAt) {
+    const finishedAt = Date.parse(timestamp(observedAt, null) || '');
+    if (state.activityAt && Number.isFinite(finishedAt) && finishedAt < state.activityAt) return false;
+    state.lastTurnFinished = true;
+    if (session.depth) state.subagentCompletedAt = timestamp(observedAt, state.latestTs);
+    observeActivity(state, 'attention', observedAt);
+    return true;
   }
 
   function processRows(session, rows) {
@@ -561,8 +573,7 @@ function createClaudeParser(dependencies) {
         });
       }
       if (row.type === 'system' && /turn_duration|turn_complete|stop/i.test(String(row.subtype || ''))) {
-        state.lastTurnFinished = true;
-        observeActivity(state, 'attention', row.timestamp);
+        finishObservedTurn(session, state, row.timestamp);
       }
       if (row.message && row.message.role) processMessageRow(session, state, row);
       recordStructuredFailure(session, state, row);

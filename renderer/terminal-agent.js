@@ -237,6 +237,18 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return error;
   }
 
+  function isCodexDesktopSession(agentSession) {
+    return String(agentSession?.provider || '').toLowerCase() === 'codex'
+      && String(agentSession?.clientKind || '').toLowerCase() === 'codex-desktop';
+  }
+
+  function codexDesktopOriginOwnedError() {
+    return rejectedError(
+      t('terminal.resume.codex_desktop_live'),
+      'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
+    );
+  }
+
   function resultError(result, fallback) {
     const error = new Error(result?.error || fallback);
     error.code = result?.code || 'DELIVERY_REJECTED';
@@ -388,6 +400,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   function agentTargets(agentSession) {
     if (!agentSession || !agentSession.id) return [];
     if (agentSession.parentId) return [];
+    if (isCodexDesktopSession(agentSession)) return [];
     const targets = [];
     const connectionSignature = agentConnectionSignature(agentSession);
     const blockedTerminalIds = new Set(state.sessions
@@ -779,6 +792,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   async function resumeForAgent(agentSession, draft = '', sendDraft = false, options = {}) {
     if (!agentSession?.id) throw rejectedError(t('terminal.resume.no_session_info'));
     if (agentSession.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
+    // Codex Desktop owns the thread through its private app-server. A projected
+    // completed/idle/attention state describes only the latest turn and is not
+    // evidence that the app-server released its writer, so never start an
+    // independent resume for this origin.
+    if (isCodexDesktopSession(agentSession)) throw codexDesktopOriginOwnedError();
     await initializeBeforeDelivery();
     const connectionSignature = agentConnectionSignature(agentSession);
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
@@ -1015,6 +1033,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   async function ensureForAgent(agentSession, options = {}) {
     if (!agentSession?.id) throw rejectedError(t('terminal.resume.no_session_info'));
     if (agentSession.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
+    if (isCodexDesktopSession(agentSession)) throw codexDesktopOriginOwnedError();
 
     const signature = agentConnectionSignature(agentSession);
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
@@ -1098,6 +1117,11 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     }
     const candidates = [...unique.values()];
     if (!candidates.length) return [];
+    // Do not initialize the terminal host just to reject a batch containing
+    // only Codex Desktop-owned threads.
+    if (candidates.every(isCodexDesktopSession)) {
+      return candidates.map(() => ({ status: 'rejected', reason: codexDesktopOriginOwnedError() }));
+    }
     const shouldStart = typeof options.shouldStart === 'function' ? options.shouldStart : () => true;
     const mayStart = () => {
       try {

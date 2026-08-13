@@ -816,6 +816,7 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'function requiredAgentTarget',
   'function resumeSupport',
   'parentControlled: true',
+  'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
   "['codex', 'claude', 'gemini', 'grok']",
   "promptMode: provider === 'grok' ? 'terminal' : 'arguments'",
   "terminal.type === 'agent'",
@@ -899,6 +900,12 @@ const MAIN_PROCESS_CONTRACTS = [
   'const DESKTOP_NOTIFICATIONS_ENABLED = true',
   'enabled: DESKTOP_NOTIFICATIONS_ENABLED',
   "event === 'completed' ? 'completionTitle' : 'attentionTitle'",
+  "completionFallback: 'AI 작업이 완료되었습니다.'",
+  "completionFallback: 'The AI task is complete.'",
+  "completionFallback: 'AI 任务已完成。'",
+  "notificationDetail || mainText('completionFallback')",
+  ": (notificationDetail || session.title || '이름 없는 작업')",
+  'title: notificationCopy',
   'function notifyTerminalPrompt',
   "attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot))",
   "agents:attention-requested",
@@ -1123,6 +1130,21 @@ function registerUiContractTests(context) {
       monitorWorker,
       /session\.status,\r?\n\s+session\.activityState,/,
       'activityState만 바뀐 snapshot을 게시하지 못합니다.',
+    );
+    assert.match(
+      monitorWorker,
+      /session\.status,\r?\n\s+session\.activityState,\r?\n\s+completionPresentationFingerprint\(session\),/,
+      '완료 표시용 답변만 바뀐 snapshot을 다시 게시하지 못합니다.',
+    );
+    assert.match(
+      monitorWorker,
+      /function completionPresentationFingerprint\(session\)[\s\S]*normalizedFingerprintText\(session && session\.result, 1200\)[\s\S]*normalizedFingerprintText\(session && session\.outcome && session\.outcome\.summary, 800\)[\s\S]*normalizedFingerprintText\(latestAssistantText, 420\)/,
+      '완료 알림 fingerprint는 제한된 result·outcome·최신 AI 답변만 사용해야 합니다.',
+    );
+    assert.match(
+      monitorWorker,
+      /function normalizedFingerprintText\(value, limit\)\s*\{\r?\n\s+return clip\(value, limit\)\.replace\(\/\\s\+\/g, ' '\);/,
+      '완료 알림 fingerprint 문구는 크기를 제한하고 공백을 정규화해야 합니다.',
     );
     assert.ok(agentActions.includes('"status", "activityState", "statusDetail"'), '상세 화면이 최신 activityState를 덮어쓰지 못합니다.');
     const terminalBlock = html.slice(html.indexOf('id="terminalSection"'), html.indexOf('id="tmuxSection"'));
@@ -1459,6 +1481,16 @@ function registerUiContractTests(context) {
       mainEntry,
       MAIN_PROCESS_CONTRACTS,
       contract => `${contract} 메인 프로세스 계약이 없습니다.`,
+    );
+    assert.equal(
+      (mainEntry.match(/completionFallback:/g) || []).length,
+      3,
+      '완료 답변이 없을 때 사용할 일반 문구는 지원 언어마다 하나씩 있어야 합니다.',
+    );
+    assert.match(
+      mainEntry,
+      /const notificationCopy = event === 'completed'\s*\?\s*\(notificationDetail \|\| mainText\('completionFallback'\)\)\s*:\s*\(notificationDetail \|\| session\.title \|\| '이름 없는 작업'\);/,
+      '완료 알림은 사용자 요청 제목을 fallback으로 쓰지 않고 확인 알림만 기존 제목 fallback을 유지해야 합니다.',
     );
     assert.ok(
       mainEntry.includes("const DEFAULT_LOCALE = 'en'")
