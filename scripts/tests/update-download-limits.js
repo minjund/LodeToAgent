@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { UpdateManager } = require('../../src/updateManager');
 
-const DOWNLOAD_ROOT = 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/';
+const DOWNLOAD_ROOT = 'https://github.com/minjund/Whitebox/releases/download/v3.1.0/';
 
 function asset(name, size, payload = Buffer.alloc(0)) {
   return {
@@ -34,15 +34,15 @@ function registerUpdateDownloadLimitTests(context) {
 
   test('업데이트 확인은 응답 본문이 멈추면 제한 시간 안에 중단한다', async () => {
     const downloadsDir = path.join(temp, 'update-cache-cleanup');
-    const activeInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.0.0.exe');
-    const staleInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-2.9.0.exe');
-    const staleDownload = path.join(downloadsDir, 'LoadToAgent-3.1.0-portable.exe.download');
-    const futureInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.1.0.exe');
-    const unknownFile = path.join(downloadsDir, 'LoadToAgent-Setup-latest.exe');
-    const nestedDirectory = path.join(downloadsDir, 'LoadToAgent-Setup-2.8.0.exe');
-    const nestedInstaller = path.join(nestedDirectory, 'LoadToAgent-Setup-2.7.0.exe');
+    const activeInstaller = path.join(downloadsDir, 'Whitebox-Setup-3.0.0.exe');
+    const staleInstaller = path.join(downloadsDir, 'Whitebox-Setup-2.9.0.exe');
+    const staleDownload = path.join(downloadsDir, 'Whitebox-3.1.0-portable.exe.download');
+    const futureInstaller = path.join(downloadsDir, 'Whitebox-Setup-3.1.0.exe');
+    const unknownFile = path.join(downloadsDir, 'Whitebox-Setup-latest.exe');
+    const nestedDirectory = path.join(downloadsDir, 'Whitebox-Setup-2.8.0.exe');
+    const nestedInstaller = path.join(nestedDirectory, 'Whitebox-Setup-2.7.0.exe');
     const protectedTarget = path.join(temp, 'protected-update-target.exe');
-    const linkedInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-2.6.0.exe');
+    const linkedInstaller = path.join(downloadsDir, 'Whitebox-Setup-2.6.0.exe');
     fs.mkdirSync(nestedDirectory, { recursive: true });
     fs.writeFileSync(activeInstaller, 'active installer');
     fs.writeFileSync(staleInstaller, 'stale installer');
@@ -108,7 +108,7 @@ function registerUpdateDownloadLimitTests(context) {
     if (linked) assert.equal(fs.lstatSync(linkedInstaller).isSymbolicLink(), true);
 
     const linkedRootTarget = path.join(temp, 'linked-update-root-target');
-    const linkedRootArtifact = path.join(linkedRootTarget, 'LoadToAgent-Setup-2.5.0.exe');
+    const linkedRootArtifact = path.join(linkedRootTarget, 'Whitebox-Setup-2.5.0.exe');
     const linkedRoot = path.join(temp, 'linked-update-root');
     fs.mkdirSync(linkedRootTarget, { recursive: true });
     fs.writeFileSync(linkedRootArtifact, 'protected linked-root artifact');
@@ -184,7 +184,7 @@ function registerUpdateDownloadLimitTests(context) {
 
     let overrunCancelled = false;
     const expectedPayload = Buffer.from('safe');
-    const existingInstaller = path.join(downloadsDir, 'LoadToAgent-Setup-3.1.0.exe');
+    const existingInstaller = path.join(downloadsDir, 'Whitebox-Setup-3.1.0.exe');
     fs.mkdirSync(downloadsDir, { recursive: true });
     fs.writeFileSync(existingInstaller, 'previous verified installer', 'utf8');
     const overrun = managerWithAsset({
@@ -200,7 +200,7 @@ function registerUpdateDownloadLimitTests(context) {
           }),
         },
       }),
-    }, asset('LoadToAgent-Setup-3.1.0.exe', expectedPayload.length, expectedPayload));
+    }, asset('Whitebox-Setup-3.1.0.exe', expectedPayload.length, expectedPayload));
     await assert.rejects(overrun.download(), /공식 파일.*보다 큽니다/);
     assert.equal(overrunCancelled, true);
     assert.equal(fs.readFileSync(existingInstaller, 'utf8'), 'previous verified installer');

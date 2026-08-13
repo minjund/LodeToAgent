@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createRunModal = function createRunModal(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createRunModal = function createRunModal(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $,
     esc,
@@ -51,7 +51,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   }
 
   function sourceStatus(sourceId) {
-    if (sourceId === "direct") return { id: "direct", name: "직접 실행", available: true, state: "ready", reason: "", source: { id: "direct", label: "LoadToAgent" } };
+    if (sourceId === "direct") return { id: "direct", name: "직접 실행", available: true, state: "ready", reason: "", source: { id: "direct", label: "Whitebox" } };
     return (state.sourcePlugins || []).find(item => item.id === sourceId) || {
       id: sourceId, name: sourceId === "builtin.omo" ? "OMO · OpenCode" : "Aside Browser",
       available: false, reason: "연결 상태를 확인하지 못했습니다.", source: { id: sourceId, label: sourceId },
@@ -68,7 +68,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       const mark = source.id === "direct" ? ">_" : source.id === "builtin.omo" ? "OMO" : "A";
       const label = source.id === "direct" ? "직접 실행" : source.name || source.source?.label || source.id;
       const detail = canStart
-        ? source.id === "direct" ? "선택한 AI CLI를 LoadToAgent 명령창에서 실행" : "연결된 출처에서 작업 시작"
+        ? source.id === "direct" ? "선택한 AI CLI를 Whitebox 명령창에서 실행" : "연결된 출처에서 작업 시작"
         : canConfigureAside ? `${source.reason || "현재 새 작업을 시작할 수 없습니다."} · 읽기 전용 기록 연결 가능` : source.reason || "현재 사용할 수 없습니다.";
       return `<button type="button" class="run-provider-option run-source-option ${selected ? "selected" : ""}"
         data-run-source="${esc(source.id)}" role="radio" aria-checked="${selected ? "true" : "false"}"
@@ -193,7 +193,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         const active = path === selected;
         return `<button type="button" data-run-workspace="${esc(path)}" class="${active ? "selected" : ""}" title="${esc(path)}" aria-pressed="${active ? "true" : "false"}">
         <span aria-hidden="true">⌘</span>
-        ${esc(workspace.name || path.split(/[\\/]/).filter(Boolean).pop() || window.LoadToAgentI18n.t("ui.work_folder"))}
+        ${esc(workspace.name || path.split(/[\\/]/).filter(Boolean).pop() || window.WhiteboxI18n.t("ui.work_folder"))}
         </button>`;
       })
       .join("");
@@ -396,7 +396,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     try {
       return await action();
     } catch (error) {
-      toast(window.LoadToAgentI18n.errorText(error, failureMessage));
+      toast(window.WhiteboxI18n.errorText(error, failureMessage));
       return null;
     } finally {
       if (control?.isConnected) {
@@ -429,7 +429,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     }
     if (!selectedSourceAvailable()) {
       $("#runError").textContent = state.runSource === "direct"
-        ? window.LoadToAgentI18n.t("ui.no_ai_cli_is_ready_follow_the_official_setup_guide")
+        ? window.WhiteboxI18n.t("ui.no_ai_cli_is_ready_follow_the_official_setup_guide")
         : sourceStatus(state.runSource).reason || "선택한 출처를 사용할 수 없습니다.";
       $("#runError").classList.remove("hidden");
       $("#runError").focus({ preventScroll: true });
@@ -439,8 +439,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     $("#runError").classList.add("hidden");
     try {
       syncLockedProject();
-      if (state.runSource === "direct" && typeof window.LoadToAgentTerminal?.startAgent !== "function") {
-        throw new Error(window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
+      if (state.runSource === "direct" && typeof window.WhiteboxTerminal?.startAgent !== "function") {
+        throw new Error(window.WhiteboxI18n.t("ui.could_not_start_the_task"));
       }
       const runOptions = {
         sourcePluginId: state.runSource === "direct" ? "" : state.runSource,
@@ -463,13 +463,13 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         rememberPendingRunCreation({ key: creationKey, id: nextRunCreationId() });
       }
       const result = state.runSource === "direct"
-        ? await window.LoadToAgentTerminal.startAgent({ ...runOptions, creationId: pendingRunCreation.id })
-        : await window.loadtoagent.startSourceTask(state.runSource, {
+        ? await window.WhiteboxTerminal.startAgent({ ...runOptions, creationId: pendingRunCreation.id })
+        : await window.whitebox.startSourceTask(state.runSource, {
           ...runOptions,
           requestId: pendingRunCreation.id,
         });
       if (!result.ok) {
-        const error = new Error(result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
+        const error = new Error(result.error || window.WhiteboxI18n.t("ui.could_not_start_the_task"));
         error.creationState = result.creationState || "rejected";
         error.deliveryState = result.deliveryState || "rejected";
         error.terminalId = result.terminalId || "";
@@ -486,11 +486,11 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       // leaving the user on a stale dashboard card.
       selectView(state.runSource === "direct" ? "terminal" : "active");
       toast(result.creationFailed
-        ? (result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"))
+        ? (result.error || window.WhiteboxI18n.t("ui.could_not_start_the_task"))
         : result.creationUnavailable
-          ? window.LoadToAgentI18n.t("terminal.stopped_record_kept")
+          ? window.WhiteboxI18n.t("terminal.stopped_record_kept")
         : state.runSource !== "direct" ? `${sourceStatus(state.runSource).name} 작업을 시작했습니다.`
-        : window.LoadToAgentI18n.t(result.deliveryState === "unknown"
+        : window.WhiteboxI18n.t(result.deliveryState === "unknown"
           ? "agent.delivery_uncertain"
           : "provider.started", { provider: providerInfo(state.runProvider).label }));
     } catch (error) {
@@ -510,9 +510,9 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
         // and approval prompts are not hidden behind the run dialog.
         closeRunModal(true);
         selectView("terminal");
-        toast(window.LoadToAgentI18n.t("agent.delivery_uncertain"));
+        toast(window.WhiteboxI18n.t("agent.delivery_uncertain"));
       } else {
-        $("#runError").textContent = window.LoadToAgentI18n.errorText(error, "ui.could_not_start_the_task");
+        $("#runError").textContent = window.WhiteboxI18n.errorText(error, "ui.could_not_start_the_task");
         $("#runError").classList.remove("hidden");
         $("#runError").focus({ preventScroll: true });
       }

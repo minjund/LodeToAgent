@@ -5,8 +5,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const OWNER_MARKER = '--loadtoagent-attention-hook';
-const OWN_HTTP_URL = /^http:\/\/127\.0\.0\.1:\d+\/loadtoagent\/attention\/v1\/[a-f0-9]{32,128}$/iu;
+const OWNER_MARKER = '--whitebox-attention-hook';
+const OWN_HTTP_URL = /^http:\/\/127\.0\.0\.1:\d+\/whitebox\/attention\/v1\/[a-f0-9]{32,128}$/iu;
+const LEGACY_OWNER_MARKER = '--loadtoagent-attention-hook';
+const LEGACY_HTTP_URL = /^http:\/\/127\.0\.0\.1:\d+\/loadtoagent\/attention\/v1\/[a-f0-9]{32,128}$/iu;
 const DEFAULT_TIMEOUT_SECONDS = 600;
 const OWN_BACKUP_LIMIT = 3;
 
@@ -33,7 +35,7 @@ function defaultPaths(home = os.homedir(), environment = process.env) {
     claudeSettingsPath: path.join(claudeHome, 'settings.json'),
     codexHooksPath: path.join(codexHome, 'hooks.json'),
     codexConfigPath: path.join(codexHome, 'config.toml'),
-    runtimeFile: path.join(home, '.loadtoagent', 'attention-hook.json'),
+    runtimeFile: path.join(home, '.whitebox', 'attention-hook.json'),
     hookScriptPath: packagedHookScriptPath(),
   };
 }
@@ -80,7 +82,7 @@ function regularOwnedBackups(file) {
   const basename = path.basename(absoluteFile);
   const escapedBasename = basename.replace(/[\\^$.*+?()[\]{}|]/gu, '\\$&');
   const ownedName = new RegExp(
-    `^${escapedBasename}\\.loadtoagent-backup-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-[a-f0-9]{8}$`,
+    `^${escapedBasename}\\.whitebox-backup-\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z-[a-f0-9]{8}$`,
     'u',
   );
   let entries;
@@ -146,7 +148,7 @@ function atomicWriteWithBackup(file, content, previousSource) {
   let backupPath = null;
   if (previousSource !== '') {
     const stamp = new Date().toISOString().replace(/[:.]/gu, '-');
-    backupPath = `${file}.loadtoagent-backup-${stamp}-${crypto.randomBytes(4).toString('hex')}`;
+    backupPath = `${file}.whitebox-backup-${stamp}-${crypto.randomBytes(4).toString('hex')}`;
     const backupTemporary = `${backupPath}.tmp`;
     const backupDescriptor = fs.openSync(backupTemporary, 'wx', 0o600);
     try {
@@ -181,7 +183,7 @@ function isOwnClaudeHandler(handler) {
   return isPlainObject(handler)
     && handler.type === 'http'
     && typeof handler.url === 'string'
-    && OWN_HTTP_URL.test(handler.url);
+    && (OWN_HTTP_URL.test(handler.url) || LEGACY_HTTP_URL.test(handler.url));
 }
 
 function isOwnCodexHandler(handler) {
@@ -189,10 +191,13 @@ function isOwnCodexHandler(handler) {
   return [handler.command, handler.commandWindows, handler.command_windows]
     .some(value => {
       if (typeof value !== 'string') return false;
-      if (value.includes(OWNER_MARKER)) return true;
+      if (value.includes(OWNER_MARKER) || value.includes(LEGACY_OWNER_MARKER)) return true;
       const encoded = value.match(/(?:^|\s)-EncodedCommand\s+([a-z0-9+/]+={0,2})(?:\s|$)/iu)?.[1];
       if (!encoded || encoded.length > 256 * 1024) return false;
-      try { return Buffer.from(encoded, 'base64').toString('utf16le').includes(OWNER_MARKER); } catch { return false; }
+      try {
+        const decoded = Buffer.from(encoded, 'base64').toString('utf16le');
+        return decoded.includes(OWNER_MARKER) || decoded.includes(LEGACY_OWNER_MARKER);
+      } catch { return false; }
     });
 }
 
@@ -309,7 +314,7 @@ function validateIdentity(identity) {
   try { parsedUrl = new URL(identity?.url); } catch {}
   if (!isPlainObject(identity)
     || identity.protocol !== 1
-    || identity.service !== 'loadtoagent-attention-hook'
+    || identity.service !== 'whitebox-attention-hook'
     || identity.host !== '127.0.0.1'
     || !Number.isInteger(identity.port)
     || identity.port < 1
@@ -320,7 +325,7 @@ function validateIdentity(identity) {
     || Number(parsedUrl?.port) !== identity.port
     || (typeof identity.path === 'string' && parsedUrl?.pathname !== identity.path)
     || (typeof identity.nonce === 'string' && !parsedUrl?.pathname.endsWith(`/${identity.nonce}`))) {
-    const error = new TypeError('A running LoadToAgent attention hook identity is required.');
+    const error = new TypeError('A running Whitebox attention hook identity is required.');
     error.code = 'ATTENTION_HOOK_INVALID_IDENTITY';
     throw error;
   }
@@ -792,7 +797,7 @@ function installAttentionHooks(rawOptions = {}) {
     type: 'http',
     url: identity.url,
     timeout: options.timeoutSeconds,
-    headers: { 'X-LoadToAgent-Provider': 'claude' },
+    headers: { 'X-Whitebox-Provider': 'claude' },
   };
   const commands = buildCodexHookCommands(options);
   const commandHandler = {
@@ -800,7 +805,7 @@ function installAttentionHooks(rawOptions = {}) {
     command: commands.command,
     commandWindows: commands.commandWindows,
     timeout: options.timeoutSeconds,
-    statusMessage: 'Waiting for LoadToAgent response',
+    statusMessage: 'Waiting for Whitebox response',
   };
 
   const claude = planJsonConfig(options.claudeSettingsPath, config => {

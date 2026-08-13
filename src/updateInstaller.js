@@ -75,7 +75,7 @@ function Wait-ForAppProcessesToStop([string]$ExecutablePath, [int]$TimeoutMillis
   $remaining = @(App-Processes $ExecutablePath)
   if ($remaining.Count -ne 0) {
     $remainingPids = (($remaining | ForEach-Object { [string]$_.ProcessId }) -join ',')
-    throw ('LoadToAgent 프로세스 종료를 확인하지 못했습니다. 남은 PID: ' + $remainingPids)
+    throw ('Whitebox 프로세스 종료를 확인하지 못했습니다. 남은 PID: ' + $remainingPids)
   }
   Write-UpdateLog 'allAppProcessesStopped=true'
 }
@@ -84,7 +84,7 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
 
-public static class LoadToAgentWindow {
+public static class WhiteboxWindow {
   [DllImport("user32.dll")]
   public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
@@ -108,8 +108,8 @@ function Restore-AppWindow([int]$TargetPid) {
     $process = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
     if (-not $process) { return $false }
     if ($process.MainWindowHandle -ne 0) {
-      [void][LoadToAgentWindow]::ShowWindowAsync($process.MainWindowHandle, 9)
-      [void][LoadToAgentWindow]::SetForegroundWindow($process.MainWindowHandle)
+      [void][WhiteboxWindow]::ShowWindowAsync($process.MainWindowHandle, 9)
+      [void][WhiteboxWindow]::SetForegroundWindow($process.MainWindowHandle)
       Start-Sleep -Milliseconds 250
       Write-UpdateLog ('windowRestored=true;pid=' + $TargetPid + ';handle=' + $process.MainWindowHandle)
       return $true
@@ -130,6 +130,7 @@ function Stop-AppProcesses([string]$ExecutablePath, [string]$Reason) {
 function Find-InstalledApp([string]$OriginalPath, [string]$Version) {
   $candidates = [System.Collections.Generic.List[string]]::new()
   Add-LaunchCandidate $candidates $OriginalPath
+  Add-LaunchCandidate $candidates (Join-Path $env:LOCALAPPDATA 'Programs\\Whitebox\\Whitebox.exe')
   Add-LaunchCandidate $candidates (Join-Path $env:LOCALAPPDATA 'Programs\\LoadToAgent\\LoadToAgent.exe')
 
   foreach ($root in @(
@@ -139,13 +140,15 @@ function Find-InstalledApp([string]$OriginalPath, [string]$Version) {
   )) {
     try {
       Get-ItemProperty $root -ErrorAction SilentlyContinue |
-        Where-Object { [string]$_.DisplayName -like 'LoadToAgent*' } |
+        Where-Object { [string]$_.DisplayName -like 'Whitebox*' -or [string]$_.DisplayName -like 'LoadToAgent*' } |
         ForEach-Object {
           Add-LaunchCandidate $candidates ([string]$_.DisplayIcon)
           if (-not [string]::IsNullOrWhiteSpace([string]$_.InstallLocation)) {
+            Add-LaunchCandidate $candidates (Join-Path ([string]$_.InstallLocation) 'Whitebox.exe')
             Add-LaunchCandidate $candidates (Join-Path ([string]$_.InstallLocation) 'LoadToAgent.exe')
           }
-          if ([string]$_.UninstallString -match '^"?(.+?\\\\)Uninstall LoadToAgent\\.exe') {
+          if ([string]$_.UninstallString -match '^"?(.+?\\\\)Uninstall (?:Whitebox|LoadToAgent)\\.exe') {
+            Add-LaunchCandidate $candidates (Join-Path $Matches[1] 'Whitebox.exe')
             Add-LaunchCandidate $candidates (Join-Path $Matches[1] 'LoadToAgent.exe')
           }
         }
@@ -225,8 +228,8 @@ try {
         $relaunchReady = $false
         for ($attempt = 1; $attempt -le 3; $attempt++) {
           Remove-Item -LiteralPath $RendererReadyPath -Force -ErrorAction SilentlyContinue
-          $env:LOADTOAGENT_UPDATE_READY_PATH = $RendererReadyPath
-          $env:LOADTOAGENT_UPDATE_READY_TOKEN = $RendererReadyToken
+          $env:WHITEBOX_UPDATE_READY_PATH = $RendererReadyPath
+          $env:WHITEBOX_UPDATE_READY_TOKEN = $RendererReadyToken
           $relaunched = Start-Process -FilePath $launchPath -WorkingDirectory (Split-Path -Parent $launchPath) -PassThru
           Write-UpdateLog ('relaunchStarted=true;attempt=' + $attempt + ';pid=' + $relaunched.Id)
           for ($readyAttempt = 0; $readyAttempt -lt 150; $readyAttempt++) {
@@ -269,8 +272,8 @@ try {
   } else {
     Write-UpdateLog 'relaunchError=installed executable not found'
   }
-  Remove-Item Env:LOADTOAGENT_UPDATE_READY_PATH -ErrorAction SilentlyContinue
-  Remove-Item Env:LOADTOAGENT_UPDATE_READY_TOKEN -ErrorAction SilentlyContinue
+  Remove-Item Env:WHITEBOX_UPDATE_READY_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:WHITEBOX_UPDATE_READY_TOKEN -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $RendererReadyPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $ReadyPath -Force -ErrorAction SilentlyContinue
   Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
@@ -375,10 +378,13 @@ function resolveInstalledDesktopApp(options = {}) {
     for (const candidate of Array.isArray(options.candidates) ? options.candidates : []) addCandidate(candidate);
     if (platform === 'win32') {
       if (environment.LOCALAPPDATA) {
+        addCandidate(path.join(environment.LOCALAPPDATA, 'Programs', 'Whitebox', 'Whitebox.exe'));
         addCandidate(path.join(environment.LOCALAPPDATA, 'Programs', 'LoadToAgent', 'LoadToAgent.exe'));
       }
     } else if (platform === 'darwin') {
+      addCandidate('/Applications/Whitebox.app/Contents/MacOS/Whitebox');
       addCandidate('/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
+      if (homeDir) addCandidate(path.join(homeDir, 'Applications', 'Whitebox.app', 'Contents', 'MacOS', 'Whitebox'));
       if (homeDir) addCandidate(path.join(homeDir, 'Applications', 'LoadToAgent.app', 'Contents', 'MacOS', 'LoadToAgent'));
     }
   }
@@ -411,13 +417,15 @@ async function windowsInstalledDesktopAppCandidates(options = {}) {
     "  'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'",
     ')) {',
     '  Get-ItemProperty $root -ErrorAction SilentlyContinue |',
-    "    Where-Object { [string]$_.DisplayName -like 'LoadToAgent*' } |",
+    "    Where-Object { [string]$_.DisplayName -like 'Whitebox*' -or [string]$_.DisplayName -like 'LoadToAgent*' } |",
     '    ForEach-Object {',
     '      Add-Candidate ([string]$_.DisplayIcon)',
     '      if (-not [string]::IsNullOrWhiteSpace([string]$_.InstallLocation)) {',
+    "        Add-Candidate (Join-Path ([string]$_.InstallLocation) 'Whitebox.exe')",
     "        Add-Candidate (Join-Path ([string]$_.InstallLocation) 'LoadToAgent.exe')",
     '      }',
-    "      if ([string]$_.UninstallString -match '^\"?(.+?\\\\)Uninstall LoadToAgent\\.exe') {",
+    "      if ([string]$_.UninstallString -match '^\"?(.+?\\\\)Uninstall (?:Whitebox|LoadToAgent)\\.exe') {",
+    "        Add-Candidate (Join-Path $Matches[1] 'Whitebox.exe')",
     "        Add-Candidate (Join-Path $Matches[1] 'LoadToAgent.exe')",
     '      }',
     '    }',
@@ -463,7 +471,7 @@ async function readDesktopAppVersion(options = {}) {
   if (platform === 'win32') {
     const environment = options.environment || process.env;
     const script = [
-      '$info = (Get-Item -LiteralPath $env:LOADTOAGENT_VERSION_PATH -ErrorAction Stop).VersionInfo',
+      '$info = (Get-Item -LiteralPath $env:WHITEBOX_VERSION_PATH -ErrorAction Stop).VersionInfo',
       '$version = @($info.ProductVersion, $info.FileVersion) | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) } | Select-Object -First 1',
       '[Console]::Out.Write([string]$version)',
     ].join('; ');
@@ -476,7 +484,7 @@ async function readDesktopAppVersion(options = {}) {
       windowsHide: true,
       timeout: 10_000,
       maxBuffer: 64 * 1024,
-      env: { ...process.env, ...environment, LOADTOAGENT_VERSION_PATH: appPath },
+      env: { ...process.env, ...environment, WHITEBOX_VERSION_PATH: appPath },
     });
     return normalizedExecutableVersion(result && result.stdout);
   }
@@ -494,8 +502,8 @@ async function readDesktopAppVersion(options = {}) {
 function automaticInstallPlatform({ platform, installType, installerPath, downloadsDir, appPath }) {
   if (installType !== 'desktop' || !isWithinDirectory(installerPath, downloadsDir)) return '';
   const fileName = path.basename(installerPath);
-  if (platform === 'win32' && /^LoadToAgent-Setup-[0-9A-Za-z.-]+\.exe$/i.test(fileName)) return 'win32';
-  if (platform === 'darwin' && /^LoadToAgent-[0-9A-Za-z.-]+-(?:arm64|x64)\.dmg$/i.test(fileName)) {
+  if (platform === 'win32' && /^(?:Whitebox|LoadToAgent)-Setup-[0-9A-Za-z.-]+\.exe$/i.test(fileName)) return 'win32';
+  if (platform === 'darwin' && /^(?:Whitebox|LoadToAgent)-[0-9A-Za-z.-]+-(?:arm64|x64)\.dmg$/i.test(fileName)) {
     const appBundle = macAppBundlePath(appPath);
     if (appBundle && appBundle !== '/Volumes' && !appBundle.startsWith('/Volumes/')) return 'darwin';
   }
@@ -690,9 +698,9 @@ async function verifyDownloadedInstaller(options = {}) {
     const windowsModulePath = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'Modules');
     const script = [
       'Import-Module Microsoft.PowerShell.Security -ErrorAction Stop',
-      '$signature = Get-AuthenticodeSignature -LiteralPath $env:LOADTOAGENT_VERIFY_PATH',
+      '$signature = Get-AuthenticodeSignature -LiteralPath $env:WHITEBOX_VERIFY_PATH',
       "if ($signature.Status -eq 'Valid') { Write-Output 'Valid'; exit 0 }",
-      "if (($env:LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS -eq 'true') -and ($signature.Status -eq 'NotSigned')) { Write-Output 'NotSigned'; exit 0 }",
+      "if (($env:WHITEBOX_ALLOW_UNSIGNED_WINDOWS -eq 'true') -and ($signature.Status -eq 'NotSigned')) { Write-Output 'NotSigned'; exit 0 }",
       "if ($signature.Status -ne 'Valid') { throw ('Invalid Authenticode signature: ' + $signature.Status) }",
     ].join('; ');
     const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
@@ -710,8 +718,8 @@ async function verifyDownloadedInstaller(options = {}) {
         ...process.env,
         ...(options.environment || {}),
         PSModulePath: windowsModulePath,
-        LOADTOAGENT_VERIFY_PATH: installerPath,
-        LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS: String(options.allowUnsignedWindowsUpdates === true),
+        WHITEBOX_VERIFY_PATH: installerPath,
+        WHITEBOX_ALLOW_UNSIGNED_WINDOWS: String(options.allowUnsignedWindowsUpdates === true),
       },
     });
     const unsignedAllowed = String(result && result.stdout || '').trim() === 'NotSigned';

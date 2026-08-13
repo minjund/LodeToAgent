@@ -27,7 +27,7 @@ const TEST_TIMEOUT_MS = 600_000;
 const ABORT_SETTLE_TIMEOUT_MS = 5_000;
 const HARD_EXIT_TIMEOUT_MS = 650_000;
 const TEST_STARTED_AT = Date.now();
-const REQUESTED_STAGES = new Set(String(process.env.LOADTOAGENT_EXACT_TMUX_STAGES || '')
+const REQUESTED_STAGES = new Set(String(process.env.WHITEBOX_EXACT_TMUX_STAGES || '')
   .split(',').map(value => value.trim()).filter(Boolean));
 let manager = null;
 let distro = '';
@@ -88,7 +88,7 @@ function resolveTmuxRuntime() {
     const probe = command('tmux', ['-V']);
     return probe.status === 0 ? { available: true, distro: '' } : { available: false, distro: '' };
   }
-  const candidates = [process.env.LOADTOAGENT_TEST_WSL_DISTRO, 'Ubuntu-22.04', 'Ubuntu']
+  const candidates = [process.env.WHITEBOX_TEST_WSL_DISTRO, 'Ubuntu-22.04', 'Ubuntu']
     .filter(Boolean);
   for (const candidate of candidates) {
     const probe = command('wsl.exe', ['-d', candidate, '--exec', 'tmux', '-V']);

@@ -7,9 +7,17 @@ const net = require('net');
 const { spawn, execFileSync } = require('child_process');
 
 const root = path.resolve(__dirname, '..');
-const packagedExecutable = String(process.env.LOADTOAGENT_TEST_EXECUTABLE || '').trim();
+const packagedExecutable = String(process.env.WHITEBOX_TEST_EXECUTABLE || '').trim();
 const electron = packagedExecutable || require('electron');
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function javascriptLiteral(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError('JavaScript 리터럴로 직렬화할 수 없는 값입니다.');
+  return serialized.replace(/[<>/\u2028\u2029]/g, character => (
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  ));
+}
 
 function reservePort() {
   return new Promise((resolve, reject) => {
@@ -31,8 +39,8 @@ function launchApp(port, userData, bridgeHome) {
     stdio: ['ignore', 'ignore', 'pipe'],
     env: {
       ...process.env,
-      LOADTOAGENT_TEST_INSTANCE: '1',
-      LOADTOAGENT_BRIDGE_HOME: bridgeHome,
+      WHITEBOX_TEST_INSTANCE: '1',
+      WHITEBOX_BRIDGE_HOME: bridgeHome,
     },
   });
   child.stderr.on('data', chunk => {
@@ -51,7 +59,7 @@ async function targetPage(port, child) {
       const targets = await fetch(`http://127.0.0.1:${port}/json`).then(response => response.json());
       latestTargets = Array.isArray(targets) ? targets : [];
       const target = latestTargets.find(item => item.type === 'page'
-        && (/LoadToAgent/i.test(item.title || '') || /\/index\.html(?:[?#]|$)/i.test(item.url || '')));
+        && (/Whitebox/i.test(item.title || '') || /\/index\.html(?:[?#]|$)/i.test(item.url || '')));
       if (target?.webSocketDebuggerUrl) return target;
     } catch {}
     await pause(150);
@@ -139,7 +147,7 @@ async function connectPage(port, child) {
   let readinessException = null;
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const readiness = await send('Runtime.evaluate', {
-      expression: "typeof window.loadtoagent?.bootstrap === 'function'",
+      expression: "typeof window.whitebox?.bootstrap === 'function'",
       returnByValue: true,
     });
     readinessException = readiness.exceptionDetails || null;
@@ -147,7 +155,7 @@ async function connectPage(port, child) {
     await pause(50);
   }
   throw new Error([
-    `LoadToAgent preload API가 준비되지 않았습니다: ${target.url || target.title || 'unknown target'}`,
+    `Whitebox preload API가 준비되지 않았습니다: ${target.url || target.title || 'unknown target'}`,
     exceptionDetailsText(readinessException),
     rendererDiagnosticText(send),
   ].filter(Boolean).join('\n'));
@@ -179,15 +187,15 @@ async function waitFor(send, expression, message) {
 function stopUiChildren(testToken) {
   if (process.platform !== 'win32' || !testToken) return;
   const script = [
-    "$token = [Environment]::GetEnvironmentVariable('LOADTOAGENT_TEST_CLEANUP_TOKEN')",
-    "$targets = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('electron.exe','LoadToAgent.exe') -and $_.CommandLine -and $_.CommandLine.Contains('--user-data-dir') -and $_.CommandLine.Contains($token) })",
+    "$token = [Environment]::GetEnvironmentVariable('WHITEBOX_TEST_CLEANUP_TOKEN')",
+    "$targets = @(Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('electron.exe','Whitebox.exe') -and $_.CommandLine -and $_.CommandLine.Contains('--user-data-dir') -and $_.CommandLine.Contains($token) })",
     'foreach ($target in $targets) { Stop-Process -Id $target.ProcessId -Force -ErrorAction SilentlyContinue }',
   ].join('; ');
   try {
     execFileSync('powershell.exe', ['-NoProfile', '-Command', script], {
       windowsHide: true,
       stdio: 'ignore',
-      env: { ...process.env, LOADTOAGENT_TEST_CLEANUP_TOKEN: testToken },
+      env: { ...process.env, WHITEBOX_TEST_CLEANUP_TOKEN: testToken },
     });
   } catch {}
 }
@@ -208,7 +216,7 @@ function processExists(pid) {
 }
 
 (async () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-restart-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-restart-'));
   const userData = path.join(temp, 'user-data');
   const bridgeHome = path.join(temp, 'home');
   const testToken = path.basename(temp);
@@ -229,14 +237,14 @@ function processExists(pid) {
   try {
     firstApp = launchApp(firstPort, userData, bridgeHome);
     firstPage = await connectPage(firstPort, firstApp);
-    const bootstrap = await evaluate(firstPage.send, 'window.loadtoagent.bootstrap()');
+    const bootstrap = await evaluate(firstPage.send, 'window.whitebox.bootstrap()');
     const command = bootstrap.platform.id === 'win32'
       ? `Write-Output "${beforeMarker}"`
       : `printf '${beforeMarker}\\n'`;
-    const created = await evaluate(firstPage.send, `(async () => window.loadtoagent.terminalCreate({ type: ${JSON.stringify(bootstrap.platform.localShell)}, cwd: ${JSON.stringify(root)}, title: '앱 재시작 유지 검증' }))()`);
+    const created = await evaluate(firstPage.send, `(async () => window.whitebox.terminalCreate({ type: ${javascriptLiteral(bootstrap.platform.localShell)}, cwd: ${javascriptLiteral(root)}, title: '앱 재시작 유지 검증' }))()`);
     terminalId = created.id;
-    await evaluate(firstPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(command)})`);
-    const liveTerminal = await waitFor(firstPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(beforeMarker)}) && item.pid > 0 ? item : null; })()`, '첫 앱에서 터미널 출력 표식과 PID를 받지 못했습니다.');
+    await evaluate(firstPage.send, `window.whitebox.terminalCommand(${javascriptLiteral(terminalId)}, ${javascriptLiteral(command)})`);
+    const liveTerminal = await waitFor(firstPage.send, `(async () => { const item = await window.whitebox.terminalGet(${javascriptLiteral(terminalId)}); return item?.replay?.includes(${javascriptLiteral(beforeMarker)}) && item.pid > 0 ? item : null; })()`, '첫 앱에서 터미널 출력 표식과 PID를 받지 못했습니다.');
     terminalPid = liveTerminal.pid;
     for (let attempt = 0; attempt < 50 && !fs.existsSync(hostFile); attempt += 1) await pause(100);
     if (!fs.existsSync(hostFile)) throw new Error(`터미널 호스트 발견 파일이 없습니다: ${hostFile}`);
@@ -253,13 +261,13 @@ function processExists(pid) {
 
     secondApp = launchApp(secondPort, userData, bridgeHome);
     secondPage = await connectPage(secondPort, secondApp);
-    const restored = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running') || null)()`, '두 번째 앱이 실행 중인 터미널 세션에 다시 연결하지 못했습니다.');
+    const restored = await waitFor(secondPage.send, `(async () => (await window.whitebox.terminalList()).find(item => item.id === ${javascriptLiteral(terminalId)} && item.status === 'running') || null)()`, '두 번째 앱이 실행 중인 터미널 세션에 다시 연결하지 못했습니다.');
     if (restored.pid !== terminalPid) throw new Error(`PTY PID가 바뀌었습니다: ${terminalPid} -> ${restored.pid}`);
     const afterCommand = bootstrap.platform.id === 'win32'
       ? `Write-Output "${afterMarker}"`
       : `printf '${afterMarker}\\n'`;
-    await evaluate(secondPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(afterCommand)})`);
-    await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}))?.replay?.includes(${JSON.stringify(afterMarker)}))()`, '재연결 뒤 동일 터미널에 명령을 보내지 못했습니다.');
+    await evaluate(secondPage.send, `window.whitebox.terminalCommand(${javascriptLiteral(terminalId)}, ${javascriptLiteral(afterCommand)})`);
+    await waitFor(secondPage.send, `(async () => (await window.whitebox.terminalGet(${javascriptLiteral(terminalId)}))?.replay?.includes(${javascriptLiteral(afterMarker)}))()`, '재연결 뒤 동일 터미널에 명령을 보내지 못했습니다.');
 
     await pause(300);
     const crashedHostPid = hostPid;
@@ -277,12 +285,12 @@ function processExists(pid) {
     }
     if (!nextHostPid) throw new Error('터미널 호스트가 강제 종료 뒤 자동으로 다시 실행되지 않았습니다.');
     hostPid = nextHostPid;
-    let recovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 강제 종료 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
+    let recovered = await waitFor(secondPage.send, `(async () => (await window.whitebox.terminalList()).find(item => item.id === ${javascriptLiteral(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 강제 종료 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
     const recoveryCommand = bootstrap.platform.id === 'win32'
       ? `Write-Output "${recoveryMarker}"`
       : `printf '${recoveryMarker}\\n'`;
-    await evaluate(secondPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(recoveryCommand)})`);
-    recovered = await waitFor(secondPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(recoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
+    await evaluate(secondPage.send, `window.whitebox.terminalCommand(${javascriptLiteral(terminalId)}, ${javascriptLiteral(recoveryCommand)})`);
+    recovered = await waitFor(secondPage.send, `(async () => { const item = await window.whitebox.terminalGet(${javascriptLiteral(terminalId)}); return item?.replay?.includes(${javascriptLiteral(recoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
     // Windows can immediately reuse the terminated ConPTY PID. The changed
     // authenticated host PID plus recoveredAfterHostRestart is authoritative
     // there; POSIX systems should always expose a distinct child PID.
@@ -306,14 +314,14 @@ function processExists(pid) {
     }
     if (!gracefulHostPid) throw new Error('터미널 호스트가 SIGTERM 뒤 자동으로 다시 실행되지 않았습니다.');
     hostPid = gracefulHostPid;
-    let gracefulRecovered = await waitFor(secondPage.send, `(async () => (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 SIGTERM 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
+    let gracefulRecovered = await waitFor(secondPage.send, `(async () => (await window.whitebox.terminalList()).find(item => item.id === ${javascriptLiteral(terminalId)} && item.status === 'running' && item.recoveredAfterHostRestart) || null)()`, '호스트 SIGTERM 뒤 저장된 터미널을 새 프로세스로 복구하지 못했습니다.');
     const gracefulCommand = bootstrap.platform.id === 'win32'
       ? `Write-Output "${gracefulRecoveryMarker}"`
       : `printf '${gracefulRecoveryMarker}\\n'`;
-    await evaluate(secondPage.send, `window.loadtoagent.terminalCommand(${JSON.stringify(terminalId)}, ${JSON.stringify(gracefulCommand)})`);
-    gracefulRecovered = await waitFor(secondPage.send, `(async () => { const item = await window.loadtoagent.terminalGet(${JSON.stringify(terminalId)}); return item?.replay?.includes(${JSON.stringify(gracefulRecoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 SIGTERM 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
+    await evaluate(secondPage.send, `window.whitebox.terminalCommand(${javascriptLiteral(terminalId)}, ${javascriptLiteral(gracefulCommand)})`);
+    gracefulRecovered = await waitFor(secondPage.send, `(async () => { const item = await window.whitebox.terminalGet(${javascriptLiteral(terminalId)}); return item?.replay?.includes(${javascriptLiteral(gracefulRecoveryMarker)}) && item.pid > 0 ? item : null; })()`, '호스트 SIGTERM 복구 뒤 터미널 명령과 PID를 확인하지 못했습니다.');
     if (process.platform !== 'win32' && gracefulRecovered.pid === recovered.pid) throw new Error('호스트 SIGTERM 뒤 PTY PID가 새 프로세스로 교체되지 않았습니다.');
-    await evaluate(secondPage.send, `window.loadtoagent.terminalClose(${JSON.stringify(terminalId)})`);
+    await evaluate(secondPage.send, `window.whitebox.terminalClose(${javascriptLiteral(terminalId)})`);
     terminalId = '';
     outcome = {
       ok: true,
@@ -328,7 +336,7 @@ function processExists(pid) {
     };
   } finally {
     if (terminalId && secondPage) {
-      try { await evaluate(secondPage.send, `window.loadtoagent.terminalClose(${JSON.stringify(terminalId)})`); } catch {}
+      try { await evaluate(secondPage.send, `window.whitebox.terminalClose(${javascriptLiteral(terminalId)})`); } catch {}
     }
     if (firstPage) firstPage.socket.close();
     if (secondPage) secondPage.socket.close();

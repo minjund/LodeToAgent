@@ -296,7 +296,7 @@ function registerCodexSharedAppServerTests(context) {
       argv: ['node', '/opt/node_modules/@openai/codex/bin/codex.js', '--remote=ws://127.0.0.1:45123', 'resume', 'session-two'],
     }, 'codex'), 'session-two');
     assert.equal(processSessionExternalId({
-      argv: ['codex', '--remote-auth-token-env', 'LOADTOAGENT_CODEX_TOKEN', '--remote', 'ws://127.0.0.1:45123', 'resume', 'session-three'],
+      argv: ['codex', '--remote-auth-token-env', 'WHITEBOX_CODEX_TOKEN', '--remote', 'ws://127.0.0.1:45123', 'resume', 'session-three'],
     }, 'codex'), 'session-three');
     assert.equal(processSessionExternalId({
       argv: ['codex', '--remote', '', 'resume', 'must-fail-closed'],

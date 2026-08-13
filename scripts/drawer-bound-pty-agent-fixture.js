@@ -4,7 +4,7 @@ const readline = require('readline');
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
-process.stdout.write('LOADTOAGENT_DRAWER_BOUND_PTY_READY\r\n');
+process.stdout.write('WHITEBOX_DRAWER_BOUND_PTY_READY\r\n');
 
 rl.on('line', line => {
   const command = String(line || '').trim();

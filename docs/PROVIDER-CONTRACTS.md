@@ -1,10 +1,10 @@
 # 제공사 이벤트 계약
 
-LoadToAgent는 제공사별 이벤트를 아래 공통 단계로 정규화합니다.
+Whitebox는 제공사별 이벤트를 아래 공통 단계로 정규화합니다.
 
 `queued → session-start → turn-start → reasoning/tool/message → turn-complete → session-end`
 
-수명주기 상태는 `starting`, `running`, `paused`, `waiting`, `idle`, `completed`, `failed`, `cancelled` 중 하나입니다. 이와 별도로 현재 활동을 `thinking`, `working`, `juggling`, `notification`, `attention`, `error`, `idle`로 보존합니다. 화면은 사용자 요청 직후 `생각 중`, 도구 실행 중 `작업 중`, 구조화 입력·권한 요청은 `대기 중`으로 표시합니다. `paused`는 LoadToAgent가 시작하고 사용자가 일시정지한 관리 실행에만 사용합니다.
+수명주기 상태는 `starting`, `running`, `paused`, `waiting`, `idle`, `completed`, `failed`, `cancelled` 중 하나입니다. 이와 별도로 현재 활동을 `thinking`, `working`, `juggling`, `notification`, `attention`, `error`, `idle`로 보존합니다. 화면은 사용자 요청 직후 `생각 중`, 도구 실행 중 `작업 중`, 구조화 입력·권한 요청은 `대기 중`으로 표시합니다. `paused`는 Whitebox가 시작하고 사용자가 일시정지한 관리 실행에만 사용합니다.
 
 `waiting`과 확인 알림은 `request_user_input`, `AskUserQuestion`, 실제 권한 승인처럼 식별 가능한 요청에만 사용합니다. 최종 assistant 문장의 물음표는 응답 의도 참고값으로만 남기며 단독으로 `waiting`이나 시스템 알림을 만들지 않습니다. 구조화 요청은 호출 ID로 중복을 제거하고, 일치하는 도구 결과·새 사용자 메시지·완료 또는 중단 수명주기에서 해제합니다.
 
@@ -63,7 +63,7 @@ LoadToAgent는 제공사별 이벤트를 아래 공통 단계로 정규화합니
 ## 정확성 우선순위
 
 1. 세션 이벤트가 직접 보고한 값
-2. LoadToAgent가 시작한 CLI의 구조화 결과
+2. Whitebox가 시작한 CLI의 구조화 결과
 3. 제공사 공식 모델 카탈로그의 모델별 한도
 4. 값 미보고(`0` 또는 `--`)
 

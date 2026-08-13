@@ -437,8 +437,8 @@ function parseManagedSession(runDir, options = {}) {
     id: `${meta.provider}:${live.externalId || meta.externalId || meta.id}`,
     provider: meta.provider,
     runId: meta.id,
-    source: 'loadtoagent',
-    sourceLabel: 'LoadToAgent 실행',
+    source: 'whitebox',
+    sourceLabel: 'Whitebox 실행',
     statusObserved: true,
     fullHistory: Boolean(options.fullHistory),
   };
@@ -712,7 +712,7 @@ class AgentMonitor extends EventEmitter {
     const stored = (this.lastSnapshot.sessions || []).find(session => session.id === String(sessionId || '')) || null;
     if (!stored) return null;
     let detailed = null;
-    if (stored.source === 'loadtoagent' && stored.runId && this.runsDir) {
+    if (stored.source === 'whitebox' && stored.runId && this.runsDir) {
       detailed = parseManagedSession(path.join(this.runsDir, stored.runId), { fullHistory: true });
       if (stored.historyFile) {
         const historyStat = safeStat(stored.historyFile);

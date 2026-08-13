@@ -4723,3 +4723,10 @@ html[data-theme] .control-session-review.simple-review .control-review-open {
     width: 100%;
   }
 }
+html[data-theme] .brand-icon {
+  object-fit: contain;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+}

@@ -3,16 +3,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const READY_PATH_ENV = 'LOADTOAGENT_UPDATE_READY_PATH';
-const READY_TOKEN_ENV = 'LOADTOAGENT_UPDATE_READY_TOKEN';
+const READY_PATH_ENV = 'WHITEBOX_UPDATE_READY_PATH';
+const READY_TOKEN_ENV = 'WHITEBOX_UPDATE_READY_TOKEN';
+const LEGACY_READY_PATH_ENV = 'LOADTOAGENT_UPDATE_READY_PATH';
+const LEGACY_READY_TOKEN_ENV = 'LOADTOAGENT_UPDATE_READY_TOKEN';
 const TOKEN_PATTERN = /^[0-9a-f]{48}$/;
 
 function readUpdateRelaunchRequest(environment = process.env) {
-  const readyPath = String(environment && environment[READY_PATH_ENV] || '').trim();
-  const token = String(environment && environment[READY_TOKEN_ENV] || '').trim().toLowerCase();
-  if (!path.isAbsolute(readyPath) || !TOKEN_PATTERN.test(token)) return null;
-  if (path.basename(readyPath) !== `install-renderer-ready-${token}.json`) return null;
-  return { readyPath: path.resolve(readyPath), token };
+  for (const [pathKey, tokenKey] of [
+    [READY_PATH_ENV, READY_TOKEN_ENV],
+    [LEGACY_READY_PATH_ENV, LEGACY_READY_TOKEN_ENV],
+  ]) {
+    const readyPath = String(environment && environment[pathKey] || '').trim();
+    const token = String(environment && environment[tokenKey] || '').trim().toLowerCase();
+    if (!path.isAbsolute(readyPath) || !TOKEN_PATTERN.test(token)) continue;
+    if (path.basename(readyPath) !== `install-renderer-ready-${token}.json`) continue;
+    return { readyPath: path.resolve(readyPath), token };
+  }
+  return null;
 }
 
 async function signalRendererReady(options = {}) {
@@ -48,10 +56,14 @@ async function signalRendererReady(options = {}) {
   await fileSystem.promises.rename(temporaryPath, request.readyPath);
   delete environment[READY_PATH_ENV];
   delete environment[READY_TOKEN_ENV];
+  delete environment[LEGACY_READY_PATH_ENV];
+  delete environment[LEGACY_READY_TOKEN_ENV];
   return { signaled: true, readyPath: request.readyPath };
 }
 
 module.exports = {
+  LEGACY_READY_PATH_ENV,
+  LEGACY_READY_TOKEN_ENV,
   READY_PATH_ENV,
   READY_TOKEN_ENV,
   readUpdateRelaunchRequest,

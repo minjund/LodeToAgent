@@ -124,7 +124,7 @@ function createWorkbench(root, options = {}) {
     clearTimeout,
     window: {
       cancelAnimationFrame: options.cancelAnimationFrame || (() => {}),
-      LoadToAgentI18n: { t: key => key },
+      WhiteboxI18n: { t: key => key },
       Terminal: class FixtureTerminal {
         constructor() {
           this.writes = [];
@@ -146,7 +146,7 @@ function createWorkbench(root, options = {}) {
         dispose() {}
       },
       FitAddon: { FitAddon: class FixtureFitAddon { fit() {} } },
-      loadtoagent: {
+      whitebox: {
         terminalList: options.terminalList || (async () => []),
         terminalGet: options.terminalGet || (async () => ({ replay: '', outputSequence: 0 })),
         terminalWrite: async (id, data, deliveryOptions) => {
@@ -187,7 +187,7 @@ function createWorkbench(root, options = {}) {
     active: false,
     platform: { label: 'Test computer' },
   };
-  const workbench = sandbox.window.LoadToAgentTerminalWorkbench({
+  const workbench = sandbox.window.WhiteboxTerminalWorkbench({
     $: element,
     state,
     notice: (message, tone) => notices.push([message, tone]),
@@ -232,7 +232,7 @@ function loadPreloadApi(root, invoke) {
           ipcRenderer,
           contextBridge: {
             exposeInMainWorld(name, value) {
-              if (name === 'loadtoagent') exposed = value;
+              if (name === 'whitebox') exposed = value;
             },
           },
         };
@@ -404,7 +404,7 @@ function registerTerminalInteractionTests(context) {
     const eventSource = fs.readFileSync(path.join(root, 'renderer', 'terminal-events.js'), 'utf8');
     const eventSandbox = { window: {} };
     vm.runInNewContext(eventSource, eventSandbox, { filename: 'terminal-events.js' });
-    const handleModeCycle = eventSandbox.window.LoadToAgentTerminalEventKeys.handleClaudeModeCycle;
+    const handleModeCycle = eventSandbox.window.WhiteboxTerminalEventKeys.handleClaudeModeCycle;
     const composerWrites = [];
     let composerDefaultPrevented = 0;
     let composerPropagationStopped = 0;

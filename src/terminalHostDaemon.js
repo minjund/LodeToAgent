@@ -109,7 +109,7 @@ function parseConfig(argv = process.argv.slice(2)) {
 }
 
 async function run(config = parseConfig()) {
-  process.title = 'LoadToAgent Terminal Host';
+  process.title = 'Whitebox Terminal Host';
   // Acquire the OS-owned cross-process lock before reading the session store or
   // probing tmux. A slow recovery can therefore never let a second daemon race
   // the same provider sessions or persistence file.

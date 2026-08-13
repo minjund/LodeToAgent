@@ -8,8 +8,8 @@ const { execFile: execFileCallback, spawn } = require('child_process');
 const { promisify } = require('util');
 
 const execFileProcess = promisify(execFileCallback);
-const READY_PATH_ENV = 'LOADTOAGENT_UPDATE_READY_PATH';
-const READY_TOKEN_ENV = 'LOADTOAGENT_UPDATE_READY_TOKEN';
+const READY_PATH_ENV = 'WHITEBOX_UPDATE_READY_PATH';
+const READY_TOKEN_ENV = 'WHITEBOX_UPDATE_READY_TOKEN';
 const TOKEN_PATTERN = /^[0-9a-f]{48}$/;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -295,7 +295,7 @@ async function installMacUpdate(options = {}) {
     throw new Error('macOS 업데이트 준비 신호 정보가 올바르지 않습니다.');
   }
   if (!await pathIsDirectory(targetApp, fileSystem)) throw new Error('현재 설치된 앱 번들을 찾지 못했습니다.');
-  if (!mountPath) mountPath = await fileSystem.mkdtemp(path.join(os.tmpdir(), 'loadtoagent-update-'));
+  if (!mountPath) mountPath = await fileSystem.mkdtemp(path.join(os.tmpdir(), 'whitebox-update-'));
   const stagedApp = path.join(targetParent, `.${targetName}.update-${operationId}`);
   const backupApp = path.join(targetParent, `.${targetName}.backup-${operationId}`);
   const failedApp = path.join(targetParent, `.${targetName}.failed-${operationId}`);
@@ -321,8 +321,8 @@ async function installMacUpdate(options = {}) {
     await run(commands.hdiutil, ['attach', dmgPath, '-nobrowse', '-readonly', '-mountpoint', mountPath]);
     mounted = true;
 
-    const sourceApp = path.join(mountPath, 'LoadToAgent.app');
-    if (!await pathIsDirectory(sourceApp, fileSystem)) throw new Error('DMG에서 LoadToAgent.app을 찾지 못했습니다.');
+    const sourceApp = path.join(mountPath, 'Whitebox.app');
+    if (!await pathIsDirectory(sourceApp, fileSystem)) throw new Error('DMG에서 Whitebox.app을 찾지 못했습니다.');
     await run(commands.ditto, [sourceApp, stagedApp]);
     if (!await pathIsDirectory(stagedApp, fileSystem)) throw new Error('새 앱을 설치 위치에 복사하지 못했습니다.');
     if (options.allowUnsignedMacUpdates === true) {

@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createNavigationEventBindings = function createNavigationEventBindings(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createNavigationEventBindings = function createNavigationEventBindings(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, state, motionPreference, saveGuideState, selectView, renderUpdateSettings,
     filteredSessions, renderSessions, openRunModal, openDrawer, toast, performUiAction,
@@ -152,7 +152,7 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
     $("#checkUpdateBtn").addEventListener("click", async () => {
       state.update = { ...(state.update || {}), status: "checking", error: "" };
       renderUpdateSettings();
-      const update = await performUiAction(() => window.loadtoagent.checkForUpdate(), "ui.could_not_check_for_updates", $("#checkUpdateBtn"));
+      const update = await performUiAction(() => window.whitebox.checkForUpdate(), "ui.could_not_check_for_updates", $("#checkUpdateBtn"));
       if (update) state.update = update;
       else state.update = { ...(state.update || {}), status: "error" };
       renderUpdateSettings();
@@ -160,14 +160,14 @@ window.LoadToAgentAppFactories.createNavigationEventBindings = function createNa
     $("#installUpdateBtn").addEventListener("click", async () => {
       state.update = { ...(state.update || {}), status: "downloading", error: "" };
       renderUpdateSettings();
-      const update = await performUiAction(() => window.loadtoagent.installDownloadedUpdate(), "ui.could_not_prepare_the_update_file", $("#installUpdateBtn"));
+      const update = await performUiAction(() => window.whitebox.installDownloadedUpdate(), "ui.could_not_prepare_the_update_file", $("#installUpdateBtn"));
       if (update) state.update = update;
       else if (state.update && state.update.asset) state.update.status = "available";
       renderUpdateSettings();
       if (state.update && state.update.installMode === "manual") toast(t("ui.open_installer"));
     });
     $("#openReleaseBtn").addEventListener("click", async () => {
-      await performUiAction(() => window.loadtoagent.openUpdateRelease(), "ui.could_not_open_the_github_release_page", $("#openReleaseBtn"));
+      await performUiAction(() => window.whitebox.openUpdateRelease(), "ui.could_not_open_the_github_release_page", $("#openReleaseBtn"));
     });
   }
 

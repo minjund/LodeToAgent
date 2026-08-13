@@ -137,7 +137,7 @@ const tests = [];
 function test(name, run) { tests.push({ name, run }); }
 
 test('preference defaults on, reports corrupt JSON, and persists an explicit opt-out atomically', () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-popup-pref-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-popup-pref-'));
   try {
     const file = path.join(temp, 'nested', 'attention-popup.json');
     const errors = [];

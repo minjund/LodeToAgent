@@ -1,13 +1,13 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createTmuxRenderer = function createTmuxRenderer(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const absoluteTime = value => {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
-    const locale = window.LoadToAgentI18n.getLocaleTag();
+    const locale = window.WhiteboxI18n.getLocaleTag();
     return new Intl.DateTimeFormat(locale, {
       year: "numeric", month: "long", day: "numeric",
       hour: locale.startsWith("ko") ? "2-digit" : "numeric",
@@ -157,7 +157,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
         const provider = providerInfo(session.provider);
         const role = session.agentName || agentRoleLabel(session.agentRole);
         const assigned = session.delegation && session.delegation.assignment || session.taskName || session.title || t('tmux.subagents.checking_assignment');
-        const work = readablePreview(latestWorkCopy(session) || window.LoadToAgentI18n.observedText(session.statusDetail) || t('tmux.subagents.checking_status'), 96);
+        const work = readablePreview(latestWorkCopy(session) || window.WhiteboxI18n.observedText(session.statusDetail) || t('tmux.subagents.checking_status'), 96);
         const workState = subagentWorkState(session);
         return `<article class="tmux-subagent-row work-${workState}" data-tmux-subagent-id="${esc(session.id)}"
           style="${providerStyle(session.provider)};--tmux-subagent-depth:${Math.min(2, Math.max(0, depth - 1))}">
@@ -228,7 +228,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
           <span>
           <small>${esc(t("tmux.ai_state", { state: paneAgentStatus(agent, provider.label) }))}</small>
           <strong>${esc(t("tmux.ai_work_name", { title: friendlyWorkName(agent.title, pane.index) }))}</strong>
-          <em>${esc(t("tmux.latest_progress", { progress: friendlyWorkName(window.LoadToAgentI18n.observedText(agent.statusDetail), pane.index) }))}</em>
+          <em>${esc(t("tmux.latest_progress", { progress: friendlyWorkName(window.WhiteboxI18n.observedText(agent.statusDetail), pane.index) }))}</em>
           </span>
           </span>
           <span class="tmux-agent-metrics">
@@ -361,7 +361,7 @@ window.LoadToAgentAppFactories.createTmuxRenderer = function createTmuxRenderer(
       $("#tmuxMap").innerHTML = `<div class="tmux-empty">
         <span>▦</span>
         <h3>${t('tmux.empty.title')}</h3>
-        <p>${esc(window.LoadToAgentI18n.observedText(tmux.status || t('tmux.empty.checking_linux')))}</p>
+        <p>${esc(window.WhiteboxI18n.observedText(tmux.status || t('tmux.empty.checking_linux')))}</p>
         <small>${t('tmux.empty.description')}</small>
         </div>`;
       return;

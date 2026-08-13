@@ -677,7 +677,7 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
     assert.equal(graph.includes('data-inline-terminal-focus'), false);
     assert.equal(messages.includes('"drawer.terminal_focus"'), false);
     assert.match(messages, /실제 PTY 출력 및 스크롤 기록/u);
-    assert.match(terminal, /loadtoagent\.terminalRespond/u);
+    assert.match(terminal, /whitebox\.terminalRespond/u);
     assert.equal((fixturePreload.match(/terminalRespond:/gu) || []).length, 2,
       'controlled fixture와 real-terminal fixture가 모두 전용 승인 API를 노출해야 합니다.');
   });

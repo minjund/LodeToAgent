@@ -125,7 +125,7 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     const starting = proxy.start();
 
     assert.equal(proxy.pid, probe.pid);
-    assert.equal(proxy.__loadtoagentStartupPending, true);
+    assert.equal(proxy.__whiteboxStartupPending, true);
     assert.equal(probeSpawnOptions.detached, process.platform !== 'win32');
     await immediate();
     assert.equal(controlSpawns, 0);
@@ -154,7 +154,7 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     const starting = proxy.start();
 
     completeProbe(probe, options);
-    assert.equal(proxy.__loadtoagentStartupPending, true);
+    assert.equal(proxy.__whiteboxStartupPending, true);
     proxy.kill();
     await assert.rejects(starting, error => error.code === 'TMUX_PROXY_STOPPED');
     await exited;
@@ -208,8 +208,8 @@ function registerTmuxControlProxyLifecycleTests({ test }) {
     completeProbe(probe, options);
     await immediate();
 
-    assert.equal(proxy.__loadtoagentStartupPending, false);
-    assert.equal(proxy.__loadtoagentPosixSignal, 'SIGTERM');
+    assert.equal(proxy.__whiteboxStartupPending, false);
+    assert.equal(proxy.__whiteboxPosixSignal, 'SIGTERM');
     assert.equal(proxy.pid, control.pid);
     assert.equal(controlSpawnOptions.detached, process.platform !== 'win32');
     const attachFlags = controlSpawnArgs[controlSpawnArgs.indexOf('-f') + 1].split(',');

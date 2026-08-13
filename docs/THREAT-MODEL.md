@@ -41,5 +41,5 @@ account is out of scope.
 ## Residual risks
 
 Provider CLIs and their source logs retain their own data independently.
-LoadToAgent cannot delete those records. Users should secure their OS account,
+Whitebox cannot delete those records. Users should secure their OS account,
 working directories, provider credentials, and backups.

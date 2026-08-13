@@ -8,7 +8,7 @@ const DEFAULT_RETENTION_DAYS = 30;
 const TERMINAL_RETENTION_STATUSES = new Set(['exited', 'failed', 'stopped']);
 const RUN_RETENTION_STATUSES = new Set(['completed', 'failed', 'cancelled']);
 
-function retentionDays(value = process.env.LOADTOAGENT_RETENTION_DAYS) {
+function retentionDays(value = process.env.WHITEBOX_RETENTION_DAYS ?? process.env.LOADTOAGENT_RETENTION_DAYS) {
   if (value === '' || value == null) return DEFAULT_RETENTION_DAYS;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.min(Math.floor(parsed), 3650) : DEFAULT_RETENTION_DAYS;

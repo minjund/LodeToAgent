@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const STORAGE_KEY = 'loadtoagent:locale:v1';
+  const STORAGE_KEY = 'whitebox:locale:v1';
   const DEFAULT_LOCALE = 'en';
   const SUPPORTED_LOCALES = Object.freeze(['ko', 'en', 'zh-CN']);
   const SUPPORTED = new Set(SUPPORTED_LOCALES);
@@ -12,7 +12,7 @@
     '제목을 불러오는 중': 'observed.loading_title',
     '로컬 세션': 'observed.local_session',
     '표시할 대화 메시지가 아직 없습니다.': 'observed.no_messages_yet',
-    'LoadToAgent 실행': 'observed.loadtoagent_run',
+    'Whitebox 실행': 'observed.whitebox_run',
     '작업 폴더 미상': 'workspace.unknown',
     '외부 환경': 'observed.external_environment',
     '프로젝트 없음': 'ui.no_project',
@@ -46,7 +46,7 @@
     '중지 요청 중': 'observed.stop_requested',
     '프로세스 감지': 'observed.process_detected',
     'AI CLI 프로세스 감지': 'observed.ai_cli_detected',
-    'LoadToAgent 외부 터미널 브리지': 'observed.external_bridge',
+    'Whitebox 외부 터미널 브리지': 'observed.external_bridge',
     '도구 실패': 'observed.tool_failed',
     'Claude 데스크톱 앱': 'observed.claude_desktop',
     '응답 생성 중': 'observed.generating_response',
@@ -83,7 +83,7 @@
     'WSL 배포판 없음': 'observed.no_wsl_distro',
     '로컬 환경 없음': 'observed.no_local_environment',
   });
-  const messages = window.LoadToAgentMessages || {};
+  const messages = window.WhiteboxMessages || {};
   let locale = readLocale();
 
   function readLocale() {
@@ -91,7 +91,7 @@
       const saved = localStorage.getItem(STORAGE_KEY);
       return SUPPORTED.has(saved) ? saved : DEFAULT_LOCALE;
     } catch (error) {
-      window.LoadToAgentRendererUtils?.reportRecoverableError('locale-storage-read', error);
+      window.WhiteboxRendererUtils?.reportRecoverableError('locale-storage-read', error);
       return DEFAULT_LOCALE;
     }
   }
@@ -182,12 +182,12 @@
     try {
       localStorage.setItem(STORAGE_KEY, locale);
     } catch (error) {
-      window.LoadToAgentRendererUtils?.reportRecoverableError?.('locale-save', error);
+      window.WhiteboxRendererUtils?.reportRecoverableError?.('locale-save', error);
     }
     syncDocument();
     translateTree();
     if (changed) {
-      window.dispatchEvent(new CustomEvent('loadtoagent:locale-changed', {
+      window.dispatchEvent(new CustomEvent('whitebox:locale-changed', {
         detail: { locale, localeTag: LOCALE_TAGS[locale] },
       }));
     }
@@ -203,7 +203,7 @@
     }
   });
 
-  window.LoadToAgentI18n = Object.freeze({
+  window.WhiteboxI18n = Object.freeze({
     getLocale: () => locale,
     getLocaleTag: () => LOCALE_TAGS[locale],
     getSupportedLocales: () => [...SUPPORTED_LOCALES],

@@ -9,8 +9,8 @@ const path = require('path');
 const MAX_STDIN_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
-const RUNTIME_SERVICE = 'loadtoagent-attention-hook';
-const RUNTIME_PATH = /^\/loadtoagent\/attention\/v1\/([a-f0-9]{32,128})$/iu;
+const RUNTIME_SERVICE = 'whitebox-attention-hook';
+const RUNTIME_PATH = /^\/whitebox\/attention\/v1\/([a-f0-9]{32,128})$/iu;
 
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -24,8 +24,9 @@ function cleanString(value, maximum = 4_096) {
 }
 
 function parseArguments(argv = process.argv.slice(2), environment = process.env) {
-  let runtimeFile = environment.LOADTOAGENT_ATTENTION_HOOK_FILE
-    || path.join(os.homedir(), '.loadtoagent', 'attention-hook.json');
+  let runtimeFile = environment.WHITEBOX_ATTENTION_HOOK_FILE
+    || environment.LOADTOAGENT_ATTENTION_HOOK_FILE
+    || path.join(os.homedir(), '.whitebox', 'attention-hook.json');
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--runtime-file' && argv[index + 1]) {
       runtimeFile = argv[index + 1];
@@ -146,7 +147,7 @@ function postHookPayload(identity, payload, options = {}) {
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': encoded.length,
-        'X-LoadToAgent-Provider': 'codex',
+        'X-Whitebox-Provider': 'codex',
       },
     }, response => {
       const chunks = [];

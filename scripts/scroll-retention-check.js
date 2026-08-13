@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-scroll-retention-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-scroll-retention-'));
 app.setPath('userData', userData);
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
@@ -31,9 +31,9 @@ async function auditWheelControls(win, label) {
       return element.tagName.toLowerCase() + attributes + ':' + text;
     };
     const state = () => JSON.stringify({
-      view: window.LoadToAgentApp.state.view,
-      selectedId: window.LoadToAgentApp.state.selectedId,
-      drawerTab: window.LoadToAgentApp.state.drawerTab,
+      view: window.WhiteboxApp.state.view,
+      selectedId: window.WhiteboxApp.state.selectedId,
+      drawerTab: window.WhiteboxApp.state.drawerTab,
       overlays: ['#runModal', '#tmuxCreateModal', '#quickPaletteModal', '#shortcutHelpModal', '#drawerBackdrop', '#mobileToolsMenu', '#beginnerGuide']
         .map(selector => { const element = document.querySelector(selector); return [selector, Boolean(element?.classList.contains('hidden')), Boolean(element?.classList.contains('open'))]; }),
       details: [...document.querySelectorAll('details')].map((element, index) => [element.dataset.disclosureKey || element.className || index, element.open]),
@@ -64,7 +64,7 @@ async function auditWheelControls(win, label) {
 async function checkMainViews(win) {
   const results = [];
   for (const view of ['all', 'active', 'waiting', 'runtime', 'terminal', 'tmux', 'settings']) {
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView(${JSON.stringify(view)})`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.selectView(${JSON.stringify(view)})`);
     await wait(250);
     const result = await win.webContents.executeJavaScript(`(async () => {
       const stage = document.querySelector('.main-stage');
@@ -96,7 +96,7 @@ async function checkMainViews(win) {
 
 async function checkDisclosureStates(win) {
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     app.state.workspace = app.state.workspaces[0]?.path || 'all';
     app.selectView('all');
   })()`);
@@ -115,7 +115,7 @@ async function checkDisclosureStates(win) {
     runtime.push(result);
   }
 
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openRunModal()`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.openRunModal()`);
   await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')`, '고급 설정 상태 검사용 새 작업 창이 열리지 않았습니다.');
   const advanced = [];
   for (const expected of [true, false]) {
@@ -124,25 +124,25 @@ async function checkDisclosureStates(win) {
       details.open = ${expected};
       details.dispatchEvent(new Event('toggle'));
       details.querySelector('summary').dispatchEvent(new WheelEvent('wheel', { deltaY: 160, bubbles: true, cancelable: true }));
-      window.LoadToAgentApp.closeRunModal(true);
+      window.WhiteboxApp.closeRunModal(true);
     })()`);
     await wait(300);
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openRunModal()`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.openRunModal()`);
     await wait(30);
     const actual = await win.webContents.executeJavaScript(`document.querySelector('.run-advanced').open`);
     if (actual !== expected) throw new Error(`새 작업 고급 설정의 ${expected ? '열림' : '닫힘'} 상태가 다시 열 때 뒤집혔습니다.`);
     advanced.push(actual);
   }
   await auditWheelControls(win, 'run-modal');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeRunModal(true)`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.closeRunModal(true)`);
   await wait(300);
   return { runtime, advanced };
 }
 
 async function checkDrawer(win) {
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('all'); window.LoadToAgentApp.openDrawer('fixture-ended')`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.selectView('all'); window.WhiteboxApp.openDrawer('fixture-ended')`);
   await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, '상세 대화가 열리지 않았습니다.');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.state.drawerTab = 'chat'; window.LoadToAgentApp.renderDrawer()`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.state.drawerTab = 'chat'; window.WhiteboxApp.renderDrawer()`);
   await waitFor(win, `Boolean(document.querySelector('.chat-roadmap'))`, '상세 대화 탭의 펼침 영역이 준비되지 않았습니다.');
   const before = await win.webContents.executeJavaScript(`(() => {
     const content = document.querySelector('#drawerContent');
@@ -155,7 +155,7 @@ async function checkDrawer(win) {
   })()`);
   if (before.maximum <= 50) throw new Error(`상세 대화 스크롤 검사용 콘텐츠가 부족합니다: ${JSON.stringify(before)}`);
   const disclosures = await win.webContents.executeJavaScript(`(async () => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const detail = app.state.details.get('fixture-ended');
     detail.messages = [...detail.messages, { id: 'wheel-tool', role: 'tool', title: '검사 도구', text: '휠 상태 검사', timestamp: new Date().toISOString() }];
     app.renderDrawer();
@@ -189,7 +189,7 @@ async function checkDrawer(win) {
 }
 
 async function checkSubagentDisclosure(win) {
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.openSubagentConversation('fixture-resting')`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.openSubagentConversation('fixture-resting')`);
   await waitFor(win, `Boolean(document.querySelector('.subagent-coordination')) && !document.querySelector('.drawer-loading')`, '서브에이전트 통신 상세가 열리지 않았습니다.');
   const states = [];
   for (const expected of [true, false]) {
@@ -206,14 +206,14 @@ async function checkSubagentDisclosure(win) {
     states.push(actual);
   }
   await auditWheelControls(win, 'subagent-drawer');
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
   await wait(300);
   return states;
 }
 
 async function checkEveryMemoryRecord(win) {
   const ids = await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     app.state.graphFocusId = null;
     app.state.search = '';
     app.state.providerFilters.clear();
@@ -229,7 +229,7 @@ async function checkEveryMemoryRecord(win) {
   if (ids.length < 30) throw new Error(`기억 기록 전수 검사용 카드 수가 부족합니다: ${ids.length}`);
   for (const id of ids) {
     await win.webContents.executeJavaScript(`document.querySelector('[data-session-id=${JSON.stringify(id)}]').click()`);
-    await waitFor(win, `window.LoadToAgentApp.state.selectedId === ${JSON.stringify(id)} && document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, `기억 기록 ${id} 상세를 열지 못했습니다.`);
+    await waitFor(win, `window.WhiteboxApp.state.selectedId === ${JSON.stringify(id)} && document.querySelector('#detailDrawer').classList.contains('open') && !document.querySelector('.drawer-loading')`, `기억 기록 ${id} 상세를 열지 못했습니다.`);
     const stayedOpen = await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
       drawer.dispatchEvent(new WheelEvent('wheel', { deltaY: 220, bubbles: true, cancelable: true }));
@@ -278,18 +278,18 @@ async function checkMobileControls(win) {
 }
 
 async function checkTerminalOutput(win) {
-  await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('terminal')`);
+  await win.webContents.executeJavaScript(`window.WhiteboxApp.selectView('terminal')`);
   await waitFor(win, `Boolean(document.querySelector('[data-terminal-id="terminal-main"]'))`, '일반 터미널 세션이 준비되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
-    return window.LoadToAgentTerminal.openForAgent(app.state.snapshot.sessions.find(item => item.id === 'fixture-root'), 'terminal-main');
+    const app = window.WhiteboxApp;
+    return window.WhiteboxTerminal.openForAgent(app.state.snapshot.sessions.find(item => item.id === 'fixture-root'), 'terminal-main');
   })()`);
   await waitFor(win, `Boolean(document.querySelector('[data-terminal-screen="terminal-main"]:not(.hidden)'))`, '일반 터미널 화면이 준비되지 않았습니다.');
   await win.webContents.executeJavaScript(`window.interactionTest.emitTerminalData('terminal-main', Array.from({ length: 180 }, (_, index) => 'history-' + index + '\\r\\n').join(''))`);
   await waitFor(win, `Number(document.querySelector('[data-terminal-screen="terminal-main"]').dataset.baseY) > 40`, '터미널 스크롤 기록이 만들어지지 않았습니다.');
   const before = await win.webContents.executeJavaScript(`(() => {
     const screen = document.querySelector('[data-terminal-screen="terminal-main"]');
-    window.LoadToAgentTerminal.scrollTerminalToLine('terminal-main', Math.max(0, Number(screen.dataset.baseY) - 12));
+    window.WhiteboxTerminal.scrollTerminalToLine('terminal-main', Math.max(0, Number(screen.dataset.baseY) - 12));
     return new Promise(resolve => setTimeout(() => resolve({ top: Number(screen.dataset.viewportY), maximum: Number(screen.dataset.baseY) }), 80));
   })()`);
   if (!(before.top >= 0 && before.top < before.maximum)) throw new Error(`터미널 과거 출력 위치를 만들지 못했습니다: ${JSON.stringify(before)}`);
@@ -337,7 +337,7 @@ async function checkTerminalSubagentProgress(win) {
   }
 
   await win.webContents.executeJavaScript(`(() => {
-    const next = JSON.parse(JSON.stringify(window.LoadToAgentApp.state.snapshot));
+    const next = JSON.parse(JSON.stringify(window.WhiteboxApp.state.snapshot));
     const child = next.sessions.find(item => item.id === 'fixture-child');
     child.statusDetail = '터미널에서 확인할 새 진행 단계';
     child.lifecycle.push({
@@ -350,7 +350,7 @@ async function checkTerminalSubagentProgress(win) {
     });
     child.updatedAt = new Date(Date.now() + 3000).toISOString();
     window.__terminalSubagentSnapshot = next;
-    window.LoadToAgentTerminal.updateSnapshot(next, window.LoadToAgentApp.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, window.WhiteboxApp.state.workspaces);
   })()`);
   await waitFor(win, `document.querySelector('[data-terminal-subagent-id="fixture-child"]').textContent.includes('자식 세션만 갱신됨')`, '자식 세션만 갱신했을 때 터미널 진행 기록이 반영되지 않았습니다.');
   const live = await win.webContents.executeJavaScript(`(() => {
@@ -380,7 +380,7 @@ async function checkTerminalSubagentProgress(win) {
     child.statusDetail = '선택이 끝난 뒤 반영할 단계';
     child.updatedAt = new Date(Date.now() + 4000).toISOString();
     window.__terminalSubagentPendingSnapshot = next;
-    window.LoadToAgentTerminal.updateSnapshot(next, window.LoadToAgentApp.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, window.WhiteboxApp.state.workspaces);
     return { top: list.scrollTop, selection: selection.toString(), text: card.textContent };
   })()`);
   await wait(120);
@@ -420,7 +420,7 @@ async function checkTerminalSubagentProgress(win) {
 async function checkTerminalHistory(win) {
   await win.webContents.executeJavaScript(`(() => {
     window.interactionTest.configure({ delays: { sessionDetail: 1000 } });
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const next = JSON.parse(JSON.stringify(app.state.snapshot));
     const session = next.sessions.find(item => item.id === 'fixture-root');
     session.messages = Array.from({ length: 24 }, (_, index) => ({
@@ -431,7 +431,7 @@ async function checkTerminalHistory(win) {
     }));
     session.updatedAt = new Date(Date.now() + 1000).toISOString();
     window.__terminalHistorySnapshot = next;
-    window.LoadToAgentTerminal.updateSnapshot(next, app.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, app.state.workspaces);
   })()`);
   await waitFor(win, `document.querySelectorAll('#terminalHistoryList .terminal-history-message').length >= 20`, '터미널 대화 기록이 준비되지 않았습니다.');
   const before = await win.webContents.executeJavaScript(`(() => {
@@ -465,7 +465,7 @@ async function checkTerminalHistory(win) {
     });
     next.sessions.find(item => item.id === 'fixture-root').updatedAt = new Date(Date.now() + 1500).toISOString();
     window.__terminalHistoryPendingSnapshot = next;
-    window.LoadToAgentTerminal.updateSnapshot(next, window.LoadToAgentApp.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, window.WhiteboxApp.state.workspaces);
     return {
       top: list.scrollTop,
       selection: selection.toString(),
@@ -528,7 +528,7 @@ async function checkTerminalHistory(win) {
     list.querySelector('.terminal-history-copy').dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
     const next = JSON.parse(JSON.stringify(window.__terminalHistorySnapshot));
     next.sessions.find(item => item.id === 'fixture-root').updatedAt = new Date(Date.now() + 1600).toISOString();
-    window.LoadToAgentTerminal.updateSnapshot(next, window.LoadToAgentApp.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, window.WhiteboxApp.state.workspaces);
   })()`);
   await wait(120);
   const wheelAfter = await win.webContents.executeJavaScript(`(() => {
@@ -550,7 +550,7 @@ async function checkTerminalHistory(win) {
     return { top: list.scrollTop, maximum: list.scrollHeight - list.clientHeight };
   })()`);
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const next = JSON.parse(JSON.stringify(app.state.snapshot));
     const session = next.sessions.find(item => item.id === 'fixture-root');
     session.messages = Array.from({ length: 25 }, (_, index) => ({
@@ -560,7 +560,7 @@ async function checkTerminalHistory(win) {
       timestamp: new Date(Date.now() + index).toISOString(),
     }));
     session.updatedAt = new Date(Date.now() + 2000).toISOString();
-    window.LoadToAgentTerminal.updateSnapshot(next, app.state.workspaces);
+    window.WhiteboxTerminal.updateSnapshot(next, app.state.workspaces);
   })()`);
   await wait(120);
   const after = await win.webContents.executeJavaScript(`(() => {
@@ -598,7 +598,7 @@ app.whenReady().then(async () => {
   });
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.state?.snapshot && window.LoadToAgentTerminal)`, '렌더러가 준비되지 않았습니다.');
+    await waitFor(win, `Boolean(window.WhiteboxApp?.state?.snapshot && window.WhiteboxTerminal)`, '렌더러가 준비되지 않았습니다.');
     const report = {
       mainViews: await checkMainViews(win),
       disclosures: await checkDisclosureStates(win),

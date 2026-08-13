@@ -21,12 +21,12 @@ function decodedArgument(name) {
 }
 
 const realTerminalFixture = (() => {
-  const terminalId = additionalArgument('loadtoagent-real-terminal-id');
+  const terminalId = additionalArgument('whitebox-real-terminal-id');
   if (!terminalId) return null;
   return {
     terminalId,
-    pid: Number(additionalArgument('loadtoagent-real-terminal-pid')) || null,
-    cwd: decodedArgument('loadtoagent-real-terminal-cwd') || process.cwd(),
+    pid: Number(additionalArgument('whitebox-real-terminal-pid')) || null,
+    cwd: decodedArgument('whitebox-real-terminal-cwd') || process.cwd(),
   };
 })();
 
@@ -470,7 +470,7 @@ const initialTerminals = [
   {
     id: 'terminal-managed', type: 'agent', title: 'Claude 일반 명령창', status: 'running', pid: 41005,
     cwd: 'D:\\fixture', provider: 'claude', background: true, backend: 'managed-tmux',
-    tmuxSocket: 'loadtoagent', managedTmuxSession: 'lta-codex-fixture',
+    tmuxSocket: 'whitebox', managedTmuxSession: 'lta-codex-fixture',
     outputSequence: 0,
   },
   { id: 'terminal-ended', type: 'powershell', title: '완료된 컴퓨터 작업', status: 'exited', pid: 41002, cwd: 'D:\\fixture', outputSequence: 0 },
@@ -481,10 +481,10 @@ const initialTerminals = [
 
 const availableUpdate = {
   status: 'available', currentVersion: '1.5.1', latestVersion: '1.5.2', tag: 'v1.5.2',
-  releaseUrl: 'https://github.com/minjund/LodeToAgent/releases/tag/v1.5.2', publishedAt: now,
+  releaseUrl: 'https://github.com/minjund/Whitebox/releases/tag/v1.5.2', publishedAt: now,
   notes: '설정 화면과 업데이트 흐름 상호작용 검증', progress: 0, downloadedBytes: 0, totalBytes: 8_192,
   downloadedPath: '', error: '', platform: 'win32', arch: 'x64', installType: 'desktop', targetInstallType: 'desktop', installMode: 'automatic',
-  asset: { name: 'LoadToAgent-Setup-1.5.2.exe', size: 8_192, url: 'https://github.com/minjund/LodeToAgent/releases/download/v1.5.2/LoadToAgent-Setup-1.5.2.exe', digest: '' },
+  asset: { name: 'Whitebox-Setup-1.5.2.exe', size: 8_192, url: 'https://github.com/minjund/Whitebox/releases/download/v1.5.2/Whitebox-Setup-1.5.2.exe', digest: '' },
 };
 
 const currentUpdate = {
@@ -567,7 +567,7 @@ const api = {
   },
   downloadUpdate: async () => {
     await controlled('downloadUpdate', []);
-    update = { ...clone(availableUpdate), status: 'downloaded', progress: 100, downloadedBytes: 8_192, downloadedPath: 'D:\\fixture\\LoadToAgent-Setup-3.1.0.exe' };
+    update = { ...clone(availableUpdate), status: 'downloaded', progress: 100, downloadedBytes: 8_192, downloadedPath: 'D:\\fixture\\Whitebox-Setup-3.1.0.exe' };
     updateStateListeners.forEach(listener => listener(clone(update)));
     return clone(update);
   },
@@ -576,7 +576,7 @@ const api = {
     await controlled('installDownloadedUpdate', []);
     update = {
       ...clone(availableUpdate), status: 'downloaded', progress: 100, downloadedBytes: 8_192,
-      downloadedPath: 'D:\\fixture\\LoadToAgent-Setup-3.1.0.exe', installMode: 'automatic',
+      downloadedPath: 'D:\\fixture\\Whitebox-Setup-3.1.0.exe', installMode: 'automatic',
     };
     updateStateListeners.forEach(listener => listener(clone(update)));
     return clone(update);
@@ -649,7 +649,7 @@ const api = {
   openExternal: url => controlled('openExternal', [url]),
   openSessionOrigin: session => controlled('openSessionOrigin', [session], { ok: true }),
   writeClipboard: value => controlled('writeClipboard', [value]),
-  bridgeCommand: provider => controlled('bridgeCommand', [provider], { ok: true, command: `loadtoagent bridge ${provider}` }),
+  bridgeCommand: provider => controlled('bridgeCommand', [provider], { ok: true, command: `whitebox bridge ${provider}` }),
   terminalList: async () => {
     record('terminalList');
     return clone(terminals);
@@ -717,7 +717,7 @@ const api = {
       failures.set('terminalCreate', remaining - 1);
       created.status = 'failed';
       created.statusDetail = 'terminalCreate fixture failure';
-      created.replay += '[LoadToAgent] terminalCreate fixture failure\r\n';
+      created.replay += '[Whitebox] terminalCreate fixture failure\r\n';
       emitTerminalInventory('updated', created);
       throw new Error('terminalCreate fixture failure');
     }
@@ -946,5 +946,5 @@ const testApi = {
   },
 };
 
-contextBridge.exposeInMainWorld('loadtoagent', api);
+contextBridge.exposeInMainWorld('whitebox', api);
 contextBridge.exposeInMainWorld('interactionTest', testApi);

@@ -545,10 +545,10 @@ function syntheticBridgeSession(bridge, now = Date.now()) {
   session.title = `${bridge.provider === 'codex' ? 'GPT · Codex' : bridge.provider} 외부 연결`;
   session.cwd = bridge.cwd || '';
   session.workspace = session.cwd ? session.cwd.replace(/\\/g, '/').split('/').filter(Boolean).pop() : '작업 폴더 확인 중';
-  session.source = 'loadtoagent-bridge';
-  session.sourceLabel = 'LoadToAgent 외부 명령창 연결';
-  session.clientKind = 'loadtoagent-bridge';
-  session.runtimePresence = [{ ...bridge, kind: 'bridge', label: 'LoadToAgent 외부 명령창 연결' }];
+  session.source = 'whitebox-bridge';
+  session.sourceLabel = 'Whitebox 외부 명령창 연결';
+  session.clientKind = 'whitebox-bridge';
+  session.runtimePresence = [{ ...bridge, kind: 'bridge', label: 'Whitebox 외부 명령창 연결' }];
   session.statusDetail = '안전하게 연결된 외부 명령창';
   return session;
 }
@@ -610,7 +610,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     if (!linked || linked.provider !== bridge.provider || utilitySession(linked)) continue;
     usedBridgeIds.add(bridge.id);
     usedSessionIds.add(linked.id);
-    markRuntime(linked, { ...bridge, kind: 'bridge', label: 'LoadToAgent AI 명령창', linkScore: 'explicit' });
+    markRuntime(linked, { ...bridge, kind: 'bridge', label: 'Whitebox AI 명령창', linkScore: 'explicit' });
   }
   for (const bridge of bridges || []) {
     if (usedBridgeIds.has(bridge.id)) continue;
@@ -646,7 +646,7 @@ function applyRuntimePresence(agentSessions, tmuxSnapshot, processSnapshot, now 
     markRuntime(pair.session, {
       ...pair.bridge,
       kind: 'bridge',
-      label: 'LoadToAgent 외부 명령창 연결',
+      label: 'Whitebox 외부 명령창 연결',
       linkScore: Math.round(pair.score),
       bindingTerminalCandidateCount: terminalCandidates.get(terminalId)?.size || 0,
       bindingSessionCandidateCount: sessionCandidates.get(pair.session.id)?.size || 0,

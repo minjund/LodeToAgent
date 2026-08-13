@@ -1,11 +1,11 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createDialogEventBindings = function createDialogEventBindings(context = {}) {
+window.WhiteboxAppFactories.createDialogEventBindings = function createDialogEventBindings(context = {}) {
   const CONTEXT_DRAWER_MIN_WIDTH = 1680;
   const CONTEXT_WORKSPACE_MIN_WIDTH = 960;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, $$, state, providerInfo, visibleProviders = () => state.providers, renderProviderRail, scheduleAgentWorkflowConnections, resumeAgentTerminal, loadSessionDetail,
     closeDrawer, backToAgentFlow, renderDrawer, render = () => {}, providerPickerHtml, syncRunComposer, openRunModal, closeRunModal, toast, performUiAction,
@@ -52,7 +52,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#runSourceHelp")?.addEventListener("click", async (event) => {
       const recheck = event.target.closest("[data-source-recheck]");
       if (recheck) {
-        const sources = await performUiAction(() => window.loadtoagent.refreshSources(), "출처 연결을 다시 확인하지 못했습니다.", recheck);
+        const sources = await performUiAction(() => window.whitebox.refreshSources(), "출처 연결을 다시 확인하지 못했습니다.", recheck);
         if (sources) state.sourcePlugins = sources;
         context.ensureRunSourcePicker?.();
         bindSourcePicker();
@@ -61,7 +61,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       }
       const pickFolder = event.target.closest("[data-aside-history-pick]");
       if (pickFolder) {
-        const result = await performUiAction(() => window.loadtoagent.pickAsideHistoryFolder(), "Aside 작업 폴더를 연결하지 못했습니다.", pickFolder);
+        const result = await performUiAction(() => window.whitebox.pickAsideHistoryFolder(), "Aside 작업 폴더를 연결하지 못했습니다.", pickFolder);
         if (result?.settings) state.sourcePluginSettings = result.settings;
         syncRunComposer();
         return;
@@ -69,7 +69,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const removeFolder = event.target.closest("[data-aside-history-remove]");
       if (removeFolder) {
         const folder = removeFolder.dataset.asideHistoryRemove;
-        const result = await performUiAction(() => window.loadtoagent.removeAsideHistoryFolder(folder), "Aside 작업 폴더 연결을 해제하지 못했습니다.", removeFolder);
+        const result = await performUiAction(() => window.whitebox.removeAsideHistoryFolder(folder), "Aside 작업 폴더 연결을 해제하지 못했습니다.", removeFolder);
         if (result?.settings) state.sourcePluginSettings = result.settings;
         syncRunComposer();
       }
@@ -105,14 +105,14 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         const provider = providerInfo(docs.dataset.providerDocs);
         if (provider.docs)
           await performUiAction(async () => {
-            const result = await window.loadtoagent.openExternal(provider.docs);
+            const result = await window.whitebox.openExternal(provider.docs);
             if (!result || result.ok === false) throw new Error(t("run.docs_open_failed"));
           }, t("run.docs_open_failed"), docs);
         return;
       }
       const recheck = event.target.closest("[data-provider-recheck]");
       if (recheck) {
-        const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), t("run.cli_check_failed"), recheck);
+        const nextAvailability = await performUiAction(() => window.whitebox.probeProviders(), t("run.cli_check_failed"), recheck);
         if (!nextAvailability) return;
         state.availability = nextAvailability;
         const installed = visibleProviders().find((provider) => state.availability[provider.id]);
@@ -164,7 +164,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     });
     $("#pickRunCwdBtn").addEventListener("click", async () => {
       if ($("#runCwd").readOnly) return;
-      const folder = await performUiAction(() => window.loadtoagent.pickWorkspace(), t("workspace.pick_failed"), $("#pickRunCwdBtn"));
+      const folder = await performUiAction(() => window.whitebox.pickWorkspace(), t("workspace.pick_failed"), $("#pickRunCwdBtn"));
       if (folder) {
         $("#runCwd").value = folder;
         syncRunComposer();
@@ -243,7 +243,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       options[slashState.activeIndex]?.scrollIntoView({ block: "nearest" });
     };
     const renderConversationSlashMenu = (input, query) => {
-      const composer = window.LoadToAgentTerminalComposer;
+      const composer = window.WhiteboxTerminalComposer;
       const form = input?.closest("[data-agent-command-routing='conversation']");
       const list = form?.querySelector("[data-conversation-slash-list]");
       const title = form?.querySelector("[data-conversation-slash-title]");
@@ -288,7 +288,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     };
     const syncConversationSlashMenu = (input, options = {}) => {
       const form = input?.closest("[data-agent-command-routing='conversation']");
-      const composer = window.LoadToAgentTerminalComposer;
+      const composer = window.WhiteboxTerminalComposer;
       if (!form || !composer || input.disabled) {
         if (input) setConversationSlashOpen(input, false);
         return;
@@ -321,7 +321,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.focus({ preventScroll: true });
       input.setSelectionRange(input.value.length, input.value.length);
-      window.LoadToAgentA11y?.announce(t("terminal.slash.selected", { command: command.value }));
+      window.WhiteboxA11y?.announce(t("terminal.slash.selected", { command: command.value }));
       return true;
     };
     const handleConversationSlashKeydown = (event, input) => {
@@ -654,11 +654,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     $("#detailDrawer").addEventListener("keydown", (event) => {
       const input = event.target.closest("[data-agent-command-draft]");
       if (!input || handleConversationSlashKeydown(event, input)) return;
-      window.LoadToAgentImeSubmit?.handleKeydown(event, input);
+      window.WhiteboxImeSubmit?.handleKeydown(event, input);
     });
     $("#detailDrawer").addEventListener("compositionend", (event) => {
       if (event.target.closest?.("[data-agent-command-draft]")) {
-        window.LoadToAgentImeSubmit?.handleCompositionEnd(event);
+        window.WhiteboxImeSubmit?.handleCompositionEnd(event);
       }
     });
     $("#detailDrawer").addEventListener("focusout", (event) => {
@@ -678,7 +678,7 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();
-      window.LoadToAgentImeSubmit?.handleSubmit(form);
+      window.WhiteboxImeSubmit?.handleSubmit(form);
       dispatchAgentCommand(form.dataset.agentCommandForm, form);
     });
     document.addEventListener("keydown", (event) => {

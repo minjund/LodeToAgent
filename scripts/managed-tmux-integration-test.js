@@ -44,7 +44,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-managed-tmux-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-managed-tmux-'));
   const socket = `lta-e2e-${process.pid}-${Date.now()}`;
   const runtime = new ManagedTmuxRuntime({ platform: process.platform });
   const manager = new TerminalManager({
@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
     sessionId = created.id;
     const options = manager.required(sessionId).options;
     await waitForSession(runtime, options);
-    const attachedMarker = `LOADTOAGENT_MANAGED_ATTACHED_${Date.now()}`;
+    const attachedMarker = `WHITEBOX_MANAGED_ATTACHED_${Date.now()}`;
     const attachedOutput = waitForOutput(manager, sessionId, attachedMarker);
     manager.command(sessionId, `printf '${attachedMarker}\\n'`);
     await attachedOutput;
@@ -80,7 +80,7 @@ app.whenReady().then(async () => {
       throw new Error('PTY 화면을 분리한 뒤 tmux 작업이 유지되지 않았습니다.');
     }
 
-    const backgroundMarker = `LOADTOAGENT_MANAGED_BACKGROUND_${Date.now()}`;
+    const backgroundMarker = `WHITEBOX_MANAGED_BACKGROUND_${Date.now()}`;
     const targetPane = `${options.managedTmuxSession}:0.0`;
     runtime.execute(options, ['send-keys', '-l', '-t', targetPane, `printf '${backgroundMarker}\\n'`]);
     runtime.execute(options, ['send-keys', '-t', targetPane, 'Enter']);

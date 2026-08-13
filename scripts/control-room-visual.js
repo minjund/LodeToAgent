@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-control-room-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-control-room-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -49,15 +49,15 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     await waitFor(
       win,
-      `Boolean(window.LoadToAgentApp?.initialized
-        && window.LoadToAgentApp?.state?.snapshot
-        && window.LoadToAgentApp?.state?.providerUsage?.providers?.claude?.shortWindow
+      `Boolean(window.WhiteboxApp?.initialized
+        && window.WhiteboxApp?.state?.snapshot
+        && window.WhiteboxApp?.state?.providerUsage?.providers?.claude?.shortWindow
         && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
         && document.querySelectorAll('#projectSidebarList [data-workspace]').length >= 2)`,
       '프로젝트 선택 홈이 준비되지 않았습니다.',
     );
     const initialSelectionMetrics = await win.webContents.executeJavaScript(`(() => ({
-      workspace: window.LoadToAgentApp.state.workspace,
+      workspace: window.WhiteboxApp.state.workspace,
       prompt: document.querySelector('#projectSelectionPrompt h2')?.textContent.trim() || '',
       projectCount: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
       liveHidden: document.querySelector('#liveSection')?.classList.contains('hidden'),
@@ -71,8 +71,8 @@ app.whenReady().then(async () => {
       throw new Error(`프로젝트 선택 홈 검증 실패: ${JSON.stringify(initialSelectionMetrics)}`);
     }
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      const control = window.LoadToAgentApp;
+      window.WhiteboxI18n.setLocale('ko');
+      const control = window.WhiteboxApp;
       control.state.guideExpanded = false;
       control.state.search = '';
       control.state.workspace = 'all';
@@ -273,9 +273,9 @@ app.whenReady().then(async () => {
         collapseDisabled: Boolean(document.querySelector('#controlRoomCollapseAll')?.disabled),
         pagerRemoved: !document.querySelector('#controlRoomPageSummary, #controlRoomPagePrev, #controlRoomPageNext'),
         semanticSamples: {
-          copy: window.LoadToAgentApp.controlRoomSummary('메인이랑 서브 에이전트 그리고 실행중인 세션 문구를 사람이 알아보기 좋게 요약해줘', 64).text,
-          loop: window.LoadToAgentApp.controlRoomSummary('/' + ['w', 'c', 'c'].join('') + '-loop --tick v18-seo-blog', 64).text,
-          phase: window.LoadToAgentApp.controlRoomSummary('Now I understand the full phase-cycle-complete contract and requirements updated guard.', 64).text,
+          copy: window.WhiteboxApp.controlRoomSummary('메인이랑 서브 에이전트 그리고 실행중인 세션 문구를 사람이 알아보기 좋게 요약해줘', 64).text,
+          loop: window.WhiteboxApp.controlRoomSummary('/' + ['w', 'c', 'c'].join('') + '-loop --tick v18-seo-blog', 64).text,
+          phase: window.WhiteboxApp.controlRoomSummary('Now I understand the full phase-cycle-complete contract and requirements updated guard.', 64).text,
         },
       };
     })()`);
@@ -336,7 +336,7 @@ app.whenReady().then(async () => {
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
     await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       const root = control.state.snapshot.sessions.find(session => session.id === 'fixture-root');
       root.status = 'running';
       root.statusDetail = '기능 사용 또는 답변 작성 중';
@@ -355,7 +355,7 @@ app.whenReady().then(async () => {
       document.querySelector('#advancedToolsCount').textContent = '17';
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     })()`);
-    const overviewOutput = await capture(win, outputDir, 'loadtoagent-control-room.png');
+    const overviewOutput = await capture(win, outputDir, 'whitebox-control-room.png');
 
     await win.webContents.executeJavaScript(`(() => {
       const project = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
@@ -364,8 +364,8 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === 'D:\\\\cms-web'
-        && window.LoadToAgentApp.state.view === 'all'
+      `window.WhiteboxApp.state.workspace === 'D:\\\\cms-web'
+        && window.WhiteboxApp.state.view === 'all'
         && document.querySelector('#projectContextName')?.textContent.trim() === 'CMS_WEB'`,
       '왼쪽 프로젝트 선택이 메인 프로젝트 컨텍스트에 반영되지 않았습니다.',
     );
@@ -411,8 +411,8 @@ app.whenReady().then(async () => {
           ),
           sessionIds,
           allRelated: sessionIds.every(id => {
-            const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === id);
-            return Boolean(session && window.LoadToAgentApp.matchesWorkspaceFilter(session));
+            const session = window.WhiteboxApp.state.snapshot.sessions.find(item => item.id === id);
+            return Boolean(session && window.WhiteboxApp.matchesWorkspaceFilter(session));
           }),
         };
       })(),
@@ -445,17 +445,17 @@ app.whenReady().then(async () => {
       || !projectContextMetrics.duplicateProgressHeadingHidden) {
       throw new Error(`프로젝트 진행 상황·상단 세션 토큰 검증 실패: ${JSON.stringify(projectContextMetrics)}`);
     }
-    const projectContextOutput = await capture(win, outputDir, 'loadtoagent-project-context.png');
+    const projectContextOutput = await capture(win, outputDir, 'whitebox-project-context.png');
     await win.webContents.executeJavaScript(`document.querySelector('#projectHistoryRail')?.scrollIntoView({ block: 'end' })`);
-    const projectHistoryOutput = await capture(win, outputDir, 'loadtoagent-project-history.png');
+    const projectHistoryOutput = await capture(win, outputDir, 'whitebox-project-history.png');
     await win.webContents.executeJavaScript(`document.querySelector('.main-stage')?.scrollTo(0, 0)`);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.state.workspace = 'all';
-      window.LoadToAgentApp.render('filter');
+      window.WhiteboxApp.state.workspace = 'all';
+      window.WhiteboxApp.render('filter');
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === 'all'
+      `window.WhiteboxApp.state.workspace === 'all'
         && document.querySelector('#projectContextName')?.textContent.trim() === '프로젝트'`,
       '프로젝트 전체 컨텍스트로 돌아오지 못했습니다.',
     );
@@ -475,10 +475,10 @@ app.whenReady().then(async () => {
       throw new Error(`중복 남은 사용 한도 영역이 남아 있습니다: ${JSON.stringify(usageDetailMetrics)}`);
     }
 
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('terminal', { focusMain: true })`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.selectView('terminal', { focusMain: true })`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.view === 'terminal'
+      `window.WhiteboxApp.state.view === 'terminal'
         && !document.querySelector('#backToProjectsBtn')?.classList.contains('hidden')`,
       '고급 작업창에서 프로젝트로 돌아가기 버튼이 나타나지 않았습니다.',
     );
@@ -504,11 +504,11 @@ app.whenReady().then(async () => {
       || !focusedToolMetrics.quickGeneralEntryRemoved) {
       throw new Error(`고급 작업창 단순화 검증 실패: ${JSON.stringify(focusedToolMetrics)}`);
     }
-    const focusedToolOutput = await capture(win, outputDir, 'loadtoagent-focused-tool.png');
+    const focusedToolOutput = await capture(win, outputDir, 'whitebox-focused-tool.png');
     await win.webContents.executeJavaScript(`document.querySelector('#backToProjectsBtn')?.click()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.view === 'all'
+      `window.WhiteboxApp.state.view === 'all'
         && document.querySelector('#backToProjectsBtn')?.classList.contains('hidden')
         && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
         && document.querySelector('#newRunBtn')?.getBoundingClientRect().width === 0`,
@@ -521,13 +521,13 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
+      `window.WhiteboxApp.state.workspace === 'D:\\\\fixture'
         && document.querySelector('#newRunBtn')?.getBoundingClientRect().width > 0`,
       '프로젝트를 선택한 뒤 새 AI 작업 버튼이 프로젝트 안에 나타나지 않았습니다.',
     );
 
     const projectControlMetrics = await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       const firstGroup = document.querySelector('.control-room-project-group');
       const initiallyFocused = [...document.querySelectorAll('.control-room-project-group')]
         .filter(group => group.open).length <= 1;
@@ -584,12 +584,12 @@ app.whenReady().then(async () => {
     }
 
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.state.workspace = 'D:\\\\fixture';
-      window.LoadToAgentApp.render('filter');
+      window.WhiteboxApp.state.workspace = 'D:\\\\fixture';
+      window.WhiteboxApp.render('filter');
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'
+      `window.WhiteboxApp.state.workspace === 'D:\\\\fixture'
         && !document.querySelector('#liveSection')?.classList.contains('hidden')
         && Boolean(document.querySelector('[data-open-subagent-chat="fixture-child"]'))`,
       '서브에이전트 검증용 프로젝트가 열리지 않았습니다.',
@@ -608,7 +608,7 @@ app.whenReady().then(async () => {
 
     const drawerMetrics = await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
-      const child = window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === 'fixture-child');
+      const child = window.WhiteboxApp.state.snapshot.sessions.find(session => session.id === 'fixture-child');
       return {
         mode: drawer.dataset.mode,
         presentation: drawer.dataset.presentation,
@@ -624,7 +624,7 @@ app.whenReady().then(async () => {
           && !drawer.querySelector('[data-agent-command-form="fixture-child"], [data-agent-command-draft="fixture-child"]'),
         focusControlRemoved: !document.querySelector('#drawerFocusModeBtn'),
         runtimePresence: child?.runtimePresence || [],
-        directTargets: window.LoadToAgentTerminal?.agentTargets(child) || [],
+        directTargets: window.WhiteboxTerminal?.agentTargets(child) || [],
         scope: drawer.querySelector('[data-conversation-scope]')?.dataset.conversationScope || '',
         childWorkVisible: drawer.innerText.includes('실행 구조, 대화 기록, 직접 개입'),
         parentConversationHidden: !drawer.innerText.includes('상호작용 테스트를 진행해줘') && !drawer.innerText.includes('버튼과 입력 동작을 확인하고 있습니다.'),
@@ -639,7 +639,7 @@ app.whenReady().then(async () => {
     }
 
     await wait(180);
-    const drawerOutput = await capture(win, outputDir, 'loadtoagent-control-room-subagent.png');
+    const drawerOutput = await capture(win, outputDir, 'whitebox-control-room-subagent.png');
 
     await win.webContents.executeJavaScript(`(() => {
       document.querySelector('#drawerBackToFlowBtn')?.click();
@@ -649,7 +649,7 @@ app.whenReady().then(async () => {
       win,
       `document.querySelector('#detailDrawer')?.classList.contains('open')
         && document.querySelector('#detailDrawer')?.dataset.mode === 'execution'
-        && window.LoadToAgentApp.state.drawerExecutionId === 'fixture-shell-running'
+        && window.WhiteboxApp.state.drawerExecutionId === 'fixture-shell-running'
         && Boolean(document.querySelector('[data-execution-detail="fixture-shell-running"]'))`,
       'PowerShell 실행 전용 상세 화면이 열리지 않았습니다.',
     );
@@ -675,15 +675,15 @@ app.whenReady().then(async () => {
       || !executionMetrics.parentConversationHidden || !executionMetrics.composerHidden || !executionMetrics.noDrawerOverflow) {
       throw new Error(`실행 단위 상세 분리 검증 실패: ${JSON.stringify(executionMetrics)}`);
     }
-    const executionOutput = await capture(win, outputDir, 'loadtoagent-control-room-execution.png');
+    const executionOutput = await capture(win, outputDir, 'whitebox-control-room-execution.png');
 
     win.setContentSize(1224, 792);
     await wait(260);
     await win.webContents.executeJavaScript(`(() => {
       document.querySelector('#closeDrawerBtn')?.click();
       document.querySelector('#toast')?.classList.add('hidden');
-      window.LoadToAgentApp.state.disclosureStates.clear();
-      window.LoadToAgentApp.renderSessions('filter');
+      window.WhiteboxApp.state.disclosureStates.clear();
+      window.WhiteboxApp.renderSessions('filter');
       const stage = document.querySelector('.main-stage');
       const live = document.querySelector('#liveSection');
       if (stage && live) stage.scrollTo(0, Math.max(0, live.offsetTop - 8));
@@ -732,7 +732,7 @@ app.whenReady().then(async () => {
       || !desktop1224Metrics.noLiveOverflow || !desktop1224Metrics.noStageOverflow) {
       throw new Error(`1224×792 세션 관제 검증 실패: ${JSON.stringify(desktop1224Metrics)}`);
     }
-    const desktop1224Output = await capture(win, outputDir, 'loadtoagent-control-room-1224.png');
+    const desktop1224Output = await capture(win, outputDir, 'whitebox-control-room-1224.png');
 
     const constrainedFlowMetrics = await win.webContents.executeJavaScript(`(() => {
       const group = document.querySelector('.control-room-project-group');
@@ -775,7 +775,7 @@ app.whenReady().then(async () => {
       || !constrainedFlowMetrics.columnsInsideFlow || !constrainedFlowMetrics.titleWrapsInsideCard) {
       throw new Error(`좁은 작업 영역·긴 경로 흐름 검증 실패: ${JSON.stringify(constrainedFlowMetrics)}`);
     }
-    const constrainedFlowOutput = await capture(win, outputDir, 'loadtoagent-control-room-constrained-flow.png');
+    const constrainedFlowOutput = await capture(win, outputDir, 'whitebox-control-room-constrained-flow.png');
 
     win.setContentSize(390, 844);
     await wait(260);
@@ -786,7 +786,7 @@ app.whenReady().then(async () => {
       if (firstProject) {
         firstProject.open = true;
         const key = firstProject.dataset.disclosureKey;
-        if (key) window.LoadToAgentApp.state.disclosureStates.set(key, true);
+        if (key) window.WhiteboxApp.state.disclosureStates.set(key, true);
       }
       document.querySelector('.main-stage')?.scrollTo(0, 0);
       return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -865,7 +865,7 @@ app.whenReady().then(async () => {
       || mobileMetrics.usageProviderCards !== 0 || mobileMetrics.usageGauges !== 0) {
       throw new Error(`모바일 세션 관제 검증 실패: ${JSON.stringify(mobileMetrics)}`);
     }
-    const mobileOutput = await capture(win, outputDir, 'loadtoagent-control-room-mobile.png');
+    const mobileOutput = await capture(win, outputDir, 'whitebox-control-room-mobile.png');
 
     process.stdout.write(`세션 관제 시각·상호작용 검증 통과\n${JSON.stringify({ initialSelectionMetrics, overviewMetrics, projectContextMetrics, projectToolsMetrics, usageDetailMetrics, focusedToolMetrics, drawerMetrics, executionMetrics, desktop1224Metrics, constrainedFlowMetrics, mobileMetrics }, null, 2)}\n${overviewOutput}\n${projectContextOutput}\n${projectHistoryOutput}\n${focusedToolOutput}\n${drawerOutput}\n${executionOutput}\n${desktop1224Output}\n${constrainedFlowOutput}\n${mobileOutput}\n`);
   } catch (error) {

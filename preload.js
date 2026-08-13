@@ -18,7 +18,7 @@ async function terminalWrite(id, data, options) {
   return unwrapTerminalWriteEnvelope(value);
 }
 
-contextBridge.exposeInMainWorld('loadtoagent', {
+contextBridge.exposeInMainWorld('whitebox', {
   bootstrap: () => ipcRenderer.invoke('app:bootstrap'),
   rendererReady: () => ipcRenderer.invoke('app:renderer-ready'),
   backgroundState: () => ipcRenderer.invoke('app:background-state'),

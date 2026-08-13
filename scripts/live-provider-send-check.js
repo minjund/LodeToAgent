@@ -57,7 +57,7 @@ function providerLaunch(provider, marker) {
 }
 
 async function verifyProvider(provider, timeoutMs = 45_000) {
-  const marker = `LOADTOAGENT_${provider.toUpperCase()}_SEND_OK`;
+  const marker = `WHITEBOX_${provider.toUpperCase()}_SEND_OK`;
   const launch = providerLaunch(provider, marker);
   const startedAt = Date.now();
   return new Promise((resolve, reject) => {

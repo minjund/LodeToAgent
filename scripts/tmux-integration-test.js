@@ -5,7 +5,7 @@ const { TmuxController } = require('../src/tmuxController');
 const { TmuxMonitor } = require('../src/tmuxMonitor');
 
 const distro = process.argv[2] || 'Ubuntu-22.04';
-const baseName = `loadtoagent-e2e-${process.pid}-${Date.now()}`;
+const baseName = `whitebox-e2e-${process.pid}-${Date.now()}`;
 let activeName = baseName;
 const controller = new TmuxController();
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -13,7 +13,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
 async function main() {
   try {
     await controller.newSession({ distro, name: activeName });
-    const marker = `LOADTOAGENT_TMUX_OK_${Date.now()}`;
+    const marker = `WHITEBOX_TMUX_OK_${Date.now()}`;
     await controller.sendText({ distro, target: `${activeName}:0.0`, text: `printf '${marker}\\n'`, enter: true });
     await wait(250);
     const captured = await controller.capture({ distro, target: `${activeName}:0.0`, lines: 100 });

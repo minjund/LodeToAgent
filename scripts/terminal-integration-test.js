@@ -4,9 +4,9 @@ const path = require('path');
 const { app } = require('electron');
 const { TerminalManager } = require('../src/terminalManager');
 
-const marker = `LOADTOAGENT_PTY_OK_${Date.now()}`;
-const boundReadyMarker = 'LOADTOAGENT_BOUND_PTY_READY';
-const boundInterruptedMarker = 'LOADTOAGENT_BOUND_PTY_INTERRUPTED';
+const marker = `WHITEBOX_PTY_OK_${Date.now()}`;
+const boundReadyMarker = 'WHITEBOX_BOUND_PTY_READY';
+const boundInterruptedMarker = 'WHITEBOX_BOUND_PTY_INTERRUPTED';
 const manager = new TerminalManager({
   agentProviders: {
     codex: {

@@ -3,7 +3,7 @@
 (function exposeConversationDelivery(root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
-  if (root) root.LoadToAgentConversationDelivery = api;
+  if (root) root.WhiteboxConversationDelivery = api;
 })(typeof window === "object" ? window : null, function createConversationDelivery() {
   // Claude startup hooks can delay the provider log by tens of seconds even
   // though the prompt was already handed to the CLI. Avoid turning normal

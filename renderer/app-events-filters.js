@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createFilterEventBindings = function createFilterEventBindings(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const { $, state, setProviderVisible = () => {}, visibleSnapshot = () => state.snapshot, closeDrawer = () => {}, openDrawer = () => {}, openRunModal = () => {}, syncRunComposer = () => {}, saveRunDraft = () => {}, renderSessions, render, renderWorkspaces, renderGlobalStats = () => {}, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, filteredSessions, performUiAction, toast, announce, selectView = () => {}, normalizedSearch = (value) => String(value || "").trim(), saveDashboardPreferences = () => {}, saveProjectDismissals = () => {}, moveProjectOrder = () => false, acknowledgeProjectNotices = () => 0, discardDialogTrigger = () => {}, setDialogOpenState = () => {}, syncControlRoomDisclosureButtons = () => {}, preconnectProjectAgentTerminals = () => Promise.resolve([]) } = context;
 
   let sidebarProjectDragEndedAt = 0;
@@ -11,10 +11,10 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
   function preconnectSelectedWorkspace() {
     try {
       void Promise.resolve(preconnectProjectAgentTerminals(state.workspace)).catch((error) => {
-        window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
+        window.WhiteboxRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
       });
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("project-pty-preconnect-event", error);
     }
   }
 
@@ -86,7 +86,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         if (event.dataTransfer) {
           event.dataTransfer.effectAllowed = "move";
           event.dataTransfer.setData("text/plain", draggedProjectId);
-          event.dataTransfer.setData("application/x-loadtoagent-project-sidebar", container.id);
+          event.dataTransfer.setData("application/x-whitebox-project-sidebar", container.id);
           event.dataTransfer.setDragImage(item, 20, 20);
         }
       });
@@ -139,7 +139,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       renderSessions("load-more");
       const cards = document.querySelectorAll("#sessionGrid [data-session-id]");
       cards[Math.min(previousCount, cards.length - 1)]?.focus({ preventScroll: true });
-      announce(window.LoadToAgentI18n.t("filter.more_loaded", { count: Math.max(0, cards.length - previousCount) }));
+      announce(window.WhiteboxI18n.t("filter.more_loaded", { count: Math.max(0, cards.length - previousCount) }));
     });
     const workspaceLists = [$("#workspaceList"), $("#mobileWorkspaceList"), $("#projectSidebarList")].filter(Boolean);
     const handleWorkspaceClick = async (event) => {
@@ -163,7 +163,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         const workspaceItems = Array.from(activeList.querySelectorAll("[data-workspace]"));
         const workspaceRow = remove.closest(".workspace-row, .project-sidebar-group");
         const workspaceIndex = Math.max(0, workspaceItems.indexOf(workspaceRow?.querySelector("[data-workspace]")));
-        const workspaces = await performUiAction(() => window.loadtoagent.removeWorkspace(remove.dataset.removeWorkspace), t("workspace.remove_failed"), remove);
+        const workspaces = await performUiAction(() => window.whitebox.removeWorkspace(remove.dataset.removeWorkspace), t("workspace.remove_failed"), remove);
         if (!workspaces) return;
         state.workspaces = workspaces;
         state.dismissedProjects.add(normalizedProjectPath(path));
@@ -177,7 +177,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
           const nextItems = Array.from(activeList.querySelectorAll("[data-workspace]"));
           nextItems[Math.min(workspaceIndex, nextItems.length - 1)]?.focus();
         });
-        announce(window.LoadToAgentI18n.t("quality.workspace_removed", { name: path.split(/[\\/]/).filter(Boolean).pop() || path }));
+        announce(window.WhiteboxI18n.t("quality.workspace_removed", { name: path.split(/[\\/]/).filter(Boolean).pop() || path }));
         return;
       }
       const item = event.target.closest("[data-workspace]");
@@ -249,7 +249,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         event.preventDefault();
         event.stopPropagation();
         if ($("#detailDrawer")?.classList.contains("open")) closeDrawer(false);
-        window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger);
+        window.WhiteboxInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger);
         return;
       }
       const open = event.target.closest("[data-open-session]");
@@ -347,7 +347,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         state.search = normalizedSearch(value);
         state.visibleLimit = 30;
         renderSessions("filter");
-        announce(window.LoadToAgentI18n.t("filter.search_results", { count: filteredSessions().length }));
+        announce(window.WhiteboxI18n.t("filter.search_results", { count: filteredSessions().length }));
         syncFilterResetButton();
         saveDashboardPreferences();
       }, 120);
@@ -359,7 +359,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.search = "";
       state.visibleLimit = 30;
       renderSessions("filter");
-      announce(window.LoadToAgentI18n.t("filter.search_cleared"));
+      announce(window.WhiteboxI18n.t("filter.search_cleared"));
       $("#searchInput").focus();
       syncFilterResetButton();
       saveDashboardPreferences();
@@ -420,7 +420,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       state.visibleLimit = 30;
       renderSessions("filter");
       const label = event.target.selectedOptions[0]?.textContent || event.target.value;
-      announce(window.LoadToAgentI18n.t("filter.sort_changed", { sort: label, count: filteredSessions().length }));
+      announce(window.WhiteboxI18n.t("filter.sort_changed", { sort: label, count: filteredSessions().length }));
       syncFilterResetButton();
       saveDashboardPreferences();
     });
@@ -442,7 +442,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       preconnectSelectedWorkspace();
       syncFilterResetButton();
       saveDashboardPreferences();
-      announce(window.LoadToAgentI18n.t("filter.reset_done", { count: filteredSessions().length }));
+      announce(window.WhiteboxI18n.t("filter.reset_done", { count: filteredSessions().length }));
       $("#searchInput").focus();
     });
     $("#providerVisibilityList").addEventListener("change", async (event) => {
@@ -455,14 +455,14 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       setProviderVisible(providerId, input.checked);
       state.visibleLimit = 30;
       if (state.selectedId && selectedBeforeChange && !selectedBeforeChange.sourcePluginId && state.hiddenProviders.has(selectedBeforeChange.provider)) closeDrawer();
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       render("filter");
       try {
-        await Promise.resolve(window.loadtoagent.setProviderVisibility?.({ hidden: [...state.hiddenProviders] }));
+        await Promise.resolve(window.whitebox.setProviderVisibility?.({ hidden: [...state.hiddenProviders] }));
       } catch (error) {
-        window.LoadToAgentRendererUtils.reportRecoverableError("provider-visibility-persistence", error);
+        window.WhiteboxRendererUtils.reportRecoverableError("provider-visibility-persistence", error);
         setProviderVisible(providerId, previousVisible);
-        if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
+        if (window.WhiteboxTerminal) window.WhiteboxTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
         render("filter");
         toast(t("settings.providers.save_failed"));
         return;
@@ -475,7 +475,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     const addWorkspaceButtons = [$("#sidebarNewProjectBtn"), $("#addWorkspaceBtn"), $("#mobileAddWorkspaceBtn")].filter(Boolean);
     const addWorkspace = async (event) => {
       const trigger = event.currentTarget;
-      const response = await performUiAction(() => window.loadtoagent.addWorkspaces(), t("workspace.add_failed"), trigger);
+      const response = await performUiAction(() => window.whitebox.addWorkspaces(), t("workspace.add_failed"), trigger);
       if (!response || response.canceled) return;
       const workspaces = Array.isArray(response) ? response : response.workspaces;
       if (!Array.isArray(workspaces)) return;
@@ -515,11 +515,11 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
     };
     addWorkspaceButtons.forEach((button) => button.addEventListener("click", addWorkspace));
     $("#probeBtn").addEventListener("click", async () => {
-      const nextAvailability = await performUiAction(() => window.loadtoagent.probeProviders(), t("run.cli_check_failed"), $("#probeBtn"));
+      const nextAvailability = await performUiAction(() => window.whitebox.probeProviders(), t("run.cli_check_failed"), $("#probeBtn"));
       if (!nextAvailability) return;
       state.availability = nextAvailability;
       render();
-      toast(window.LoadToAgentI18n.t("ui.ai_cli_connections_were_checked_again"));
+      toast(window.WhiteboxI18n.t("ui.ai_cli_connections_were_checked_again"));
     });
     $("#searchClearBtn").classList.toggle("hidden", !$("#searchInput").value);
     syncFilterResetButton();

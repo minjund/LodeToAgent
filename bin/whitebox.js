@@ -13,21 +13,21 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 
 function usage() {
   return [
-    'LoadToAgent · AI 작업 도우미',
+    'Whitebox · AI 작업 도우미',
     '',
     '사용법:',
-    '  loadtoagent                                           데스크톱 앱 열기',
-    '  loadtoagent open                                      데스크톱 앱 열기',
-    '  loadtoagent run <claude|codex|gemini|grok> [-- 옵션]  앱 브리지에서 AI 실행',
-    '  loadtoagent codex-endpoint                              공유 Codex 서버 주소 확인',
-    '  loadtoagent --version                                 버전 확인',
+    '  whitebox                                           데스크톱 앱 열기',
+    '  whitebox open                                      데스크톱 앱 열기',
+    '  whitebox run <claude|codex|gemini|grok> [-- 옵션]  앱 브리지에서 AI 실행',
+    '  whitebox codex-endpoint                              공유 Codex 서버 주소 확인',
+    '  whitebox --version                                 버전 확인',
     '',
     '예시:',
-    '  loadtoagent',
-    '  loadtoagent run codex',
-    '  loadtoagent run claude -- --model claude-sonnet-4-6',
+    '  whitebox',
+    '  whitebox run codex',
+    '  whitebox run claude -- --model claude-sonnet-4-6',
     '',
-    '`run` 명령을 사용하려면 LoadToAgent 데스크톱 앱이 열려 있어야 합니다.',
+    '`run` 명령을 사용하려면 Whitebox 데스크톱 앱이 열려 있어야 합니다.',
   ].join('\n');
 }
 
@@ -63,8 +63,10 @@ function desktopLaunchSpec(options = {}) {
   const sourceEnv = options.env || process.env;
   const env = { ...sourceEnv };
   const packagedLauncher = sourceEnv.ELECTRON_RUN_AS_NODE === '1';
-  const sourceLauncher = sourceEnv.LOADTOAGENT_SOURCE_LAUNCHER === '1';
+  const sourceLauncher = sourceEnv.WHITEBOX_SOURCE_LAUNCHER === '1'
+    || sourceEnv.LOADTOAGENT_SOURCE_LAUNCHER === '1';
   delete env.ELECTRON_RUN_AS_NODE;
+  delete env.WHITEBOX_SOURCE_LAUNCHER;
   delete env.LOADTOAGENT_SOURCE_LAUNCHER;
   if (packagedLauncher) {
     const executable = options.execPath || process.execPath;
@@ -96,10 +98,19 @@ function launchDesktop(options = {}) {
 function readDiscovery(home = os.homedir(), options = {}) {
   const environment = options.env || process.env;
   const fileSystem = options.fileSystem || fs;
-  const file = environment.LOADTOAGENT_BRIDGE_FILE || path.join(home, '.loadtoagent', 'bridge.json');
+  const configured = environment.WHITEBOX_BRIDGE_FILE || environment.LOADTOAGENT_BRIDGE_FILE;
+  const files = configured
+    ? [configured]
+    : [path.join(home, '.whitebox', 'bridge.json'), path.join(home, '.loadtoagent', 'bridge.json')];
   let value;
-  try { value = JSON.parse(fileSystem.readFileSync(file, 'utf8')); } catch { throw new Error('실행 중인 LoadToAgent 브리지를 찾지 못했습니다. LoadToAgent 프로그램을 먼저 여세요.'); }
-  if (!value || value.protocol !== 1 || !value.endpoint || !value.token) throw new Error('LoadToAgent 브리지 정보가 올바르지 않습니다. 프로그램을 다시 시작하세요.');
+  for (const file of files) {
+    try {
+      value = JSON.parse(fileSystem.readFileSync(file, 'utf8'));
+      break;
+    } catch (_unavailableDiscovery) {}
+  }
+  if (!value) throw new Error('실행 중인 Whitebox 브리지를 찾지 못했습니다. Whitebox 프로그램을 먼저 여세요.');
+  if (!value || value.protocol !== 1 || !value.endpoint || !value.token) throw new Error('Whitebox 브리지 정보가 올바르지 않습니다. 프로그램을 다시 시작하세요.');
   return value;
 }
 
@@ -107,10 +118,10 @@ function readCodexEndpoint(home = os.homedir(), options = {}) {
   const discovery = readDiscovery(home, options);
   const endpoint = String(discovery?.codexAppServer?.endpoint || '');
   if (!discovery?.codexAppServer?.ready || !/^ws:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/u.test(endpoint)) {
-    throw new Error('공유 Codex 서버가 아직 준비되지 않았습니다. LoadToAgent에서 Codex 작업을 먼저 여세요.');
+    throw new Error('공유 Codex 서버가 아직 준비되지 않았습니다. Whitebox에서 Codex 작업을 먼저 여세요.');
   }
   const port = Number(endpoint.slice(endpoint.lastIndexOf(':') + 1));
-  if (port > 65_535) throw new Error('LoadToAgent의 공유 Codex 서버 주소가 올바르지 않습니다.');
+  if (port > 65_535) throw new Error('Whitebox의 공유 Codex 서버 주소가 올바르지 않습니다.');
   return endpoint;
 }
 
@@ -140,7 +151,7 @@ function createSocketBackpressure(socket, inputFlow = {}, options = {}) {
   const pending = [];
 
   const destroyOverflow = () => {
-    const error = new Error('LoadToAgent 브리지 입력 전송 대기열이 가득 찼습니다.');
+    const error = new Error('Whitebox 브리지 입력 전송 대기열이 가득 찼습니다.');
     error.code = 'CLI_BRIDGE_OUTBOUND_OVERFLOW';
     cleanup();
     try { socket.destroy(error); } catch {}
@@ -156,7 +167,7 @@ function createSocketBackpressure(socket, inputFlow = {}, options = {}) {
     terminateTimer = scheduleTimeout(() => {
       terminateTimer = null;
       if (cleaned || (!terminateQueued && !ending)) return;
-      const error = new Error('LoadToAgent 브리지 종료 신호 전송 시간이 초과되었습니다.');
+      const error = new Error('Whitebox 브리지 종료 신호 전송 시간이 초과되었습니다.');
       error.code = 'CLI_BRIDGE_TERMINATE_TIMEOUT';
       cleanup();
       try { socket.destroy(error); } catch {}
@@ -375,7 +386,7 @@ function run(argv = process.argv.slice(2)) {
     if (message.type === 'state' && ['detached', 'stopped', 'exited', 'failed'].includes(message.status)) {
       exitCode = Number(message.exitCode || 0);
     } else if (message.type === 'error') {
-      process.stderr.write(`\nLoadToAgent: ${message.message}\n`);
+      process.stderr.write(`\nWhitebox: ${message.message}\n`);
       exitCode = 1;
     }
     return true;
@@ -392,7 +403,7 @@ function run(argv = process.argv.slice(2)) {
       try {
         message = JSON.parse(line);
       } catch (_invalidFrame) {
-        socket.destroy(new Error('LoadToAgent 브리지가 올바르지 않은 내용을 보냈습니다.'));
+        socket.destroy(new Error('Whitebox 브리지가 올바르지 않은 내용을 보냈습니다.'));
         return;
       }
       if (!handleMessage(message || {})) return;
@@ -420,7 +431,7 @@ function run(argv = process.argv.slice(2)) {
     consumeFrames();
   });
   socket.on('error', error => {
-    process.stderr.write(`LoadToAgent 연결 실패: ${error.message}\n`);
+    process.stderr.write(`Whitebox 연결 실패: ${error.message}\n`);
     exitCode = 1;
   });
   socket.on('close', () => finish(exitCode));

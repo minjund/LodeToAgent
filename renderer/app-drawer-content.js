@@ -1,8 +1,8 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createDrawerContent = function createDrawerContent(context = {}) {
+window.WhiteboxAppFactories.createDrawerContent = function createDrawerContent(context = {}) {
   const INITIAL_CONVERSATION_TURNS = 120;
   const CONVERSATION_TURN_PAGE = 120;
   const {
@@ -10,7 +10,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
     controlRoomAgentGoal, inferredExecutionSummary, executionActivityLabel, executionActivityStatus,
     conversationDeliveryState, observeConversationDelivery,
   } = context;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
 
   function conversationTurns(session, options = {}) {
     const turns = [];
@@ -415,8 +415,8 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         (event) => `<div class="lifecycle-event ${esc(event.status)}">
       <span class="life-node">${statusIcon(event.type)}</span>
       <div class="life-copy">
-      <b>${esc(window.LoadToAgentI18n.observedText(event.label))}</b>
-      <span>${esc(window.LoadToAgentI18n.observedText(event.detail || event.type))}</span>
+      <b>${esc(window.WhiteboxI18n.observedText(event.label))}</b>
+      <span>${esc(window.WhiteboxI18n.observedText(event.detail || event.type))}</span>
       </div>
       <time>${esc(timeOnly(event.timestamp))}</time>
       </div>`,
@@ -554,7 +554,7 @@ window.LoadToAgentAppFactories.createDrawerContent = function createDrawerConten
         const preview = subagentTextPreview(event.text);
         const label = fromChild ? t("drawer.child_to_main", { child: session.agentName || taskName }) : t("drawer.main_to_child");
         return `<article data-subagent-communication="${esc(event.kind)}">
-          <header><b>${esc(window.LoadToAgentI18n.observedText(event.label || event.kind))}</b><span>${esc(label)} · ${esc(timeOnly(event.timestamp))}</span></header>
+          <header><b>${esc(window.WhiteboxI18n.observedText(event.label || event.kind))}</b><span>${esc(label)} · ${esc(timeOnly(event.timestamp))}</span></header>
           <div class="chat-content plain subagent-message-preview${preview.truncated ? " is-truncated" : ""}"
             data-subagent-message-preview data-truncated="${preview.truncated ? "true" : "false"}"><p>${esc(preview.text)}</p></div>
         </article>`;

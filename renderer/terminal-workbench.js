@@ -1,8 +1,8 @@
 'use strict';
 
 /** Own xterm views, terminal/tmux selection, capture, and management actions. */
-window.LoadToAgentTerminalWorkbench = function createModule(context) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxTerminalWorkbench = function createModule(context) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const RAW_INPUT_BATCH_CHARS = 128 * 1024;
   const MAX_RAW_INPUT_QUEUE_CHARS = 512 * 1024;
   const {
@@ -86,7 +86,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       const deliveryId = nextRawInputDeliveryId(entry);
       let failed = false;
       try {
-        const result = await window.loadtoagent.terminalWrite(key, batch, { deliveryId });
+        const result = await window.whitebox.terminalWrite(key, batch, { deliveryId });
         if (result?.deliveryState === 'unknown') {
           notice(t('terminal.error.input_failed'), 'warning');
           failed = true;
@@ -294,10 +294,10 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           while (entry.pendingResize) {
             const pending = entry.pendingResize;
             entry.pendingResize = null;
-            await window.loadtoagent.terminalResize(key, pending.cols, pending.rows);
+            await window.whitebox.terminalResize(key, pending.cols, pending.rows);
           }
         })().catch(error => {
-          window.LoadToAgentRendererUtils.reportRecoverableError('terminal-resize', error);
+          window.WhiteboxRendererUtils.reportRecoverableError('terminal-resize', error);
         }).finally(() => { entry.resizePromise = null; });
       });
     }
@@ -313,7 +313,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           entry.terminal.resize(entry.fixedGrid.cols, entry.fixedGrid.rows);
         } else entry.fit.fit();
       } catch (error) {
-        window.LoadToAgentRendererUtils.reportRecoverableError('terminal-fit', error);
+        window.WhiteboxRendererUtils.reportRecoverableError('terminal-fit', error);
       }
     });
   }
@@ -347,7 +347,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       entry = createXtermHost(session.id, false, session);
       state.terminals.set(session.id, entry);
       entry.ready = (async () => {
-        const detail = await window.loadtoagent.terminalGet(session.id);
+        const detail = await window.whitebox.terminalGet(session.id);
         const sequenceValue = detail?.outputSequence;
         const parsedSequence = sequenceValue == null || sequenceValue === '' ? Number.NaN : Number(sequenceValue);
         entry.outputSequence = Number.isSafeInteger(parsedSequence) && parsedSequence >= 0
@@ -564,7 +564,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           aria-pressed="${state.selectedId === session.id ? 'true' : 'false'}"
           aria-grabbed="false"
           aria-describedby="terminalReorderHelp"
-          title="${esc(session.cwd || window.LoadToAgentI18n.t('terminal.reorder_hint'))}">
+          title="${esc(session.cwd || window.WhiteboxI18n.t('terminal.reorder_hint'))}">
           <span class="terminal-session-drag-handle" aria-hidden="true"></span>
           <span class="terminal-session-icon">${esc(terminalTypeMark(session))}</span>
           <span><b>${esc(displayTerminalTitle(session))}</b><small>${esc(sessionNote)}${session.recoveredAfterHostRestart ? `${sessionNote ? " · " : ""}${t('terminal.recovered_after_host_restart')}` : ''}</small><em>${esc(visibleFolder(session.cwd) || session.distro || t('session.program_pid', { pid: session.pid || '--' }))}</em><span class="sr-only">${index + 1}/${general.length}</span></span>
@@ -687,7 +687,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           ? bound
             ? t('terminal.console.bound_input_available', { provider: boundProvider })
             : t('terminal.console.direct_input_available')
-          : window.LoadToAgentI18n.t("ui.ended_session");
+          : window.WhiteboxI18n.t("ui.ended_session");
       $('#terminalConsoleState').dataset.status = presentation.tone;
       const viewportHelp = document.querySelector('.terminal-viewport-help');
       if (viewportHelp) viewportHelp.textContent = bound
@@ -698,18 +698,18 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       $('#terminalTargetIcon').textContent = 'tm';
       $('#terminalTargetMeta').innerHTML = `<b>${esc(remote.distro.name)} · ${esc(remote.session.name)} · ${esc(remote.pane.nativeId)}</b><span>${esc(remote.window.index)}:${esc(remote.window.name)} · ${esc(remote.pane.command || 'shell')} · ${esc(remote.pane.cwd || '')}</span>`;
       $('#terminalConsoleCaption').textContent = `${remote.window.index}:${remote.window.name} · ${remote.pane.command || 'shell'}`;
-      $('#terminalConsoleState').textContent = remote.pane.dead ? window.LoadToAgentI18n.t("ui.ended_pane") : window.LoadToAgentI18n.t("ui.ready_for_commands");
+      $('#terminalConsoleState').textContent = remote.pane.dead ? window.WhiteboxI18n.t("ui.ended_pane") : window.WhiteboxI18n.t("ui.ready_for_commands");
       $('#terminalConsoleState').dataset.status = remote.pane.dead ? 'exited' : 'running';
       const viewportHelp = document.querySelector('.terminal-viewport-help');
       if (viewportHelp) viewportHelp.textContent = `현재 선택한 ${remote.distro.name}의 컴퓨터 작업입니다. 실행한 결과를 보고 아래 입력칸에 컴퓨터에서 실행할 내용을 입력하세요.`;
     } else {
-      setConnectionState(window.LoadToAgentI18n.t("ui.waiting_for_selection"));
+      setConnectionState(window.WhiteboxI18n.t("ui.waiting_for_selection"));
       $('#terminalTargetIcon').textContent = '›_';
       $('#terminalTargetMeta').innerHTML = state.mode === 'tmux'
         ? `<b>${t('terminal.tmux.no_selection_title')}</b><span>${t('terminal.tmux.no_selection_description')}</span>`
-        : `<b>${window.LoadToAgentI18n.t("ui.select_a_session")}</b><span>${window.LoadToAgentI18n.t("ui.choose_a_session_on_the_left_or_create_a_new")}</span>`;
-      $('#terminalConsoleCaption').textContent = window.LoadToAgentI18n.t("ui.select_a_session_to_show_its_output_here");
-      $('#terminalConsoleState').textContent = window.LoadToAgentI18n.t("ui.waiting_for_selection");
+        : `<b>${window.WhiteboxI18n.t("ui.select_a_session")}</b><span>${window.WhiteboxI18n.t("ui.choose_a_session_on_the_left_or_create_a_new")}</span>`;
+      $('#terminalConsoleCaption').textContent = window.WhiteboxI18n.t("ui.select_a_session_to_show_its_output_here");
+      $('#terminalConsoleState').textContent = window.WhiteboxI18n.t("ui.waiting_for_selection");
       $('#terminalConsoleState').dataset.status = '';
       const viewportHelp = document.querySelector('.terminal-viewport-help');
       if (viewportHelp) viewportHelp.textContent = '컴퓨터 작업 결과가 이곳에 표시됩니다. 결과를 보며 아래에서 AI에게 질문할 수 있습니다.';
@@ -720,11 +720,11 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       ? t('terminal.agent.select_target')
       : bound
       ? `현재 ‘${String(bound.title || displayTerminalTitle(session)).trim()}’ 작업에 대해 ${boundProvider || providerLabel(bound.provider)}에게 질문`
-      : (remote ? window.LoadToAgentI18n.t("ui.send_to_tmux_terminal") : window.LoadToAgentI18n.t("ui.send_command_to_terminal"));
+      : (remote ? window.WhiteboxI18n.t("ui.send_to_tmux_terminal") : window.WhiteboxI18n.t("ui.send_command_to_terminal"));
     if (commandInput) commandInput.placeholder = questionBlocked
       ? t('terminal.agent.no_input_target')
       : !hasTarget
-      ? window.LoadToAgentI18n.t("ui.select_a_session_on_the_left_first")
+      ? window.WhiteboxI18n.t("ui.select_a_session_on_the_left_first")
       : (bound ? t('terminal.command.continue_ai_placeholder', { provider: boundProvider || providerLabel(bound.provider) }) : t('ui.enter_a_command_to_run'));
     if (commandInput) {
       $('#terminalCommandCount').textContent = t('terminal.composer.count', { count: commandInput.value.length.toLocaleString() });
@@ -809,7 +809,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   async function selectSession(id, interactionMode = '', options = {}) {
     if (options.isCurrent && !options.isCurrent()) return false;
     if (options.attentionActivation !== true && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-manual-selection'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-manual-selection'));
     }
     saveCurrentDraft();
     const generation = ++state.captureGeneration;
@@ -831,7 +831,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   async function selectTmux(distroName, paneId, interactionMode = '') {
     if (typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-manual-selection'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-manual-selection'));
     }
     const row = tmuxRows().find(item => item.distro.name === distroName && item.pane.nativeId === paneId);
     if (!row) return notice(t('terminal.error.selected_split_missing'), 'error');
@@ -873,7 +873,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const payloadSessions = payload && Array.isArray(payload.sessions) ? payload.sessions : null;
     const requestGeneration = payloadSessions ? 0 : ++state.terminalListRequestGeneration;
     const revision = state.terminalSessionRevision;
-    const nextSessions = payloadSessions || await window.loadtoagent.terminalList();
+    const nextSessions = payloadSessions || await window.whitebox.terminalList();
     // IPC state events are authoritative. A list request started before one of
     // those events (or before a newer list request) must not restore stale rows.
     if (!payloadSessions && (revision !== state.terminalSessionRevision
@@ -893,7 +893,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       : [];
     if (typeof CustomEvent === 'function') {
       for (const [id, entry] of reconnectEntries) {
-        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-reconnect-owner', {
+        window.dispatchEvent(new CustomEvent('whitebox:terminal-reconnect-owner', {
           detail: {
             terminalId: id,
             mountId: String(entry.host.parentElement?.id || ''),
@@ -908,7 +908,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       ? document.activeElement
       : null;
     if (reconnectFocusId && typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-reconnect-focus', {
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-reconnect-focus', {
         detail: { terminalId: reconnectFocusId },
       }));
     }
@@ -936,7 +936,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       if (entry && focusStayedPassive && documentFocused && documentVisible) entry.terminal.focus();
     }
     if (typeof CustomEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-inventory-changed'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-inventory-changed'));
     }
     return true;
   }
@@ -944,7 +944,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   async function createTerminal(type) {
     const distro = type === 'wsl' ? firstDistro() : null;
     if (type === 'wsl' && !distro) return notice(t('terminal.error.no_linux_environment'), 'error');
-    const created = await guarded(() => window.loadtoagent.terminalCreate({
+    const created = await guarded(() => window.whitebox.terminalCreate({
       type,
       cwd: (type === 'powershell' || type === 'shell') ? (preferredWorkspace() || undefined) : undefined,
       distro: distro && distro.name,
@@ -965,7 +965,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const captureGeneration = state.captureGeneration;
     state.captureInFlight = true;
     try {
-      const result = await guarded(() => window.loadtoagent.tmuxCapture({ distro: remote.distro.name, target: remote.pane.nativeId, lines: 1_500 }));
+      const result = await guarded(() => window.whitebox.tmuxCapture({ distro: remote.distro.name, target: remote.pane.nativeId, lines: 1_500 }));
       const current = currentTmux();
       if (!current || `${current.distro.name}:${current.pane.nativeId}` !== captureKey) return;
       if (!result || typeof result.output !== 'string' || result.output === state.remoteCapture) return;
@@ -1002,7 +1002,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           state.captureRevision += 1;
           entry.host.dataset.captureRevision = String(state.captureRevision);
         } catch (error) {
-          window.LoadToAgentRendererUtils.reportRecoverableError('tmux-capture-render', error);
+          window.WhiteboxRendererUtils.reportRecoverableError('tmux-capture-render', error);
         } finally {
           resolve();
         }
@@ -1058,16 +1058,16 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     try {
       if (!questionDelivery) {
         const result = session
-          ? await guarded(() => window.loadtoagent.terminalCommand(session.id, text), t('terminal.command.sent'))
-          : await guarded(() => window.loadtoagent.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), t('terminal.command.executed_in_split'));
+          ? await guarded(() => window.whitebox.terminalCommand(session.id, text), t('terminal.command.sent'))
+          : await guarded(() => window.whitebox.tmuxSendText({ distro: remote.distro.name, target: remote.pane.nativeId, text, enter: true }), t('terminal.command.executed_in_split'));
         if (result && remote) setTimeout(captureRemote, 160);
         return Boolean(result);
       }
 
       const deliveryId = `delivery:${Date.now()}:${Math.random().toString(36).slice(2, 12)}`;
       const operation = () => session
-        ? window.loadtoagent.terminalCommand(session.id, text, { deliveryId })
-        : window.loadtoagent.tmuxSendText({
+        ? window.whitebox.terminalCommand(session.id, text, { deliveryId })
+        : window.whitebox.tmuxSendText({
           distro: remote.distro.name,
           target: remote.pane.nativeId,
           text,
@@ -1126,20 +1126,20 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   async function sendSignal(signal) {
     const session = currentSession();
     const remote = currentTmux();
-    if (session) return guarded(() => window.loadtoagent.terminalSignal(session.id, signal), signal === 'interrupt' ? t('terminal.signal.interrupt_sent') : t('terminal.signal.cleared'));
+    if (session) return guarded(() => window.whitebox.terminalSignal(session.id, signal), signal === 'interrupt' ? t('terminal.signal.interrupt_sent') : t('terminal.signal.cleared'));
     if (remote) {
       const key = signal === 'interrupt' ? 'C-c' : 'C-l';
-      return guarded(() => window.loadtoagent.tmuxSendKey({ distro: remote.distro.name, target: remote.pane.nativeId, key }), t('terminal.signal.key_sent', { key }));
+      return guarded(() => window.whitebox.tmuxSendKey({ distro: remote.distro.name, target: remote.pane.nativeId, key }), t('terminal.signal.key_sent', { key }));
     }
     notice(t('terminal.command.select_first'), 'error');
   }
 
   function openTmuxModal() {
-    if (!tmuxModalFocusToken) tmuxModalFocusToken = window.LoadToAgentA11y?.rememberDialogTrigger('tmuxCreateModal');
+    if (!tmuxModalFocusToken) tmuxModalFocusToken = window.WhiteboxA11y?.rememberDialogTrigger('tmuxCreateModal');
     const distros = state.snapshot && state.snapshot.tmux && state.snapshot.tmux.distros || [];
     $('#tmuxCreateDistro').innerHTML = distros.map(item => `<option value="${esc(item.name)}">${esc(item.name)}</option>`).join('');
     $('#tmuxCreateError').classList.add('hidden');
-    window.LoadToAgentA11y?.setDialogOpenState($('#tmuxCreateModal'), true);
+    window.WhiteboxA11y?.setDialogOpenState($('#tmuxCreateModal'), true);
     $('#tmuxCreateModal').classList.remove('hidden');
     $('#tmuxCreateName').focus();
   }
@@ -1147,16 +1147,16 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
   function closeTmuxModal(force = false) {
     if (force !== true && $('#tmuxCreateForm [type="submit"]').dataset.busy === 'true') return;
     $('#tmuxCreateModal').classList.add('hidden');
-    window.LoadToAgentA11y?.setDialogOpenState($('#tmuxCreateModal'), false);
+    window.WhiteboxA11y?.setDialogOpenState($('#tmuxCreateModal'), false);
     $('#tmuxCreateForm').reset();
     $('#tmuxCreateForm').querySelectorAll('[aria-invalid="true"]').forEach(element => element.removeAttribute('aria-invalid'));
     const focusToken = tmuxModalFocusToken;
     tmuxModalFocusToken = null;
-    if (focusToken) window.LoadToAgentA11y?.restoreDialogTrigger(focusToken);
+    if (focusToken) window.WhiteboxA11y?.restoreDialogTrigger(focusToken);
   }
 
   async function refreshSnapshot() {
-    const snapshot = await guarded(() => window.loadtoagent.snapshot(), t('terminal.tmux.refreshed'), 'tmux-refresh');
+    const snapshot = await guarded(() => window.whitebox.snapshot(), t('terminal.tmux.refreshed'), 'tmux-refresh');
     if (snapshot) updateSnapshot(snapshot, state.workspaces);
   }
 
@@ -1188,7 +1188,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
           tmuxAgentProcessGroupId: agentProcessGroupId,
         }
       : {};
-    const created = await guarded(() => window.loadtoagent.terminalCreate({
+    const created = await guarded(() => window.whitebox.terminalCreate({
       type: 'tmux',
       distro: remote.distro.name,
       tmuxSession: remote.session.name,
@@ -1215,27 +1215,27 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (action === 'rename-session') {
       const name = window.prompt(t('terminal.tmux.prompt_workspace_name'), remote.session.name);
       if (!name || name === remote.session.name) return;
-      operation = () => window.loadtoagent.tmuxRenameSession({ ...base, target: remote.session.nativeId, name });
+      operation = () => window.whitebox.tmuxRenameSession({ ...base, target: remote.session.nativeId, name });
       message = t('terminal.tmux.workspace_renamed');
     } else if (action === 'new-window') {
       const name = window.prompt(t('terminal.tmux.prompt_window_name'), '새-창');
       if (!name) return;
-      operation = () => window.loadtoagent.tmuxNewWindow({ ...base, target: remote.session.nativeId, name, cwd: remote.pane.cwd });
+      operation = () => window.whitebox.tmuxNewWindow({ ...base, target: remote.session.nativeId, name, cwd: remote.pane.cwd });
       message = t('terminal.tmux.window_created');
     } else if (action === 'split-horizontal' || action === 'split-vertical') {
-      operation = () => window.loadtoagent.tmuxSplitPane({ ...base, target: remote.pane.nativeId, direction: action === 'split-horizontal' ? 'horizontal' : 'vertical', cwd: remote.pane.cwd });
+      operation = () => window.whitebox.tmuxSplitPane({ ...base, target: remote.pane.nativeId, direction: action === 'split-horizontal' ? 'horizontal' : 'vertical', cwd: remote.pane.cwd });
       message = t('terminal.tmux.pane_split');
     } else if (action === 'kill-pane') {
       if (!window.confirm(t('terminal.tmux.confirm_close_pane', { pane: remote.pane.nativeId }))) return;
-      operation = () => window.loadtoagent.tmuxKillPane({ ...base, target: remote.pane.nativeId });
+      operation = () => window.whitebox.tmuxKillPane({ ...base, target: remote.pane.nativeId });
       message = t('terminal.tmux.pane_closed');
     } else if (action === 'kill-window') {
       if (!window.confirm(t('terminal.tmux.confirm_close_window', { window: `${remote.window.index}:${remote.window.name}` }))) return;
-      operation = () => window.loadtoagent.tmuxKillWindow({ ...base, target: remote.window.nativeId });
+      operation = () => window.whitebox.tmuxKillWindow({ ...base, target: remote.window.nativeId });
       message = t('terminal.tmux.window_closed');
     } else if (action === 'kill-session') {
       if (!window.confirm(t('terminal.tmux.confirm_end_workspace', { workspace: remote.session.name }))) return;
-      operation = () => window.loadtoagent.tmuxKillSession({ ...base, target: remote.session.nativeId });
+      operation = () => window.whitebox.tmuxKillSession({ ...base, target: remote.session.nativeId });
       message = t('terminal.tmux.workspace_ended');
     }
     if (!operation) return;

@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-project-studio-interaction-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-project-studio-interaction-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -39,13 +39,13 @@ async function installGuards(win) {
 
 async function reloadApp(win) {
   await win.reload();
-  await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && document.querySelector('#projectSidebarList [data-workspace]'))`, '화면 재초기화 실패');
+  await waitFor(win, `Boolean(window.WhiteboxApp?.initialized && document.querySelector('#projectSidebarList [data-workspace]'))`, '화면 재초기화 실패');
   await installGuards(win);
 }
 
 async function prepareProject(win, workspace = 'D:\\fixture') {
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     for (const selector of ['#cancelSessionResetBtn', '#cancelRunBtn', '#closeDrawerBtn', '#closeShortcutHelpBtn', '#closeQuickPaletteBtn', '#cancelTmuxCreateBtn', '#mobileToolsCloseBtn']) {
       const button = document.querySelector(selector);
       if (button && button.getClientRects().length) button.click();
@@ -60,7 +60,7 @@ async function prepareProject(win, workspace = 'D:\\fixture') {
   await wait(300);
   await waitFor(
     win,
-    `window.LoadToAgentApp.state.workspace === ${JSON.stringify(workspace)}
+    `window.WhiteboxApp.state.workspace === ${JSON.stringify(workspace)}
       && document.body.dataset.projectSelected === 'true'
       && !document.querySelector('#liveSection')?.classList.contains('hidden')
       && document.querySelector('#newRunBtn')?.getBoundingClientRect().width > 0`,
@@ -272,15 +272,15 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && document.querySelector('#projectSidebarList [data-workspace]'))`, '프로젝트 화면 초기화 실패');
+    await waitFor(win, `Boolean(window.WhiteboxApp?.initialized && document.querySelector('#projectSidebarList [data-workspace]'))`, '프로젝트 화면 초기화 실패');
     await installGuards(win);
-    if (process.env.LOADTOAGENT_PROJECT_CAPTURE_ONLY === '1') {
+    if (process.env.WHITEBOX_PROJECT_CAPTURE_ONLY === '1') {
       await prepareProject(win);
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
       await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '상세 패널 단독 캡처 준비 실패');
       win.show();
       await wait(420);
-      const output = path.join(__dirname, '..', 'artifacts', 'loadtoagent-project-detail-drawer-verified-visible.png');
+      const output = path.join(__dirname, '..', 'artifacts', 'whitebox-project-detail-drawer-verified-visible.png');
       fs.mkdirSync(path.dirname(output), { recursive: true });
       await capture(win, output);
       const drawer = await win.webContents.executeJavaScript(`(() => {
@@ -318,7 +318,7 @@ app.whenReady().then(async () => {
         const item = [...document.querySelectorAll('#projectSidebarList [data-workspace]')].find(node => node.dataset.workspace === ${JSON.stringify(workspace)});
         item?.click();
       })()`);
-      await waitFor(win, `window.LoadToAgentApp.state.workspace === ${JSON.stringify(workspace)}`, `프로젝트 클릭 실패: ${workspace}`);
+      await waitFor(win, `window.WhiteboxApp.state.workspace === ${JSON.stringify(workspace)}`, `프로젝트 클릭 실패: ${workspace}`);
       const projectState = await win.webContents.executeJavaScript(`(() => ({
         selected: document.querySelectorAll('#projectSidebarList [data-workspace][aria-pressed="true"]').length,
         projects: document.querySelectorAll('#projectSidebarList [data-workspace]').length,
@@ -352,7 +352,7 @@ app.whenReady().then(async () => {
     }
 
     await prepareProject(win);
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openRunModal()`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.openRunModal()`);
     await waitFor(win, `!document.querySelector('#runModal').classList.contains('hidden')`, '새 AI 작업 창 열기 실패');
     report.layouts.runModal = await inspectLayout(win, '새 AI 작업 창');
     const runModalControls = await visibleControlCount(win, '#runModal .run-modal');
@@ -360,7 +360,7 @@ app.whenReady().then(async () => {
     for (let index = 0; index < runModalControls; index += 1) {
       await prepareProject(win);
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.openRunModal();
+        window.WhiteboxApp.openRunModal();
         const prompt = document.querySelector('#runPrompt');
         if (prompt) {
           prompt.value = '';
@@ -377,10 +377,10 @@ app.whenReady().then(async () => {
     }
 
     await prepareProject(win);
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
     await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '상세 패널 열기 실패');
     report.layouts.drawer = await inspectLayout(win, '상세 패널');
-    const drawerOutput = path.join(__dirname, '..', 'artifacts', 'loadtoagent-project-detail-drawer-fixed.png');
+    const drawerOutput = path.join(__dirname, '..', 'artifacts', 'whitebox-project-detail-drawer-fixed.png');
     fs.mkdirSync(path.dirname(drawerOutput), { recursive: true });
     await capture(win, drawerOutput);
     report.screenshots.push(drawerOutput);
@@ -388,7 +388,7 @@ app.whenReady().then(async () => {
 
     for (const tab of ['summary', 'chat', 'lifecycle', 'tokens']) {
       await prepareProject(win);
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
       await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, `상세 ${tab} 탭 준비 실패`);
       await win.webContents.executeJavaScript(`document.querySelector('[data-tab="${tab}"]')?.click()`);
       await waitFor(win, `document.querySelector('[data-tab="${tab}"]')?.getAttribute('aria-selected') === 'true'`, `상세 ${tab} 탭 클릭 실패`);
@@ -399,7 +399,7 @@ app.whenReady().then(async () => {
       for (let index = 0; index < contentControls; index += 1) {
         await reloadApp(win);
         await prepareProject(win);
-        await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+        await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
         await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, `상세 ${tab} 내용 준비 실패`);
         await win.webContents.executeJavaScript(`document.querySelector('[data-tab="${tab}"]')?.click()`);
         await waitFor(win, `document.querySelector('[data-tab="${tab}"]')?.getAttribute('aria-selected') === 'true'`, `상세 ${tab} 내용 탭 클릭 실패`);
@@ -413,14 +413,14 @@ app.whenReady().then(async () => {
     }
 
     await prepareProject(win);
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
     await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '상세 버튼 순회 준비 실패');
     const drawerControls = await visibleControlCount(win, '#detailDrawer');
     report.drawerControls += drawerControls;
     for (let index = 0; index < drawerControls; index += 1) {
       await reloadApp(win);
       await prepareProject(win);
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-ended')`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-ended')`);
       await waitFor(win, `document.querySelector('#detailDrawer').classList.contains('open')`, '상세 버튼 순회 재열기 실패');
       const clicked = await clickIndexedControl(win, '#detailDrawer', index);
       if (!clicked.ok) throw new Error(`상세 패널 ${index + 1}번째 버튼을 찾지 못했습니다.`);
@@ -431,7 +431,7 @@ app.whenReady().then(async () => {
     }
 
     await win.reload();
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && document.querySelector('#projectSidebarList [data-remove-workspace]'))`, '삭제 버튼 검증용 화면 재초기화 실패');
+    await waitFor(win, `Boolean(window.WhiteboxApp?.initialized && document.querySelector('#projectSidebarList [data-remove-workspace]'))`, '삭제 버튼 검증용 화면 재초기화 실패');
     await installGuards(win);
     const removed = await win.webContents.executeJavaScript(`(() => {
       window.interactionTest.clearCalls();

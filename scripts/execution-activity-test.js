@@ -25,14 +25,14 @@ function activityFor(command, options = {}) {
 
 {
   const { activity } = activityFor(
-    "$exe = Resolve-Path '.\\LoadToAgent.exe'; Start-Process -FilePath $exe -PassThru",
+    "$exe = Resolve-Path '.\\Whitebox.exe'; Start-Process -FilePath $exe -PassThru",
   );
   assert.equal(activity.runtime, 'Windows 명령창');
 }
 
 {
   const { activity } = activityFor(
-    "Get-Process LoadToAgent -ErrorAction SilentlyContinue | Select-Object Id,Path",
+    "Get-Process Whitebox -ErrorAction SilentlyContinue | Select-Object Id,Path",
   );
   assert.equal(activity.runtime, 'Windows 명령창');
 }

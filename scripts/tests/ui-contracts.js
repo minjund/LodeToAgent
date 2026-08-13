@@ -9,7 +9,7 @@ const { execFileSync } = require('child_process');
 const SYNTAX_CHECK_FILES = [
   'main.js',
   'preload.js',
-  'bin/loadtoagent.js',
+  'bin/whitebox.js',
   'src/bridgeServer.js',
   'src/providerRegistry.js',
   'src/platformPath.js',
@@ -356,7 +356,7 @@ const APP_MODULES = [
 ];
 
 const APP_PUBLIC_API_CONTRACTS = [
-  'window.LoadToAgentAppFactories',
+  'window.WhiteboxAppFactories',
   'createCore',
   'createGraphModel',
   'createGraphView',
@@ -369,7 +369,7 @@ const APP_PUBLIC_API_CONTRACTS = [
   'createRunModal',
   'createQualityEnhancements',
   'createEventBindings',
-  'window.LoadToAgentApp = app',
+  'window.WhiteboxApp = app',
 ];
 
 const APP_READABILITY_CONTRACTS = [
@@ -550,24 +550,24 @@ const TERMINAL_VIEW_CONTRACTS = [
 
 const DRAWER_TERMINAL_CONTRACTS = [
   'const ptyConversation = conversationTab && !session.parentId && !subagentMode && !executionMode',
-  'const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {}',
+  'const embeddedTerminal = window.WhiteboxTerminal?.embeddedState?.() || {}',
   'embeddedTerminal.connected',
-  'window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id)',
+  'window.WhiteboxDrawerTerminal?.canMount?.(session, target.id)',
   'readablePreview(rawDrawerTitle || t("drawer.title"), 120)',
   'drawer.dataset.conversationShell = conversationTab ? "terminal" : "standard"',
   'terminalSurface.setAttribute("aria-labelledby", "drawerTabChat")',
   'terminalStyle: conversationTab',
-  'window.LoadToAgentDrawerTerminal?.mount?.(session',
+  'window.WhiteboxDrawerTerminal?.mount?.(session',
   'state.drawerCreateTerminalIfMissing = options.createTerminalIfMissing !== false',
   'createIfMissing: createTerminalIfMissing',
   'ensureForAgent',
   'resumeForAgent',
-  'window.LoadToAgentDrawerTerminal?.unmount?.()',
+  'window.WhiteboxDrawerTerminal?.unmount?.()',
   'composer.classList.toggle("hidden", !showComposer)',
   '&& !actualTerminalChat',
   'composer.dataset.mode = actualTerminalChat ? "terminal" : "conversation"',
-  'loadtoagent:drawer-terminal-targets-changed',
-  'window.LoadToAgentTerminal.resumeForAgent(session, \'\', false, { focus: false })',
+  'whitebox:drawer-terminal-targets-changed',
+  'window.WhiteboxTerminal.resumeForAgent(session, \'\', false, { focus: false })',
   'drawer.terminal_resume_available',
   'function setResumeAction(visible)',
   'function showUnavailable(session)',
@@ -576,7 +576,7 @@ const DRAWER_TERMINAL_CONTRACTS = [
   'unmountEmbedded',
   'embeddedTerminalId',
   'const generation = ++state.embeddedGeneration',
-  'await window.loadtoagent.terminalReconnect(terminalId)',
+  'await window.whitebox.terminalReconnect(terminalId)',
   'state.terminals.delete(session.id)',
   'entry.terminal.dispose()',
   'state.selectedId !== key && state.embeddedTerminalId !== key',
@@ -624,10 +624,10 @@ const STYLE_FILES = [
 const I18N_RUNTIME_CONTRACTS = [
   "const DEFAULT_LOCALE = 'en'",
   "'ko', 'en', 'zh-CN'",
-  'loadtoagent:locale:v1',
+  'whitebox:locale:v1',
   'return SUPPORTED.has(saved) ? saved : DEFAULT_LOCALE',
-  'window.LoadToAgentI18n',
-  'loadtoagent:locale-changed',
+  'window.WhiteboxI18n',
+  'whitebox:locale-changed',
   'MutationObserver',
   'function t(key, params)',
   'function errorText(error, fallbackKey, params)',
@@ -636,7 +636,7 @@ const I18N_RUNTIME_CONTRACTS = [
 ];
 
 const I18N_MESSAGE_CONTRACTS = [
-  'window.LoadToAgentMessages',
+  'window.WhiteboxMessages',
   'settings.title',
   'Language, screen, AI list, and updates',
   '语言、画面、AI 列表和更新',
@@ -830,19 +830,19 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'function renderHistoryPanel',
   'function queueHistoryRefresh',
   'selectTmuxById',
-  'window.LoadToAgentTerminal',
+  'window.WhiteboxTerminal',
   "t('terminal.detach_tmux_input')",
   "t('terminal.recovered_after_host_restart')",
   "t('terminal.status.detached')",
   "t('terminal.status.stopped')",
   "session.backend === 'managed-tmux'",
-  'window.loadtoagent.terminalDetach(session.id)',
-  'window.loadtoagent.terminalReconnect(session.id)',
-  'window.loadtoagent.terminalStop(session.id)',
+  'window.whitebox.terminalDetach(session.id)',
+  'window.whitebox.terminalReconnect(session.id)',
+  'window.whitebox.terminalStop(session.id)',
   'entry.pendingResize',
   'if (!rehydratedIds.has(id)) state.commandDrafts.delete(id)',
   'resizeObserver.observe',
-  'window.LoadToAgentTerminalComposer',
+  'window.WhiteboxTerminalComposer',
   'function slashQuery',
   'function filterCommands',
   'function isLongDraft',
@@ -1016,8 +1016,8 @@ const RELEASE_WORKFLOW_CONTRACTS = [
   'release/*.exe',
   'release/*.dmg',
   'release/*.zip',
-  'LoadToAgent-Windows',
-  'LoadToAgent-macOS',
+  'Whitebox-Windows',
+  'Whitebox-macOS',
   'npm_version.outputs.published',
   'id-token: write',
   'npm publish --access public --tag latest',
@@ -1054,12 +1054,12 @@ function registerUiContractTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-session-render.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, observedText: value => value },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-session-render.js' });
-    const renderer = sandbox.window.LoadToAgentAppFactories.createSessionRenderer({
+    const renderer = sandbox.window.WhiteboxAppFactories.createSessionRenderer({
       state: {},
       readablePreview: text => ({ text: String(text), full: String(text) }),
       providerInfo: provider => ({ label: provider }),
@@ -1234,7 +1234,7 @@ function registerUiContractTests(context) {
     );
     assert.match(
       drawerSource,
-      /state\.drawerCreateTerminalIfMissing\s*=\s*options\.createTerminalIfMissing\s*!==\s*false[\s\S]*LoadToAgentDrawerTerminal\?\.mount\?\.\(session,\s*\{[^}]*createIfMissing:\s*createTerminalIfMissing/s,
+      /state\.drawerCreateTerminalIfMissing\s*=\s*options\.createTerminalIfMissing\s*!==\s*false[\s\S]*WhiteboxDrawerTerminal\?\.mount\?\.\(session,\s*\{[^}]*createIfMissing:\s*createTerminalIfMissing/s,
       '일반 대화창은 PTY 생성을 허용하고 자동 알람 이동은 생성 없이 mount할 수 있어야 합니다.',
     );
     const sessionSwitchIndex = drawerTerminalSource.indexOf('if (switchingSession)');
@@ -1282,13 +1282,13 @@ function registerUiContractTests(context) {
     const managementSource = fs.readFileSync(path.join(root, 'renderer', 'app-management.js'), 'utf8');
     const managementSandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, getLocaleTag: () => 'ko-KR' },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, getLocaleTag: () => 'ko-KR' },
       },
       Intl,
     };
     vm.runInNewContext(managementSource, managementSandbox, { filename: 'app-management.js' });
-    const management = managementSandbox.window.LoadToAgentAppFactories.createManagement({
+    const management = managementSandbox.window.WhiteboxAppFactories.createManagement({
       state: { snapshot: { sessions: [] }, providers: [], availability: {} },
       isResultReviewComplete: () => false,
     });
@@ -1373,7 +1373,7 @@ function registerUiContractTests(context) {
       legacy => `${legacy} 원문 추론 계약이 남아 있습니다.`,
     );
     const messageReferences = new Set([
-      ...[...app.matchAll(/LoadToAgentI18n\.t\(["']([^"']+)["']/g)].map(match => match[1]),
+      ...[...app.matchAll(/WhiteboxI18n\.t\(["']([^"']+)["']/g)].map(match => match[1]),
       ...[...html.matchAll(/data-i18n(?:-[a-z-]+)?="([^"]+)"/g)].map(match => match[1]),
     ]);
     for (const key of messageReferences) {
@@ -1554,14 +1554,14 @@ function registerUiContractTests(context) {
       'AI 제공사 요약 카드는 시작 가이드 바로 아래에 있어야 합니다.',
     );
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(pkg.build.productName, 'LoadToAgent');
+    assert.equal(pkg.build.productName, 'Whitebox');
     assert.equal(pkg.build.win.icon, 'build/icon.ico');
     assert.equal(pkg.build.mac.icon, 'build/icon.png');
     assert.equal(pkg.build.portable.unpackDirName, false);
     assert.ok(mainEntry.includes("app.setName(PRODUCT_NAME)"));
-    assert.ok(mainEntry.includes("app.setAppUserModelId('com.wincube.loadtoagent')"));
+    assert.ok(mainEntry.includes("app.setAppUserModelId('com.wincube.whitebox')"));
     assert.ok(
-      mainEntry.includes('LOADTOAGENT_SOURCE_LAUNCHER=1'),
+      mainEntry.includes('WHITEBOX_SOURCE_LAUNCHER=1'),
       '소스 브리지에서 데스크톱 앱을 열 때 Electron 실행 파일과 앱 경로를 함께 전달해야 합니다.',
     );
     assert.ok(pkg.dependencies['node-pty']);
@@ -1580,7 +1580,7 @@ function registerUiContractTests(context) {
     ]) {
       assert.ok(pkg.build.files.includes(pattern), `패키징 제외 규칙이 없습니다: ${pattern}`);
     }
-    assert.equal(pkg.bin.loadtoagent, 'bin/loadtoagent.js');
+    assert.equal(pkg.bin.whitebox, 'bin/whitebox.js');
     assert.equal(pkg.scripts['test:drawer-conversation'], 'electron scripts/drawer-terminal-visual.js');
     assert.equal(pkg.scripts['test:drawer-actual-pty'], 'electron scripts/drawer-actual-pty-integration.js');
     assert.ok(pkg.build.mac.target.some(item => item.arch.includes('arm64') && item.arch.includes('x64')));
@@ -1588,14 +1588,14 @@ function registerUiContractTests(context) {
 
   test('tmux 도움 AI 순회가 자기·상호 순환과 중복 자식을 안전하게 제외한다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-tmux-render.js'), 'utf8');
-    const sandbox = { window: { LoadToAgentAppFactories: {} } };
+    const sandbox = { window: { WhiteboxAppFactories: {} } };
     vm.runInNewContext(source, sandbox, { filename: 'app-tmux-render.js' });
     const sessions = [
       { id: 'root', childIds: ['root', 'child-a', 'child-a'] },
       { id: 'child-a', childIds: ['child-b'] },
       { id: 'child-b', childIds: ['child-a'] },
     ];
-    const renderer = sandbox.window.LoadToAgentAppFactories.createTmuxRenderer({
+    const renderer = sandbox.window.WhiteboxAppFactories.createTmuxRenderer({
       state: { snapshot: { sessions } },
     });
     const rows = renderer.linkedTmuxSubagents({ linkedSessionId: 'root' });
@@ -1615,17 +1615,17 @@ function registerUiContractTests(context) {
       },
       document: { documentElement: { dataset: {} } },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentRendererUtils: {
+        WhiteboxAppFactories: {},
+        WhiteboxRendererUtils: {
           $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
           providerLabel: value => value, reportRecoverableError: () => {},
         },
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        WhiteboxI18n: { t: key => key, observedText: value => value },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app.js' });
-    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const core = sandbox.window.WhiteboxAppFactories.createCore({});
     const now = Date.parse('2026-07-23T01:00:00.000Z');
     const responseAt = new Date(now - 5 * 60 * 1000).toISOString();
     const ended = { id: 'ended', status: 'completed', messages: [{ role: 'assistant', timestamp: responseAt }] };
@@ -1701,17 +1701,17 @@ function registerUiContractTests(context) {
       },
       document: { documentElement: { dataset: {} } },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentRendererUtils: {
+        WhiteboxAppFactories: {},
+        WhiteboxRendererUtils: {
           $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
           providerLabel: value => value, reportRecoverableError: () => {},
         },
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        WhiteboxI18n: { t: key => key, observedText: value => value },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app.js' });
-    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const core = sandbox.window.WhiteboxAppFactories.createCore({});
     const rootSession = {
       id: 'review-root',
       status: 'running',
@@ -1734,7 +1734,7 @@ function registerUiContractTests(context) {
     assert.equal(core.isResultReviewComplete(resultSession), true);
     assert.ok(values.get(core.RESULT_REVIEW_STORAGE_KEY));
 
-    const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const reloaded = sandbox.window.WhiteboxAppFactories.createCore({});
     reloaded.state.snapshot = core.state.snapshot;
     assert.equal(reloaded.isResultReviewComplete(resultSession), true);
 
@@ -1764,17 +1764,17 @@ function registerUiContractTests(context) {
       },
       document: { documentElement: { dataset: {} } },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentRendererUtils: {
+        WhiteboxAppFactories: {},
+        WhiteboxRendererUtils: {
           $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
           providerLabel: value => value, reportRecoverableError: () => {},
         },
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        WhiteboxI18n: { t: key => key, observedText: value => value },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app.js' });
-    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const core = sandbox.window.WhiteboxAppFactories.createCore({});
     const result = {
       id: 'notice-result', status: 'completed', updatedAt: '2026-08-12T01:00:00.000Z',
       completionObserved: true, messages: [], attention: { category: 'none', required: false },
@@ -1796,7 +1796,7 @@ function registerUiContractTests(context) {
     assert.deepStrictEqual(Array.from(core.resultReviewTargets(result), session => session.id), ['notice-result']);
     assert.ok(values.get(core.PROJECT_NOTICE_ACK_STORAGE_KEY));
 
-    const reloaded = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const reloaded = sandbox.window.WhiteboxAppFactories.createCore({});
     reloaded.state.snapshot = core.state.snapshot;
     assert.equal(reloaded.isProjectNoticeSeen('result', result), true, '프로젝트 알림 열람 상태가 재시작 후 유지되어야 합니다.');
     result.outcome = { ...result.outcome, summary: '새 완료 결과' };
@@ -1825,8 +1825,8 @@ function registerUiContractTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, observedText: value => value },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-drawer-content.js' });
@@ -1861,7 +1861,7 @@ function registerUiContractTests(context) {
       ],
     };
     const details = new Map([[parent.id, parent], [child.id, child]]);
-    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+    const drawer = sandbox.window.WhiteboxAppFactories.createDrawerContent({
       state: { details },
       snapshotSession: id => details.get(id),
       agentPathTaskName: value => String(value || '').split(':').pop(),
@@ -1882,8 +1882,8 @@ function registerUiContractTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: error => String(error) },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: error => String(error) },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
@@ -1910,7 +1910,7 @@ function registerUiContractTests(context) {
       details: new Map([[staleDetail.id, staleDetail]]),
       snapshot: { sessions: [latestSnapshot] },
     };
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({ state });
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({ state });
     const selected = actions.selectedSession();
 
     assert.equal(selected.status, 'idle');
@@ -1938,9 +1938,9 @@ function registerUiContractTests(context) {
     const sandbox = {
       Promise,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: error => String(error) },
-        loadtoagent: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: error => String(error) },
+        whitebox: {
           sessionDetail: () => {
             detailCalls += 1;
             return new Promise(resolve => pending.push(resolve));
@@ -1949,7 +1949,7 @@ function registerUiContractTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-drawer-data.js' });
-    const drawerData = sandbox.window.LoadToAgentAppFactories.createDrawerData({
+    const drawerData = sandbox.window.WhiteboxAppFactories.createDrawerData({
       state,
       renderDrawer: () => {},
       reportRecoverableError: () => {},
@@ -2004,20 +2004,20 @@ function registerUiContractTests(context) {
       document: { documentElement: { dataset: {} } },
       console: { info: () => {} },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentRendererUtils: {
+        WhiteboxAppFactories: {},
+        WhiteboxRendererUtils: {
           $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
           providerLabel: value => value, reportRecoverableError: () => {},
         },
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-        LoadToAgentI18n: { t: key => key, observedText: value => value },
-        LoadToAgentConversationDelivery: {
+        WhiteboxI18n: { t: key => key, observedText: value => value },
+        WhiteboxConversationDelivery: {
           messageKey: message => `id:${message.id}`,
         },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app.js' });
-    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
+    const core = sandbox.window.WhiteboxAppFactories.createCore({});
     const staleDetail = {
       id: 'same-session',
       messages: [{ id: 'old-answer', role: 'assistant', text: '이전 답변' }],
@@ -2046,8 +2046,8 @@ function registerUiContractTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-drawer-content.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-drawer-content.js' });
@@ -2062,7 +2062,7 @@ function registerUiContractTests(context) {
       expandedConversationPrompts: new Set(),
       details: new Map(),
     };
-    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+    const drawer = sandbox.window.WhiteboxAppFactories.createDrawerContent({
       esc: value => String(value),
       uiLocale: () => 'ko',
       state,
@@ -2087,8 +2087,8 @@ function registerUiContractTests(context) {
     const sandbox = {
       Intl,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: {
           t: (key, params = {}) => `${key}:${params.count || ''}`,
           observedText: value => value,
         },
@@ -2103,7 +2103,7 @@ function registerUiContractTests(context) {
       conversationTurnLimits: new Map(),
       details: new Map([[parent.id, parent]]),
     };
-    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+    const drawer = sandbox.window.WhiteboxAppFactories.createDrawerContent({
       esc: value => String(value),
       uiLocale: () => 'ko',
       state,
@@ -2146,8 +2146,8 @@ function registerUiContractTests(context) {
     const sandbox = {
       Intl,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: {
           t: (key, params = {}) => `${key}:${params.count || ''}`,
         },
       },
@@ -2165,7 +2165,7 @@ function registerUiContractTests(context) {
       conversationTurnLimits: new Map(),
       details: new Map(),
     };
-    const drawer = sandbox.window.LoadToAgentAppFactories.createDrawerContent({
+    const drawer = sandbox.window.WhiteboxAppFactories.createDrawerContent({
       esc: value => String(value),
       uiLocale: () => 'ko',
       state,
@@ -2249,7 +2249,7 @@ function registerUiContractTests(context) {
     assert.ok(inlinePanelIndex >= 0 && detailPanelIndex > inlinePanelIndex, 'PTY가 선택한 AI 영역과 작업 상세 정보 사이에 배치되지 않았습니다.');
     assert.ok(graph.includes('tab("summary"'), '작업 상세 화면에 요약 탭이 없습니다.');
     assert.ok(graph.includes('tab("tokens"'), '작업 상세 화면에 토큰 사용량 탭이 없습니다.');
-    assert.ok(events.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger') && events.includes('focus: !inlineTerminal.closest(".control-room-session")'), 'AI 클릭이 현재 화면의 인라인 PTY 토글로 연결되지 않았습니다.');
+    assert.ok(events.includes('window.WhiteboxInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger') && events.includes('focus: !inlineTerminal.closest(".control-room-session")'), 'AI 클릭이 현재 화면의 인라인 PTY 토글로 연결되지 않았습니다.');
     assert.ok(historySource.includes('data-inline-pty-trigger=') && historySource.includes('data-open-session='),
       '지난 기록이 PTY 가능 여부에 따라 인라인 터미널 또는 읽기 전용 상세로 연결되지 않았습니다.');
     assert.ok(historySource.includes('session.presentation?.conversationSurface === "transcript"')
@@ -2257,7 +2257,7 @@ function registerUiContractTests(context) {
     'PTY가 없는 지난 기록을 쓰기 가능한 화면으로 잘못 열 수 있습니다.');
     assert.ok(historyEvents.indexOf('[data-inline-pty-trigger]') >= 0
       && historyEvents.indexOf('[data-inline-pty-trigger]') < historyEvents.indexOf('[data-open-session]')
-      && historyEvents.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger)'),
+      && historyEvents.includes('window.WhiteboxInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger)'),
     '지난 기록 클릭이 팝업보다 먼저 인라인 PTY 경로로 연결되지 않았습니다.');
     assert.ok(historyEvents.includes('openDrawer(open.dataset.openSession, { context: true })'),
       'PTY가 없는 지난 기록도 진행 중 AI와 같은 컨텍스트 상세 UX로 열려야 합니다.');
@@ -2271,7 +2271,7 @@ function registerUiContractTests(context) {
     assert.ok(sessionRenderer.includes('!state.graphFocusId && graphLiveCount === 0'),
       '지난 기록 포커스 화면 위에 활성 작업 없음 안내가 겹칠 수 있습니다.');
     assert.equal(events.includes('if (state.graphFocusId === node.dataset.graphFocus) openDrawer'), false, '같은 AI 재클릭이 오른쪽 드로어를 다시 열고 있습니다.');
-    assert.ok(orchestration.includes('window.LoadToAgentInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
+    assert.ok(orchestration.includes('window.WhiteboxInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
     assert.match(
       orchestration,
       /if \(!replacement\)\s*\{[\s\S]*state\.inlineTerminalSessionId = null;[\s\S]*unmountEmbedded/,
@@ -2450,15 +2450,15 @@ function registerUiContractTests(context) {
     const sidebar = { dataset: {}, innerHTML: '' };
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: (key, params = {}) => `${key}:${params.count ?? ''}` },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: (key, params = {}) => `${key}:${params.count ?? ''}` },
       },
       document: { body: { dataset: {} } },
       Intl,
     };
     vm.runInNewContext(dashboardSource, sandbox, { filename: 'app-dashboard.js' });
     const state = { projectOrder: [] };
-    const dashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({ state, visibleSessions: () => [] });
+    const dashboard = sandbox.window.WhiteboxAppFactories.createDashboard({ state, visibleSessions: () => [] });
     dashboard.ensureProjectOrder(['project:a', 'project:b', 'project:c']);
     assert.equal(dashboard.moveProjectOrder('project:c', 'project:a', false), true);
     assert.deepStrictEqual(Array.from(state.projectOrder), ['project:c', 'project:a', 'project:b']);
@@ -2491,7 +2491,7 @@ function registerUiContractTests(context) {
     };
     let resultReviewed = false;
     const seenNotices = new Set();
-    const resultDashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({
+    const resultDashboard = sandbox.window.WhiteboxAppFactories.createDashboard({
       $: selector => selector === '#projectSidebarList' ? sidebar : null,
       esc: value => String(value),
       uiLocale: () => 'ko-KR',
@@ -2574,7 +2574,7 @@ function registerUiContractTests(context) {
 
   test('지난 기록은 대기 상태를 포함하고 마지막 갱신 시각 최신순으로 표시한다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
-    const sandbox = { window: { LoadToAgentAppFactories: {}, LoadToAgentI18n: { t: key => key } }, Intl };
+    const sandbox = { window: { WhiteboxAppFactories: {}, WhiteboxI18n: { t: key => key } }, Intl };
     vm.runInNewContext(source, sandbox, { filename: 'app-dashboard.js' });
     const sessions = [
       { id: 'claude:older', provider: 'claude', status: 'idle', updatedAt: '2026-08-06T03:00:00Z' },
@@ -2582,7 +2582,7 @@ function registerUiContractTests(context) {
       { id: 'claude:running', provider: 'claude', status: 'running', updatedAt: '2026-08-06T06:00:00Z' },
     ];
     const state = { view: 'active', workspace: 'all', search: '', sort: 'recent', providerFilters: new Set(), workspaces: [], providers: [] };
-    const dashboard = sandbox.window.LoadToAgentAppFactories.createDashboard({ state, visibleSessions: () => sessions });
+    const dashboard = sandbox.window.WhiteboxAppFactories.createDashboard({ state, visibleSessions: () => sessions });
     assert.deepStrictEqual(Array.from(dashboard.filteredSessions(), session => session.id), ['claude:supplier-today', 'claude:older']);
     assert.equal(dashboard.isPastRecord(sessions[1]), true);
     assert.equal(dashboard.isPastRecord(sessions[2]), false);
@@ -2620,10 +2620,10 @@ function registerUiContractTests(context) {
       attentionPopupEnabled: { checked: false, disabled: false, setAttribute() {}, addEventListener() {} },
       attentionPopupStatus: { textContent: '' },
     };
-    const popupSandbox = { window: { LoadToAgentAppFactories: {} } };
+    const popupSandbox = { window: { WhiteboxAppFactories: {} } };
     vm.runInNewContext(i18nSource, popupSandbox, { filename: 'i18n-messages.js' });
-    const messages = popupSandbox.window.LoadToAgentMessages;
-    popupSandbox.window.LoadToAgentI18n = {
+    const messages = popupSandbox.window.WhiteboxMessages;
+    popupSandbox.window.WhiteboxI18n = {
       t(key, params = {}) {
         return String(messages[key]?.en || key).replace(/\{([a-zA-Z][\w]*)\}/g, (match, name) => (
           Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
@@ -2632,7 +2632,7 @@ function registerUiContractTests(context) {
     };
     vm.runInNewContext(popupSettingsSource, popupSandbox, { filename: 'app-attention-popup-settings.js' });
     const popupState = {};
-    const popupSettings = popupSandbox.window.LoadToAgentAppFactories.createAttentionPopupSettings({
+    const popupSettings = popupSandbox.window.WhiteboxAppFactories.createAttentionPopupSettings({
       state: popupState,
       $: selector => elements[String(selector).replace(/^#/, '')] || null,
     });
@@ -2698,18 +2698,18 @@ function registerUiContractTests(context) {
       },
       document: { documentElement: { dataset: {} } },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentRendererUtils: {
+        WhiteboxAppFactories: {},
+        WhiteboxRendererUtils: {
           $: () => null, $$: () => [], esc: value => String(value), uiLocale: () => 'ko',
           providerLabel: value => value, reportRecoverableError: () => {},
         },
         matchMedia: () => ({ matches: false, addEventListener: () => {} }),
-        LoadToAgentI18n: { t: key => key },
+        WhiteboxI18n: { t: key => key },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app.js' });
-    const core = sandbox.window.LoadToAgentAppFactories.createCore({});
-    Object.assign(core, sandbox.window.LoadToAgentAppFactories.createProviderVisibility(core));
+    const core = sandbox.window.WhiteboxAppFactories.createCore({});
+    Object.assign(core, sandbox.window.WhiteboxAppFactories.createProviderVisibility(core));
     core.state.providers = ['claude', 'codex', 'gemini', 'grok'].map(id => ({ id }));
     core.loadProviderVisibility();
     assert.deepStrictEqual(Array.from(core.state.hiddenProviders), []);
@@ -2804,13 +2804,13 @@ function registerDocumentationContractTests(context) {
     for (const file of ['README.md', 'README.ko.md', 'README.zh-CN.md']) {
       const readme = fs.readFileSync(path.join(root, file), 'utf8');
       for (const contract of [
-        'npm install -g loadtoagent',
-        'loadtoagent',
-        'https://github.com/minjund/LodeToAgent/releases/latest',
-        'LoadToAgent-Setup-<version>.exe',
-        'LoadToAgent-<version>-portable.exe',
-        'LoadToAgent-<version>-arm64.dmg',
-        'LoadToAgent-<version>-x64.dmg',
+        'npm install -g whitebox-ai',
+        'whitebox',
+        'https://github.com/minjund/Whitebox/releases/latest',
+        'Whitebox-Setup-<version>.exe',
+        'Whitebox-<version>-portable.exe',
+        'Whitebox-<version>-arm64.dmg',
+        'Whitebox-<version>-x64.dmg',
       ]) assert.ok(readme.includes(contract), `${file}에 ${contract} 안내가 없습니다.`);
     }
 

@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createDashboard = function createDashboard(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createDashboard = function createDashboard(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $,
     esc,
@@ -87,7 +87,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#providerRail").innerHTML = visibleProviders()
       .map((provider) => {
         const available = !!state.availability[provider.id];
-        const connectionStatus = available ? window.LoadToAgentI18n.t("ui.cli_found") : window.LoadToAgentI18n.t("ui.setup_required");
+        const connectionStatus = available ? window.WhiteboxI18n.t("ui.cli_found") : window.WhiteboxI18n.t("ui.setup_required");
         return `<div class="provider-rail-item ${available ? "connected" : ""}" style="${providerStyle(provider.id)}" title="${esc(provider.label)}" role="img" aria-label="${esc(`${provider.label}: ${connectionStatus}`)}">
         <span class="provider-mini-mark">${esc(provider.mark)}</span><strong>${esc(provider.label)}</strong>
         <small>${esc(connectionStatus)}</small>
@@ -318,7 +318,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         : Boolean(session?.attention?.required || session?.attention?.category === "required")) {
         if (!context.isProjectNoticeSeen?.("attention", session)) entries.push({ kind: "attention", session });
       }
-      const prompt = window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null;
+      const prompt = window.WhiteboxTerminal?.pendingPromptForSession?.(session) || null;
       if (prompt && !context.isProjectNoticeSeen?.("terminal", session, prompt)) entries.push({ kind: "terminal", session, prompt });
       return entries;
     });
@@ -439,14 +439,14 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const mobileHtml =
       `<button type="button" class="workspace-item ${state.workspace === "all" ? "selected" : ""}"
         data-workspace="all" aria-pressed="${state.workspace === "all" ? "true" : "false"}">
-      <strong>${window.LoadToAgentI18n.t("project.all")}</strong><small>${esc(t("control.all_folder_count", { count: rootSessions.length }))}</small>
+      <strong>${window.WhiteboxI18n.t("project.all")}</strong><small>${esc(t("control.all_folder_count", { count: rootSessions.length }))}</small>
       </button>` +
       (projectlessCount
         ? `<button type="button" class="workspace-item projectless ${state.workspace === PROJECTLESS_WORKSPACE ? "selected" : ""}"
           data-workspace="${PROJECTLESS_WORKSPACE}"
-          title="${esc(window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project"))}"
+          title="${esc(window.WhiteboxI18n.t("ui.session_not_linked_to_a_specific_project"))}"
           aria-pressed="${state.workspace === PROJECTLESS_WORKSPACE ? "true" : "false"}">
-        <strong>${window.LoadToAgentI18n.t("ui.no_project")}</strong>
+        <strong>${window.WhiteboxI18n.t("ui.no_project")}</strong>
         <small>${esc(t("control.folder_count", { count: projectlessCount }))}</small>
         </button>`
         : "") +
@@ -454,9 +454,9 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         ${projectButton(item)}
         <button type="button" class="workspace-remove" data-remove-workspace="${esc(item.path)}"
           aria-label="${esc(t("workspace.remove_named", { name: item.name }))}"
-          title="${esc(window.LoadToAgentI18n.t("ui.remove_from_list"))}">×</button>
+          title="${esc(window.WhiteboxI18n.t("ui.remove_from_list"))}">×</button>
         </div>` : projectButton(item)).join("") +
-      (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
+      (!projects.length && !projectlessCount ? `<div class="workspace-empty">${window.WhiteboxI18n.t("project.empty")}</div>` : "");
     const sidebarProjectStates = new Map(projects.map((project) => {
       const live = projectLiveSessions(project);
       const notices = noticesByProject.get(normalizedProjectPath(project.path)) || [];
@@ -540,7 +540,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         </button>`
         : "")
       + (!sidebarProjects.length && !projectlessCount
-        ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>`
+        ? `<div class="workspace-empty">${window.WhiteboxI18n.t("project.empty")}</div>`
         : "");
     const desktopHtml =
       `<span class="control-room-filter-label">작업 내용별</span>` +
@@ -558,7 +558,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       (stateLiveProjects.length
         ? `<span class="control-room-filter-label state">현재 상태별</span>${stateLiveProjects.map((item) => projectButton(item, "control-room-project-chip")).join("")}`
         : "") +
-      (!liveProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.LoadToAgentI18n.t("project.empty")}</div>` : "");
+      (!liveProjects.length && !liveProjectlessCount ? `<div class="workspace-empty">${window.WhiteboxI18n.t("project.empty")}</div>` : "");
     const desktopList = $("#workspaceList");
     const mobileList = $("#mobileWorkspaceList");
     const sidebarList = $("#projectSidebarList");
@@ -687,11 +687,11 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const criticalCount = sessions.filter((session) => context.matchesManagementFilter?.(session, "critical")).length;
     const riskCount = sessions.filter((session) => context.matchesManagementFilter?.(session, "warning")).length;
     const items = [
-      [window.LoadToAgentI18n.t("ui.all_tasks"), rootCount, window.LoadToAgentI18n.t("ui.items"), ""],
-      [window.LoadToAgentI18n.t("ui.ai_working_now"), totals.active || 0, window.LoadToAgentI18n.t("ui.items"), "live"],
-      [window.LoadToAgentI18n.t("management.action_required"), totals.waiting || 0, window.LoadToAgentI18n.t("ui.items"), "alert"],
-      [window.LoadToAgentI18n.t("management.health.critical"), criticalCount, window.LoadToAgentI18n.t("ui.items"), "critical"],
-      [window.LoadToAgentI18n.t("management.risk_total"), riskCount, window.LoadToAgentI18n.t("ui.items"), "warning"],
+      [window.WhiteboxI18n.t("ui.all_tasks"), rootCount, window.WhiteboxI18n.t("ui.items"), ""],
+      [window.WhiteboxI18n.t("ui.ai_working_now"), totals.active || 0, window.WhiteboxI18n.t("ui.items"), "live"],
+      [window.WhiteboxI18n.t("management.action_required"), totals.waiting || 0, window.WhiteboxI18n.t("ui.items"), "alert"],
+      [window.WhiteboxI18n.t("management.health.critical"), criticalCount, window.WhiteboxI18n.t("ui.items"), "critical"],
+      [window.WhiteboxI18n.t("management.risk_total"), riskCount, window.WhiteboxI18n.t("ui.items"), "warning"],
     ];
     $("#globalStats").innerHTML = items
       .map(
@@ -838,7 +838,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         });
     }
     const navWaitingUnit = $("#navWaitingUnit");
-    if (navWaitingUnit) navWaitingUnit.textContent = window.LoadToAgentI18n.t("quality.unit.tasks");
+    if (navWaitingUnit) navWaitingUnit.textContent = window.WhiteboxI18n.t("quality.unit.tasks");
     const scheduledCount = (state.snapshot?.automations || [])
       .filter((item) => isProviderVisible(item.provider || "codex")).length;
     const loopCount = sessions.filter(isRuntimeLoopSession).length;
@@ -887,15 +887,15 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
 
   function installationTypeLabel(value, version = "—", targetInstallType = value, currentVersion = "—") {
     if (["source", "npm"].includes(value) && targetInstallType === "desktop") {
-      return window.LoadToAgentI18n.t("ui.development_updates_installed_app", { version: currentVersion });
+      return window.WhiteboxI18n.t("ui.development_updates_installed_app", { version: currentVersion });
     }
     const labels = {
-      desktop: window.LoadToAgentI18n.t("ui.desktop_installer", { version }),
-      npm: window.LoadToAgentI18n.t("ui.global_npm_installation"),
-      source: window.LoadToAgentI18n.t("ui.local_development_build"),
-      portable: window.LoadToAgentI18n.t("ui.portable_build"),
+      desktop: window.WhiteboxI18n.t("ui.desktop_installer", { version }),
+      npm: window.WhiteboxI18n.t("ui.global_npm_installation"),
+      source: window.WhiteboxI18n.t("ui.local_development_build"),
+      portable: window.WhiteboxI18n.t("ui.portable_build"),
     };
-    return labels[value] || window.LoadToAgentI18n.t("ui.checking_installation_type");
+    return labels[value] || window.WhiteboxI18n.t("ui.checking_installation_type");
   }
 
   function updatePresentation(update) {
@@ -903,44 +903,44 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const hasAsset = Boolean(update && update.asset);
     const labels = {
       idle: [
-        "·", window.LoadToAgentI18n.t("ui.version_status"),
-        window.LoadToAgentI18n.t("ui.ready_to_check_for_updates"), window.LoadToAgentI18n.t("ui.checks_the_latest_stable_github_release"),
+        "·", window.WhiteboxI18n.t("ui.version_status"),
+        window.WhiteboxI18n.t("ui.ready_to_check_for_updates"), window.WhiteboxI18n.t("ui.checks_the_latest_stable_github_release"),
       ],
       checking: [
-        "↻", window.LoadToAgentI18n.t("ui.checking_latest_version"),
-        window.LoadToAgentI18n.t("ui.checking_the_latest_version"), window.LoadToAgentI18n.t("ui.reading_the_latest_stable_github_release_tag"),
+        "↻", window.WhiteboxI18n.t("ui.checking_latest_version"),
+        window.WhiteboxI18n.t("ui.checking_the_latest_version"), window.WhiteboxI18n.t("ui.reading_the_latest_stable_github_release_tag"),
       ],
       current: [
         "✓",
-        window.LoadToAgentI18n.t("ui.latest_version"),
-        window.LoadToAgentI18n.t("ui.you_are_up_to_date"),
-        window.LoadToAgentI18n.t("update.current_version", { version: (update && update.currentVersion) || "—" }),
+        window.WhiteboxI18n.t("ui.latest_version"),
+        window.WhiteboxI18n.t("ui.you_are_up_to_date"),
+        window.WhiteboxI18n.t("update.current_version", { version: (update && update.currentVersion) || "—" }),
       ],
       available: [
         "↟",
-        window.LoadToAgentI18n.t("ui.update_available"),
-        window.LoadToAgentI18n.t("update.version_available", { version: (update && update.latestVersion) || "—" }),
+        window.WhiteboxI18n.t("ui.update_available"),
+        window.WhiteboxI18n.t("update.version_available", { version: (update && update.latestVersion) || "—" }),
         hasAsset
-          ? window.LoadToAgentI18n.t("ui.a_verified_installer_for_this_computer_can_be_downloaded_in")
-          : window.LoadToAgentI18n.t("ui.the_release_exists_but_a_matching_installer_is_not_available"),
+          ? window.WhiteboxI18n.t("ui.a_verified_installer_for_this_computer_can_be_downloaded_in")
+          : window.WhiteboxI18n.t("ui.the_release_exists_but_a_matching_installer_is_not_available"),
       ],
       downloading: [
-        "↓", window.LoadToAgentI18n.t("ui.downloading"), window.LoadToAgentI18n.t("ui.downloading_the_update_file"),
-        window.LoadToAgentI18n.t("ui.keep_the_app_open_until_the_download_finishes"),
+        "↓", window.WhiteboxI18n.t("ui.downloading"), window.WhiteboxI18n.t("ui.downloading_the_update_file"),
+        window.WhiteboxI18n.t("ui.keep_the_app_open_until_the_download_finishes"),
       ],
       downloaded: [
-        "✓", window.LoadToAgentI18n.t("ui.ready_to_install"), window.LoadToAgentI18n.t("ui.the_update_file_is_ready"),
+        "✓", window.WhiteboxI18n.t("ui.ready_to_install"), window.WhiteboxI18n.t("ui.the_update_file_is_ready"),
         update && update.installMode === "automatic"
-          ? window.LoadToAgentI18n.t("settings.update.auto_install_restart")
-          : window.LoadToAgentI18n.t("ui.open_the_installer_and_follow_its_instructions_to_finish_updating"),
+          ? window.WhiteboxI18n.t("settings.update.auto_install_restart")
+          : window.WhiteboxI18n.t("ui.open_the_installer_and_follow_its_instructions_to_finish_updating"),
       ],
       error: [
-        "!", window.LoadToAgentI18n.t("ui.check_failed"), window.LoadToAgentI18n.t("ui.could_not_check_for_updates"),
-        window.LoadToAgentI18n.t("ui.check_your_internet_connection_and_try_again"),
+        "!", window.WhiteboxI18n.t("ui.check_failed"), window.WhiteboxI18n.t("ui.could_not_check_for_updates"),
+        window.WhiteboxI18n.t("ui.check_your_internet_connection_and_try_again"),
       ],
       unsupported: [
-        "—", window.LoadToAgentI18n.t("ui.manual_update"), window.LoadToAgentI18n.t("ui.this_operating_system_requires_a_manual_update"),
-        window.LoadToAgentI18n.t("ui.get_the_latest_file_directly_from_github_releases"),
+        "—", window.WhiteboxI18n.t("ui.manual_update"), window.WhiteboxI18n.t("ui.this_operating_system_requires_a_manual_update"),
+        window.WhiteboxI18n.t("ui.get_the_latest_file_directly_from_github_releases"),
       ],
     };
     return labels[status] || labels.idle;
@@ -953,12 +953,12 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     const downloading = update.status === "downloading";
     const downloaded = update.status === "downloaded";
     const current = update.currentVersionKnown === false
-      ? window.LoadToAgentI18n.t("ui.version_unknown")
+      ? window.WhiteboxI18n.t("ui.version_unknown")
       : update.currentVersion || state.versions.app || "";
     $("#sidebarAppVersion").textContent = state.versions.app || current || "—";
     $("#updatePanel").dataset.updateStatus = update.status || "idle";
     $("#currentVersion").textContent = current || "—";
-    $("#latestVersion").textContent = update.latestVersion || window.LoadToAgentI18n.t("ui.not_checked");
+    $("#latestVersion").textContent = update.latestVersion || window.WhiteboxI18n.t("ui.not_checked");
     const compactVersion = $("#updateCompactVersion");
     if (compactVersion) {
       compactVersion.textContent = `현재 ${current || "확인 중"} → 새 버전 ${update.latestVersion || "확인 중"} · 약 3분 · 설치 중에는 이 화면에서 작업 상태를 볼 수 없음`;
@@ -980,7 +980,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       current || "—",
     );
     $("#releasePublishedAt").textContent = update.publishedAt
-      ? window.LoadToAgentI18n.t("update.published", {
+      ? window.WhiteboxI18n.t("update.published", {
           version: update.latestVersion || "—",
           date: new Intl.DateTimeFormat(uiLocale(), {
             year: "numeric",
@@ -988,7 +988,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
             day: "numeric",
           }).format(new Date(update.publishedAt)),
         })
-      : window.LoadToAgentI18n.t("ui.stable_releases_only");
+      : window.WhiteboxI18n.t("ui.stable_releases_only");
     const runtimeVersions = $("#runtimeVersions");
     if (runtimeVersions) runtimeVersions.textContent = t("ui.technical_info_ready");
     $("#updateStateGlyph").textContent = glyph;
@@ -998,17 +998,17 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#checkUpdateBtn").disabled = update.status === "checking" || downloading || update.blocked === true;
     $("#checkUpdateBtn").classList.toggle("hidden", available);
     $("#checkUpdateBtn").textContent =
-      update.status === "checking" ? window.LoadToAgentI18n.t("ui.checking") : window.LoadToAgentI18n.t("settings.update.check");
+      update.status === "checking" ? window.WhiteboxI18n.t("ui.checking") : window.WhiteboxI18n.t("settings.update.check");
     const install = $("#installUpdateBtn");
     install.classList.toggle("hidden", !(available && (update.asset || downloaded)));
     install.disabled = downloading;
     const downloadLabel = update.installMode === "automatic"
-      ? window.LoadToAgentI18n.t("settings.update.download", { version: update.latestVersion || "—" })
+      ? window.WhiteboxI18n.t("settings.update.download", { version: update.latestVersion || "—" })
       : downloaded
-        ? window.LoadToAgentI18n.t("ui.open_installer")
-        : window.LoadToAgentI18n.t("settings.update.download_manual", { version: update.latestVersion || "—" });
+        ? window.WhiteboxI18n.t("ui.open_installer")
+        : window.WhiteboxI18n.t("settings.update.download_manual", { version: update.latestVersion || "—" });
     install.textContent = downloading
-      ? window.LoadToAgentI18n.t("ui.downloading_2")
+      ? window.WhiteboxI18n.t("ui.downloading_2")
       : downloadLabel;
     const progress = $("#updateProgress");
     progress.classList.toggle("hidden", !downloading && !downloaded);
@@ -1016,25 +1016,25 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     $("#updateProgressBar").style.width = `${Math.max(0, Math.min(100, Number(update.progress || 0)))}%`;
     $(".update-progress-track").setAttribute("aria-valuenow", String(Math.max(0, Math.min(100, Number(update.progress || 0)))));
     $("#updateProgressBytes").textContent = downloaded
-      ? `${formatBytes(update.totalBytes || update.downloadedBytes)} · ${window.LoadToAgentI18n.t("settings.update.file_verified")}`
-      : `${formatBytes(update.downloadedBytes)} / ${update.totalBytes ? formatBytes(update.totalBytes) : window.LoadToAgentI18n.t("ui.checking_size")}`;
+      ? `${formatBytes(update.totalBytes || update.downloadedBytes)} · ${window.WhiteboxI18n.t("settings.update.file_verified")}`
+      : `${formatBytes(update.downloadedBytes)} / ${update.totalBytes ? formatBytes(update.totalBytes) : window.WhiteboxI18n.t("ui.checking_size")}`;
     const error = $("#updateError");
     error.classList.toggle("hidden", !update.error);
     error.textContent = update.error
       ? update.blocked === true && update.currentVersionKnown === false
-        ? window.LoadToAgentI18n.t("settings.update.installed_version_unavailable")
-        : window.LoadToAgentI18n.errorText(update.error, "ui.could_not_check_for_updates")
+        ? window.WhiteboxI18n.t("settings.update.installed_version_unavailable")
+        : window.WhiteboxI18n.errorText(update.error, "ui.could_not_check_for_updates")
       : "";
     const notes = $("#releaseNotes");
     notes.classList.toggle("hidden", !update.latestVersion);
     $("#releaseNotesText").textContent =
-      (update.notes && update.notes.trim()) || window.LoadToAgentI18n.t("ui.no_release_notes_were_provided_for_this_release");
+      (update.notes && update.notes.trim()) || window.WhiteboxI18n.t("ui.no_release_notes_were_provided_for_this_release");
     const notice = $("#updateNotice");
     notice.classList.toggle("hidden", !available || state.view !== "all");
-    $("#updateNoticeTitle").textContent = window.LoadToAgentI18n.t("update.available_version", { version: update.latestVersion || "—" });
+    $("#updateNoticeTitle").textContent = window.WhiteboxI18n.t("update.available_version", { version: update.latestVersion || "—" });
     $("#updateNoticeText").textContent = downloaded
-      ? window.LoadToAgentI18n.t("ui.the_installer_is_ready")
-      : window.LoadToAgentI18n.t("ui.download_the_update_from_settings");
+      ? window.WhiteboxI18n.t("ui.the_installer_is_ready")
+      : window.WhiteboxI18n.t("ui.download_the_update_from_settings");
     $("#navUpdateBadge").classList.toggle("hidden", !available);
     $("#navUpdateBadge").textContent = available
       ? t("update.nav_available", { version: update.latestVersion || "—" })
@@ -1064,16 +1064,16 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         <span class="provider-mark">${esc(provider.mark)}</span>
         <div><strong>${esc(provider.label)}</strong><small>${esc(provider.company)}</small></div>
         <span class="poc-head-states">
-          <span class="poc-filter-state ${selected ? "visible" : ""}" aria-hidden="true">✓ ${window.LoadToAgentI18n.t("filter.applied")}</span>
+          <span class="poc-filter-state ${selected ? "visible" : ""}" aria-hidden="true">✓ ${window.WhiteboxI18n.t("filter.applied")}</span>
           <span class="poc-state ${provider.installed ? "online" : ""}">
-            ${provider.installed ? window.LoadToAgentI18n.t("ui.available") : window.LoadToAgentI18n.t("ui.setup_required")}
+            ${provider.installed ? window.WhiteboxI18n.t("ui.available") : window.WhiteboxI18n.t("ui.setup_required")}
           </span>
         </span>
       </div>
       <div class="poc-metrics">
-        <div><b>${provider.active || 0}</b><span>${window.LoadToAgentI18n.t("ui.active_ai")}</span></div>
-        <div><b>${rootCount}</b><span>${window.LoadToAgentI18n.t("ui.main_tasks")}</span></div>
-        <div><b>${compact(provider.usage && provider.usage.total)}</b><span>${window.LoadToAgentI18n.t("ui.tokens_used_2")}</span></div>
+        <div><b>${provider.active || 0}</b><span>${window.WhiteboxI18n.t("ui.active_ai")}</span></div>
+        <div><b>${rootCount}</b><span>${window.WhiteboxI18n.t("ui.main_tasks")}</span></div>
+        <div><b>${compact(provider.usage && provider.usage.total)}</b><span>${window.WhiteboxI18n.t("ui.tokens_used_2")}</span></div>
       </div>
     </button>`;
       })
@@ -1108,24 +1108,24 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       </button>`;
     };
     const mobileOptions = [
-      { id: "all", label: window.LoadToAgentI18n.t("ui.all_ai") },
+      { id: "all", label: window.WhiteboxI18n.t("ui.all_ai") },
       ...visibleProviders().map((provider) => ({ id: provider.id, label: provider.label })),
     ].map(({ id, label }) => `<option value="${esc(id)}" ${id === mobileSelectedId ? "selected" : ""}>${esc(label)}</option>`).join("");
     $("#providerFilter").innerHTML =
-      `<span class="provider-filter-label">${esc(window.LoadToAgentI18n.t("memory.agent"))}</span>` +
+      `<span class="provider-filter-label">${esc(window.WhiteboxI18n.t("memory.agent"))}</span>` +
       `<label class="mobile-provider-filter" for="mobileProviderFilterSelect">
-        <span>${esc(window.LoadToAgentI18n.t("memory.agent"))}</span>
-        <select id="mobileProviderFilterSelect" aria-label="${esc(window.LoadToAgentI18n.t("ui.ai_provider_filter"))}">${mobileOptions}</select>
+        <span>${esc(window.WhiteboxI18n.t("memory.agent"))}</span>
+        <select id="mobileProviderFilterSelect" aria-label="${esc(window.WhiteboxI18n.t("ui.ai_provider_filter"))}">${mobileOptions}</select>
       </label>` +
-      button("all", window.LoadToAgentI18n.t("ui.all_ai")) +
+      button("all", window.WhiteboxI18n.t("ui.all_ai")) +
       visibleProviders().map((provider) => button(provider.id, provider.label, provider.mark)).join("");
   }
 
   function announceProviderFilter() {
     const labels = state.providerFilters.size
       ? visibleProviders().filter((provider) => state.providerFilters.has(provider.id)).map((provider) => provider.label).join(", ")
-      : window.LoadToAgentI18n.t("ui.all_ai");
-    $("#providerFilterStatus").textContent = window.LoadToAgentI18n.t("filter.result_summary", {
+      : window.WhiteboxI18n.t("ui.all_ai");
+    $("#providerFilterStatus").textContent = window.WhiteboxI18n.t("filter.result_summary", {
       providers: labels,
       count: filteredSessions().length,
     });
@@ -1265,7 +1265,7 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
     if (!list) return;
     list.innerHTML = state.providers.map((provider) => {
       const visible = isProviderVisible(provider.id);
-      const status = window.LoadToAgentI18n.t(visible ? "settings.providers.visible" : "settings.providers.hidden");
+      const status = window.WhiteboxI18n.t(visible ? "settings.providers.visible" : "settings.providers.hidden");
       return `<label class="provider-visibility-option ${visible ? "enabled" : "disabled"}" style="${providerStyle(provider.id)}">
         <span class="provider-mark" aria-hidden="true">${esc(provider.mark)}</span>
         <span class="provider-visibility-name"><b>${esc(provider.label)}</b></span>

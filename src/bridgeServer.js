@@ -15,17 +15,21 @@ const MAX_OUTBOUND_QUEUE_BYTES = 16 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 10_000;
 
 function bridgeDirectory(home = os.homedir()) {
-  return path.join(home, '.loadtoagent');
+  return path.join(home, '.whitebox');
 }
 
 function discoveryFile(home = os.homedir()) {
   return path.join(bridgeDirectory(home), 'bridge.json');
 }
 
+function legacyDiscoveryFile(home = os.homedir()) {
+  return path.join(home, '.loadtoagent', 'bridge.json');
+}
+
 function endpointFor(platform = process.platform, home = os.homedir(), nonce = crypto.randomBytes(8).toString('hex')) {
   const identity = crypto.createHash('sha256').update(`${home}:${nonce}`).digest('hex').slice(0, 18);
-  if (platform === 'win32') return `\\\\.\\pipe\\loadtoagent-${identity}`;
-  return path.join(os.tmpdir(), `loadtoagent-${typeof process.getuid === 'function' ? process.getuid() : 'user'}-${identity}.sock`);
+  if (platform === 'win32') return `\\\\.\\pipe\\whitebox-${identity}`;
+  return path.join(os.tmpdir(), `whitebox-${typeof process.getuid === 'function' ? process.getuid() : 'user'}-${identity}.sock`);
 }
 
 function safeWriteJson(file, value) {
@@ -57,7 +61,12 @@ class BridgeServer {
     this.platform = options.platform || process.platform;
     this.endpoint = options.endpoint || endpointFor(this.platform, this.home);
     this.token = options.token || crypto.randomBytes(32).toString('hex');
-    this.file = options.discoveryFile || discoveryFile(this.home);
+    const explicitDiscoveryFile = typeof options.discoveryFile === 'string' && options.discoveryFile.trim();
+    this.file = explicitDiscoveryFile || discoveryFile(this.home);
+    this.discoveryFiles = [this.file];
+    if (!explicitDiscoveryFile && options.legacyDiscovery !== false) {
+      this.discoveryFiles.push(legacyDiscoveryFile(this.home));
+    }
     this.maxOutboundQueueBytes = Number.isFinite(Number(options.maxOutboundQueueBytes))
       ? Math.max(1, Number(options.maxOutboundQueueBytes))
       : MAX_OUTBOUND_QUEUE_BYTES;
@@ -129,7 +138,7 @@ class BridgeServer {
   refreshDiscovery() {
     if (!this.server) return this.info();
     const info = this.info();
-    safeWriteJson(this.file, info);
+    for (const file of this.discoveryFiles) safeWriteJson(file, info);
     return info;
   }
 
@@ -198,7 +207,7 @@ class BridgeServer {
 
   handle(client, message) {
     if (!client.authenticated) {
-      if (message.type !== 'run' || message.token !== this.token) throw new Error('LoadToAgent와 외부 명령창의 연결을 확인하지 못했습니다.');
+      if (message.type !== 'run' || message.token !== this.token) throw new Error('Whitebox와 외부 명령창의 연결을 확인하지 못했습니다.');
       const provider = validProvider(message.provider);
       if (!provider) throw new Error('선택한 AI 종류는 사용할 수 없습니다.');
       // A valid, authenticated run may need to wait for the Codex app-server
@@ -379,7 +388,9 @@ class BridgeServer {
       runBestEffort('bridge-server-close', () => this.server.close());
       this.server = null;
     }
-    if (fs.existsSync(this.file)) runBestEffort('bridge-discovery-cleanup', () => fs.unlinkSync(this.file));
+    for (const file of this.discoveryFiles) {
+      if (fs.existsSync(file)) runBestEffort('bridge-discovery-cleanup', () => fs.unlinkSync(file));
+    }
     if (this.platform !== 'win32') {
       if (fs.existsSync(this.endpoint)) runBestEffort('bridge-endpoint-cleanup', () => fs.unlinkSync(this.endpoint));
     }
@@ -391,6 +402,7 @@ module.exports = {
   PROTOCOL_VERSION,
   bridgeDirectory,
   discoveryFile,
+  legacyDiscoveryFile,
   endpointFor,
   safeWriteJson,
   decodeBase64,

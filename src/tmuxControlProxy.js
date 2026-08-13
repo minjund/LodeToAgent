@@ -508,11 +508,11 @@ class TmuxControlProxy extends EventEmitter {
     return { dispose: () => this.off('pty-exit', callback) };
   }
 
-  get __loadtoagentStartupPending() {
+  get __whiteboxStartupPending() {
     return !this.controlStarted && !this.stopping;
   }
 
-  get __loadtoagentPosixSignal() {
+  get __whiteboxPosixSignal() {
     return 'SIGTERM';
   }
 

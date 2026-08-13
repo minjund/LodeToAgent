@@ -1,7 +1,7 @@
 (function exposeTerminalPromptParser(root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.LoadToAgentTerminalPrompts = api;
+  if (root) root.WhiteboxTerminalPrompts = api;
 })(typeof window !== 'undefined' ? window : globalThis, function createTerminalPromptParser() {
   'use strict';
 

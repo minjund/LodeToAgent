@@ -1,8 +1,8 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createEventBindings = function createEventBindings(context = {}) {
+window.WhiteboxAppFactories.createEventBindings = function createEventBindings(context = {}) {
   const { bindNavigationAndUpdateEvents, bindSessionAndAgentEvents, bindFilterAndWorkspaceEvents, bindDialogAndGlobalEvents, bindQualityEvents = () => {} } = context;
 
   function bindEvents() {

@@ -5,6 +5,19 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.7.0 - 2026-08-13
+
+- Rename the product to Whitebox across the desktop app, CLI, packages,
+  documentation, build artifacts, and repository links.
+- Replace the desktop, installer, tray, in-app, and README artwork with the
+  Whitebox activity-window icon.
+- Preserve existing settings, local UI state, managed tmux work, bridge
+  launchers, attention hooks, installer identity, and update paths while users
+  cross the product-name transition.
+- Prepare the npm package under the available `whitebox-ai` name while keeping
+  `whitebox` as the primary command and a deprecated command alias for existing
+  installations.
+
 ## 1.6.22 - 2026-08-13
 
 - Let Claude tasks start in Manual, Accept edits, Plan, Auto, or Bypass mode,

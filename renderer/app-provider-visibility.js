@@ -1,10 +1,10 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createProviderVisibility = function createProviderVisibility(context = {}) {
+window.WhiteboxAppFactories.createProviderVisibility = function createProviderVisibility(context = {}) {
   const { state, reportRecoverableError } = context;
-  const STORAGE_KEY = "loadtoagent:provider-visibility:v1";
+  const STORAGE_KEY = "whitebox:provider-visibility:v1";
   const USAGE_KEYS = ["input", "cachedInput", "cacheWrite", "output", "reasoning", "total"];
 
   function loadProviderVisibility(preference = null) {

@@ -31,11 +31,11 @@ function waitForFile(file, timeoutMs = 5000) {
   }
 }
 
-const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-updater-integration-'));
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-updater-integration-'));
 const sourceRoot = path.join(root, 'dmg-source');
-const sourceApp = path.join(sourceRoot, 'LoadToAgent.app');
-const targetApp = path.join(root, 'Applications', 'LoadToAgent.app');
-const dmgPath = path.join(root, 'LoadToAgent-9.9.9-arm64.dmg');
+const sourceApp = path.join(sourceRoot, 'Whitebox.app');
+const targetApp = path.join(root, 'Applications', 'Whitebox.app');
+const dmgPath = path.join(root, 'Whitebox-9.9.9-arm64.dmg');
 const logPath = path.join(root, 'install-update.log');
 const rendererReadyToken = 'a'.repeat(48);
 const readyPath = path.join(root, `install-update-macos-ready-${rendererReadyToken}.json`);
@@ -43,7 +43,7 @@ const rendererReadyPath = path.join(root, `install-renderer-ready-${rendererRead
 const launchMarker = path.join(root, 'relaunched.txt');
 const leakedEnvironmentMarker = path.join(root, 'electron-run-as-node.txt');
 const helperPath = path.join(__dirname, '..', 'src', 'macUpdateHelper.js');
-const helperRuntime = process.env.LOADTOAGENT_UPDATE_TEST_RUNTIME || process.execPath;
+const helperRuntime = process.env.WHITEBOX_UPDATE_TEST_RUNTIME || process.execPath;
 const nodePtyHelper = path.join(
   'Contents', 'Resources', 'app.asar.unpacked', 'node_modules', 'node-pty',
   'prebuilds', `darwin-${process.arch}`, 'spawn-helper',
@@ -58,22 +58,22 @@ try {
   fs.writeFileSync(path.join(sourceApp, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>LoadToAgent</string>
-<key>CFBundleIdentifier</key><string>com.wincube.loadtoagent.updater.integration.${process.pid}</string>
-<key>CFBundleName</key><string>LoadToAgent Update Integration</string>
+<key>CFBundleExecutable</key><string>Whitebox</string>
+<key>CFBundleIdentifier</key><string>com.wincube.whitebox.updater.integration.${process.pid}</string>
+<key>CFBundleName</key><string>Whitebox Update Integration</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>9.9.9</string>
 </dict></plist>
 `, 'utf8');
   fs.writeFileSync(
-    path.join(sourceApp, 'Contents', 'MacOS', 'LoadToAgent'),
+    path.join(sourceApp, 'Contents', 'MacOS', 'Whitebox'),
     [
       '#!/bin/sh',
       `if [ -n "$ELECTRON_RUN_AS_NODE" ]; then /bin/echo "$ELECTRON_RUN_AS_NODE" > ${JSON.stringify(leakedEnvironmentMarker)}; fi`,
-      'ready_tmp="$LOADTOAGENT_UPDATE_READY_PATH.$$.tmp"',
-      `if [ "$LOADTOAGENT_UPDATE_READY_TOKEN" = ${JSON.stringify(rendererReadyToken)} ]; then`,
-      `  /usr/bin/printf '{"token":"%s","pid":%s,"version":"9.9.9","rendererReadyAt":"2026-08-01T00:00:00.000Z"}' "$LOADTOAGENT_UPDATE_READY_TOKEN" "$$" > "$ready_tmp"`,
-      '  /bin/mv -f "$ready_tmp" "$LOADTOAGENT_UPDATE_READY_PATH"',
+      'ready_tmp="$WHITEBOX_UPDATE_READY_PATH.$$.tmp"',
+      `if [ "$WHITEBOX_UPDATE_READY_TOKEN" = ${JSON.stringify(rendererReadyToken)} ]; then`,
+      `  /usr/bin/printf '{"token":"%s","pid":%s,"version":"9.9.9","rendererReadyAt":"2026-08-01T00:00:00.000Z"}' "$WHITEBOX_UPDATE_READY_TOKEN" "$$" > "$ready_tmp"`,
+      '  /bin/mv -f "$ready_tmp" "$WHITEBOX_UPDATE_READY_PATH"',
       'fi',
       `/usr/bin/touch ${JSON.stringify(launchMarker)}`,
       '/bin/sleep 2',
@@ -84,7 +84,7 @@ try {
   fs.writeFileSync(path.join(sourceApp, nodePtyHelper), '#!/bin/sh\nexit 0\n', { encoding: 'utf8', mode: 0o755 });
 
   run('/usr/bin/hdiutil', [
-    'create', '-volname', `LoadToAgentUpdateTest-${process.pid}`,
+    'create', '-volname', `WhiteboxUpdateTest-${process.pid}`,
     '-srcfolder', sourceRoot, '-ov', '-format', 'UDZO', dmgPath,
   ]);
   run(helperRuntime, [

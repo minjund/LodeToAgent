@@ -1,16 +1,16 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createQualityEnhancements = function createQualityEnhancements(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createQualityEnhancements = function createQualityEnhancements(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, state, rememberDialogTrigger, restoreDialogTrigger, setDialogOpenState, currentDialog,
     announce, selectView, openRunModal, performUiAction,
   } = context;
-  const DASHBOARD_STORAGE_KEY = "loadtoagent:dashboard-preferences:v2";
-  const RUN_DRAFT_STORAGE_KEY = "loadtoagent:run-draft:v2";
-  const QUALITY_PREF_STORAGE_KEY = "loadtoagent:quality-preferences:v3";
+  const DASHBOARD_STORAGE_KEY = "whitebox:dashboard-preferences:v2";
+  const RUN_DRAFT_STORAGE_KEY = "whitebox:run-draft:v2";
+  const QUALITY_PREF_STORAGE_KEY = "whitebox:quality-preferences:v3";
   const DASHBOARD_VERSION = 2;
   const RUN_DRAFT_VERSION = 2;
   const QUALITY_PREF_VERSION = 3;
@@ -31,7 +31,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       const value = JSON.parse(storage.getItem(key) || "null");
       return value && typeof value === "object" && !Array.isArray(value) ? value : null;
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError(`quality-storage-${key}`, error);
+      window.WhiteboxRendererUtils.reportRecoverableError(`quality-storage-${key}`, error);
       return null;
     }
   }
@@ -117,7 +117,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     try {
       localStorage.setItem(QUALITY_PREF_STORAGE_KEY, JSON.stringify(value));
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("quality-preferences-save", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("quality-preferences-save", error);
     }
   }
 
@@ -201,7 +201,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     try {
       localStorage.setItem(DASHBOARD_STORAGE_KEY, JSON.stringify(value));
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("dashboard-preferences-save", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("dashboard-preferences-save", error);
     }
   }
 
@@ -233,7 +233,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     try {
       sessionStorage.setItem(RUN_DRAFT_STORAGE_KEY, JSON.stringify(draft));
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("run-draft-save", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("run-draft-save", error);
     }
   }
 
@@ -295,7 +295,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     try {
       sessionStorage.removeItem(RUN_DRAFT_STORAGE_KEY);
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("run-draft-clear", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("run-draft-clear", error);
     }
     if ($("#runPrompt")) $("#runPrompt").value = "";
     if ($("#runCwd")) $("#runCwd").value = "";
@@ -392,7 +392,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     const text = String(value || "");
     if (!text) return false;
     try {
-      if (window.loadtoagent?.writeClipboard) await window.loadtoagent.writeClipboard(text);
+      if (window.whitebox?.writeClipboard) await window.whitebox.writeClipboard(text);
       else if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
       else {
         const area = document.createElement("textarea");
@@ -409,7 +409,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
       context.toast?.(t("quality.copy_success"));
       return true;
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("clipboard-copy", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("clipboard-copy", error);
       announce(t("quality.copy_failed"));
       context.toast?.(t("quality.copy_failed"));
       return false;

@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 
 function createRegressionFixtures(root) {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-test-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-test-'));
 
   function jsonl(file, rows) {
     fs.mkdirSync(path.dirname(file), { recursive: true });

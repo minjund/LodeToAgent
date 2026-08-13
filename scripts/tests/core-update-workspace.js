@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { EventEmitter } = require('events');
-const { parseCliArguments, desktopLaunchSpec, readCodexEndpoint } = require('../../bin/loadtoagent');
+const { parseCliArguments, desktopLaunchSpec, readCodexEndpoint } = require('../../bin/whitebox');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
 const {
@@ -100,7 +100,7 @@ function registerCliAndUpdateTests(context) {
       token: 'bridge-token',
       codexAppServer: { ready: true, endpoint: 'ws://127.0.0.1:45123' },
     }), 'utf8');
-    assert.equal(readCodexEndpoint(temp, { env: { LOADTOAGENT_BRIDGE_FILE: bridgeFile } }), 'ws://127.0.0.1:45123');
+    assert.equal(readCodexEndpoint(temp, { env: { WHITEBOX_BRIDGE_FILE: bridgeFile } }), 'ws://127.0.0.1:45123');
     fs.writeFileSync(bridgeFile, JSON.stringify({
       protocol: 1,
       endpoint: 'local-bridge',
@@ -108,7 +108,7 @@ function registerCliAndUpdateTests(context) {
       codexAppServer: { ready: true, endpoint: 'ws://example.com:45123' },
     }), 'utf8');
     assert.throws(
-      () => readCodexEndpoint(temp, { env: { LOADTOAGENT_BRIDGE_FILE: bridgeFile } }),
+      () => readCodexEndpoint(temp, { env: { WHITEBOX_BRIDGE_FILE: bridgeFile } }),
       /아직 준비되지 않았습니다/,
     );
   });
@@ -117,17 +117,17 @@ function registerCliAndUpdateTests(context) {
     const npmSpec = desktopLaunchSpec({
       env: { PATH: '/usr/bin' },
       electronPath: '/tmp/electron',
-      packageRoot: '/tmp/loadtoagent',
+      packageRoot: '/tmp/whitebox',
     });
     assert.equal(npmSpec.executable, '/tmp/electron');
-    assert.deepStrictEqual(npmSpec.args, ['/tmp/loadtoagent']);
+    assert.deepStrictEqual(npmSpec.args, ['/tmp/whitebox']);
     assert.equal(npmSpec.env.PATH, '/usr/bin');
 
     const sourceBridgeSpec = desktopLaunchSpec({
       env: {
         PATH: 'C:\\Windows',
         ELECTRON_RUN_AS_NODE: '1',
-        LOADTOAGENT_SOURCE_LAUNCHER: '1',
+        WHITEBOX_SOURCE_LAUNCHER: '1',
       },
       execPath: 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe',
       packageRoot: 'D:\\workspace',
@@ -135,7 +135,18 @@ function registerCliAndUpdateTests(context) {
     assert.equal(sourceBridgeSpec.executable, 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe');
     assert.deepStrictEqual(sourceBridgeSpec.args, ['D:\\workspace']);
     assert.equal('ELECTRON_RUN_AS_NODE' in sourceBridgeSpec.env, false);
-    assert.equal('LOADTOAGENT_SOURCE_LAUNCHER' in sourceBridgeSpec.env, false);
+    assert.equal('WHITEBOX_SOURCE_LAUNCHER' in sourceBridgeSpec.env, false);
+
+    const legacyMarkedSourceSpec = desktopLaunchSpec({
+      env: {
+        ELECTRON_RUN_AS_NODE: '1',
+        LOADTOAGENT_SOURCE_LAUNCHER: '1',
+      },
+      execPath: 'D:\\workspace\\node_modules\\electron\\dist\\electron.exe',
+      packageRoot: 'D:\\workspace',
+    });
+    assert.deepStrictEqual(legacyMarkedSourceSpec.args, ['D:\\workspace']);
+    assert.equal('LOADTOAGENT_SOURCE_LAUNCHER' in legacyMarkedSourceSpec.env, false);
 
     const legacySourceBridgeSpec = desktopLaunchSpec({
       env: { ELECTRON_RUN_AS_NODE: '1' },
@@ -146,16 +157,16 @@ function registerCliAndUpdateTests(context) {
 
     const packagedSpec = desktopLaunchSpec({
       env: { PATH: '/usr/bin', ELECTRON_RUN_AS_NODE: '1' },
-      execPath: '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent',
+      execPath: '/Applications/Whitebox.app/Contents/MacOS/Whitebox',
     });
-    assert.equal(packagedSpec.executable, '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent');
+    assert.equal(packagedSpec.executable, '/Applications/Whitebox.app/Contents/MacOS/Whitebox');
     assert.deepStrictEqual(packagedSpec.args, []);
     assert.equal('ELECTRON_RUN_AS_NODE' in packagedSpec.env, false);
   });
 
   test('개발 실행판은 설치된 데스크톱 앱과 실제 설치 버전을 업데이트 대상으로 찾는다', async () => {
     const localAppData = path.join(temp, 'local-app-data');
-    const installed = path.join(localAppData, 'Programs', 'LoadToAgent', 'LoadToAgent.exe');
+    const installed = path.join(localAppData, 'Programs', 'Whitebox', 'Whitebox.exe');
     fs.mkdirSync(path.dirname(installed), { recursive: true });
     fs.writeFileSync(installed, 'fixture executable', 'utf8');
 
@@ -174,12 +185,12 @@ function registerCliAndUpdateTests(context) {
     assert.equal(await readDesktopAppVersion({
       platform: 'win32', appPath: installed, environment: { SystemRoot: 'C:\\Windows' },
       execFile: async (_command, _args, options) => {
-        assert.equal(options.env.LOADTOAGENT_VERSION_PATH, installed);
+        assert.equal(options.env.WHITEBOX_VERSION_PATH, installed);
         return { stdout: '1.6.6.0' };
       },
     }), '1.6.6');
 
-    const customInstalled = path.join(temp, 'custom-install', 'LoadToAgent.exe');
+    const customInstalled = path.join(temp, 'custom-install', 'Whitebox.exe');
     fs.mkdirSync(path.dirname(customInstalled), { recursive: true });
     fs.writeFileSync(customInstalled, 'custom fixture executable', 'utf8');
     assert.equal(await findInstalledDesktopApp({
@@ -250,7 +261,7 @@ function registerCliAndUpdateTests(context) {
     const createFixture = (name, platform) => {
       const appOutDir = path.join(temp, name);
       const resources = platform === 'darwin'
-        ? path.join(appOutDir, 'LoadToAgent.app', 'Contents', 'Resources')
+        ? path.join(appOutDir, 'Whitebox.app', 'Contents', 'Resources')
         : path.join(appOutDir, 'resources');
       const packageRoot = path.join(resources, 'app.asar.unpacked', 'node_modules', 'node-pty');
       for (const relative of fixtureFiles) {
@@ -276,7 +287,7 @@ function registerCliAndUpdateTests(context) {
       electronPlatformName: platform,
       arch,
       appOutDir: fixture.appOutDir,
-      packager: { appInfo: { productFilename: 'LoadToAgent' } },
+      packager: { appInfo: { productFilename: 'Whitebox' } },
     });
 
     const windows = createFixture('win-after-pack', 'win32');
@@ -363,8 +374,8 @@ function registerCliAndUpdateTests(context) {
   });
 
   test('macOS node-pty 런타임은 현재 아키텍처 helper 권한과 ASAR 경로를 자가 복구한다', () => {
-    const packageFile = '/Applications/LoadToAgent.app/Contents/Resources/app.asar/node_modules/node-pty/package.json';
-    const packageRoot = '/Applications/LoadToAgent.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty';
+    const packageFile = '/Applications/Whitebox.app/Contents/Resources/app.asar/node_modules/node-pty/package.json';
+    const packageRoot = '/Applications/Whitebox.app/Contents/Resources/app.asar.unpacked/node_modules/node-pty';
     const helper = path.join(packageRoot, 'prebuilds', 'darwin-arm64', 'spawn-helper');
     const addon = path.join(packageRoot, 'prebuilds', 'darwin-arm64', 'pty.node');
     let executable = false;
@@ -403,8 +414,8 @@ function registerCliAndUpdateTests(context) {
     const token = 'a'.repeat(48);
     const readyPath = path.join(signalRoot, `install-renderer-ready-${token}.json`);
     const environment = {
-      LOADTOAGENT_UPDATE_READY_PATH: readyPath,
-      LOADTOAGENT_UPDATE_READY_TOKEN: token,
+      WHITEBOX_UPDATE_READY_PATH: readyPath,
+      WHITEBOX_UPDATE_READY_TOKEN: token,
     };
     assert.deepStrictEqual(readUpdateRelaunchRequest(environment), { readyPath, token });
     const result = await signalRendererReady({
@@ -420,8 +431,25 @@ function registerCliAndUpdateTests(context) {
       version: '3.1.0',
       rendererReadyAt: '2026-07-31T09:00:00.000Z',
     });
-    assert.equal('LOADTOAGENT_UPDATE_READY_PATH' in environment, false);
-    assert.equal('LOADTOAGENT_UPDATE_READY_TOKEN' in environment, false);
+    assert.equal('WHITEBOX_UPDATE_READY_PATH' in environment, false);
+    assert.equal('WHITEBOX_UPDATE_READY_TOKEN' in environment, false);
+    const legacyToken = 'c'.repeat(48);
+    const legacyReadyPath = path.join(signalRoot, `install-renderer-ready-${legacyToken}.json`);
+    const legacyEnvironment = {
+      LOADTOAGENT_UPDATE_READY_PATH: legacyReadyPath,
+      LOADTOAGENT_UPDATE_READY_TOKEN: legacyToken,
+    };
+    assert.deepStrictEqual(readUpdateRelaunchRequest(legacyEnvironment), {
+      readyPath: legacyReadyPath,
+      token: legacyToken,
+    });
+    assert.deepStrictEqual(await signalRendererReady({
+      environment: legacyEnvironment,
+      pid: 4323,
+      version: '3.1.0',
+    }), { signaled: true, readyPath: legacyReadyPath });
+    assert.equal('LOADTOAGENT_UPDATE_READY_PATH' in legacyEnvironment, false);
+    assert.equal('LOADTOAGENT_UPDATE_READY_TOKEN' in legacyEnvironment, false);
     const directReadyPath = path.join(signalRoot, `install-renderer-ready-${'b'.repeat(48)}.json`);
     assert.deepStrictEqual(await signalRendererReady({
       request: { readyPath: directReadyPath, token: 'b'.repeat(48) },
@@ -430,8 +458,8 @@ function registerCliAndUpdateTests(context) {
       version: '3.1.0',
     }), { signaled: true, readyPath: directReadyPath });
     assert.equal(readUpdateRelaunchRequest({
-      LOADTOAGENT_UPDATE_READY_PATH: path.join(signalRoot, 'unexpected.json'),
-      LOADTOAGENT_UPDATE_READY_TOKEN: token,
+      WHITEBOX_UPDATE_READY_PATH: path.join(signalRoot, 'unexpected.json'),
+      WHITEBOX_UPDATE_READY_TOKEN: token,
     }), null);
     assert.deepStrictEqual(await signalRendererReady({ environment: {} }), { signaled: false, readyPath: '' });
   });
@@ -448,22 +476,28 @@ function registerCliAndUpdateTests(context) {
   });
 
   test('운영체제와 CPU에 맞는 신뢰된 GitHub Release 파일을 고른다', () => {
-    const base = 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/';
+    const base = 'https://github.com/minjund/Whitebox/releases/download/v3.1.0/';
     const assets = [
-      { name: 'LoadToAgent-3.1.0-portable.exe', browser_download_url: `${base}LoadToAgent-3.1.0-portable.exe`, state: 'uploaded' },
-      { name: 'LoadToAgent-Setup-3.1.0.exe', browser_download_url: `${base}LoadToAgent-Setup-3.1.0.exe`, state: 'uploaded' },
-      { name: 'LoadToAgent-3.1.0-arm64.dmg', browser_download_url: `${base}LoadToAgent-3.1.0-arm64.dmg`, state: 'uploaded' },
-      { name: 'LoadToAgent-3.1.0-x64.dmg', browser_download_url: `${base}LoadToAgent-3.1.0-x64.dmg`, state: 'uploaded' },
-      { name: 'LoadToAgent-Setup-9.9.9.exe', browser_download_url: 'https://example.com/fake.exe', state: 'uploaded' },
+      { name: 'Whitebox-3.1.0-portable.exe', browser_download_url: `${base}Whitebox-3.1.0-portable.exe`, state: 'uploaded' },
+      { name: 'Whitebox-Setup-3.1.0.exe', browser_download_url: `${base}Whitebox-Setup-3.1.0.exe`, state: 'uploaded' },
+      { name: 'Whitebox-3.1.0-arm64.dmg', browser_download_url: `${base}Whitebox-3.1.0-arm64.dmg`, state: 'uploaded' },
+      { name: 'Whitebox-3.1.0-x64.dmg', browser_download_url: `${base}Whitebox-3.1.0-x64.dmg`, state: 'uploaded' },
+      { name: 'Whitebox-Setup-9.9.9.exe', browser_download_url: 'https://example.com/fake.exe', state: 'uploaded' },
     ];
-    assert.equal(selectReleaseAsset(assets, { platform: 'win32', arch: 'x64', version: '3.1.0' }).name, 'LoadToAgent-Setup-3.1.0.exe');
-    assert.equal(selectReleaseAsset(assets, { platform: 'darwin', arch: 'arm64', version: '3.1.0' }).name, 'LoadToAgent-3.1.0-arm64.dmg');
+    assert.equal(selectReleaseAsset(assets, { platform: 'win32', arch: 'x64', version: '3.1.0' }).name, 'Whitebox-Setup-3.1.0.exe');
+    assert.equal(selectReleaseAsset(assets, { platform: 'darwin', arch: 'arm64', version: '3.1.0' }).name, 'Whitebox-3.1.0-arm64.dmg');
     assert.equal(selectReleaseAsset(assets, { platform: 'linux', arch: 'x64', version: '3.1.0' }), null);
     assert.equal(selectReleaseAsset([assets[3]], { platform: 'darwin', arch: 'arm64', version: '3.1.0' }), null);
     assert.equal(selectReleaseAsset([assets[2]], { platform: 'darwin', arch: 'x64', version: '3.1.0' }), null);
-    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'LoadToAgent-Setup-2.9.0.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
-    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'LoadToAgent-Setup-13.1.0.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
-    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'LoadToAgent-Setup-3.1.0-ia32.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
+    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'Whitebox-Setup-2.9.0.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
+    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'Whitebox-Setup-13.1.0.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
+    assert.equal(selectReleaseAsset([{ ...assets[1], name: 'Whitebox-Setup-3.1.0-ia32.exe' }], { platform: 'win32', arch: 'x64', version: '3.1.0' }), null);
+    const legacyBase = 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/';
+    assert.equal(selectReleaseAsset([{
+      name: 'LoadToAgent-Setup-3.1.0.exe',
+      browser_download_url: `${legacyBase}LoadToAgent-Setup-3.1.0.exe`,
+      state: 'uploaded',
+    }], { platform: 'win32', arch: 'x64', version: '3.1.0' }).name, 'LoadToAgent-Setup-3.1.0.exe');
     assert.equal(safeFileName('..'), '');
     assert.equal(safeFileName('.'), '');
   });
@@ -473,12 +507,12 @@ function registerCliAndUpdateTests(context) {
     const payload = Buffer.from('fixture installer payload');
     const digest = `sha256:${crypto.createHash('sha256').update(payload).digest('hex')}`;
     const asset = {
-      name: 'LoadToAgent-Setup-3.1.0.exe', size: payload.length, digest, state: 'uploaded',
-      browser_download_url: 'https://github.com/minjund/LodeToAgent/releases/download/v3.1.0/LoadToAgent-Setup-3.1.0.exe',
+      name: 'Whitebox-Setup-3.1.0.exe', size: payload.length, digest, state: 'uploaded',
+      browser_download_url: 'https://github.com/minjund/Whitebox/releases/download/v3.1.0/Whitebox-Setup-3.1.0.exe',
     };
     const release = {
       tag_name: 'v3.1.0', draft: false, prerelease: false, published_at: '2026-07-16T00:00:00Z', body: 'fixture notes',
-      html_url: 'https://github.com/minjund/LodeToAgent/releases/tag/v3.1.0', assets: [asset],
+      html_url: 'https://github.com/minjund/Whitebox/releases/tag/v3.1.0', assets: [asset],
     };
     let blockedFetchCalled = false;
     const blockedManager = new UpdateManager({
@@ -597,7 +631,7 @@ function registerCliAndUpdateTests(context) {
     assert.match(helperSource, /function Wait-ForAppProcessesToStop/);
     assert.match(helperSource, /if \(\$remaining\.Count -eq 0\)/);
     assert.match(helperSource, /if \(\$remaining\.Count -ne 0\)/);
-    assert.match(helperSource, /LoadToAgent 프로세스 종료를 확인하지 못했습니다/);
+    assert.match(helperSource, /Whitebox 프로세스 종료를 확인하지 못했습니다/);
     assert.match(helperSource, /Stop-AppProcesses \$AppPath 'stoppingOrphanProcess'/);
     assert.match(helperSource, /Wait-ForAppProcessesToStop \$AppPath 10000/);
     const stopAppProcessesIndex = helperSource.indexOf("Stop-AppProcesses $AppPath 'stoppingOrphanProcess'");
@@ -612,7 +646,7 @@ function registerCliAndUpdateTests(context) {
     assert.match(helperSource, /Start-Process -FilePath \$launchPath/);
     assert.match(helperSource, /function Renderer-IsReady/);
     assert.match(helperSource, /function Restore-AppWindow/);
-    assert.match(helperSource, /LOADTOAGENT_UPDATE_READY_PATH/);
+    assert.match(helperSource, /WHITEBOX_UPDATE_READY_PATH/);
     assert.match(helperSource, /rendererReady=true/);
     assert.match(helperSource, /rendererReadyTimeout=true/);
     assert.match(helperSource, /relaunchReady=true/);
@@ -623,8 +657,8 @@ function registerCliAndUpdateTests(context) {
       const parserScript = [
         '$helperErrors = $null',
         '$bootstrapErrors = $null',
-        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:LOADTOAGENT_HELPER_PATH, [ref]$null, [ref]$helperErrors)',
-        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:LOADTOAGENT_BOOTSTRAP_PATH, [ref]$null, [ref]$bootstrapErrors)',
+        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:WHITEBOX_HELPER_PATH, [ref]$null, [ref]$helperErrors)',
+        '[void][System.Management.Automation.Language.Parser]::ParseFile($env:WHITEBOX_BOOTSTRAP_PATH, [ref]$null, [ref]$bootstrapErrors)',
         'if ($helperErrors.Count -or $bootstrapErrors.Count) {',
         "  throw ('PowerShell parse errors: ' + (($helperErrors + $bootstrapErrors | ForEach-Object Message) -join '; '))",
         '}',
@@ -639,8 +673,8 @@ function registerCliAndUpdateTests(context) {
         windowsHide: true,
         env: {
           ...process.env,
-          LOADTOAGENT_HELPER_PATH: automatic.helperPath,
-          LOADTOAGENT_BOOTSTRAP_PATH: automatic.bootstrapPath,
+          WHITEBOX_HELPER_PATH: automatic.helperPath,
+          WHITEBOX_BOOTSTRAP_PATH: automatic.bootstrapPath,
         },
       });
     }
@@ -781,15 +815,15 @@ function registerCliAndUpdateTests(context) {
     fs.rmSync(path.join(downloadDir, `install-update-${unconfirmedReadyToken}.ps1`), { force: true });
     fs.rmSync(path.join(downloadDir, `install-update-bootstrap-${unconfirmedReadyToken}.ps1`), { force: true });
     assert.equal(canInstallSilently({
-      platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'LoadToAgent-3.1.0-portable.exe'), downloadsDir: downloadDir,
+      platform: 'win32', installType: 'desktop', installerPath: path.join(downloadDir, 'Whitebox-3.1.0-portable.exe'), downloadsDir: downloadDir,
     }), false);
     assert.equal(canInstallSilently({
-      platform: 'win32', installType: 'desktop', installerPath: path.join(temp, 'LoadToAgent-Setup-3.1.0.exe'), downloadsDir: downloadDir,
+      platform: 'win32', installType: 'desktop', installerPath: path.join(temp, 'Whitebox-Setup-3.1.0.exe'), downloadsDir: downloadDir,
     }), false);
 
-    const macBundle = path.join(temp, 'Applications', 'LoadToAgent.app');
-    const macExecutable = path.join(macBundle, 'Contents', 'MacOS', 'LoadToAgent');
-    const macInstaller = path.join(downloadDir, 'LoadToAgent-3.1.0-arm64.dmg');
+    const macBundle = path.join(temp, 'Applications', 'Whitebox.app');
+    const macExecutable = path.join(macBundle, 'Contents', 'MacOS', 'Whitebox');
+    const macInstaller = path.join(downloadDir, 'Whitebox-3.1.0-arm64.dmg');
     fs.mkdirSync(path.dirname(macExecutable), { recursive: true });
     fs.writeFileSync(macExecutable, 'fixture executable', 'utf8');
     fs.writeFileSync(macInstaller, 'fixture dmg', 'utf8');
@@ -908,7 +942,7 @@ function registerCliAndUpdateTests(context) {
     }), true);
     assert.equal(canInstallSilently({
       platform: 'darwin', installType: 'desktop', installerPath: macInstaller,
-      downloadsDir: downloadDir, appPath: '/Volumes/LoadToAgent/LoadToAgent.app/Contents/MacOS/LoadToAgent',
+      downloadsDir: downloadDir, appPath: '/Volumes/Whitebox/Whitebox.app/Contents/MacOS/Whitebox',
     }), false);
 
     const manualOpened = [];
@@ -949,8 +983,8 @@ function registerCliAndUpdateTests(context) {
     assert.deepStrictEqual(signedWindowsResult, { platform: 'win32', verified: true, unsignedAllowed: false });
     assert.equal(signatureCalls.length, 1);
     assert(signatureCalls[0].args.includes('-EncodedCommand'));
-    assert.equal(signatureCalls[0].options.env.LOADTOAGENT_VERIFY_PATH, downloaded.downloadedPath);
-    assert.equal(signatureCalls[0].options.env.LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS, 'false');
+    assert.equal(signatureCalls[0].options.env.WHITEBOX_VERIFY_PATH, downloaded.downloadedPath);
+    assert.equal(signatureCalls[0].options.env.WHITEBOX_ALLOW_UNSIGNED_WINDOWS, 'false');
     const encodedIndex = signatureCalls[0].args.indexOf('-EncodedCommand') + 1;
     assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /Get-AuthenticodeSignature/);
     assert.match(Buffer.from(signatureCalls[0].args[encodedIndex], 'base64').toString('utf16le'), /NotSigned/);
@@ -961,7 +995,7 @@ function registerCliAndUpdateTests(context) {
       environment: { SystemRoot: 'C:\\Windows' },
       allowUnsignedWindowsUpdates: true,
       execFile: async (command, args, options) => {
-        assert.equal(options.env.LOADTOAGENT_ALLOW_UNSIGNED_WINDOWS, 'true');
+        assert.equal(options.env.WHITEBOX_ALLOW_UNSIGNED_WINDOWS, 'true');
         return { stdout: 'NotSigned\r\n' };
       },
     });
@@ -1031,8 +1065,8 @@ function registerCliAndUpdateTests(context) {
     const parsedReadyPath = macHelperReadyPath(temp, parsedToken);
     const parsedRendererReadyPath = path.join(temp, `install-renderer-ready-${parsedToken}.json`);
     assert.deepStrictEqual(parseMacUpdateArguments([
-      '--dmg', '/tmp/LoadToAgent-3.1.0-arm64.dmg',
-      '--target', '/Applications/LoadToAgent.app',
+      '--dmg', '/tmp/Whitebox-3.1.0-arm64.dmg',
+      '--target', '/Applications/Whitebox.app',
       '--parent-pid', '1234',
       '--expected-version', '3.1.0',
       '--log', '/tmp/install-update.log',
@@ -1041,8 +1075,8 @@ function registerCliAndUpdateTests(context) {
       '--renderer-ready-token', parsedToken,
       '--allow-unsigned-mac-updates', 'false',
     ]), {
-      dmgPath: '/tmp/LoadToAgent-3.1.0-arm64.dmg',
-      targetApp: '/Applications/LoadToAgent.app',
+      dmgPath: '/tmp/Whitebox-3.1.0-arm64.dmg',
+      targetApp: '/Applications/Whitebox.app',
       parentPid: 1234,
       expectedVersion: '3.1.0',
       logPath: '/tmp/install-update.log',
@@ -1053,22 +1087,22 @@ function registerCliAndUpdateTests(context) {
     });
 
     let metadataCall = null;
-    assert.deepStrictEqual(await readBundleMetadata('/Applications/LoadToAgent.app', {
+    assert.deepStrictEqual(await readBundleMetadata('/Applications/Whitebox.app', {
       plutil: 'plutil',
       execFile: async (command, args) => {
         metadataCall = { command, args };
         return { stdout: JSON.stringify({
           CFBundleShortVersionString: '3.1.0',
-          CFBundleExecutable: 'LoadToAgent',
+          CFBundleExecutable: 'Whitebox',
         }) };
       },
-    }), { version: '3.1.0', executable: 'LoadToAgent' });
+    }), { version: '3.1.0', executable: 'Whitebox' });
     assert.equal(metadataCall.command, 'plutil');
     assert.deepStrictEqual(metadataCall.args, [
-      '-convert', 'json', '-o', '-', path.join('/Applications/LoadToAgent.app', 'Contents', 'Info.plist'),
+      '-convert', 'json', '-o', '-', path.join('/Applications/Whitebox.app', 'Contents', 'Info.plist'),
     ]);
     await assert.rejects(
-      readBundleMetadata('/Applications/LoadToAgent.app', {
+      readBundleMetadata('/Applications/Whitebox.app', {
         execFile: async () => ({ stdout: JSON.stringify({
           CFBundleShortVersionString: '3.1.0',
           CFBundleExecutable: '../OtherApp',
@@ -1079,9 +1113,9 @@ function registerCliAndUpdateTests(context) {
 
     async function prepareFixture(name) {
       const root = path.join(temp, name);
-      const targetApp = path.join(root, 'Applications', 'LoadToAgent.app');
+      const targetApp = path.join(root, 'Applications', 'Whitebox.app');
       const mountPath = path.join(root, 'mount');
-      const dmgPath = path.join(root, 'LoadToAgent-3.1.0-arm64.dmg');
+      const dmgPath = path.join(root, 'Whitebox-3.1.0-arm64.dmg');
       const logPath = path.join(root, 'install-update.log');
       fs.mkdirSync(path.join(targetApp, 'Contents'), { recursive: true });
       fs.mkdirSync(mountPath, { recursive: true });
@@ -1099,12 +1133,12 @@ function registerCliAndUpdateTests(context) {
         xattrCalls,
         run: async (command, args) => {
           if (command === 'hdiutil' && args[0] === 'attach') {
-            const source = path.join(fixture.mountPath, 'LoadToAgent.app', 'Contents');
+            const source = path.join(fixture.mountPath, 'Whitebox.app', 'Contents');
             await fs.promises.mkdir(source, { recursive: true });
             await fs.promises.writeFile(path.join(source, 'version.txt'), 'new', 'utf8');
             await fs.promises.mkdir(path.join(source, 'MacOS'), { recursive: true });
             await fs.promises.writeFile(
-              path.join(source, 'MacOS', 'LoadToAgent'),
+              path.join(source, 'MacOS', 'Whitebox'),
               '#!/bin/sh\nexit 0\n',
               { encoding: 'utf8', mode: 0o755 },
             );
@@ -1138,7 +1172,7 @@ function registerCliAndUpdateTests(context) {
       successful.root,
       `install-renderer-ready-${successfulRendererToken}.json`,
     );
-    const successfulBackup = path.join(successful.root, 'Applications', '.LoadToAgent.app.backup-success');
+    const successfulBackup = path.join(successful.root, 'Applications', '.Whitebox.app.backup-success');
     let backupPresentAtRendererSignal = false;
     let appUnrefCalled = false;
     await installMacUpdate({
@@ -1156,15 +1190,15 @@ function registerCliAndUpdateTests(context) {
       },
       readBundleMetadata: async () => ({
         version: '3.1.0',
-        executable: 'LoadToAgent',
+        executable: 'Whitebox',
       }),
       spawnApplication: (command, args, options) => {
         backupPresentAtRendererSignal = fs.existsSync(successfulBackup);
-        assert.equal(command, path.join(successful.targetApp, 'Contents', 'MacOS', 'LoadToAgent'));
+        assert.equal(command, path.join(successful.targetApp, 'Contents', 'MacOS', 'Whitebox'));
         assert.deepStrictEqual(args, []);
         assert.equal(options.env.ELECTRON_RUN_AS_NODE, undefined);
-        assert.equal(options.env.LOADTOAGENT_UPDATE_READY_PATH, successfulRendererReadyPath);
-        assert.equal(options.env.LOADTOAGENT_UPDATE_READY_TOKEN, successfulRendererToken);
+        assert.equal(options.env.WHITEBOX_UPDATE_READY_PATH, successfulRendererReadyPath);
+        assert.equal(options.env.WHITEBOX_UPDATE_READY_TOKEN, successfulRendererToken);
         const child = new EventEmitter();
         child.pid = 2468;
         child.exitCode = null;
@@ -1190,7 +1224,7 @@ function registerCliAndUpdateTests(context) {
     assert.equal(fs.existsSync(successfulBackup), false);
     assert.equal(fs.existsSync(successfulRendererReadyPath), false);
     assert.deepStrictEqual(successfulRunner.openedVersions, []);
-    assert.deepStrictEqual(successfulRunner.xattrCalls, [['-cr', path.join(successful.root, 'Applications', '.LoadToAgent.app.update-success')]]);
+    assert.deepStrictEqual(successfulRunner.xattrCalls, [['-cr', path.join(successful.root, 'Applications', '.Whitebox.app.update-success')]]);
     assert.match(fs.readFileSync(successful.logPath, 'utf8'), /internal unsigned update quarantine removed/);
     assert.match(fs.readFileSync(successful.logPath, 'utf8'), /update installed and renderer ready/);
 
@@ -1214,7 +1248,7 @@ function registerCliAndUpdateTests(context) {
         rendererReadyToken: failedRendererToken,
         signalProcess: noProcessGroup,
         waitForParentExit: async pid => assert.equal(pid, 5678),
-        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
         spawnApplication: () => {
           const child = new EventEmitter();
           child.pid = 3579;
@@ -1260,7 +1294,7 @@ function registerCliAndUpdateTests(context) {
         rendererReadyPath: path.join(mismatched.root, `install-renderer-ready-${mismatchedToken}.json`),
         rendererReadyToken: mismatchedToken,
         waitForParentExit: async () => {},
-        readBundleMetadata: async () => ({ version: '3.2.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.2.0', executable: 'Whitebox' }),
         spawnApplication: () => { mismatchedSpawned = true; throw new Error('must not launch'); },
         commands: { hdiutil: 'hdiutil', ditto: 'ditto', open: 'open' },
         run: mismatchedRunner.run,
@@ -1296,7 +1330,7 @@ function registerCliAndUpdateTests(context) {
           rendererReadyToken: token,
           signalProcess: noProcessGroup,
           waitForParentExit: async () => {},
-          readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+          readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
           spawnApplication: () => {
             const child = new EventEmitter();
             child.pid = childPid;
@@ -1340,7 +1374,7 @@ function registerCliAndUpdateTests(context) {
         rendererReadyToken: exitedToken,
         signalProcess: noProcessGroup,
         waitForParentExit: async () => {},
-        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
         spawnApplication: () => {
           const child = new EventEmitter();
           child.pid = 4100;
@@ -1372,7 +1406,7 @@ function registerCliAndUpdateTests(context) {
     const cleanupBackup = path.join(
       cleanupWarning.root,
       'Applications',
-      '.LoadToAgent.app.backup-cleanup-warning',
+      '.Whitebox.app.backup-cleanup-warning',
     );
     let backupRemoveCalls = 0;
     const cleanupFileSystem = new Proxy(macFixtureFileSystem, {
@@ -1400,7 +1434,7 @@ function registerCliAndUpdateTests(context) {
       rendererReadyToken: cleanupToken,
       fileSystem: cleanupFileSystem,
       waitForParentExit: async () => {},
-      readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+      readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
       spawnApplication: () => {
         const child = new EventEmitter();
         child.pid = 4200;
@@ -1440,7 +1474,7 @@ function registerCliAndUpdateTests(context) {
         rendererReadyToken: recoveryFailureToken,
         signalProcess: noProcessGroup,
         waitForParentExit: async () => {},
-        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
         spawnApplication: () => {
           const child = new EventEmitter();
           child.pid = 4300;
@@ -1468,7 +1502,7 @@ function registerCliAndUpdateTests(context) {
     const stopFailureBackup = path.join(
       stopFailure.root,
       'Applications',
-      '.LoadToAgent.app.backup-stop-failure',
+      '.Whitebox.app.backup-stop-failure',
     );
     await assert.rejects(
       installMacUpdate({
@@ -1483,7 +1517,7 @@ function registerCliAndUpdateTests(context) {
         ),
         rendererReadyToken: stopFailureToken,
         waitForParentExit: async () => {},
-        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
         spawnApplication: () => {
           const child = new EventEmitter();
           child.pid = 4400;
@@ -1512,7 +1546,7 @@ function registerCliAndUpdateTests(context) {
     const restoreFailureBackup = path.join(
       restoreFailure.root,
       'Applications',
-      '.LoadToAgent.app.backup-restore-rename-failure',
+      '.Whitebox.app.backup-restore-rename-failure',
     );
     const restoreFailureFileSystem = new Proxy(restoreFailure.fileSystem, {
       get(target, property) {
@@ -1543,7 +1577,7 @@ function registerCliAndUpdateTests(context) {
         fileSystem: restoreFailureFileSystem,
         signalProcess: noProcessGroup,
         waitForParentExit: async () => {},
-        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'LoadToAgent' }),
+        readBundleMetadata: async () => ({ version: '3.1.0', executable: 'Whitebox' }),
         spawnApplication: () => {
           const child = new EventEmitter();
           child.pid = 4_600;
@@ -1566,7 +1600,7 @@ function registerCliAndUpdateTests(context) {
     assert.equal(fs.existsSync(path.join(
       restoreFailure.root,
       'Applications',
-      '.LoadToAgent.app.failed-restore-rename-failure',
+      '.Whitebox.app.failed-restore-rename-failure',
     )), false);
     assert.match(fs.readFileSync(restoreFailure.logPath, 'utf8'), /rollback failed.*fixture backup restore rename denied/);
 

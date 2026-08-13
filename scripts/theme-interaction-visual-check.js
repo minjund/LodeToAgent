@@ -3,7 +3,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-theme-interaction-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-theme-interaction-'));
 app.setPath('userData', userData);
 
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
@@ -147,7 +147,7 @@ async function setDesktop(win) {
 async function resetSurface(win) {
   await setDesktop(win);
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     try { app.closeDrawer(false); } catch {}
     try { app.closeRunModal(true); } catch {}
     try { app.closeQuickPalette(); } catch {}
@@ -172,7 +172,7 @@ const scenarios = [
     label: 'project-selection',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.workspace = 'all';
         app.selectView('all');
         app.render();
@@ -186,7 +186,7 @@ const scenarios = [
     label: 'guide-expanded',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.workspace = app.state.workspaces[0]?.path || 'all';
         app.state.guideExpanded = true;
         app.selectView('all');
@@ -201,7 +201,7 @@ const scenarios = [
     label: 'advanced-navigation-open',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.workspace = app.state.workspaces[0]?.path || 'all';
         app.selectView('all');
         app.render();
@@ -216,17 +216,17 @@ const scenarios = [
     label: `drawer-${tab}`,
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.openDrawer('fixture-root', { tab: ${JSON.stringify(tab === 'summary' ? 'summary' : 'chat')} });
+        window.WhiteboxApp.openDrawer('fixture-root', { tab: ${JSON.stringify(tab === 'summary' ? 'summary' : 'chat')} });
         document.querySelector(${JSON.stringify(`#drawerTab${tab[0].toUpperCase()}${tab.slice(1)}`)})?.click();
         return true;
       })()`);
     },
-    ready: `document.querySelector('#detailDrawer')?.classList.contains('open') && window.LoadToAgentApp.state.drawerTab === ${JSON.stringify(tab)}`,
+    ready: `document.querySelector('#detailDrawer')?.classList.contains('open') && window.WhiteboxApp.state.drawerTab === ${JSON.stringify(tab)}`,
   })),
   {
     label: 'drawer-loading',
     open: async win => {
-      await win.webContents.executeJavaScript(`void window.LoadToAgentApp.openDrawer('fixture-history-0', { tab: 'summary' })`);
+      await win.webContents.executeJavaScript(`void window.WhiteboxApp.openDrawer('fixture-history-0', { tab: 'summary' })`);
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open') && Boolean(document.querySelector('#drawerContent'))`, '로딩 검사용 상세 창을 열지 못했습니다.');
       await wait(320);
       await win.webContents.executeJavaScript(`(() => {
@@ -240,7 +240,7 @@ const scenarios = [
     label: 'drawer-error',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.details.delete('fixture-history-0');
         window.interactionTest.configure({ failures: { sessionDetail: 1 } });
         void app.openDrawer('fixture-history-0', { tab: 'summary' });
@@ -252,7 +252,7 @@ const scenarios = [
   {
     label: 'drawer-conversation-menu',
     open: async win => {
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openDrawer('fixture-root', { tab: 'chat' })`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openDrawer('fixture-root', { tab: 'chat' })`);
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open') && Boolean(document.querySelector('.agent-command-input'))`, '대화 입력창을 열지 못했습니다.');
       await win.webContents.executeJavaScript(`(() => {
         const input = document.querySelector('.agent-command-input');
@@ -267,7 +267,7 @@ const scenarios = [
     label: 'run-advanced',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.openRunModal();
+        window.WhiteboxApp.openRunModal();
         document.querySelector('.run-advanced').open = true;
         return true;
       })()`);
@@ -278,7 +278,7 @@ const scenarios = [
     label: 'run-provider-help',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.openRunModal();
         app.state.availability = Object.fromEntries(app.state.providers.map(provider => [provider.id, false]));
         app.syncRunComposer();
@@ -291,7 +291,7 @@ const scenarios = [
     label: 'run-permission-warning',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.openRunModal();
+        window.WhiteboxApp.openRunModal();
         const input = document.querySelector('#runPrompt');
         input.value = '코드를 수정하고 화면 색을 바꿔줘';
         input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -304,7 +304,7 @@ const scenarios = [
     label: 'control-room-search',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('all');
+        window.WhiteboxApp.selectView('all');
         document.querySelector('#controlRoomSearch')?.classList.add('is-open');
         const input = document.querySelector('#controlRoomSearchInput');
         input.value = '화면';
@@ -318,19 +318,19 @@ const scenarios = [
     label: 'terminal-session-tools',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('terminal');
+        window.WhiteboxApp.selectView('terminal');
         const details = document.querySelector('.terminal-session-tools');
         if (details) details.open = true;
         return true;
       })()`);
     },
-    ready: `window.LoadToAgentApp.state.view === 'terminal' && document.querySelector('.terminal-session-tools')?.open === true`,
+    ready: `window.WhiteboxApp.state.view === 'terminal' && document.querySelector('.terminal-session-tools')?.open === true`,
   },
   {
     label: 'terminal-conversation-menu',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.selectView('terminal');
         document.querySelector('.terminal-session-item')?.click();
         return true;
@@ -349,10 +349,10 @@ const scenarios = [
     label: 'terminal-history',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('terminal');
+        window.WhiteboxApp.selectView('terminal');
         return true;
       })()`);
-      await waitFor(win, `window.LoadToAgentApp.state.view === 'terminal' && Boolean(document.querySelector('#terminalHistoryList'))`, '터미널 기록 영역을 열지 못했습니다.');
+      await waitFor(win, `window.WhiteboxApp.state.view === 'terminal' && Boolean(document.querySelector('#terminalHistoryList'))`, '터미널 기록 영역을 열지 못했습니다.');
       await win.webContents.executeJavaScript(`(() => {
         document.querySelector('#terminalHistoryPanel')?.classList.remove('hidden');
         document.querySelector('#terminalHistoryList').innerHTML = '<article class="terminal-history-message user"><header><b>나</b><time>방금</time></header><p>라이트와 다크 화면의 색 배합을 확인해줘.</p><div class="terminal-history-copy"><pre>theme interaction audit</pre></div></article><article class="terminal-history-message assistant"><header><b>Claude</b><time>방금</time></header><p>숨은 대화 기록 화면까지 같은 테마 토큰으로 확인하고 있습니다.</p></article>';
@@ -365,7 +365,7 @@ const scenarios = [
     label: 'terminal-long-draft',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('terminal');
+        window.WhiteboxApp.selectView('terminal');
         document.querySelector('[data-terminal-id="terminal-main"]')?.click();
         const input = document.querySelector('#terminalCommandInput');
         input.value = '긴 작업 지시 '.repeat(650);
@@ -380,18 +380,18 @@ const scenarios = [
     label: 'runtime-expanded-details',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('runtime');
+        window.WhiteboxApp.selectView('runtime');
         document.querySelectorAll('#automationOverview details').forEach(details => { details.open = true; });
         return true;
       })()`);
     },
-    ready: `window.LoadToAgentApp.state.view === 'runtime' && [...document.querySelectorAll('#automationOverview details')].some(details => details.open)`,
+    ready: `window.WhiteboxApp.state.view === 'runtime' && [...document.querySelectorAll('#automationOverview details')].some(details => details.open)`,
   },
   {
     label: 'graph-execution-activity',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.workspace = app.state.workspaces[0]?.path || 'all';
         app.selectView('all');
         app.render();
@@ -411,19 +411,19 @@ const scenarios = [
     label: 'tmux-control-tools',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('tmux');
+        window.WhiteboxApp.selectView('tmux');
         document.querySelector('[data-control-tmux="tmux-pane-id"]')?.click();
         return true;
       })()`);
     },
-    ready: `window.LoadToAgentApp.state.view === 'tmux' && !document.querySelector('#terminalTmuxTools')?.classList.contains('hidden')`,
+    ready: `window.WhiteboxApp.state.view === 'tmux' && !document.querySelector('#terminalTmuxTools')?.classList.contains('hidden')`,
   },
   {
     label: 'settings-downloaded-update',
     open: async win => {
       await win.webContents.executeJavaScript(`(async () => {
-        window.LoadToAgentApp.selectView('settings');
-        await window.loadtoagent.downloadUpdate();
+        window.WhiteboxApp.selectView('settings');
+        await window.whitebox.downloadUpdate();
         return true;
       })()`);
     },
@@ -433,7 +433,7 @@ const scenarios = [
     label: 'settings-update-error',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('settings');
+        window.WhiteboxApp.selectView('settings');
         window.interactionTest.configure({ failures: { checkForUpdate: 1 } });
         document.querySelector('#checkUpdateBtn')?.click();
         return true;
@@ -445,7 +445,7 @@ const scenarios = [
     label: 'app-error',
     open: async win => {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.workspace = app.state.workspaces[0]?.path || 'all';
         app.selectView('all');
         app.render();
@@ -473,13 +473,13 @@ const scenarios = [
       win.setBounds({ width: 390, height: 844 }, false);
       await wait(180);
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('active');
+        window.WhiteboxApp.selectView('active');
         const details = document.querySelector('.mobile-memory-filters');
         if (details) details.open = true;
         return true;
       })()`);
     },
-    ready: `window.LoadToAgentApp.state.view === 'active' && document.querySelector('.mobile-memory-filters')?.open === true`,
+    ready: `window.WhiteboxApp.state.view === 'active' && document.querySelector('.mobile-memory-filters')?.open === true`,
   },
 ];
 
@@ -533,11 +533,11 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentTheme)`, '심층 테마 검수용 앱 화면이 준비되지 않았습니다.');
-    await win.webContents.executeJavaScript(`window.LoadToAgentI18n.setLocale('ko')`);
+    await waitFor(win, `Boolean(window.WhiteboxApp?.initialized && window.WhiteboxTheme)`, '심층 테마 검수용 앱 화면이 준비되지 않았습니다.');
+    await win.webContents.executeJavaScript(`window.WhiteboxI18n.setLocale('ko')`);
 
     for (const theme of ['dark', 'light']) {
-      await win.webContents.executeJavaScript(`window.LoadToAgentTheme.setTheme(${JSON.stringify(theme)})`);
+      await win.webContents.executeJavaScript(`window.WhiteboxTheme.setTheme(${JSON.stringify(theme)})`);
       for (const scenario of activeScenarios) {
         try {
           await resetSurface(win);

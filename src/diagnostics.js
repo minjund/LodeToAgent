@@ -7,7 +7,7 @@
  */
 function reportRecoverableError(operation, error) {
   const message = error && error.message ? error.message : String(error || 'unknown error');
-  console.warn(`[LoadToAgent:${operation}] ${message}`);
+  console.warn(`[Whitebox:${operation}] ${message}`);
 }
 
 /** Runs cleanup code and reports a failure that is safe to continue past. */

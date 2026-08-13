@@ -607,7 +607,7 @@ function parseOpenCodeSession(input, options = {}) {
     sendInstruction: true,
     continue: true,
     // This is only an observed stop candidate: the database proves that work
-    // is active, not that LoadToAgent owns its process. SourcePluginMonitorHost
+    // is active, not that Whitebox owns its process. SourcePluginMonitorHost
     // intersects it with controlHost.managedSessionIds before the renderer can
     // receive an enabled stop action.
     stop: status.status === 'running',
@@ -722,7 +722,7 @@ function parseOpenCodeSession(input, options = {}) {
     sourceControlCapabilities: { ...controls },
     controlCapabilities: controls,
     controlUnavailableReasons: {
-      stop: 'LoadToAgent에서 시작해 현재 소유 중인 OMO 프로세스만 중지할 수 있습니다.',
+      stop: 'Whitebox에서 시작해 현재 소유 중인 OMO 프로세스만 중지할 수 있습니다.',
       archive: 'OpenCode CLI는 세션 보관 명령을 제공하지 않습니다.',
     },
     fullHistory: Boolean(options.fullHistory),

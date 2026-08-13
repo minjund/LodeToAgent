@@ -6,7 +6,7 @@ const path = require('path');
 const { app, BrowserWindow } = require('electron');
 app.disableHardwareAcceleration();
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-runtime-overview-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-runtime-overview-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -26,7 +26,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
 
 async function waitForRenderer(win) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (await win.webContents.executeJavaScript(`Boolean(window.LoadToAgentApp?.state?.snapshot && document.querySelector('#automationOverview'))`)) return;
+    if (await win.webContents.executeJavaScript(`Boolean(window.WhiteboxApp?.state?.snapshot && document.querySelector('#automationOverview'))`)) return;
     await wait(75);
   }
   throw new Error('스케줄·루프 관제 화면이 준비되지 않았습니다.');
@@ -48,11 +48,11 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     await waitForRenderer(win);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      window.LoadToAgentApp.state.guideExpanded = false;
-      window.LoadToAgentApp.selectView('all');
+      window.WhiteboxI18n.setLocale('ko');
+      window.WhiteboxApp.state.guideExpanded = false;
+      window.WhiteboxApp.selectView('all');
       window.__runtimeHomeDetached = document.querySelector('#automationOverview').classList.contains('hidden');
-      window.LoadToAgentApp.selectView('runtime');
+      window.WhiteboxApp.selectView('runtime');
       const modal = document.querySelector('#runModal');
       modal.classList.add('hidden');
       modal.classList.remove('closing');
@@ -102,7 +102,7 @@ app.whenReady().then(async () => {
     await wait(120);
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
-    const output = path.join(outputDir, 'loadtoagent-runtime-overview.png');
+    const output = path.join(outputDir, 'whitebox-runtime-overview.png');
     fs.writeFileSync(output, (await win.webContents.capturePage()).toPNG());
     process.stdout.write(`스케줄·루프 시각 검증 통과: ${JSON.stringify(metrics)}\n${output}\n`);
   } catch (error) {

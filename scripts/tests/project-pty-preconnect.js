@@ -68,14 +68,14 @@ function createTerminalPreconnectHarness(root, options = {}) {
     wslDistros: [],
   };
   const window = {
-    LoadToAgentI18n: {
+    WhiteboxI18n: {
       t: key => key,
       errorText: error => String(error?.message || error || ''),
     },
-    LoadToAgentRendererUtils: {
+    WhiteboxRendererUtils: {
       reportRecoverableError: (scope, error) => { errors.push([scope, error]); },
     },
-    loadtoagent: {
+    whitebox: {
       terminalCreate: async createOptions => {
         const externalId = String(createOptions.args?.[1] || createOptions.args?.[0] || '');
         const session = options.sessionsByExternalId?.get(externalId)
@@ -112,7 +112,7 @@ function createTerminalPreconnectHarness(root, options = {}) {
   };
   const sandbox = { window, setTimeout, clearTimeout, Uint32Array };
   vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-  const actions = window.LoadToAgentTerminalAgentActions({
+  const actions = window.WhiteboxTerminalAgentActions({
     $: () => null,
     state,
     init: async () => { initCalls += 1; },
@@ -180,10 +180,10 @@ function createProjectPreconnectHarness(root, sessions) {
     conversationInterruptRequests: new Set(),
   };
   const window = {
-    LoadToAgentAppFactories: {},
-    LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-    LoadToAgentRendererUtils: { reportRecoverableError() {} },
-    LoadToAgentTerminal: {
+    WhiteboxAppFactories: {},
+    WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+    WhiteboxRendererUtils: { reportRecoverableError() {} },
+    WhiteboxTerminal: {
       preconnectForAgents: (candidates, options) => {
         preconnectCalls.push({ candidates, options });
         return Promise.resolve([]);
@@ -207,7 +207,7 @@ function createProjectPreconnectHarness(root, sessions) {
     CustomEvent: class CustomEvent {},
   };
   vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-  const actions = window.LoadToAgentAppFactories.createAgentActions({
+  const actions = window.WhiteboxAppFactories.createAgentActions({
     state,
     isLiveSession: session => session.status === 'running',
     controlRoomRootSessions: () => sessions.filter(session => session.status === 'running'),

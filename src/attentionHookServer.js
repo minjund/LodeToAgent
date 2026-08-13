@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 
 const ATTENTION_HOOK_PROTOCOL = 1;
-const ATTENTION_HOOK_SERVICE = 'loadtoagent-attention-hook';
+const ATTENTION_HOOK_SERVICE = 'whitebox-attention-hook';
 const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 9 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
@@ -327,7 +327,7 @@ function buildOfficialHookResponse(request, rawDecision) {
     };
     if (decision.action === 'deny') {
       hookSpecificOutput.permissionDecisionReason = cleanString(decision.message ?? decision.reason, 4_096)
-        || 'Denied in LoadToAgent.';
+        || 'Denied in Whitebox.';
     } else {
       const answers = questionAnswers(request, decision);
       if (request.questions.length > 0 && Object.keys(answers).length !== request.questions.length) {
@@ -347,7 +347,7 @@ function buildOfficialHookResponse(request, rawDecision) {
 
   const officialDecision = { behavior: decision.action };
   if (decision.action === 'deny') {
-    officialDecision.message = cleanString(decision.message ?? decision.reason, 4_096) || 'Denied in LoadToAgent.';
+    officialDecision.message = cleanString(decision.message ?? decision.reason, 4_096) || 'Denied in Whitebox.';
   }
   if (request.provider !== 'codex' && decision.action === 'allow' && isPlainObject(decision.updatedInput)) {
     officialDecision.updatedInput = decision.updatedInput;
@@ -421,7 +421,7 @@ class AttentionHookServer {
     this.requestTimeoutMs = Number.isFinite(Number(options.requestTimeoutMs))
       ? Math.max(10, Number(options.requestTimeoutMs))
       : DEFAULT_REQUEST_TIMEOUT_MS;
-    this.runtimeFile = options.runtimeFile || path.join(os.homedir(), '.loadtoagent', 'attention-hook.json');
+    this.runtimeFile = options.runtimeFile || path.join(os.homedir(), '.whitebox', 'attention-hook.json');
     this.enabled = options.enabled === true;
     this.getEnabled = typeof options.getEnabled === 'function' ? options.getEnabled : null;
     this.onRequest = typeof options.onRequest === 'function' ? options.onRequest : () => {};
@@ -429,7 +429,7 @@ class AttentionHookServer {
     this.onError = typeof options.onError === 'function' ? options.onError : () => {};
     this.nonce = cleanString(options.nonce, 256) || crypto.randomBytes(32).toString('hex');
     if (!/^[a-f0-9]{32,128}$/iu.test(this.nonce)) throw new TypeError('Attention hook nonce must be 32-128 hexadecimal characters.');
-    this.routePath = `/loadtoagent/attention/v1/${this.nonce}`;
+    this.routePath = `/whitebox/attention/v1/${this.nonce}`;
     this.server = null;
     this.identity = null;
     this.pending = new Map();
@@ -541,7 +541,7 @@ class AttentionHookServer {
         writeJsonResponse(response, 400, {});
         return;
       }
-      const providerHeader = cleanString(request.headers['x-loadtoagent-provider'], 32).toLowerCase();
+      const providerHeader = cleanString(request.headers['x-whitebox-provider'], 32).toLowerCase();
       let normalized;
       try {
         normalized = normalizeHookRequest(payload, {

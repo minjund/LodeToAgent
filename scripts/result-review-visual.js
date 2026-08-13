@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-completion-status-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-completion-status-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -48,7 +48,7 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, 'Boolean(window.LoadToAgentApp?.initialized)', '앱 초기화를 기다리다 시간이 초과되었습니다.');
+    await waitFor(win, 'Boolean(window.WhiteboxApp?.initialized)', '앱 초기화를 기다리다 시간이 초과되었습니다.');
     await win.webContents.executeJavaScript(`(() => {
       const completedAt = new Date().toISOString();
       window.interactionTest.addSession({
@@ -70,8 +70,8 @@ app.whenReady().then(async () => {
       '완료 결과가 있는 프로젝트 배지를 찾지 못했습니다.',
     );
     await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
-      window.LoadToAgentI18n.setLocale('ko');
+      const control = window.WhiteboxApp;
+      window.WhiteboxI18n.setLocale('ko');
       control.state.workspace = control.state.snapshot.sessions.find(item => item.id === 'fixture-root').cwd;
       control.state.providerFilters.clear();
       control.state.search = '';
@@ -111,7 +111,7 @@ app.whenReady().then(async () => {
     const themeStates = {};
     win.show();
     for (const theme of ['dark', 'light']) {
-      await win.webContents.executeJavaScript(`window.LoadToAgentTheme.setTheme(${JSON.stringify(theme)})`);
+      await win.webContents.executeJavaScript(`window.WhiteboxTheme.setTheme(${JSON.stringify(theme)})`);
       await waitFor(
         win,
         `document.documentElement.dataset.theme === ${JSON.stringify(theme)}
@@ -145,9 +145,9 @@ app.whenReady().then(async () => {
       if (!themeStates[theme].projectBadgeVisible || !/^1\s*완료 결과$/.test(themeStates[theme].projectBadgeText)) {
         throw new Error(`${theme} 테마의 프로젝트 완료 결과 배지가 올바르지 않습니다: ${JSON.stringify(themeStates[theme])}`);
       }
-      outputs[theme] = await capture(win, path.join(outputDir, `loadtoagent-result-review-${theme}.png`));
+      outputs[theme] = await capture(win, path.join(outputDir, `whitebox-result-review-${theme}.png`));
     }
-    fs.copyFileSync(outputs.light, path.join(outputDir, 'loadtoagent-result-review.png'));
+    fs.copyFileSync(outputs.light, path.join(outputDir, 'whitebox-result-review.png'));
 
     await win.webContents.executeJavaScript(`(() => {
       const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
@@ -162,7 +162,7 @@ app.whenReady().then(async () => {
       '프로젝트를 확인한 뒤 완료 결과 배지가 사라지지 않았습니다.',
     );
     const projectResultSeen = await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
         .find(item => item.dataset.workspace === 'D:\\\\fixture-other');
       const session = control.state.snapshot.sessions.find(item => item.id === 'fixture-project-result-ready');
@@ -179,14 +179,14 @@ app.whenReady().then(async () => {
     }
 
     await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       control.state.workspace = control.state.snapshot.sessions.find(item => item.id === 'fixture-root').cwd;
       control.selectView('all');
       control.render();
     })()`);
     await wait(300);
     const homeDebug = await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       const session = control.state.snapshot.sessions.find(item => item.id === 'fixture-waiting');
       return {
         view: control.state.view,
@@ -223,7 +223,7 @@ app.whenReady().then(async () => {
       '프로젝트를 확인한 뒤 확인 필요 배지가 사라지지 않았습니다.',
     );
     const attention = await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
+      const control = window.WhiteboxApp;
       const byId = id => control.state.snapshot.sessions.find(session => session.id === id);
       const projectButton = [...document.querySelectorAll('#projectSidebarList [data-workspace]')]
         .find(item => item.dataset.workspace === 'D:\\\\fixture');

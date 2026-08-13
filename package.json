@@ -1,17 +1,17 @@
 {
-  "name": "loadtoagent",
-  "version": "1.6.22",
-  "description": "A local desktop dashboard for Claude, Codex, Gemini, and Grok sessions.",
+  "name": "whitebox-ai",
+  "version": "1.7.0",
+  "description": "A local-first desktop control room for seeing and steering Claude, Codex, Gemini, and Grok at work.",
   "main": "main.js",
   "author": "wincube AX",
   "license": "MIT",
-  "homepage": "https://github.com/minjund/LodeToAgent#readme",
+  "homepage": "https://github.com/minjund/Whitebox#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/minjund/LodeToAgent.git"
+    "url": "git+https://github.com/minjund/Whitebox.git"
   },
   "bugs": {
-    "url": "https://github.com/minjund/LodeToAgent/issues"
+    "url": "https://github.com/minjund/Whitebox/issues"
   },
   "keywords": [
     "ai",
@@ -26,20 +26,21 @@
   "engines": {
     "node": ">=18"
   },
-  "loadToAgent": {
+  "whitebox": {
     "distributionChannel": "internal",
     "allowUnsignedWindowsUpdates": true,
     "allowUnsignedMacUpdates": true
   },
   "files": [
     "bin",
+    "build/icon.png",
     "main.js",
     "preload.js",
     "attention-popup-preload.js",
     "renderer",
     "src",
     "docs/*.md",
-    "docs/assets/loadtoagent-demo.gif",
+    "docs/assets/whitebox-demo.gif",
     "LICENSE",
     "SECURITY.md",
     "CHANGELOG.md",
@@ -48,7 +49,8 @@
     "README.zh-CN.md"
   ],
   "bin": {
-    "loadtoagent": "bin/loadtoagent.js"
+    "whitebox": "bin/whitebox.js",
+    "loadtoagent": "bin/whitebox.js"
   },
   "scripts": {
     "start": "electron .",
@@ -108,8 +110,8 @@
     "electron-builder": "^26.15.3"
   },
   "build": {
-    "appId": "com.wincube.loadtoagent",
-    "productName": "LoadToAgent",
+    "appId": "com.wincube.whitebox",
+    "productName": "Whitebox",
     "directories": {
       "output": "release"
     },
@@ -123,6 +125,7 @@
       "main.js",
       "preload.js",
       "attention-popup-preload.js",
+      "build/icon.png",
       "bin/**/*",
       "src/**/*",
       "renderer/**/*",
@@ -183,14 +186,15 @@
           ]
         }
       ],
-      "artifactName": "LoadToAgent-${version}-${arch}.${ext}"
+      "artifactName": "Whitebox-${version}-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "LoadToAgent-${version}-portable.exe",
+      "artifactName": "Whitebox-${version}-portable.exe",
       "unpackDirName": false
     },
     "nsis": {
-      "artifactName": "LoadToAgent-Setup-${version}.exe",
+      "guid": "c5e80817-3fef-5203-be10-660aa7355425",
+      "artifactName": "Whitebox-Setup-${version}.exe",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,

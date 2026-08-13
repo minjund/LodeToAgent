@@ -1,8 +1,8 @@
 'use strict';
 
 (() => {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const report = (scope, error) => window.LoadToAgentRendererUtils?.reportRecoverableError?.(scope, error);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
+  const report = (scope, error) => window.WhiteboxRendererUtils?.reportRecoverableError?.(scope, error);
   const state = {
     session: null,
     target: null,
@@ -44,7 +44,7 @@
     const safeTerminalId = String(terminalId || '');
     const sessionId = String(state.session?.id || '');
     const currentViewport = viewport();
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
     const active = document.activeElement;
     const host = currentViewport
       ? [...currentViewport.children].find(child => String(child?.dataset?.terminalScreen || '') === safeTerminalId)
@@ -79,7 +79,7 @@
     }
     requestAnimationFrame(() => {
       if (state.reconnectFocusIntent !== intent) return;
-      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
       const host = [...(intent.viewport?.children || [])].find(child => (
         String(child?.dataset?.terminalScreen || '') === intent.terminalId
       ));
@@ -116,7 +116,7 @@
         && documentFocused
         && documentVisible;
       if (shouldFocus) {
-        const focused = window.LoadToAgentTerminal?.focusEmbedded?.() === true;
+        const focused = window.WhiteboxTerminal?.focusEmbedded?.() === true;
         if (focused) state.reconnectFocusIntent = null;
         else if (attempt < 240) setTimeout(() => restoreReconnectFocus(intent, attempt + 1), 50);
         else state.reconnectFocusIntent = null;
@@ -132,7 +132,7 @@
   }
 
   function connectionSignature(session) {
-    const sharedSignature = window.LoadToAgentTerminal?.agentConnectionSignature?.(session);
+    const sharedSignature = window.WhiteboxTerminal?.agentConnectionSignature?.(session);
     if (sharedSignature) return sharedSignature;
     const environment = session?.environment || {};
     // Keep the fallback stable for the same conversation. External runtime
@@ -152,7 +152,7 @@
   }
 
   function notifyTargetsChanged(detail = {}) {
-    window.dispatchEvent(new CustomEvent('loadtoagent:drawer-terminal-targets-changed', { detail }));
+    window.dispatchEvent(new CustomEvent('whitebox:drawer-terminal-targets-changed', { detail }));
   }
 
   function markUnavailable(sessionId, targetId, reason = '') {
@@ -181,7 +181,7 @@
 
   function pendingPrompt() {
     return state.session
-      ? window.LoadToAgentTerminal?.pendingPromptForSession?.(state.session) || null
+      ? window.WhiteboxTerminal?.pendingPromptForSession?.(state.session) || null
       : null;
   }
 
@@ -212,7 +212,7 @@
   }
 
   function resumeSupport(session) {
-    return window.LoadToAgentTerminal?.resumeSupport?.(session)
+    return window.WhiteboxTerminal?.resumeSupport?.(session)
       || { supported: false, reason: '' };
   }
 
@@ -237,7 +237,7 @@
   }
 
   function selectedTargetId(session, createIfMissing = false, excludedTargetIds = new Set()) {
-    const targets = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+    const targets = (window.WhiteboxTerminal?.agentTargets?.(session) || [])
       .filter(target => !excludedTargetIds.has(targetIdOf(target)));
     return (targets.find(target => target.kind === 'terminal') || (createIfMissing ? null : targets[0]) || {}).id || '';
   }
@@ -252,7 +252,7 @@
     if (session?.parentId) return { ok: false, reason: 'parent-controlled', targets: [] };
     if (!session?.id || !viewport()?.isConnected) return { ok: false, reason: 'invalid-mount', targets: [] };
     const signature = connectionSignature(session);
-    const embeddedBefore = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embeddedBefore = window.WhiteboxTerminal?.embeddedState?.() || {};
     const previousSessionId = String(state.session?.id || '');
     const previousSignature = state.connectionSignature;
     const switchingSession = (previousSessionId && previousSessionId !== session.id)
@@ -261,7 +261,7 @@
     if (switchingSession) {
       state.generation += 1;
       state.reconnectFocusIntent = null;
-      window.LoadToAgentTerminal?.unmountEmbedded?.();
+      window.WhiteboxTerminal?.unmountEmbedded?.();
       state.target = null;
       state.pendingMountKey = '';
     }
@@ -278,7 +278,7 @@
       ? requestedOptionTargetId
       : selectedTargetId(session, createIfMissing, excludedTargetIds);
     if (!options.force && requestedTargetId && targetUnavailable(session.id, requestedTargetId)) {
-      state.target = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+      state.target = (window.WhiteboxTerminal?.agentTargets?.(session) || [])
         .find(target => target.id === requestedTargetId) || null;
       if (switchingSession || !['error', 'unavailable'].includes(state.baseStatus.tone)) {
         setEmpty(true, 'drawer.terminal_unavailable', 'drawer.terminal_unavailable_help');
@@ -303,8 +303,8 @@
       return { ok: false, reason: cachedFailure.reason || 'mount-failed', error: cachedFailure.error, targets: [] };
     }
     if (options.force) state.connectionFailures.delete(session.id);
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
-    const embeddedTarget = (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+    const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
+    const embeddedTarget = (window.WhiteboxTerminal?.agentTargets?.(session) || [])
       .find(target => target.kind === 'terminal' && targetIdOf(target) === embedded.terminalId) || null;
     const embeddedVerified = Boolean(embeddedTarget && !targetUnavailable(session.id, embedded.terminalId));
     const embeddedJustConnected = state.session?.id === session.id
@@ -329,7 +329,7 @@
     setEmpty(true);
     setStatus('connecting', 'drawer.terminal_connecting');
     try {
-      const result = await window.LoadToAgentTerminal?.mountForAgent?.(session, {
+      const result = await window.WhiteboxTerminal?.mountForAgent?.(session, {
         mount: viewport(),
         targetId: requestedTargetId,
         focus: false,
@@ -374,7 +374,7 @@
     } catch (error) {
       if (generation !== state.generation) return { ok: false, reason: 'cancelled', targets: [] };
       markUnavailable(session.id, requestedTargetId, 'mount-failed');
-      const message = window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed');
+      const message = window.WhiteboxI18n.errorText(error, 'drawer.terminal_failed');
       if (createIfMissing && !requestedTargetId) {
         state.connectionFailures.set(session.id, { reason: 'mount-failed', message, error, signature });
         notifyTargetsChanged({ sessionId: session.id, available: false, reason: 'mount-failed' });
@@ -391,7 +391,7 @@
   function unmount(options = {}) {
     const resetSessionId = String(options.sessionId || state.session?.id || '');
     state.generation += 1;
-    window.LoadToAgentTerminal?.unmountEmbedded?.();
+    window.WhiteboxTerminal?.unmountEmbedded?.();
     state.session = null;
     state.target = null;
     state.pendingMountKey = '';
@@ -414,14 +414,14 @@
     try {
       const session = state.session;
       const signature = state.connectionSignature || connectionSignature(session);
-      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
       const terminalId = String(embedded.agentSessionId === session.id
         ? embedded.terminalId
         : targetIdOf(state.target));
       if (!terminalId) return showUnavailable(session);
       clearUnavailable(state.session.id);
       state.connectionFailures.delete(state.session.id);
-      const restarted = await window.LoadToAgentTerminal?.restartForAgent?.(session, { terminalId });
+      const restarted = await window.WhiteboxTerminal?.restartForAgent?.(session, { terminalId });
       if (!restarted?.ok) throw new Error(t('agent.reconnect_failed'));
       if (state.session?.id !== session.id || state.connectionSignature !== signature) return;
       await mount(session, {
@@ -430,7 +430,7 @@
         createIfMissing: false,
       });
     } catch (error) {
-      setStatus('error', 'drawer.terminal_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed'));
+      setStatus('error', 'drawer.terminal_failed', window.WhiteboxI18n.errorText(error, 'drawer.terminal_failed'));
       report('drawer-terminal-reconnect', error);
     } finally {
       button.removeAttribute('aria-busy');
@@ -454,9 +454,9 @@
     try {
       // Resuming is explicit: merely viewing an external session must never
       // spawn another AI process. The existing resume path preserves the
-      // provider session id and creates only the LoadToAgent-owned PTY needed
+      // provider session id and creates only the Whitebox-owned PTY needed
       // for subsequent input and scrollback.
-      const resumed = await window.LoadToAgentTerminal.resumeForAgent(session, '', false, { focus: false });
+      const resumed = await window.WhiteboxTerminal.resumeForAgent(session, '', false, { focus: false });
       if (state.session?.id !== session.id) return;
       const terminalId = targetIdOf(resumed);
       if (!terminalId) throw new Error(t('terminal.agent.resume_terminal_failed'));
@@ -469,7 +469,7 @@
       if (state.session?.id !== session.id) return;
       setResumeAction(true);
       setEmpty(true, 'drawer.terminal_resume_failed', 'drawer.terminal_resume_failed_help');
-      setStatus('error', 'drawer.terminal_resume_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_resume_failed'));
+      setStatus('error', 'drawer.terminal_resume_failed', window.WhiteboxI18n.errorText(error, 'drawer.terminal_resume_failed'));
       report('drawer-terminal-resume', error);
     } finally {
       button.removeAttribute('aria-busy');
@@ -477,7 +477,7 @@
       else button.disabled = false;
     }
   });
-  window.loadtoagent?.onTerminalData?.(payload => {
+  window.whitebox?.onTerminalData?.(payload => {
     if (!state.target || state.target.kind !== 'terminal' || payload?.id !== (state.target.terminalId || state.target.id)) return;
     setStatus('running', 'drawer.terminal_running', state.target.label || '');
   });
@@ -505,10 +505,10 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') state.userFocusRevision += 1;
   }, true);
-  window.addEventListener('loadtoagent:terminal-reconnect-focus', event => {
+  window.addEventListener('whitebox:terminal-reconnect-focus', event => {
     captureReconnectFocus(event.detail?.terminalId);
   });
-  window.addEventListener('loadtoagent:terminal-reconnect-owner', event => {
+  window.addEventListener('whitebox:terminal-reconnect-owner', event => {
     const terminalId = String(event.detail?.terminalId || '');
     const currentViewport = viewport();
     const host = [...(currentViewport?.children || [])].find(child => (
@@ -523,7 +523,7 @@
       || host.parentElement !== currentViewport) return;
     state.reconnectOwnerTerminalId = terminalId;
   });
-  window.loadtoagent?.onTerminalState?.(payload => {
+  window.whitebox?.onTerminalState?.(payload => {
     if (!Array.isArray(payload?.sessions)) return;
     const usableIds = new Set(payload.sessions
       .filter(item => !['stopped', 'exited', 'failed'].includes(String(item?.status || '')))
@@ -571,7 +571,7 @@
         state.generation += 1;
         state.pendingMountKey = '';
         state.reconnectFocusIntent = null;
-        window.LoadToAgentTerminal?.unmountEmbedded?.();
+        window.WhiteboxTerminal?.unmountEmbedded?.();
         state.target = null;
         setStatus('unavailable', 'drawer.terminal_unavailable', terminal?.statusDetail || '');
       }
@@ -580,15 +580,15 @@
     // unavailable state. Re-evaluate even when no xterm is mounted.
     setTimeout(() => notifyTargetsChanged({ change: payload.change || 'updated' }), 0);
   });
-  window.loadtoagent?.onTerminalConnection?.(payload => {
+  window.whitebox?.onTerminalConnection?.(payload => {
     if (!state.session) return;
     if (payload?.state === 'reconnecting') setStatus('connecting', 'drawer.terminal_connecting', payload.message || '');
     else if (payload?.state === 'failed') setStatus('error', 'drawer.terminal_failed', payload.message || '');
   });
-  window.loadtoagent?.onTerminalError?.(payload => {
+  window.whitebox?.onTerminalError?.(payload => {
     if (state.session) setStatus('error', 'drawer.terminal_failed', payload?.message || '');
   });
-  window.addEventListener('loadtoagent:terminal-command-delivery', event => {
+  window.addEventListener('whitebox:terminal-command-delivery', event => {
     if (!state.session || event.detail?.sessionId !== state.session.id) return;
     if (event.detail.deliveryState === 'rejected') {
       setStatus('error', 'drawer.terminal_delivery_failed', t('drawer.terminal_delivery_failed_help'));
@@ -598,17 +598,17 @@
       setStatus('delivered', 'drawer.terminal_delivered', t('drawer.terminal_delivered_help'));
     }
   });
-  window.addEventListener('loadtoagent:terminal-prompts-changed', renderStatus);
-  window.addEventListener('loadtoagent:locale-changed', renderStatus);
+  window.addEventListener('whitebox:terminal-prompts-changed', renderStatus);
+  window.addEventListener('whitebox:locale-changed', renderStatus);
 
-  window.LoadToAgentDrawerTerminal = {
+  window.WhiteboxDrawerTerminal = {
     mount,
     unmount,
     refresh: () => {
       if (!state.session) return null;
-      const missingTargetIds = (window.LoadToAgentTerminal?.agentTargets?.(state.session) || [])
+      const missingTargetIds = (window.WhiteboxTerminal?.agentTargets?.(state.session) || [])
         .filter(target => target.kind === 'terminal'
-          && !window.LoadToAgentTerminal?.hasTerminalSession?.(targetIdOf(target)))
+          && !window.WhiteboxTerminal?.hasTerminalSession?.(targetIdOf(target)))
         .map(targetIdOf);
       return mount(state.session, {
         force: true,

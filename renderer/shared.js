@@ -7,7 +7,7 @@
  */
 let bootstrapPromise = null;
 
-window.LoadToAgentRendererUtils = Object.freeze({
+window.WhiteboxRendererUtils = Object.freeze({
   $: selector => document.querySelector(selector),
   $$: selector => [...document.querySelectorAll(selector)],
   esc(value) {
@@ -16,7 +16,7 @@ window.LoadToAgentRendererUtils = Object.freeze({
       .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
   },
   uiLocale() {
-    return window.LoadToAgentI18n?.getLocaleTag() || 'en-US';
+    return window.WhiteboxI18n?.getLocaleTag() || 'en-US';
   },
   providerLabel(provider) {
     return ({ claude: 'Claude', gpt: 'GPT', codex: 'GPT', gemini: 'Gemini', grok: 'Grok' })[provider] || 'AI';
@@ -39,9 +39,9 @@ window.LoadToAgentRendererUtils = Object.freeze({
     return element.scrollHeight - element.scrollTop - element.clientHeight <= tolerance;
   },
   bootstrap() {
-    if (!window.loadtoagent?.bootstrap) return Promise.reject(new Error('LoadToAgent preload bridge is unavailable.'));
+    if (!window.whitebox?.bootstrap) return Promise.reject(new Error('Whitebox preload bridge is unavailable.'));
     if (!bootstrapPromise) {
-      bootstrapPromise = Promise.resolve(window.loadtoagent.bootstrap()).catch(error => {
+      bootstrapPromise = Promise.resolve(window.whitebox.bootstrap()).catch(error => {
         bootstrapPromise = null;
         throw error;
       });
@@ -50,6 +50,6 @@ window.LoadToAgentRendererUtils = Object.freeze({
   },
   reportRecoverableError(operation, error) {
     const message = error && error.message ? error.message : String(error || 'unknown error');
-    console.warn(`[LoadToAgent:${operation}] ${message}`);
+    console.warn(`[Whitebox:${operation}] ${message}`);
   },
 });

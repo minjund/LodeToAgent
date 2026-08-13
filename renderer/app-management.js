@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createManagement = function createManagement(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createManagement = function createManagement(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, esc, state, providerInfo, timeAgo,
     rememberDisclosureStates = () => {},
@@ -26,7 +26,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   const absoluteTime = value => {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
-    const localeTag = window.LoadToAgentI18n.getLocaleTag();
+    const localeTag = window.WhiteboxI18n.getLocaleTag();
     return new Intl.DateTimeFormat(localeTag, {
       year: "numeric",
       month: "long",
@@ -570,11 +570,11 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
   }
 
   async function refreshProviderUsage(force = false) {
-    if (!window.loadtoagent?.providerUsage || state.providerUsageLoading) return state.providerUsage;
+    if (!window.whitebox?.providerUsage || state.providerUsageLoading) return state.providerUsage;
     state.providerUsageLoading = true;
     if (state.view === "all" && state.workspace !== "all") renderOperationsOverview();
     try {
-      state.providerUsage = await window.loadtoagent.providerUsage({ force: Boolean(force) });
+      state.providerUsage = await window.whitebox.providerUsage({ force: Boolean(force) });
     } finally {
       state.providerUsageLoading = false;
       if (state.view === "all" && state.workspace !== "all") renderOperationsOverview();

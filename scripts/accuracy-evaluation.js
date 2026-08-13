@@ -10,7 +10,7 @@ const {
 } = require('../src/agentMonitor');
 const { assistantRequestsUserResponse } = require('../src/agentMonitor/responseIntent');
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-accuracy-'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-accuracy-'));
 const checks = [];
 const check = (label, passed) => checks.push({ label, passed: Boolean(passed) });
 const jsonl = (file, rows, mtime = new Date()) => {
@@ -111,14 +111,14 @@ try {
 
   const managed = mergeManagedWithHistory(completed, {
     ...completed,
-    source: 'loadtoagent',
+    source: 'whitebox',
     runId: 'accuracy-managed',
     file: 'managed-events.jsonl',
     messages: [{ id: 'managed-final', role: 'assistant', text: '관리 실행 완료', timestamp: new Date(now).toISOString() }],
     childIds: [],
     collaboration: { capacity: {}, spawns: [], communications: [], retainedAgents: [] },
   });
-  check('merge.source', managed.source === 'loadtoagent');
+  check('merge.source', managed.source === 'whitebox');
   check('merge.run-id', managed.runId === 'accuracy-managed');
   check('merge.history-file', managed.historyFile === completed.file);
   check('merge.spawns', managed.collaboration.spawns.length === 1);

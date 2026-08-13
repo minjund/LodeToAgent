@@ -1,8 +1,8 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOrchestration(context = {}) {
+window.WhiteboxAppFactories.createGraphOrchestration = function createGraphOrchestration(context = {}) {
   const {
     $,
     esc,
@@ -24,7 +24,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
     rememberDisclosureStates = () => {},
     restoreDisclosureStates = () => {},
   } = context;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
 
   function syncControlRoomDisclosureButtons() {
     const groups = Array.from(document.querySelectorAll("#liveSessionGrid .control-room-project-group"));
@@ -116,7 +116,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       .find(node => node.dataset.inlineAgentTerminal === state.inlineTerminalSessionId);
     if (!replacement) {
       state.inlineTerminalSessionId = null;
-      window.LoadToAgentTerminal?.unmountEmbedded?.();
+      window.WhiteboxTerminal?.unmountEmbedded?.();
     }
     return false;
   }
@@ -147,7 +147,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       && mountedInlineShell?.dataset.inlineAgentTerminal === inlineSession.id;
     if (state.inlineTerminalSessionId && (!inlineSession || (focus && state.inlineTerminalSessionId !== focus.id))) {
       state.inlineTerminalSessionId = null;
-      window.LoadToAgentTerminal?.unmountEmbedded?.();
+      window.WhiteboxTerminal?.unmountEmbedded?.();
     }
     const rootSessions = model.nodes.filter((session) => !session.parentId || !model.included.has(session.parentId));
     const roots = state.controlRoomSort === "tokens"
@@ -189,7 +189,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
         .join("")}`;
       $("#graphResetBtn").classList.remove("hidden");
       scheduleAgentWorkflowConnections();
-      requestAnimationFrame(() => window.LoadToAgentInlineTerminal?.sync?.());
+      requestAnimationFrame(() => window.WhiteboxInlineTerminal?.sync?.());
     } else {
       const runtime = runtimeAgentSummary(model, tmuxEntries);
       const nextGraphHtml = runtimeSeparatedOverview(roots, model, roots, tmuxEntries);
@@ -205,7 +205,7 @@ window.LoadToAgentAppFactories.createGraphOrchestration = function createGraphOr
       $("#controlRoomListToolbar")?.classList.remove("hidden");
       syncControlRoomDisclosureButtons();
       $("#graphResetBtn").classList.add("hidden");
-      requestAnimationFrame(() => window.LoadToAgentInlineTerminal?.sync?.());
+      requestAnimationFrame(() => window.WhiteboxInlineTerminal?.sync?.());
       return runtime.activeCount + tmuxEntries.length;
     }
     return model.nodes.filter(isControlRoomSession).length;

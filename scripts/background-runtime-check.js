@@ -4,11 +4,19 @@ const port = Number(process.argv[2] || 9224);
 const cwd = process.argv[3] || process.cwd();
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function javascriptLiteral(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError('JavaScript 리터럴로 직렬화할 수 없는 값입니다.');
+  return serialized.replace(/[<>/\u2028\u2029]/g, character => (
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  ));
+}
+
 async function targetPage() {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json`).then(response => response.json());
-      const target = targets.find(item => item.type === 'page' && /LoadToAgent/i.test(item.title || '')) || targets.find(item => item.type === 'page');
+      const target = targets.find(item => item.type === 'page' && /Whitebox/i.test(item.title || '')) || targets.find(item => item.type === 'page');
       if (target && target.webSocketDebuggerUrl) return target;
     } catch {}
     await pause(200);
@@ -63,20 +71,20 @@ async function waitFor(send, expression, message) {
   let terminalId = '';
   try {
     await send('Runtime.enable');
-    terminalId = await evaluate(send, `(async () => { const bootstrap = await window.loadtoagent.bootstrap(); const created = await window.loadtoagent.terminalCreate({ type: bootstrap.platform.localShell, cwd: ${JSON.stringify(cwd)}, title: '일반 터미널 백그라운드 유지 검증' }); return created.id; })()`);
-    await waitFor(send, `(async () => (await window.loadtoagent.terminalList()).some(item => item.id === ${JSON.stringify(terminalId)} && item.status === 'running' && item.type !== 'agent'))()`, '일반 세션 터미널이 실행되지 않았습니다.');
+    terminalId = await evaluate(send, `(async () => { const bootstrap = await window.whitebox.bootstrap(); const created = await window.whitebox.terminalCreate({ type: bootstrap.platform.localShell, cwd: ${javascriptLiteral(cwd)}, title: '일반 터미널 백그라운드 유지 검증' }); return created.id; })()`);
+    await waitFor(send, `(async () => (await window.whitebox.terminalList()).some(item => item.id === ${javascriptLiteral(terminalId)} && item.status === 'running' && item.type !== 'agent'))()`, '일반 세션 터미널이 실행되지 않았습니다.');
     await evaluate(send, 'window.close(); true');
-    const hidden = await waitFor(send, `(async () => { const state = await window.loadtoagent.backgroundState(); return !state.visible && state.backgroundSessions >= 1 && state.trayReady ? state : null; })()`, '창을 닫은 뒤 일반 터미널이 백그라운드로 유지되지 않았습니다.');
-    const retained = await evaluate(send, `(async () => { await new Promise(resolve => setTimeout(resolve, 800)); return (await window.loadtoagent.terminalList()).find(item => item.id === ${JSON.stringify(terminalId)}) || null; })()`);
+    const hidden = await waitFor(send, `(async () => { const state = await window.whitebox.backgroundState(); return !state.visible && state.backgroundSessions >= 1 && state.trayReady ? state : null; })()`, '창을 닫은 뒤 일반 터미널이 백그라운드로 유지되지 않았습니다.');
+    const retained = await evaluate(send, `(async () => { await new Promise(resolve => setTimeout(resolve, 800)); return (await window.whitebox.terminalList()).find(item => item.id === ${javascriptLiteral(terminalId)}) || null; })()`);
     if (!retained || retained.status !== 'running') throw new Error('숨김 상태에서 일반 세션 터미널이 종료되었습니다.');
-    await evaluate(send, 'window.loadtoagent.showApp()');
-    const reopened = await waitFor(send, `(async () => (await window.loadtoagent.backgroundState()).visible)()`, '백그라운드 앱을 다시 열지 못했습니다.');
-    await evaluate(send, `window.loadtoagent.terminalClose(${JSON.stringify(terminalId)})`);
+    await evaluate(send, 'window.whitebox.showApp()');
+    const reopened = await waitFor(send, `(async () => (await window.whitebox.backgroundState()).visible)()`, '백그라운드 앱을 다시 열지 못했습니다.');
+    await evaluate(send, `window.whitebox.terminalClose(${javascriptLiteral(terminalId)})`);
     terminalId = '';
     process.stdout.write(`${JSON.stringify({ ok: true, hidden, retained: { type: retained.type, status: retained.status }, reopened })}\n`);
   } finally {
     if (terminalId) {
-      try { await evaluate(send, `window.loadtoagent.terminalClose(${JSON.stringify(terminalId)})`); } catch {}
+      try { await evaluate(send, `window.whitebox.terminalClose(${javascriptLiteral(terminalId)})`); } catch {}
     }
     socket.close();
   }

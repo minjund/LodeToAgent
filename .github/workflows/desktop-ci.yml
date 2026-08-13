@@ -54,9 +54,9 @@ jobs:
           path: |
             artifacts/drawer-terminal-visual.log
             artifacts/inline-actual-pty-integration.log
-            artifacts/loadtoagent-drawer-*.png
-            artifacts/loadtoagent-inline-*.png
-            artifacts/loadtoagent-history-empty.png
+            artifacts/whitebox-drawer-*.png
+            artifacts/whitebox-inline-*.png
+            artifacts/whitebox-history-empty.png
           if-no-files-found: ignore
       - if: runner.os == 'macOS'
         run: npm run test:terminal:mac-stress
@@ -97,10 +97,10 @@ jobs:
       - run: npm run test:artifacts:mac
       - run: npm run test:terminal-restart
         env:
-          LOADTOAGENT_TEST_EXECUTABLE: ${{ github.workspace }}/release/mac/LoadToAgent.app/Contents/MacOS/LoadToAgent
+          WHITEBOX_TEST_EXECUTABLE: ${{ github.workspace }}/release/mac/Whitebox.app/Contents/MacOS/Whitebox
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: LoadToAgent-macOS
+          name: Whitebox-macOS
           path: |
             release/*.dmg
             release/*.zip

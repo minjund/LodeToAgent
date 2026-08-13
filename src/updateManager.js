@@ -6,8 +6,12 @@ const path = require('path');
 const { EventEmitter } = require('events');
 const { reportRecoverableError } = require('./diagnostics');
 
-const RELEASE_API = 'https://api.github.com/repos/minjund/LodeToAgent/releases/latest';
-const RELEASE_PAGE = 'https://github.com/minjund/LodeToAgent/releases/latest';
+const RELEASE_API = 'https://api.github.com/repos/minjund/Whitebox/releases/latest';
+const RELEASE_PAGE = 'https://github.com/minjund/Whitebox/releases/latest';
+// Legacy paths remain trusted during the public rename so installed releases
+// can cross the repository and artifact-name boundary safely.
+const TRUSTED_RELEASE_REPOSITORIES = Object.freeze(['Whitebox', 'LodeToAgent']);
+const TRUSTED_ARTIFACT_BRANDS = '(?:Whitebox|LoadToAgent)';
 const MAX_UPDATE_CHECK_BYTES = 2 * 1024 * 1024;
 const MAX_UPDATE_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_CHECK_TIMEOUT_MS = 30_000;
@@ -124,7 +128,9 @@ function compareVersions(left, right) {
 function trustedDownloadUrl(value) {
   try {
     const url = new URL(String(value || ''));
-    return url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.startsWith('/minjund/LodeToAgent/releases/download/');
+    return url.protocol === 'https:' && url.hostname === 'github.com' && TRUSTED_RELEASE_REPOSITORIES.some(repository => (
+      url.pathname.startsWith(`/minjund/${repository}/releases/download/`)
+    ));
   } catch (_invalidDownloadUrl) {
     // Malformed external input is an expected validation miss, not an operational failure.
     return false;
@@ -199,9 +205,9 @@ function managedUpdateArtifact(value) {
   const partial = name.endsWith('.download');
   const finalName = partial ? name.slice(0, -'.download'.length) : name;
   const patterns = [
-    /^LoadToAgent-Setup-(.+)\.exe$/,
-    /^LoadToAgent-(.+)-portable\.exe$/,
-    /^LoadToAgent-(.+)-(?:arm64|x64)\.dmg$/,
+    new RegExp(`^${TRUSTED_ARTIFACT_BRANDS}-Setup-(.+)\\.exe$`),
+    new RegExp(`^${TRUSTED_ARTIFACT_BRANDS}-(.+)-portable\\.exe$`),
+    new RegExp(`^${TRUSTED_ARTIFACT_BRANDS}-(.+)-(?:arm64|x64)\\.dmg$`),
   ];
   for (const pattern of patterns) {
     const match = finalName.match(pattern);
@@ -355,7 +361,7 @@ class UpdateManager extends EventEmitter {
         headers: {
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': `LoadToAgent/${this.currentVersion}`,
+          'User-Agent': `Whitebox/${this.currentVersion}`,
         },
         ...(controller ? { signal: controller.signal } : {}),
       }));
@@ -430,7 +436,7 @@ class UpdateManager extends EventEmitter {
       for (const activePath of activeDownloadPaths) this.activeDownloadPaths.add(activePath);
       await this.cleanupManagedDownloads([this.state.downloadedPath, finalPath]);
       const response = await awaitDownload(this.fetch(asset.url, {
-        headers: { 'User-Agent': `LoadToAgent/${this.currentVersion}` },
+        headers: { 'User-Agent': `Whitebox/${this.currentVersion}` },
         ...(controller ? { signal: controller.signal } : {}),
       }));
       if (!response || !response.ok) throw new Error(`업데이트 파일을 내려받지 못했습니다${response && response.status ? ` (${response.status})` : ''}.`);
@@ -543,7 +549,9 @@ class UpdateManager extends EventEmitter {
 function trustedReleasePage(value) {
   try {
     const url = new URL(String(value || ''));
-    return url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.startsWith('/minjund/LodeToAgent/releases/');
+    return url.protocol === 'https:' && url.hostname === 'github.com' && TRUSTED_RELEASE_REPOSITORIES.some(repository => (
+      url.pathname.startsWith(`/minjund/${repository}/releases/`)
+    ));
   } catch (_invalidReleaseUrl) {
     // Malformed external input is an expected validation miss, not an operational failure.
     return false;

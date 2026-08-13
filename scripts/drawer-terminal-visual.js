@@ -10,8 +10,8 @@ const logPath = path.join(outputDir, 'drawer-terminal-visual.log');
 fs.mkdirSync(outputDir, { recursive: true });
 fs.writeFileSync(logPath, `[${new Date().toISOString()}] inline PTY interaction check started\n`);
 
-process.env.LOADTOAGENT_INTERACTION_ONLY = 'inline-terminal';
-process.env.LOADTOAGENT_INTERACTION_ROUNDS = '1';
+process.env.WHITEBOX_INTERACTION_ONLY = 'inline-terminal';
+process.env.WHITEBOX_INTERACTION_ROUNDS = '1';
 process.on('exit', code => {
   fs.appendFileSync(logPath, `[${new Date().toISOString()}] inline PTY interaction check exited with ${code}\n`);
 });

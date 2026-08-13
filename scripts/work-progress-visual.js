@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-work-progress-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-work-progress-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -89,10 +89,10 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, 'Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot)', '앱 준비 시간 초과');
+    await waitFor(win, 'Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot)', '앱 준비 시간 초과');
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      const control = window.LoadToAgentApp;
+      window.WhiteboxI18n.setLocale('ko');
+      const control = window.WhiteboxApp;
       control.state.guideExpanded = false;
       control.state.workspace = 'D:\\\\fixture';
       control.state.view = 'all';
@@ -112,13 +112,13 @@ app.whenReady().then(async () => {
     fs.mkdirSync(outputDir, { recursive: true });
     const desktopMetrics = await progressMetrics(win);
     assertProgress(desktopMetrics);
-    const desktopOutput = path.join(outputDir, 'loadtoagent-work-progress.png');
+    const desktopOutput = path.join(outputDir, 'whitebox-work-progress.png');
     await capture(win, desktopOutput);
 
     win.setContentSize(420, 900);
     await wait(300);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.renderSessions();
+      window.WhiteboxApp.renderSessions();
       const canvas = document.querySelector('.agent-workflow-canvas');
       const stage = document.querySelector('.main-stage');
       if (canvas && stage) stage.scrollTo(0, Math.max(0, canvas.offsetTop - 96));
@@ -126,7 +126,7 @@ app.whenReady().then(async () => {
     await waitFor(win, `document.querySelector('[data-workflow-progress="fixture-root"]')?.getBoundingClientRect().width > 0`, '작은 화면 진행 패널 준비 시간 초과');
     const mobileMetrics = await progressMetrics(win);
     assertProgress(mobileMetrics);
-    const mobileOutput = path.join(outputDir, 'loadtoagent-work-progress-mobile.png');
+    const mobileOutput = path.join(outputDir, 'whitebox-work-progress-mobile.png');
     await capture(win, mobileOutput);
 
     process.stdout.write(`작업 진행 화면 시각 검증 통과\n${JSON.stringify({ desktopMetrics, mobileMetrics }, null, 2)}\n${desktopOutput}\n${mobileOutput}\n`);
