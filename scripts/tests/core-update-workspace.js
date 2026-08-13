@@ -527,6 +527,42 @@ function registerCliAndUpdateTests(context) {
     assert.equal(blockedState.error, 'fixture installed version unavailable');
     assert.equal(blockedFetchCalled, false);
     await assert.rejects(blockedManager.download(), /fixture installed version unavailable/);
+    let transientAttempts = 0;
+    const transientManager = new UpdateManager({
+      currentVersion: '3.1.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      fetch: async () => {
+        transientAttempts += 1;
+        return transientAttempts === 1
+          ? new Response('temporarily unavailable', { status: 503, headers: { 'x-ratelimit-remaining': '4' } })
+          : new Response(JSON.stringify(release), { status: 200 });
+      },
+    });
+    const silentFailure = await transientManager.check({ surfaceError: false });
+    assert.equal(silentFailure.status, 'idle', '시작 시 일시 오류를 영구 실패 화면으로 노출하면 안 됩니다.');
+    assert.equal(silentFailure.error, '');
+    const recoveredCheck = await transientManager.check();
+    assert.equal(recoveredCheck.status, 'current');
+    assert.equal(recoveredCheck.latestVersion, '3.1.0');
+    const manualFailureManager = new UpdateManager({
+      currentVersion: '3.1.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      fetch: async () => new Response('rate limited', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }),
+    });
+    const manualFailure = await manualFailureManager.check();
+    assert.equal(manualFailure.status, 'error');
+    assert.match(manualFailure.error, /HTTP 403/);
+    let resolveConcurrentFetch;
+    const concurrentResponse = new Promise(resolve => { resolveConcurrentFetch = resolve; });
+    const concurrentManager = new UpdateManager({
+      currentVersion: '3.1.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,
+      fetch: async () => concurrentResponse,
+    });
+    const startupCheck = concurrentManager.check({ surfaceError: false });
+    const manualCheck = concurrentManager.check();
+    resolveConcurrentFetch(new Response('temporarily unavailable', { status: 503 }));
+    const [startupJoined, manualJoined] = await Promise.all([startupCheck, manualCheck]);
+    assert.equal(startupJoined.status, 'error', '진행 중인 시작 확인에 수동 확인이 합류하면 오류 표시 요청을 승격해야 합니다.');
+    assert.equal(manualJoined.status, 'error');
+    assert.match(manualJoined.error, /HTTP 503/);
     const opened = [];
     const manager = new UpdateManager({
       currentVersion: '3.0.0', platform: 'win32', arch: 'x64', downloadsDir: downloadDir,

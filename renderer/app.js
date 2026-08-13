@@ -1121,7 +1121,7 @@ window.WhiteboxAppFactories.createCore = function createCore(context = {}) {
     const resultContent = String(outcome.summary || session.result || latestAssistant?.text || session.statusDetail || "").trim();
     return JSON.stringify([
       String(session.status || ""),
-      String(outcome.completedAt || session.completedAt || session.endedAt || session.updatedAt || ""),
+      String(outcome.completedAt || session.completedAt || session.endedAt || ""),
       String(latestAssistant?.timestamp || ""),
       resultContentFingerprint(resultContent),
     ]);

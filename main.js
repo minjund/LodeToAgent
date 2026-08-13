@@ -1,6 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification, screen, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification, screen, nativeImage, session } = require('electron');
+if (process.env.WHITEBOX_INTERIM_PROFILE_GUARD === '1') {
+  require('./src/interimProfileGuardProcess');
+} else {
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -39,7 +42,9 @@ const { registerTmuxIpc } = require('./src/ipc/registerTmuxIpc');
 const { registerWorkspaceIpc } = require('./src/ipc/registerWorkspaceIpc');
 const { registerSourcePluginIpc } = require('./src/ipc/registerSourcePluginIpc');
 const { reportRecoverableError } = require('./src/diagnostics');
-const { selectBrandUserData } = require('./src/brandMigration');
+const { markProfileActive, selectBrandUserData } = require('./src/brandMigration');
+const { recoverRendererStateFromAlternateProfile } = require('./src/rendererStateRecovery');
+const { acquireInterimProfileGuard } = require('./src/interimProfileGuard');
 const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
 const { AttentionPopupManager } = require('./src/attentionPopupManager');
@@ -75,7 +80,12 @@ const brandUserData = selectBrandUserData({ userDataPath: app.getPath('userData'
 for (const selectionError of brandUserData.errors) {
   reportRecoverableError(`brand-user-data:${selectionError.operation}:${selectionError.path}`, new Error(selectionError.message));
 }
-if (brandUserData.path && brandUserData.path !== app.getPath('userData')) app.setPath('userData', brandUserData.path);
+const rendererSessionDataPath = brandUserData.path || app.getPath('userData');
+const runtimeUserDataPath = brandUserData.runtimePath || rendererSessionDataPath;
+fs.mkdirSync(runtimeUserDataPath, { recursive: true, mode: 0o700 });
+fs.mkdirSync(rendererSessionDataPath, { recursive: true, mode: 0o700 });
+app.setPath('userData', runtimeUserDataPath);
+app.setPath('sessionData', rendererSessionDataPath);
 
 const demoCapture = process.env.WHITEBOX_DEMO_CAPTURE === '1';
 const DESKTOP_NOTIFICATIONS_ENABLED = true;
@@ -91,6 +101,10 @@ let terminalManager = null;
 let bridgeLauncher = null;
 let backgroundTray = null;
 let updateManager = null;
+let startupUpdateRetryTimer = null;
+let brandRendererStateRecovered = false;
+let brandProfileRecoveryInProgress = false;
+let interimProfileGuard = null;
 let updateInstallPromise = null;
 let attentionNotifier = null;
 let isQuitting = false;
@@ -218,16 +232,35 @@ let lastSnapshot = {
 const isolatedTestInstance = process.env.WHITEBOX_TEST_INSTANCE === '1';
 const bridgeHome = process.env.WHITEBOX_BRIDGE_HOME || process.env.LOADTOAGENT_BRIDGE_HOME || os.homedir();
 const singleInstance = isolatedTestInstance || app.requestSingleInstanceLock();
+let interimProfileGuardRequest = null;
 if (!singleInstance) app.quit();
-else app.on('second-instance', () => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-});
+else {
+  app.on('second-instance', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+  // Start acquiring the interim Whitebox profile singleton before Electron is
+  // ready. No Session or BrowserWindow is touched until this lease resolves.
+  interimProfileGuardRequest = acquireInterimProfileGuard({
+    currentPath: brandUserData.currentPath,
+    runtimePath: runtimeUserDataPath,
+    executable: process.execPath,
+    helper: path.join(__dirname, 'src', 'interimProfileGuardProcess.js'),
+    onActivate: () => showMainWindow(),
+    onLost: error => {
+      reportRecoverableError('interim-profile-guard-lost', error);
+      setImmediate(() => { if (!isQuitting) app.quit(); });
+    },
+  });
+  // The promise is awaited as the first whenReady action below. Attach a
+  // handler now so a very early helper failure is never reported as unhandled.
+  void interimProfileGuardRequest.catch(() => {});
+}
 
 function userFile(name) {
-  return path.join(app.getPath('userData'), name);
+  return path.join(runtimeUserDataPath, name);
 }
 
 function readAppearanceTheme() {
@@ -1314,6 +1347,16 @@ function acknowledgeAttentionActivation(value = {}) {
 
 async function markRendererReady() {
   rendererBootstrapped = true;
+  if (updateManager) sendUpdateState(updateManager.getState());
+  try {
+    if (!brandRendererStateRecovered) throw new Error('Renderer profile recovery did not complete');
+    markProfileActive({
+      currentPath: brandUserData.currentPath,
+      selectedPath: rendererSessionDataPath,
+    });
+  } catch (error) {
+    reportRecoverableError('brand-profile-active', error);
+  }
   reconcileAttentionPopups();
   attentionActivationCoordinator?.rendererReady();
   flushTerminalPromptResolutions();
@@ -1477,7 +1520,7 @@ async function performDownloadedUpdateInstall() {
     platform: process.platform,
     installType: installPlan.installType,
     installerPath: downloaded.downloadedPath,
-    downloadsDir: path.join(app.getPath('userData'), 'updates'),
+    downloadsDir: userFile('updates'),
     appPath: installPlan.appPath,
     expectedVersion: downloaded.latestVersion,
     parentPid: process.pid,
@@ -1615,6 +1658,49 @@ async function setupAttentionPopupRuntime() {
   reconcileAttentionPopups();
 }
 
+function sameProfilePath(left, right) {
+  const normalized = value => {
+    const resolved = path.resolve(String(value || ''));
+    return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  };
+  return normalized(left) === normalized(right);
+}
+
+async function recoverBrandRendererState() {
+  const alternatePath = sameProfilePath(rendererSessionDataPath, brandUserData.currentPath)
+    ? brandUserData.legacyPath
+    : brandUserData.currentPath;
+  if (!alternatePath || sameProfilePath(alternatePath, rendererSessionDataPath)) {
+    brandRendererStateRecovered = true;
+    return;
+  }
+  let alternateState;
+  try {
+    alternateState = fs.lstatSync(alternatePath);
+  } catch (error) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') {
+      brandRendererStateRecovered = true;
+      return;
+    }
+    throw error;
+  }
+  if (alternateState.isSymbolicLink() || !alternateState.isDirectory()) {
+    throw new Error(`Alternate renderer profile is unsafe: ${alternatePath}`);
+  }
+  const result = await recoverRendererStateFromAlternateProfile({
+    BrowserWindow,
+    ipcMain,
+    sourceSession: session.fromPath(path.resolve(alternatePath)),
+    destinationSession: session.defaultSession,
+    htmlPath: path.join(__dirname, 'renderer', 'brand-profile-recovery.html'),
+    preloadPath: path.join(__dirname, 'brand-profile-recovery-preload.js'),
+  });
+  for (const warning of result.warnings || []) {
+    reportRecoverableError(`brand-renderer-state:${warning}`, new Error(warning));
+  }
+  brandRendererStateRecovered = result.ok === true;
+}
+
 async function setupRuntime() {
   loadProviderVisibility();
   if (!demoCapture) await setupAttentionPopupRuntime();
@@ -1695,7 +1781,7 @@ async function setupRuntime() {
     blockedReason: updateBlockedReason,
     fetch: (...args) => net.fetch(...args),
     shell,
-    downloadsDir: path.join(app.getPath('userData'), 'updates'),
+    downloadsDir: userFile('updates'),
     verifyInstaller: installerPath => verifyDownloadedInstaller({
       installerPath,
       platform: process.platform,
@@ -1722,7 +1808,17 @@ async function setupRuntime() {
     }, 2_500);
     if (typeof sourcePluginRefreshTimer.unref === 'function') sourcePluginRefreshTimer.unref();
   }
-  if (!demoCapture) updateManager.check().catch(error => reportRecoverableError('startup-update-check', error));
+  if (!demoCapture) {
+    updateManager.check({ surfaceError: false }).then(update => {
+      if (update.status !== 'idle' || isQuitting) return;
+      startupUpdateRetryTimer = setTimeout(() => {
+        startupUpdateRetryTimer = null;
+        updateManager?.check({ surfaceError: false })
+          .catch(error => reportRecoverableError('startup-update-retry', error));
+      }, 20_000);
+      if (typeof startupUpdateRetryTimer.unref === 'function') startupUpdateRetryTimer.unref();
+    }).catch(error => reportRecoverableError('startup-update-check', error));
+  }
   if (demoCapture) {
     availability = Object.fromEntries(providerList().map(provider => [provider.id, true]));
     return;
@@ -1982,9 +2078,28 @@ function registerIpcHandlers() {
 registerIpcHandlers();
 
 app.whenReady().then(async () => {
+  if (!app.isPackaged && process.platform === 'darwin' && app.dock) {
+    const sourceDockIcon = nativeImage.createFromPath(BRAND_ICON_PATH);
+    if (!sourceDockIcon.isEmpty()) app.dock.setIcon(sourceDockIcon);
+  }
+  if (!interimProfileGuardRequest) return;
   hydratePlatformPath();
+  brandProfileRecoveryInProgress = true;
+  interimProfileGuard = await interimProfileGuardRequest;
+  if (!interimProfileGuard.acquired) {
+    brandProfileRecoveryInProgress = false;
+    app.quit();
+    return;
+  }
+  try {
+    await recoverBrandRendererState();
+  } catch (error) {
+    brandRendererStateRecovered = false;
+    reportRecoverableError('brand-renderer-state-recovery', error);
+  }
   const runtimeSetup = setupRuntime();
   createWindow();
+  brandProfileRecoveryInProgress = false;
   await runtimeSetup;
   app.on('activate', showMainWindow);
 }).catch(error => {
@@ -1994,6 +2109,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  if (brandProfileRecoveryInProgress) return;
   if (process.platform === 'darwin') return;
   if (backgroundWorkloadCount()) {
     ensureBackgroundTray();
@@ -2023,6 +2139,15 @@ async function cleanupBeforeQuit() {
     quitCleanupTask('source-plugin-refresh-timer', () => {
       if (sourcePluginRefreshTimer) clearInterval(sourcePluginRefreshTimer);
       sourcePluginRefreshTimer = null;
+    }),
+    quitCleanupTask('startup-update-retry-timer', () => {
+      if (startupUpdateRetryTimer) clearTimeout(startupUpdateRetryTimer);
+      startupUpdateRetryTimer = null;
+    }),
+    quitCleanupTask('interim-profile-guard', () => {
+      const release = interimProfileGuard?.release?.();
+      interimProfileGuard = null;
+      return release;
     }),
     quitCleanupTask('terminal-manager', () => {
       if (terminalManager instanceof TerminalHostClient) return terminalManager.dispose({ shutdownIfIdle: true });
@@ -2060,3 +2185,4 @@ app.on('will-quit', () => {
   if (backgroundTray) backgroundTray.destroy();
   backgroundTray = null;
 });
+}

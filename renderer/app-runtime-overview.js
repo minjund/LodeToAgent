@@ -279,7 +279,7 @@ window.WhiteboxAppFactories.createRuntimeOverview = function createRuntimeOvervi
       ? "AI 작업이 끝났습니다. 결과를 확인해 주세요."
       : window.WhiteboxI18n.observedText(activity.title);
     const activityDetail = resultNeedsReview
-      ? "결과 화면을 열어보기만 해도 작업이 멈추거나 확인 완료로 바뀌지 않습니다."
+      ? "결과 화면을 열면 이 완료 결과를 확인한 것으로 저장합니다."
       : window.WhiteboxI18n.observedText(activity.detail || session.statusDetail || "");
     const linkedAutomation = visibleAutomations().find((item) => automationSession(item)?.id === session.id);
     const linkedAutomationName = linkedAutomation?.name || t("runtime.linked_schedule_unknown");
@@ -296,7 +296,7 @@ window.WhiteboxAppFactories.createRuntimeOverview = function createRuntimeOvervi
         <div><small>${esc(t("runtime.now_working"))}</small><b title="${esc(activityTitle)}">${esc(activityTitle)}</b><p title="${esc(activityDetail)}">${esc(t("runtime.detail_work", { detail: activityDetail }))}</p></div>
         <time data-runtime-provider="${esc(provider.label)}" data-runtime-updated-at="${esc(session.updatedAt || session.startedAt || "")}">${esc(t("runtime.last_signal_time", { provider: provider.label, time: activityAge(session.updatedAt || session.startedAt) }))}</time>
       </section>
-      <div class="runtime-open-action runtime-result-next"><button type="button" class="runtime-open-task" data-loop-open="${esc(session.id)}">완료된 결과 열어 확인하기 →</button><small>결과를 본 뒤 <b>‘확인 완료’</b>를 누르면 이 작업이 확인 완료로 바뀝니다.</small></div>
+      <div class="runtime-open-action runtime-result-next"><button type="button" class="runtime-open-task" data-loop-open="${esc(session.id)}" ${resultNeedsReview ? 'data-result-review="true"' : ""}>완료된 결과 열어 확인하기 →</button><small>결과를 열면 확인 상태가 저장되어 다음 실행 때 다시 나타나지 않습니다.</small></div>
       ${loopDiagram(session)}
       <footer class="runtime-loop-footer">
         <dl>

@@ -37,6 +37,7 @@
     "main.js",
     "preload.js",
     "attention-popup-preload.js",
+    "brand-profile-recovery-preload.js",
     "renderer",
     "src",
     "docs/*.md",
@@ -77,6 +78,9 @@
     "test:runtime-overview": "electron scripts/runtime-overview-visual.js",
     "test:control-room": "electron scripts/control-room-visual.js",
     "test:result-review": "electron scripts/result-review-visual.js",
+    "test:brand-profile-recovery": "electron scripts/brand-profile-recovery-check.js",
+    "test:interim-profile-guard": "electron scripts/interim-profile-guard-check.js",
+    "test:brand-surface": "electron scripts/brand-surface-check.js",
     "test:project-selection": "electron scripts/project-selection-visual.js",
     "test:project-reorder": "electron scripts/project-selection-visual.js --reorder-only",
     "test:project-interaction": "electron scripts/project-studio-interaction-check.js",
@@ -112,6 +116,7 @@
   "build": {
     "appId": "com.wincube.whitebox",
     "productName": "Whitebox",
+    "executableName": "Whitebox",
     "directories": {
       "output": "release"
     },
@@ -125,6 +130,7 @@
       "main.js",
       "preload.js",
       "attention-popup-preload.js",
+      "brand-profile-recovery-preload.js",
       "build/icon.png",
       "bin/**/*",
       "src/**/*",

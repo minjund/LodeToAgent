@@ -45,6 +45,12 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
     (session.attention?.category === "required" || (!session.attention?.category && session.attention?.required))
     && EXPLICIT_ATTENTION_SOURCES.has(session.attention.source),
   );
+  const needsDirectResultReview = session => {
+    const sessionId = String(session?.id || "");
+    const completed = String(session?.status || "") === "completed";
+    return Boolean(completed && sessionId && resultReviewTargets(session)
+      .some(target => String(target?.id || "") === sessionId));
+  };
   const hasOptionalFollowup = session => Boolean(
     session.attention?.category === "optional" || session.attention?.kind === "optional",
   );
@@ -75,12 +81,12 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
   const needsManagementReview = (session, now = Date.now()) => Boolean(
     !isResultReviewComplete(session)
     && isRecentSession(session, now)
-    && needsUserResponse(session),
+    && (needsUserResponse(session) || needsDirectResultReview(session)),
   );
   const needsManagementInbox = (session, now = Date.now()) => Boolean(
     !isResultReviewComplete(session)
     && isRecentSession(session, now)
-    && needsUserResponse(session),
+    && (needsUserResponse(session) || needsDirectResultReview(session)),
   );
   const prioritySummary = value => {
     const lines = String(value || "")
@@ -193,6 +199,7 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
     if (needsUserResponse(session)) return "attention";
     if (hasCurrentRisk(session, now) && actionableRiskLevel(session) === "critical") return "critical";
     if (hasCurrentRisk(session, now) && actionableRiskLevel(session) === "warning") return "warning";
+    if (isRecentSession(session, now) && needsDirectResultReview(session)) return "critical";
     if (isRecentSession(session, now) && hasOptionalFollowup(session)) return "optional";
     return "healthy";
   }
@@ -325,17 +332,23 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
     const health = session.health || { level: "unknown", signals: [] };
     const evidence = session.evidence || {};
     const bucket = managementBucket(session);
-    const category = ["required", "optional", "risk"].includes(attention.category)
+    const pendingResultReview = needsDirectResultReview(session);
+    const responseRequired = needsUserResponse(session);
+    const category = pendingResultReview && !responseRequired
+      ? "result"
+      : ["required", "optional", "risk"].includes(attention.category)
       ? attention.category
-      : needsUserResponse(session)
+      : responseRequired
         ? "required"
         : "risk";
     const cardLabel = category === "required" || category === "optional"
       ? attentionLabel(attention.kind)
       : healthLabel(bucket === "critical" || bucket === "warning" ? bucket : health.level);
     const flow = attentionFlow(session);
-    const displayType = attention.kind === "approval"
+    const displayType = responseRequired && attention.kind === "approval"
       ? "approval"
+      : pendingResultReview && !responseRequired
+        ? "result"
       : category === "risk" || ["error", "risk", "paused"].includes(flow.kind)
         ? "failure"
         : category === "optional" || flow.kind === "optional"
@@ -357,21 +370,24 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
         ? `<details class="approval-custom-answer"><summary>원하는 이름 직접 입력하기 <i aria-hidden="true">⌄</i></summary>${context.agentCommandComposer(session, { conversation: true })}</details>`
         : context.agentCommandComposer(session, { conversation: true })
       : "";
+    const resultReviewAttribute = displayType === "result" && pendingResultReview
+      ? ' data-result-review="true"'
+      : "";
     const primaryAction = displayType === "result" || displayType === "failure"
-        ? `<button type="button" class="attention-primary-action" data-open-session="${esc(session.id)}">${esc(t(`management.action.${displayType}`))}</button>`
+        ? `<button type="button" class="attention-primary-action" data-open-session="${esc(session.id)}"${resultReviewAttribute}>${esc(t(`management.action.${displayType}`))}</button>`
         : "";
     return `<article class="attention-card ${index === 0 ? "priority-card" : ""} ${esc(category)} ${esc(attention.kind || "response")} ${esc(displayType)}" data-management-session="${esc(session.id)}" data-attention-category="${esc(category)}" style="--management-provider:${provider.accent}">
       <p class="attention-now-action">${esc(index === 0 ? "가장 먼저 확인" : displayLabel)}</p>
-      <header><span class="provider-mark">${esc(provider.mark)}</span><div><small>${esc(providerRequestLabel)}</small><h3>${esc(visibleTitle)}</h3></div><div class="attention-card-header-actions"><em class="confidence ${esc(evidence.confidence || "low")}">${esc(evidence.confidence === "medium" ? t("management.last_status_check", { time: absoluteTime(session.updatedAt) }) : evidenceLabel(evidence.confidence))}</em>${primaryAction}<button type="button" data-open-session="${esc(session.id)}">${esc(t("management.review_detail"))}</button></div></header>
+      <header><span class="provider-mark">${esc(provider.mark)}</span><div><small>${esc(providerRequestLabel)}</small><h3>${esc(visibleTitle)}</h3></div><div class="attention-card-header-actions"><em class="confidence ${esc(evidence.confidence || "low")}">${esc(evidence.confidence === "medium" ? t("management.last_status_check", { time: absoluteTime(session.updatedAt) }) : evidenceLabel(evidence.confidence))}</em>${primaryAction}<button type="button" data-open-session="${esc(session.id)}"${resultReviewAttribute}>${esc(t("management.review_detail"))}</button></div></header>
       ${quickActionsHtml(session, displayType === "question")}
-      <div class="attention-category-banner ${esc(category)}"><i aria-hidden="true"></i><span><b>${esc(attention.kind === "approval" ? t("management.attention.approval_short") : t(`management.category.${category}`))}</b><small>${esc(attention.kind === "approval" ? t("management.category.approval_detail", { provider: provider.label }) : t(`management.category.${category}_detail`))}</small></span></div>
+      ${pendingResultReview && !responseRequired ? "" : `<div class="attention-category-banner ${esc(category)}"><i aria-hidden="true"></i><span><b>${esc(attention.kind === "approval" ? t("management.attention.approval_short") : t(`management.category.${category}`))}</b><small>${esc(attention.kind === "approval" ? t("management.category.approval_detail", { provider: provider.label }) : t(`management.category.${category}_detail`))}</small></span></div>
       <div class="attention-decision-flow" data-attention-flow="${esc(flow.kind)}" aria-label="${esc(t("management.flow_label"))}">
         <section class="agent-reply"><span><i>1</i>${esc(t("management.flow_agent_reply", { provider: provider.label }))}</span><blockquote>${esc(flow.agentReply)}</blockquote><small><b>${esc(t("management.flow_why_here"))}</b>${esc(flow.reason)}</small></section>
         <i class="attention-flow-arrow" aria-hidden="true">→</i>
         <section class="user-decision"><span><i>2</i>${esc(t("management.flow_my_check"))}</span><b>${esc(flow.check)}</b><p>${esc(flow.action)}</p></section>
         <i class="attention-flow-arrow" aria-hidden="true">→</i>
         <section class="agent-next"><span><i>3</i>${esc(t("management.flow_my_reply", { provider: provider.label }))}</span><b>${esc(flow.reply)}</b><small><strong>${esc(t("management.flow_after_reply"))}</strong>${esc(flow.expected)}</small></section>
-      </div>
+      </div>`}
       ${draftComposer}
       ${displayType === "failure" ? controlButtonsHtml(session) : ""}
       <details class="attention-evidence-details"><summary><span>${esc(t("management.flow_evidence"))}</span><small>${esc(t("management.flow_evidence_hint"))}</small><i aria-hidden="true">⌄</i></summary><div>${progressHtml(session, true)}${healthHtml(session, true)}</div></details>
@@ -433,8 +449,8 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
       ? context.graphFilteredSessions()
       : (state.snapshot?.sessions || []);
     const score = session => {
+      if (matchesManagementFilter(session, "attention")) return 4;
       if (matchesManagementFilter(session, "critical")) return 3;
-      if (matchesManagementFilter(session, "attention")) return 2;
       if (matchesManagementFilter(session, "warning")) return 1;
       return 0;
     };

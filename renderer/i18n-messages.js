@@ -1725,7 +1725,7 @@
     "management.result_review_completed_toast": {"ko":"확인을 완료했습니다. 목록에서 제거했습니다.","en":"Marked as reviewed and removed from the list.","zh-CN":"已确认并从列表中移除。"},
     "management.result_review_eyebrow": {"ko":"결과 확인","en":"Result review","zh-CN":"结果确认"},
     "management.result_review_help": {"ko":"결과 내용을 확인했다면 완료해 주세요. 같은 세션에 새 결과가 생기면 다시 표시됩니다.","en":"After reviewing the result, mark it complete. A new result in this session will appear again.","zh-CN":"查看结果后请标记完成。同一会话有新结果时会再次显示。"},
-    "management.result_review_open_help": {"ko":"결과를 열어 내용을 확인한 뒤 ‘확인 완료’를 누르세요. 그러면 이 목록에서 사라집니다.","en":"Open the result, review it, then choose “Mark as reviewed” to remove it from this list.","zh-CN":"打开并查看结果，然后点击“确认完成”，该项目将从列表中移除。"},
+    "management.result_review_open_help": {"ko":"결과를 열면 확인한 것으로 저장되어 다음 실행 때 다시 나타나지 않습니다.","en":"Opening the result marks it as reviewed, so it will not reappear the next time you launch the app.","zh-CN":"打开结果后会标记为已查看，下次启动应用时不会再次显示。"},
     "management.result_review_title": {"ko":"이 결과를 모두 확인하셨나요?","en":"Have you reviewed this result?","zh-CN":"您已查看此结果吗？"},
     "management.detected": {"ko":"작업 기록에서 찾음","en":"Found in the work record","zh-CN":"在任务记录中找到"},
     "management.evidence.high": {"ko":"아래 내용은 이 작업의 기록에서 가져왔습니다","en":"Confirmed in the actual work record","zh-CN":"已在实际任务记录中确认"},

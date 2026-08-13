@@ -13,7 +13,8 @@ window.WhiteboxAppFactories.createDrawer = function createDrawer(context = {}) {
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
     chatHtml, lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml, agentCommandComposer,
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
-    acknowledgeSessionNotices = () => 0, renderWorkspaces = () => {},
+    acknowledgeSessionNotices = () => 0, markResultReviewComplete = () => 0,
+    renderSessions = () => {}, renderWorkspaces = () => {},
   } = context;
   let drawerFocusToken = null;
   let terminalRefreshQueued = false;
@@ -146,9 +147,14 @@ window.WhiteboxAppFactories.createDrawer = function createDrawer(context = {}) {
     state.drawerCreateTerminalIfMissing = options.createTerminalIfMissing !== false;
     state.drawerMountTerminal = options.mountTerminal !== false;
     state.drawerForceLatest = state.drawerTab === "chat";
+    const reviewed = options.resultReview === true ? markResultReviewComplete(selected || id) : 0;
     if (options.acknowledge !== false && acknowledgeSessionNotices(selected || id) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
+    if (reviewed > 0) {
+      renderSessions("result-reviewed");
+      renderWorkspaces();
+    }
     loadSessionDetail(id, true);
     if (options.focus !== false) {
       setTimeout(
@@ -174,9 +180,14 @@ window.WhiteboxAppFactories.createDrawer = function createDrawer(context = {}) {
     state.drawerMountTerminal = false;
     state.agentCommandRoutes.delete(id);
     state.drawerForceLatest = true;
+    const reviewed = options.resultReview === true ? markResultReviewComplete(child) : 0;
     if (options.acknowledge !== false && acknowledgeSessionNotices(child) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
+    if (reviewed > 0) {
+      renderSessions("result-reviewed");
+      renderWorkspaces();
+    }
     loadSessionDetail(id);
     loadSubagentParentDetail(child);
     if (options.focus !== false) {

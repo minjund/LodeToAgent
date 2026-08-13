@@ -89,6 +89,18 @@
       showInitializationError(t("bootstrap.open_in_app"));
       return;
     }
+    // Subscribe before the bootstrap IPC. The main process can finish its
+    // startup update check while bootstrap is still in flight; subscribing
+    // afterwards would leave the UI stuck on the older `checking` snapshot.
+    let latestUpdateState = null;
+    let updateRenderingReady = false;
+    if (window.whitebox.onUpdateState) {
+      window.whitebox.onUpdateState((update) => {
+        latestUpdateState = update;
+        state.update = update;
+        if (updateRenderingReady) renderUpdateSettings();
+      });
+    }
     const bootstrap = await window.WhiteboxRendererUtils.bootstrap();
     if (window.whitebox.setLocale) await window.whitebox.setLocale(window.WhiteboxI18n?.getLocale() || "en");
     state.providers = bootstrap.providers || [];
@@ -104,7 +116,7 @@
     state.activeRuns = bootstrap.activeRuns || [];
     state.platform = bootstrap.platform || state.platform;
     state.versions = bootstrap.versions || {};
-    state.update = bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
+    state.update = latestUpdateState || bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
     const safeAttentionDrawerOptions = {
       createTerminalIfMissing: false,
       mountTerminal: false,
@@ -201,7 +213,9 @@
       }
       selectView(event === 'completed' ? 'active' : 'waiting');
       if (session) {
-        const options = event === 'attention' ? safeAttentionDrawerOptions : {};
+        const options = event === 'attention'
+          ? safeAttentionDrawerOptions
+          : { tab: 'summary', resultReview: true };
         if (session.parentId) openSubagentConversation(session.id, options);
         else openDrawer(session.id, options);
       } else toast(t("bootstrap.opened_attention_list"));
@@ -227,6 +241,11 @@
     bindAttentionPopupSettings();
     bindEvents();
     render();
+    updateRenderingReady = true;
+    if (latestUpdateState) {
+      state.update = latestUpdateState;
+      renderUpdateSettings();
+    }
     refreshProviderUsage().catch(error => {
       window.WhiteboxRendererUtils.reportRecoverableError("provider-usage-refresh", error);
     });
@@ -266,11 +285,6 @@
     window.addEventListener("whitebox:terminal-inventory-changed", () => attentionActivation?.retry());
     window.addEventListener("whitebox:terminal-manual-selection", () => attentionActivation?.userNavigated());
     if (window.whitebox.rendererReady) await window.whitebox.rendererReady();
-    if (window.whitebox.onUpdateState)
-      window.whitebox.onUpdateState((update) => {
-        state.update = update;
-        renderUpdateSettings();
-      });
   }
 
   app.init = init;
