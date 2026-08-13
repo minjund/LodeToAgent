@@ -9,6 +9,14 @@ function markerCommand(marker) {
   return process.platform === 'win32' ? `Write-Output ${marker}` : `printf '${marker}\\n'`;
 }
 
+function javascriptLiteral(value) {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new TypeError('JavaScript 리터럴로 직렬화할 수 없는 값입니다.');
+  return serialized.replace(/[<>/\u2028\u2029]/g, character => (
+    `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+  ));
+}
+
 const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `whitebox-visual-${process.pid}-`));
 const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `whitebox-visual-user-${process.pid}-`));
 process.env.WHITEBOX_TEST_INSTANCE = '1';
@@ -203,15 +211,15 @@ app.whenReady().then(() => {
       await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
       const firstTerminalId = await waitForRenderer(win, "document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''", 50, 200);
       if (!firstTerminalId) throw new Error('로컬 PTY 터미널이 생성되지 않았습니다.');
-      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${JSON.stringify(markerCommand('WHITEBOX_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
-      const firstTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.whitebox.terminalGet(${JSON.stringify(firstTerminalId)}); return value && value.replay.includes('WHITEBOX_PTY_OK') ? value.replay : ''; })()`, 50, 200);
+      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${javascriptLiteral(markerCommand('WHITEBOX_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
+      const firstTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.whitebox.terminalGet(${javascriptLiteral(firstTerminalId)}); return value && value.replay.includes('WHITEBOX_PTY_OK') ? value.replay : ''; })()`, 50, 200);
       if (!firstTerminalReplay) throw new Error('로컬 PTY에 보낸 명령 결과를 수신하지 못했습니다.');
 
       await win.webContents.executeJavaScript("document.querySelector('#newPowerShellBtn')?.click()");
-      const secondTerminalId = await waitForRenderer(win, `(() => { const id = document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''; return id && id !== ${JSON.stringify(firstTerminalId)} ? id : ''; })()`, 50, 200);
+      const secondTerminalId = await waitForRenderer(win, `(() => { const id = document.querySelector('.terminal-session-item.active')?.dataset.terminalId || ''; return id && id !== ${javascriptLiteral(firstTerminalId)} ? id : ''; })()`, 50, 200);
       if (!secondTerminalId) throw new Error('두 번째 로컬 PTY 터미널이 생성되지 않았습니다.');
-      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${JSON.stringify(markerCommand('WHITEBOX_SECOND_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
-      const secondTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.whitebox.terminalGet(${JSON.stringify(secondTerminalId)}); return value && value.replay.includes('WHITEBOX_SECOND_PTY_OK') ? value.replay : ''; })()`, 50, 200);
+      await win.webContents.executeJavaScript(`(() => { const input = document.querySelector('#terminalCommandInput'); input.value = ${javascriptLiteral(markerCommand('WHITEBOX_SECOND_PTY_OK'))}; document.querySelector('#terminalCommandForm').requestSubmit(); })()`);
+      const secondTerminalReplay = await waitForRenderer(win, `(async () => { const value = await window.whitebox.terminalGet(${javascriptLiteral(secondTerminalId)}); return value && value.replay.includes('WHITEBOX_SECOND_PTY_OK') ? value.replay : ''; })()`, 50, 200);
       if (!secondTerminalReplay) throw new Error('두 번째 로컬 PTY에 보낸 명령 결과를 수신하지 못했습니다.');
       const terminalMetrics = await win.webContents.executeJavaScript(`(async () => {
         const terminalSessions = await window.whitebox.terminalList();
