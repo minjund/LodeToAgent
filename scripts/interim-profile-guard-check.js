@@ -36,6 +36,9 @@ app.whenReady().then(async () => {
   assert.equal(first.skipped, false);
   const competing = await acquireInterimProfileGuard(options);
   assert.equal(competing.acquired, false, 'an interim Whitebox instance must block the new split-profile app');
+  for (let attempt = 0; attempt < 100 && activationCount === 0; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
   assert.equal(activationCount, 1, 'a blocked interim launch must be forwarded to the owning app');
   await first.release();
   const packagedEntry = await acquireInterimProfileGuard(packagedEntryOptions);
