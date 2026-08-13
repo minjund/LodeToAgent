@@ -163,14 +163,14 @@ function createInlineHarness(root, options = {}) {
     },
   };
   const window = {
-    LoadToAgentApp: app,
-    LoadToAgentTerminal: terminal,
-    LoadToAgentI18n: {
+    WhiteboxApp: app,
+    WhiteboxTerminal: terminal,
+    WhiteboxI18n: {
       t: key => key,
       errorText: (_error, fallback) => fallback,
     },
-    LoadToAgentRendererUtils: { reportRecoverableError() {} },
-    loadtoagent: {
+    WhiteboxRendererUtils: { reportRecoverableError() {} },
+    whitebox: {
       onTerminalState(listener) { terminalStateListeners.push(listener); },
     },
     addEventListener(type, listener) {
@@ -263,9 +263,9 @@ function createInlineHarness(root, options = {}) {
       app.state.snapshot.sessions = [nextSession];
       return activeShell;
     },
-    sync: (...args) => window.LoadToAgentInlineTerminal.sync(...args),
-    close: (...args) => window.LoadToAgentInlineTerminal.close(...args),
-    toggle: (...args) => window.LoadToAgentInlineTerminal.toggle(...args),
+    sync: (...args) => window.WhiteboxInlineTerminal.sync(...args),
+    close: (...args) => window.WhiteboxInlineTerminal.close(...args),
+    toggle: (...args) => window.WhiteboxInlineTerminal.toggle(...args),
   };
 }
 
@@ -612,7 +612,7 @@ function registerInlineAgentTerminalTests(context) {
       agentSessionId: sameIdHarness.session.id,
       terminalId: 'terminal:inline-new-identity',
     });
-    sameIdHarness.dispatchWindow('loadtoagent:terminal-reconnect-focus', {
+    sameIdHarness.dispatchWindow('whitebox:terminal-reconnect-focus', {
       detail: { terminalId: 'terminal:inline-new-identity' },
     });
     releaseOldIdentityResume({ id: 'terminal:inline-old-identity', terminalId: 'terminal:inline-old-identity' });
@@ -638,7 +638,7 @@ function registerInlineAgentTerminalTests(context) {
         agentSessionId: harness.session.id,
         terminalId: 'terminal:inline-before-reconnect',
       });
-      harness.dispatchWindow('loadtoagent:terminal-reconnect-focus', {
+      harness.dispatchWindow('whitebox:terminal-reconnect-focus', {
         detail: { terminalId: eventTerminalId },
       });
       harness.setEmbedded({ connected: false, agentSessionId: '', terminalId: '' });
@@ -676,10 +676,10 @@ function registerInlineAgentTerminalTests(context) {
         terminalId: 'terminal:inline-owner',
       });
       if (mountId === 'drawerTerminalViewport') harness.moveEmbeddedHostToDrawer();
-      harness.dispatchWindow('loadtoagent:terminal-reconnect-focus', {
+      harness.dispatchWindow('whitebox:terminal-reconnect-focus', {
         detail: { terminalId: 'terminal:inline-owner' },
       });
-      harness.dispatchWindow('loadtoagent:terminal-reconnect-owner', {
+      harness.dispatchWindow('whitebox:terminal-reconnect-owner', {
         detail: { terminalId: 'terminal:inline-owner', mountId },
       });
       let passiveResult = null;

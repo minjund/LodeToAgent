@@ -267,7 +267,7 @@ class TmuxController {
         duplicate: true,
       };
     }
-    const bufferName = `loadtoagent-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
+    const bufferName = `whitebox-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
     try {
       await this.execute(distro, ['load-buffer', '-b', bufferName, '-'], { input: text });
     } catch (error) {

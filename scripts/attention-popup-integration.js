@@ -8,7 +8,7 @@ const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const { AttentionPopupManager } = require('../src/attentionPopupManager');
 
 const root = path.resolve(__dirname, '..');
-const temporaryUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-popup-e2e-'));
+const temporaryUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-popup-e2e-'));
 app.setPath('userData', temporaryUserData);
 app.commandLine.appendSwitch('disable-gpu');
 
@@ -58,13 +58,13 @@ async function run() {
 
   manager.reconcile('e2e', [
     {
-      id: 'permission', type: 'permission', provider: 'Codex', project: 'LoadToAgent',
+      id: 'permission', type: 'permission', provider: 'Codex', project: 'Whitebox',
       title: '권한 요청', body: '', detail: 'npm test -- --runInBand', toolLabel: 'Bash',
-      meta: 'LoadToAgent · #Tzi', openMain: true, openMainLabel: '터미널로 이동', dismissible: false,
+      meta: 'Whitebox · #Tzi', openMain: true, openMainLabel: '터미널로 이동', dismissible: false,
       permissionSuggestions: [{ id: 'always-npm-test', label: '항상 허용 `npm test`', description: '이 명령 패턴에 다시 묻지 않습니다.' }],
     },
     {
-      id: 'question', type: 'question', provider: 'Claude', project: 'LoadToAgent',
+      id: 'question', type: 'question', provider: 'Claude', project: 'Whitebox',
       title: '실행 환경 선택', body: '작업을 계속하려면 답변이 필요합니다.', canDeny: true,
       denyLabel: '거부', openMain: true, openMainLabel: '터미널로 이동',
       questions: [{
@@ -117,7 +117,7 @@ async function run() {
     describedBy: 'popupCommand',
     title: '권한 요청',
     tool: 'Bash',
-    meta: 'LoadToAgent · #Tzi',
+    meta: 'Whitebox · #Tzi',
     command: 'npm test -- --runInBand',
     groupRole: 'group',
     groupLabel: '권한 선택',
@@ -214,7 +214,7 @@ async function run() {
   );
   await waitFor(() => !manager.windows.has('e2e\u0000revision-race'));
 
-  manager.reconcile('e2e', [{ id: 'toggle', type: 'input', title: '입력 필요', body: 'LoadToAgent에서 답해 주세요.' }]);
+  manager.reconcile('e2e', [{ id: 'toggle', type: 'input', title: '입력 필요', body: 'Whitebox에서 답해 주세요.' }]);
   assert.equal(manager.status().windowCount, 1);
   manager.setEnabled(false);
   assert.equal(manager.status().windowCount, 0);

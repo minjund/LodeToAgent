@@ -1,8 +1,8 @@
 "use strict";
 
 (() => {
-  const factories = window.LoadToAgentAppFactories || {};
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const factories = window.WhiteboxAppFactories || {};
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const app = {};
   const install = (name) => {
     if (typeof factories[name] !== "function") throw new Error(t("bootstrap.module_missing", { name }));
@@ -37,7 +37,7 @@
     "createDialogEventBindings",
     "createEventBindings",
   ].forEach(install);
-  window.LoadToAgentApp = app;
+  window.WhiteboxApp = app;
 
   const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, loadAttentionPopupSettings = () => {}, bindAttentionPopupSettings = () => {}, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, closeDrawer, toast, refreshProviderUsage = async () => null } = app;
 
@@ -74,7 +74,7 @@
       await navigator.clipboard.writeText(initializationError);
       toast(t("quality.copy_success"));
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("initialization-error-copy", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("initialization-error-copy", error);
       toast(t("quality.copy_failed"));
     }
   });
@@ -83,14 +83,14 @@
     loadQualityState();
     state.workspace = "all";
     loadGuideState();
-    if (!window.loadtoagent) {
+    if (!window.whitebox) {
       $("#emptyState").classList.remove("hidden");
       $("#emptyState p").textContent = t("bootstrap.open_in_app");
       showInitializationError(t("bootstrap.open_in_app"));
       return;
     }
-    const bootstrap = await window.LoadToAgentRendererUtils.bootstrap();
-    if (window.loadtoagent.setLocale) await window.loadtoagent.setLocale(window.LoadToAgentI18n?.getLocale() || "en");
+    const bootstrap = await window.WhiteboxRendererUtils.bootstrap();
+    if (window.whitebox.setLocale) await window.whitebox.setLocale(window.WhiteboxI18n?.getLocale() || "en");
     state.providers = bootstrap.providers || [];
     state.providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
     loadProviderVisibility(bootstrap.providerVisibility);
@@ -117,13 +117,13 @@
       if (session.parentId) openSubagentConversation(session.id, safeAttentionDrawerOptions);
       else openDrawer(session.id, safeAttentionDrawerOptions);
     };
-    const attentionActivation = window.LoadToAgentAttentionActivation?.createAttentionActivationController({
+    const attentionActivation = window.WhiteboxAttentionActivation?.createAttentionActivationController({
       getSessions: () => state.snapshot?.sessions || [],
       isProviderVisible,
-      acknowledge: result => window.loadtoagent.ackAttentionActivation?.(result),
+      acknowledge: result => window.whitebox.ackAttentionActivation?.(result),
       showSession: showAttentionSession,
       openPty: async (session, activation, operation) => {
-        const terminal = window.LoadToAgentTerminal;
+        const terminal = window.WhiteboxTerminal;
         if (!terminal?.agentTargets || !terminal?.openForAgent) return { opened: false, retryable: true };
         try {
           if (!operation?.isCurrent?.()) return { opened: false, retryable: true };
@@ -153,7 +153,7 @@
           return { opened: true, retryable: false };
         } catch (error) {
           if (!["DELIVERY_REJECTED", "ATTENTION_ACTIVATION_CANCELLED"].includes(error?.code)) {
-            window.LoadToAgentRendererUtils.reportRecoverableError("attention-activation-open-pty", error);
+            window.WhiteboxRendererUtils.reportRecoverableError("attention-activation-open-pty", error);
           }
           const refreshedTargets = terminal.agentTargets(session);
           return {
@@ -162,7 +162,7 @@
           };
         }
       },
-      onError: (scope, error) => window.LoadToAgentRendererUtils.reportRecoverableError(scope, error),
+      onError: (scope, error) => window.WhiteboxRendererUtils.reportRecoverableError(scope, error),
     });
     const handleAttentionRequested = (payload) => {
       if (payload?.activationId && attentionActivation) {
@@ -178,7 +178,7 @@
           toast(t('bootstrap.opened_attention_list'));
           return;
         }
-        const terminal = window.LoadToAgentTerminal;
+        const terminal = window.WhiteboxTerminal;
         if (session.parentId || session.sourcePluginId || session.controlCapabilities?.pty === false
           || session.presentation?.conversationSurface === 'transcript'
           || !terminal?.openForAgent) {
@@ -193,9 +193,9 @@
             selectView('terminal');
           },
         })).catch(error => {
-          window.LoadToAgentRendererUtils.reportRecoverableError('attention-popup-open-terminal', error);
+          window.WhiteboxRendererUtils.reportRecoverableError('attention-popup-open-terminal', error);
           showAttentionSession(session);
-          toast(window.LoadToAgentI18n.errorText(error, 'agent.open_terminal_failed'));
+          toast(window.WhiteboxI18n.errorText(error, 'agent.open_terminal_failed'));
         });
         return;
       }
@@ -207,19 +207,19 @@
       } else toast(t("bootstrap.opened_attention_list"));
     };
     const handleTerminalPromptResolved = (payload) => {
-      const resolution = window.LoadToAgentTerminal?.resolveAttentionPrompt?.(payload);
+      const resolution = window.WhiteboxTerminal?.resolveAttentionPrompt?.(payload);
       if (!resolution?.ok || !resolution.requiresText) return;
       const session = (state.snapshot?.sessions || []).find(item => item.id === resolution.sessionId);
       if (!session || session.parentId || !isProviderVisible(session.provider)) return;
       selectView("terminal");
-      Promise.resolve(window.LoadToAgentTerminal.openForAgent(session, resolution.targetId)).catch(error => {
-        window.LoadToAgentRendererUtils.reportRecoverableError("terminal-prompt-follow-up-focus", error);
-        toast(window.LoadToAgentI18n.errorText(error, "agent.open_terminal_failed"));
+      Promise.resolve(window.WhiteboxTerminal.openForAgent(session, resolution.targetId)).catch(error => {
+        window.WhiteboxRendererUtils.reportRecoverableError("terminal-prompt-follow-up-focus", error);
+        toast(window.WhiteboxI18n.errorText(error, "agent.open_terminal_failed"));
       });
     };
-    if (window.loadtoagent.onAttentionRequested) window.loadtoagent.onAttentionRequested(handleAttentionRequested);
-    if (window.loadtoagent.onTerminalPromptResolved) window.loadtoagent.onTerminalPromptResolved(handleTerminalPromptResolved);
-    if (window.loadtoagent.onMonitorError) window.loadtoagent.onMonitorError((message) => {
+    if (window.whitebox.onAttentionRequested) window.whitebox.onAttentionRequested(handleAttentionRequested);
+    if (window.whitebox.onTerminalPromptResolved) window.whitebox.onTerminalPromptResolved(handleTerminalPromptResolved);
+    if (window.whitebox.onMonitorError) window.whitebox.onMonitorError((message) => {
       const detail = String(message || t("ui.connection_failed"));
       showInitializationError(detail);
       toast(detail);
@@ -228,7 +228,7 @@
     bindEvents();
     render();
     refreshProviderUsage().catch(error => {
-      window.LoadToAgentRendererUtils.reportRecoverableError("provider-usage-refresh", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("provider-usage-refresh", error);
     });
     saveDashboardPreferences();
     $("#appConnectionState")?.classList.remove("connection-error");
@@ -237,12 +237,12 @@
     setConnectedAt(state.snapshot && state.snapshot.generatedAt);
     let snapshotRenderFrame = 0;
     let latestSnapshot = null;
-    window.loadtoagent.onSnapshot((snapshot) => {
+    window.whitebox.onSnapshot((snapshot) => {
       state.rawSnapshot = snapshot;
       state.snapshot = projectVisibleSnapshot(snapshot);
       attentionActivation?.retry();
       if (Array.isArray(snapshot.sourcePlugins)) state.sourcePlugins = snapshot.sourcePlugins;
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       setConnectedAt(snapshot.generatedAt);
       latestSnapshot = snapshot;
       if (snapshotRenderFrame) return;
@@ -263,11 +263,11 @@
         }
       });
     });
-    window.addEventListener("loadtoagent:terminal-inventory-changed", () => attentionActivation?.retry());
-    window.addEventListener("loadtoagent:terminal-manual-selection", () => attentionActivation?.userNavigated());
-    if (window.loadtoagent.rendererReady) await window.loadtoagent.rendererReady();
-    if (window.loadtoagent.onUpdateState)
-      window.loadtoagent.onUpdateState((update) => {
+    window.addEventListener("whitebox:terminal-inventory-changed", () => attentionActivation?.retry());
+    window.addEventListener("whitebox:terminal-manual-selection", () => attentionActivation?.userNavigated());
+    if (window.whitebox.rendererReady) await window.whitebox.rendererReady();
+    if (window.whitebox.onUpdateState)
+      window.whitebox.onUpdateState((update) => {
         state.update = update;
         renderUpdateSettings();
       });
@@ -275,10 +275,10 @@
 
   app.init = init;
 
-  window.addEventListener("loadtoagent:locale-changed", (event) => {
-    if (window.loadtoagent?.setLocale) {
-      Promise.resolve(window.loadtoagent.setLocale(event.detail.locale)).catch((error) => {
-        window.LoadToAgentRendererUtils.reportRecoverableError("locale-persistence", error);
+  window.addEventListener("whitebox:locale-changed", (event) => {
+    if (window.whitebox?.setLocale) {
+      Promise.resolve(window.whitebox.setLocale(event.detail.locale)).catch((error) => {
+        window.WhiteboxRendererUtils.reportRecoverableError("locale-persistence", error);
       });
     }
     if (!state.snapshot) {
@@ -289,14 +289,14 @@
     setConnectedAt(state.snapshot.generatedAt);
   });
 
-  window.addEventListener("loadtoagent:terminal-prompts-changed", () => {
+  window.addEventListener("whitebox:terminal-prompts-changed", () => {
     if (!state.snapshot || state.view === "terminal" || state.view === "tmux") return;
     render("terminal-prompt");
   });
 
   init().catch((error) => {
     console.error(error);
-    const message = t("bootstrap.initialization_failed", { message: window.LoadToAgentI18n.errorText(error, "ui.connection_failed") });
+    const message = t("bootstrap.initialization_failed", { message: window.WhiteboxI18n.errorText(error, "ui.connection_failed") });
     showInitializationError(message);
     toast(message);
   });

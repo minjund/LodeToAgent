@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-readability-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-readability-'));
 app.setPath('userData', userData);
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -248,7 +248,7 @@ app.whenReady().then(async () => {
       },
     });
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot?.sessions?.length)`);
+    await waitFor(win, `Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot?.sessions?.length)`);
     win.setContentSize(1440, 980);
     await wait(260);
     const outputDir = path.join(__dirname, '..', 'artifacts');
@@ -257,15 +257,15 @@ app.whenReady().then(async () => {
     fs.mkdirSync(reviewOutputDir, { recursive: true });
 
     await win.webContents.executeJavaScript(`(async () => {
-      const bootstrap = await window.loadtoagent.bootstrap();
-      const app = window.LoadToAgentApp;
+      const bootstrap = await window.whitebox.bootstrap();
+      const app = window.WhiteboxApp;
       app.state.providers = bootstrap.providers;
       app.state.availability = bootstrap.availability;
       app.state.workspaces = bootstrap.workspaces;
       app.state.rawSnapshot = bootstrap.snapshot;
       app.state.snapshot = bootstrap.snapshot;
       app.state.hiddenProviders.clear();
-      window.LoadToAgentI18n.setLocale('ko');
+      window.WhiteboxI18n.setLocale('ko');
       app.state.view = 'all';
       app.state.workspace = 'D:\\\\fixture';
       app.state.graphFocusId = null;
@@ -284,18 +284,18 @@ app.whenReady().then(async () => {
     // Prime the compositor once so the checked artifact always reflects the DOM.
     await capturePageWithRetry(win, 'compositor-prime');
     await wait(300);
-    await capture(win, outputDir, 'loadtoagent-readability-overview.png', true);
+    await capture(win, outputDir, 'whitebox-readability-overview.png', true);
 
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.state.graphFocusId = null;
-      window.LoadToAgentApp.renderSessions('view');
+      window.WhiteboxApp.state.graphFocusId = null;
+      window.WhiteboxApp.renderSessions('view');
       document.querySelector('[data-graph-focus="fixture-root"]')?.click();
       return true;
     })()`);
     await waitFor(win, `Boolean(document.querySelector('.execution-activity-panel') && document.querySelector('[data-execution-mode="foreground"]'))`);
     await forceRepaint(win);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.closeDrawer(false);
+      window.WhiteboxApp.closeDrawer(false);
       document.querySelector('#mainContent')?.focus({ preventScroll: true });
       const foreground = document.querySelector('[data-execution-mode="foreground"]');
       if (foreground) foreground.open = true;
@@ -330,15 +330,15 @@ app.whenReady().then(async () => {
       return true;
     })()`);
     await waitFor(win, `(() => { const detail = document.querySelector('[data-execution-mode="foreground"]'); const rect = detail?.getBoundingClientRect(); return Boolean(detail?.open && rect && rect.top >= 0 && rect.top < innerHeight * .5); })()`);
-    await capture(win, outputDir, 'loadtoagent-execution-activity.png', true);
+    await capture(win, outputDir, 'whitebox-execution-activity.png', true);
 
     win.setContentSize(360, 620);
     await wait(250);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.state.view = 'all';
-      window.LoadToAgentApp.state.graphFocusId = null;
-      window.LoadToAgentApp.syncViewChrome();
-      window.LoadToAgentApp.renderSessions('view');
+      window.WhiteboxApp.state.view = 'all';
+      window.WhiteboxApp.state.graphFocusId = null;
+      window.WhiteboxApp.syncViewChrome();
+      window.WhiteboxApp.renderSessions('view');
       document.querySelector('#beginnerGuide')?.classList.add('hidden');
       const stage = document.querySelector('.main-stage');
       const target = document.querySelector('#liveSection');
@@ -357,7 +357,7 @@ app.whenReady().then(async () => {
         && live.querySelector('.helper-node')
         && live.querySelector('.execution-node'));
     })()`);
-    await capture(win, outputDir, 'loadtoagent-control-room-360.png', true);
+    await capture(win, outputDir, 'whitebox-control-room-360.png', true);
 
     await win.webContents.executeJavaScript(`(() => {
       document.querySelector('#mobileMoreBtn')?.click();
@@ -386,14 +386,14 @@ app.whenReady().then(async () => {
       || !mobileProjectStatusMetrics.labelHidden || !mobileProjectStatusMetrics.accessibleLabel) {
       throw new Error(`모바일 프로젝트 상태 표시가 아이콘 CSS와 충돌합니다: ${JSON.stringify(mobileProjectStatusMetrics)}`);
     }
-    await capture(win, outputDir, 'loadtoagent-responsive-projects-360.png');
+    await capture(win, outputDir, 'whitebox-responsive-projects-360.png');
 
     win.setContentSize(1440, 900);
     await wait(250);
     const viewReports = [];
     for (const view of ['all', 'active', 'waiting', 'runtime', 'terminal', 'tmux', 'settings']) {
       await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         app.state.view = ${JSON.stringify(view)};
         app.state.graphFocusId = null;
         app.syncViewChrome();
@@ -406,15 +406,15 @@ app.whenReady().then(async () => {
       await wait(240);
       const report = await auditVisibleText(win, view);
       viewReports.push(report);
-      await capture(win, outputDir, `loadtoagent-readability-${view}.png`);
+      await capture(win, outputDir, `whitebox-readability-${view}.png`);
     }
 
     await win.webContents.executeJavaScript(`(async () => {
-      const app = window.LoadToAgentApp;
+      const app = window.WhiteboxApp;
       app.state.view = 'terminal';
       app.syncViewChrome();
       app.render('view');
-      await window.LoadToAgentTerminal.activate(app.state.snapshot, app.state.workspaces, 'general');
+      await window.WhiteboxTerminal.activate(app.state.snapshot, app.state.workspaces, 'general');
       document.querySelector('[data-terminal-id="terminal-managed"]')?.click();
       document.querySelector('.main-stage')?.scrollTo(0, 0);
       return true;
@@ -469,7 +469,7 @@ app.whenReady().then(async () => {
       throw new Error(`슬래시 composer 가독성 계약 미달: ${JSON.stringify(slashComposerMetrics)}`);
     }
     viewReports.push(await auditVisibleText(win, 'terminal-slash-composer'));
-    await capture(win, outputDir, 'loadtoagent-terminal-composer-slash.png', true);
+    await capture(win, outputDir, 'whitebox-terminal-composer-slash.png', true);
 
     const longDraftSetup = await win.webContents.executeJavaScript(`(() => {
       try {
@@ -514,7 +514,7 @@ app.whenReady().then(async () => {
       throw new Error(`긴 입력 composer 가독성 계약 미달: ${JSON.stringify(longComposerMetrics)}`);
     }
     viewReports.push(await auditVisibleText(win, 'terminal-long-composer'));
-    await capture(win, outputDir, 'loadtoagent-terminal-composer-long.png', true);
+    await capture(win, outputDir, 'whitebox-terminal-composer-long.png', true);
 
     win.setContentSize(420, 760);
     await wait(280);
@@ -573,7 +573,7 @@ app.whenReady().then(async () => {
       || compactComposerMetrics.textareaHeight > 114 || !compactComposerMetrics.sendLabelNoWrap) {
       throw new Error(`작은 화면 composer 가독성 계약 미달: ${JSON.stringify(compactComposerMetrics)}`);
     }
-    await capture(win, outputDir, 'loadtoagent-terminal-composer-compact.png', true);
+    await capture(win, outputDir, 'whitebox-terminal-composer-compact.png', true);
     win.setContentSize(1440, 900);
     await wait(250);
     await win.webContents.executeJavaScript(`(() => {
@@ -592,7 +592,7 @@ app.whenReady().then(async () => {
     await waitFor(win, `document.querySelector('#runModal')?.classList.contains('hidden') && document.querySelector('#runModal')?.inert`);
 
     await win.webContents.executeJavaScript(`(() => {
-      const app = window.LoadToAgentApp;
+      const app = window.WhiteboxApp;
       app.state.view = 'active';
       app.syncViewChrome();
       app.render('view');
@@ -606,11 +606,11 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`(() => { document.querySelector('#closeDrawerBtn')?.click(); return true; })()`);
 
     await win.webContents.executeJavaScript(`(async () => {
-      const app = window.LoadToAgentApp;
+      const app = window.WhiteboxApp;
       app.state.view = 'terminal';
       app.syncViewChrome();
       app.render('view');
-      await window.LoadToAgentTerminal.activate(app.state.snapshot, app.state.workspaces, 'general');
+      await window.WhiteboxTerminal.activate(app.state.snapshot, app.state.workspaces, 'general');
       document.querySelector('#newTmuxSessionBtn')?.click();
       return true;
     })()`);
@@ -631,7 +631,7 @@ app.whenReady().then(async () => {
 200자를 넘긴 뒤에도 전체 내용 보기와 요청 복사가 안정적으로 동작해야 합니다.`;
     const longDraftLength = 7900;
     await win.webContents.executeJavaScript(`(() => {
-      const app = window.LoadToAgentApp;
+      const app = window.WhiteboxApp;
       if (!document.querySelector('#mobileToolsMenu')?.classList.contains('hidden')) {
         document.querySelector('#mobileToolsCloseBtn')?.click();
       }
@@ -782,7 +782,7 @@ app.whenReady().then(async () => {
       if (!document.querySelector('#mobileToolsMenu')?.classList.contains('hidden')) {
         document.querySelector('#mobileToolsCloseBtn')?.click();
       }
-      window.LoadToAgentApp.renderDrawer();
+      window.WhiteboxApp.renderDrawer();
       document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]')?.scrollIntoView({ block: 'end', behavior: 'auto' });
       return true;
     })()`);
@@ -803,8 +803,8 @@ app.whenReady().then(async () => {
     await win.webContents.executeJavaScript(`document.querySelector('[data-message-id="audit-long-user"] [data-prompt-toggle]')?.click()`);
     await waitFor(win, `document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]')?.dataset.promptExpanded === 'false'`);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('en');
-      window.LoadToAgentApp.renderDrawer();
+      window.WhiteboxI18n.setLocale('en');
+      window.WhiteboxApp.renderDrawer();
       document.querySelector('[data-message-id="audit-long-user"] [data-user-prompt]')?.scrollIntoView({ block: 'end', behavior: 'auto' });
       return true;
     })()`);
@@ -936,15 +936,15 @@ app.whenReady().then(async () => {
 
     const familyEmoji = '👨‍👩‍👧‍👦';
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
+      window.WhiteboxI18n.setLocale('ko');
       window.interactionTest.appendSessionMessages('fixture-ended', [
         { id: 'audit-boundary-200', role: 'user', text: ${JSON.stringify('가'.repeat(200))}, timestamp: new Date(Date.now() + 10).toISOString() },
         { id: 'audit-boundary-201', role: 'user', text: ${JSON.stringify('가'.repeat(201))}, timestamp: new Date(Date.now() + 11).toISOString() },
         { id: 'audit-grapheme-201', role: 'user', text: ${JSON.stringify(familyEmoji.repeat(201))}, timestamp: new Date(Date.now() + 12).toISOString() },
       ]);
       window.interactionTest.emitSnapshot();
-      window.LoadToAgentApp.state.expandedConversationPrompts.clear();
-      window.LoadToAgentApp.openDrawer('fixture-ended');
+      window.WhiteboxApp.state.expandedConversationPrompts.clear();
+      window.WhiteboxApp.openDrawer('fixture-ended');
       return true;
     })()`);
     await waitFor(win, `Boolean(document.querySelector('[data-message-id="audit-grapheme-201"] [data-user-prompt]'))`);

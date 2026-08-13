@@ -1,8 +1,8 @@
 # Managed terminal sessions
 
-LoadToAgent separates an AI task from the terminal view attached to it. On
+Whitebox separates an AI task from the terminal view attached to it. On
 macOS, Linux, and Windows WSL, every non-transient AI terminal is created in a
-named session on the isolated `tmux -L loadtoagent` server. The Electron PTY
+named session on the isolated `tmux -L whitebox` server. The Electron PTY
 attaches to that session; it does not own the AI process.
 
 This boundary is intentionally limited to the Session terminal. The agent map,
@@ -12,11 +12,11 @@ their existing data contracts.
 ## Invariants
 
 - Each managed session persists its backend, socket name, tmux session name,
-  provider arguments, working directory, and stable LoadToAgent session ID.
+  provider arguments, working directory, and stable Whitebox session ID.
 - The socket and session names are validated and passed as separate process
   arguments. Provider commands are not joined into an interpolated shell
   string.
-- The isolated socket prevents LoadToAgent options and lifecycle commands from
+- The isolated socket prevents Whitebox options and lifecycle commands from
   modifying the user's default tmux server.
 - `window-size` is set to `largest` so an additional client does not shrink the
   shared agent workspace unexpectedly.

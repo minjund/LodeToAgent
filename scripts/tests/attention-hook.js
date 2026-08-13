@@ -28,6 +28,7 @@ const {
   uninstallAttentionHooks,
 } = require('../../src/attentionHookInstaller');
 const {
+  parseArguments: parseAttentionHookArguments,
   readBoundedJson,
   readRuntimeIdentity,
   sanitizeOfficialOutput,
@@ -37,7 +38,7 @@ const { createTestHarness } = require('./harness');
 const temporaryRoots = [];
 
 function temporaryRoot() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-attention-hook-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-attention-hook-'));
   temporaryRoots.push(root);
   return root;
 }
@@ -95,7 +96,7 @@ function requestJson(url, payload, options = {}) {
 function runHookProcess(runtimeFile, payload) {
   const script = path.resolve(__dirname, '..', '..', 'bin', 'attention-permission-hook.js');
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script, '--runtime-file', runtimeFile, '--loadtoagent-attention-hook'], {
+    const child = spawn(process.execPath, [script, '--runtime-file', runtimeFile, '--whitebox-attention-hook'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -144,10 +145,10 @@ function countOwned(config, predicate) {
 }
 
 function fakeIdentity(runtimeFile, port = 31_337, nonce = 'a'.repeat(64)) {
-  const routePath = `/loadtoagent/attention/v1/${nonce}`;
+  const routePath = `/whitebox/attention/v1/${nonce}`;
   return {
     protocol: 1,
-    service: 'loadtoagent-attention-hook',
+    service: 'whitebox-attention-hook',
     pid: process.pid,
     host: '127.0.0.1',
     port,
@@ -160,6 +161,16 @@ function fakeIdentity(runtimeFile, port = 31_337, nonce = 'a'.repeat(64)) {
 
 function registerAttentionHookTests(context) {
   const { test } = context;
+
+  test('명령 훅은 Whitebox runtime 경로를 우선하고 기존 환경 변수도 이어받는다', () => {
+    assert.equal(parseAttentionHookArguments([], {
+      WHITEBOX_ATTENTION_HOOK_FILE: path.join(temporaryRoot(), 'whitebox.json'),
+      LOADTOAGENT_ATTENTION_HOOK_FILE: path.join(temporaryRoot(), 'legacy.json'),
+    }).runtimeFile.endsWith('whitebox.json'), true);
+    assert.equal(parseAttentionHookArguments([], {
+      LOADTOAGENT_ATTENTION_HOOK_FILE: path.join(temporaryRoot(), 'legacy.json'),
+    }).runtimeFile.endsWith('legacy.json'), true);
+  });
 
   test('Claude 권한 요청과 AskUserQuestion을 팝업 계약으로 정규화하고 공식 응답을 만든다', () => {
     const permission = normalizeHookRequest({
@@ -378,7 +389,7 @@ function registerAttentionHookTests(context) {
     });
     const identity = await server.start();
     assert.equal(identity.host, '127.0.0.1');
-    assert.match(identity.path, /^\/loadtoagent\/attention\/v1\/[a-f0-9]{64}$/u);
+    assert.match(identity.path, /^\/whitebox\/attention\/v1\/[a-f0-9]{64}$/u);
     assert.deepEqual(JSON.parse(fs.readFileSync(runtimeFile, 'utf8')).nonce, identity.nonce);
     assert.deepEqual(await server.start(), identity, 'start는 같은 런타임 identity를 재사용해야 합니다.');
 
@@ -470,7 +481,7 @@ function registerAttentionHookTests(context) {
     const result = await requestJson(identity.url, {
       session_id: 'codex-question', hook_event_name: 'PreToolUse', tool_name: 'request_user_input',
       tool_input: { questions: [{ id: 'q', question: 'Choose?', options: [{ label: 'A' }] }] },
-    }, { headers: { 'X-LoadToAgent-Provider': 'codex' } });
+    }, { headers: { 'X-Whitebox-Provider': 'codex' } });
     assert.deepEqual(result.value, {});
     assert.deepEqual(requests, []);
     const direct = normalizeHookRequest({
@@ -568,7 +579,7 @@ function registerAttentionHookTests(context) {
     }));
     assert.throws(() => readRuntimeIdentity(file), /Invalid attention hook runtime identity/u);
     fs.writeFileSync(file, JSON.stringify({
-      ...fakeIdentity(file), path: `/loadtoagent/attention/v1/${'b'.repeat(64)}`,
+      ...fakeIdentity(file), path: `/whitebox/attention/v1/${'b'.repeat(64)}`,
     }));
     assert.throws(() => readRuntimeIdentity(file), /Invalid attention hook runtime identity/u);
   });
@@ -578,7 +589,7 @@ function registerAttentionHookTests(context) {
     const claudeSettingsPath = path.join(root, '.claude', 'settings.json');
     const codexHooksPath = path.join(root, '.codex', 'hooks.json');
     const codexConfigPath = path.join(root, '.codex', 'config.toml');
-    const runtimeFile = path.join(root, '.loadtoagent', 'attention.json');
+    const runtimeFile = path.join(root, '.whitebox', 'attention.json');
     fs.mkdirSync(path.dirname(claudeSettingsPath), { recursive: true });
     fs.mkdirSync(path.dirname(codexHooksPath), { recursive: true });
     const foreignClaude = { type: 'command', command: 'foreign-claude-hook', timeout: 10 };
@@ -594,7 +605,7 @@ function registerAttentionHookTests(context) {
         SessionStart: [{ hooks: [foreignCodex] }],
         PreToolUse: [{
           matcher: 'request_user_input',
-          hooks: [{ type: 'command', command: 'node stale-hook.js --loadtoagent-attention-hook' }],
+          hooks: [{ type: 'command', command: 'node stale-hook.js --whitebox-attention-hook' }],
         }],
       },
       foreignTopLevel: ['keep'],
@@ -604,7 +615,7 @@ function registerAttentionHookTests(context) {
     fs.writeFileSync(codexHooksPath, codexOriginal);
     fs.writeFileSync(codexConfigPath, configOriginal);
 
-    const hookScriptPath = path.resolve(root, 'LoadToAgent resources', 'attention-permission-hook.js');
+    const hookScriptPath = path.resolve(root, 'Whitebox resources', 'attention-permission-hook.js');
     const common = {
       claudeSettingsPath, codexHooksPath, codexConfigPath, hookScriptPath,
       nodeExecutable: process.execPath,
@@ -647,11 +658,11 @@ function registerAttentionHookTests(context) {
     const ownCodex = Object.values(codexInstalled.hooks).flatMap(groups => groups)
       .flatMap(group => group.hooks).find(isOwnCodexHandler);
     if (process.platform === 'win32') {
-      assert.match(decodePowerShellCommand(ownCodex.command), /--loadtoagent-attention-hook/u);
+      assert.match(decodePowerShellCommand(ownCodex.command), /--whitebox-attention-hook/u);
     } else {
-      assert.match(ownCodex.command, /--loadtoagent-attention-hook/u);
+      assert.match(ownCodex.command, /--whitebox-attention-hook/u);
     }
-    assert.match(decodePowerShellCommand(ownCodex.commandWindows), /--loadtoagent-attention-hook/u);
+    assert.match(decodePowerShellCommand(ownCodex.commandWindows), /--whitebox-attention-hook/u);
     const configInstalled = fs.readFileSync(codexConfigPath, 'utf8');
     assert.match(configInstalled, /\[features\]\r\nhooks = true\r\n/u);
     assert.match(configInstalled, /\[projects\.demo\]\r\ntrust_level = "trusted"/u);
@@ -726,7 +737,7 @@ function registerAttentionHookTests(context) {
       codexConfigPath: path.join(root, 'CodexHome', 'config.toml'),
       runtimeFile: path.join(root, 'runtime.json'),
       hookScriptPath: path.join(root, 'hook.js'),
-      nodeExecutable: path.join(root, 'LoadToAgent.exe'),
+      nodeExecutable: path.join(root, 'Whitebox.exe'),
       platform: 'win32',
     };
     fs.mkdirSync(path.dirname(paths.codexHooksPath), { recursive: true });
@@ -807,11 +818,11 @@ function registerAttentionHookTests(context) {
     assert.equal(genericInstalled.warnings.some(warning => /Both apps|already has an interactive/u.test(warning)), false);
   });
 
-  test('LoadToAgent 전용 config backup만 파일별 최근 3개를 남기고 사용자 backup은 보존한다', () => {
+  test('Whitebox 전용 config backup만 파일별 최근 3개를 남기고 사용자 backup은 보존한다', () => {
     const root = temporaryRoot();
     const file = path.join(root, 'settings.json');
     const userBackup = `${file}.user-backup`;
-    const foreignLookalike = `${file}.loadtoagent-backup-manual`;
+    const foreignLookalike = `${file}.whitebox-backup-manual`;
     fs.writeFileSync(file, '{"revision":0}\n');
     fs.writeFileSync(userBackup, 'user');
     fs.writeFileSync(foreignLookalike, 'foreign');
@@ -823,7 +834,7 @@ function registerAttentionHookTests(context) {
       previous = next;
     }
     const ownBackups = fs.readdirSync(root).filter(name => (
-      /^settings\.json\.loadtoagent-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{8}$/u.test(name)
+      /^settings\.json\.whitebox-backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{8}$/u.test(name)
     ));
     assert.equal(ownBackups.length, 3);
     assert.equal(fs.readFileSync(userBackup, 'utf8'), 'user');
@@ -914,9 +925,9 @@ function registerAttentionHookTests(context) {
     assert.equal(configured.codexHooksPath, path.join(codexHome, 'hooks.json'));
     assert.equal(configured.codexConfigPath, path.join(codexHome, 'config.toml'));
     const commands = buildCodexHookCommands({
-      nodeExecutable: 'C:\\Program Files\\LoadToAgent\\LoadToAgent.exe',
-      hookScriptPath: 'C:\\Program Files\\LoadToAgent\\resources\\hook.js',
-      runtimeFile: 'C:\\Users\\tester\\.loadtoagent\\attention.json',
+      nodeExecutable: 'C:\\Program Files\\Whitebox\\Whitebox.exe',
+      hookScriptPath: 'C:\\Program Files\\Whitebox\\resources\\hook.js',
+      runtimeFile: 'C:\\Users\\tester\\.whitebox\\attention.json',
       platform: 'win32',
     });
     assert.match(commands.command, /^powershell\.exe /u);
@@ -926,7 +937,7 @@ function registerAttentionHookTests(context) {
     const decoded = Buffer.from(encoded, 'base64').toString('utf16le');
     assert.match(decoded, /^\$env:ELECTRON_RUN_AS_NODE='1'; & /u);
     assert.match(decoded, /Program Files/u);
-    assert.match(decoded, /--loadtoagent-attention-hook$/u);
+    assert.match(decoded, /--whitebox-attention-hook$/u);
 
     if (process.platform === 'win32') {
       const smokeRoot = path.join(temporaryRoot(), "cmd hook fixture's");
@@ -939,7 +950,7 @@ function registerAttentionHookTests(context) {
         "const outputIndex = process.argv.indexOf('--runtime-file') + 1;",
         "fs.writeFileSync(process.argv[outputIndex], JSON.stringify({",
         "  electronRunAsNode: process.env.ELECTRON_RUN_AS_NODE,",
-        "  marker: process.argv.includes('--loadtoagent-attention-hook'),",
+        "  marker: process.argv.includes('--whitebox-attention-hook'),",
         '}));',
       ].join('\n'));
       const smokeCommands = buildCodexHookCommands({
@@ -955,9 +966,9 @@ function registerAttentionHookTests(context) {
       });
     }
     const posix = buildCodexHookCommands({
-      nodeExecutable: '/opt/LoadToAgent/LoadToAgent',
-      hookScriptPath: '/opt/LoadToAgent/hook.js',
-      runtimeFile: '/home/tester/.loadtoagent/attention.json',
+      nodeExecutable: '/opt/Whitebox/Whitebox',
+      hookScriptPath: '/opt/Whitebox/hook.js',
+      runtimeFile: '/home/tester/.whitebox/attention.json',
       platform: 'linux',
     });
     assert.match(posix.command, /^ELECTRON_RUN_AS_NODE=1 /u);

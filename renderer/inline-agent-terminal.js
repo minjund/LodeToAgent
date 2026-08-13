@@ -17,11 +17,11 @@
     embeddedOwnerGeneration: 0,
     foreignEmbeddedOwner: null,
   };
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const report = (scope, error) => window.LoadToAgentRendererUtils?.reportRecoverableError?.(scope, error);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
+  const report = (scope, error) => window.WhiteboxRendererUtils?.reportRecoverableError?.(scope, error);
 
   function app() {
-    return window.LoadToAgentApp;
+    return window.WhiteboxApp;
   }
 
   function selectedSession() {
@@ -66,7 +66,7 @@
     }
   }
 
-  function connectionSignature(session, terminal = window.LoadToAgentTerminal) {
+  function connectionSignature(session, terminal = window.WhiteboxTerminal) {
     return terminal?.agentConnectionSignature?.(session)
       || JSON.stringify([
         session?.id,
@@ -94,7 +94,7 @@
     requestAnimationFrame(() => {
       const active = document.activeElement;
       const root = shell();
-      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
       const viewport = root?.querySelector("#agentInlineTerminalViewport");
       const ownsEmbeddedHost = root?.dataset.inlineAgentTerminal === sessionId
         && embedded.agentSessionId === sessionId
@@ -111,7 +111,7 @@
         && documentVisible
         && ownsEmbeddedHost
         && app()?.state?.inlineTerminalSessionId === sessionId) {
-        window.LoadToAgentTerminal?.focusEmbedded?.();
+        window.WhiteboxTerminal?.focusEmbedded?.();
       }
     });
   }
@@ -142,7 +142,7 @@
     const instance = app();
     const session = selectedSession();
     const root = shell();
-    const terminal = window.LoadToAgentTerminal;
+    const terminal = window.WhiteboxTerminal;
     if (!instance?.state || !session || !root || !terminal?.mountForAgent) return { ok: false, reason: "not-ready" };
     if (!isMainSession(session)) return { ok: false, reason: "not-main-session" };
     if (root.dataset.inlineAgentTerminal !== session.id) return { ok: false, reason: "stale-shell" };
@@ -287,7 +287,7 @@
         local.autoFailures.set(session.id, signature);
         local.focusSessionId = "";
         setEmpty(root, true, "drawer.terminal_unavailable", "drawer.terminal_unavailable_help");
-        setStatus(root, "drawer.terminal_unavailable", window.LoadToAgentI18n.errorText(error, "drawer.terminal_unavailable"), "error");
+        setStatus(root, "drawer.terminal_unavailable", window.WhiteboxI18n.errorText(error, "drawer.terminal_unavailable"), "error");
         report("inline-agent-terminal-mount", error);
         return { ok: false, reason: "error", error };
       } finally {
@@ -307,9 +307,9 @@
     local.focusSessionId = "";
     local.focusOrigin = null;
     instance.state.inlineTerminalSessionId = null;
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.();
+    const embedded = window.WhiteboxTerminal?.embeddedState?.();
     if (!embedded?.agentSessionId || embedded.agentSessionId === sessionId) {
-      window.LoadToAgentTerminal?.unmountEmbedded?.();
+      window.WhiteboxTerminal?.unmountEmbedded?.();
     }
     if (options.render !== false) instance.renderSessions?.("focus");
     return true;
@@ -375,7 +375,7 @@
     // must not be erased when this await eventually resolves.
     focusRequestToken = requestTerminalFocus(sessionId);
     try {
-      const resumed = await window.LoadToAgentTerminal.resumeForAgent(session, "", false, { focus: false });
+      const resumed = await window.WhiteboxTerminal.resumeForAgent(session, "", false, { focus: false });
       const targetId = String(resumed?.terminalId || resumed?.id || "");
       if (!targetId) throw new Error(t("terminal.agent.resume_terminal_failed"));
       if (!stillCurrent()) {
@@ -394,7 +394,7 @@
       }
       clearOwnFocusIntent();
       setEmpty(root, true, "drawer.terminal_resume_failed", "drawer.terminal_resume_failed_help", true);
-      setStatus(root, "drawer.terminal_resume_failed", window.LoadToAgentI18n.errorText(error, "drawer.terminal_resume_failed"), "error");
+      setStatus(root, "drawer.terminal_resume_failed", window.WhiteboxI18n.errorText(error, "drawer.terminal_resume_failed"), "error");
       report("inline-agent-terminal-resume", error);
     } finally {
       if (shell() === root) {
@@ -408,7 +408,7 @@
     const instance = app();
     const session = selectedSession();
     const root = shell();
-    const terminal = window.LoadToAgentTerminal;
+    const terminal = window.WhiteboxTerminal;
     const embedded = terminal?.embeddedState?.() || {};
     const terminalId = String(embedded.agentSessionId === session?.id
       ? embedded.terminalId
@@ -466,7 +466,7 @@
         local.focusSessionId = "";
         local.focusOrigin = null;
         setEmpty(root, true, "drawer.terminal_unavailable", "drawer.terminal_unavailable_help");
-        setStatus(root, "drawer.terminal_unavailable", window.LoadToAgentI18n.errorText(error, "drawer.terminal_unavailable"), "error");
+        setStatus(root, "drawer.terminal_unavailable", window.WhiteboxI18n.errorText(error, "drawer.terminal_unavailable"), "error");
         report("inline-agent-terminal-reconnect", error);
       } finally {
         if (local.pendingReconnect?.promise === task) local.pendingReconnect = null;
@@ -523,11 +523,11 @@
     if (document.visibilityState === "hidden") local.userFocusRevision += 1;
   }, true);
 
-  window.addEventListener("loadtoagent:terminal-reconnect-focus", (event) => {
+  window.addEventListener("whitebox:terminal-reconnect-focus", (event) => {
     const terminalId = String(event.detail?.terminalId || "");
     const session = selectedSession();
     const root = shell();
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
     const viewport = root?.querySelector("#agentInlineTerminalViewport");
     const host = mountedTerminalHost(viewport, terminalId);
     if (!terminalId
@@ -540,11 +540,11 @@
     requestTerminalFocus(session.id);
   });
 
-  window.addEventListener("loadtoagent:terminal-reconnect-owner", (event) => {
+  window.addEventListener("whitebox:terminal-reconnect-owner", (event) => {
     const terminalId = String(event.detail?.terminalId || "");
     const session = selectedSession();
     const root = shell();
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
     const viewport = root?.querySelector("#agentInlineTerminalViewport");
     const host = mountedTerminalHost(viewport, terminalId);
     if (terminalId
@@ -575,7 +575,7 @@
     local.reconnectOwnerTerminalId = terminalId;
   });
 
-  window.addEventListener("loadtoagent:terminal-command-delivery", (event) => {
+  window.addEventListener("whitebox:terminal-command-delivery", (event) => {
     const root = shell();
     if (!root || event.detail?.sessionId !== root.dataset.inlineAgentTerminal) return;
     if (event.detail.deliveryState === "rejected") {
@@ -585,13 +585,13 @@
     }
   });
 
-  window.loadtoagent?.onTerminalState?.((payload) => {
+  window.whitebox?.onTerminalState?.((payload) => {
     if (payload?.change !== "reconnected") return;
     const session = selectedSession();
     const root = shell();
     if (!session || !root || root.dataset.inlineAgentTerminal !== session.id) return;
     const targetId = String(local.targetIds.get(session.id)
-      || window.LoadToAgentTerminal?.embeddedState?.().terminalId
+      || window.WhiteboxTerminal?.embeddedState?.().terminalId
       || "");
     const reconnectOwnerTerminalId = local.reconnectOwnerTerminalId;
     local.reconnectOwnerTerminalId = "";
@@ -603,5 +603,5 @@
     setTimeout(() => sync({ force: true }), 0);
   });
 
-  window.LoadToAgentInlineTerminal = { toggle, close, sync };
+  window.WhiteboxInlineTerminal = { toggle, close, sync };
 })();

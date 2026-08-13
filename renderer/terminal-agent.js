@@ -1,8 +1,8 @@
 'use strict';
 
 /** Connect dashboard agent sessions to live or resumed terminal targets. */
-window.LoadToAgentTerminalAgentActions = function createModule(context) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxTerminalAgentActions = function createModule(context) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
@@ -273,7 +273,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   }
 
   function reportPostDeliveryError(scope, error) {
-    window.LoadToAgentRendererUtils?.reportRecoverableError?.(scope, error);
+    window.WhiteboxRendererUtils?.reportRecoverableError?.(scope, error);
   }
 
   function nextCreationId() {
@@ -313,7 +313,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   async function createTerminalWithRetry(createOptions, creationId) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const result = await window.loadtoagent.terminalCreate(createOptions);
+        const result = await window.whitebox.terminalCreate(createOptions);
         if (!result?.id) {
           if (result?.ok === false) {
             const error = resultError(result, t('terminal.agent.resume_terminal_failed'));
@@ -344,7 +344,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
   async function sendInitialCommandWithRetry(terminalId, prompt, deliveryId) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        const result = await window.loadtoagent.terminalCommand(terminalId, prompt, { deliveryId });
+        const result = await window.whitebox.terminalCommand(terminalId, prompt, { deliveryId });
         if (!result) throw new Error(t('terminal.agent.send_failed'));
         if (result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
         return result;
@@ -376,7 +376,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
   function emitCommandDelivery(agentSession, target, deliveryState) {
     if (typeof window.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
-    window.dispatchEvent(new CustomEvent('loadtoagent:terminal-command-delivery', {
+    window.dispatchEvent(new CustomEvent('whitebox:terminal-command-delivery', {
       detail: { sessionId: agentSession.id, target, deliveryState },
     }));
   }
@@ -638,7 +638,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     if (!text) throw rejectedError(t('terminal.agent.command_required'));
     const target = requiredAgentTarget(agentSession, targetId);
     if (target.kind !== 'terminal') throw rejectedError(t('terminal.agent.target_expired'));
-    const result = await window.loadtoagent.terminalCommand(target.terminalId, text, { deliveryId: options.deliveryId || '' });
+    const result = await window.whitebox.terminalCommand(target.terminalId, text, { deliveryId: options.deliveryId || '' });
     if (!result || result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
     const deliveryState = normalizedDeliveryState(result);
     emitCommandDelivery(agentSession, target, deliveryState);
@@ -658,7 +658,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     await initializeBeforeDelivery();
     const target = requiredAgentTarget(agentSession, targetId);
     if (target.kind !== 'terminal') throw rejectedError(t('terminal.agent.interrupt_target_missing'));
-    const result = await window.loadtoagent.terminalSignal(target.terminalId, 'interrupt');
+    const result = await window.whitebox.terminalSignal(target.terminalId, 'interrupt');
     if (result && result.ok === false) throw new Error(result.error || t('terminal.agent.interrupt_failed'));
     notice(t('terminal.agent.interrupt_sent', { target: target.label }), 'success');
     return { ok: true, target };
@@ -731,9 +731,9 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     if (!terminalId) throw cleanupFailure('Terminal connection cleanup target is missing.');
     let closeFailure = null;
     let retired = false;
-    if (typeof window.loadtoagent.terminalRetire === 'function') {
+    if (typeof window.whitebox.terminalRetire === 'function') {
       try {
-        const result = await window.loadtoagent.terminalRetire(terminalId);
+        const result = await window.whitebox.terminalRetire(terminalId);
         if (!cleanupOperationSucceeded(result)) {
           throw cleanupFailure(result?.error || 'Terminal retirement was rejected.');
         }
@@ -746,7 +746,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       // exposes terminalRetire, whose promise resolves only after the process
       // tree has exited; close/stop alone cannot provide that acknowledgement.
       try {
-        const result = await window.loadtoagent.terminalClose(terminalId);
+        const result = await window.whitebox.terminalClose(terminalId);
         if (!cleanupOperationSucceeded(result)) {
           closeFailure = cleanupFailure(result?.error || 'Terminal close was rejected.');
         } else retired = true;
@@ -755,7 +755,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       }
       if (!retired) {
         try {
-          const result = await window.loadtoagent.terminalStop?.(terminalId);
+          const result = await window.whitebox.terminalStop?.(terminalId);
           if (!cleanupOperationSucceeded(result)) {
             throw cleanupFailure(result?.error || 'Terminal stop was rejected.', closeFailure);
           }
@@ -848,7 +848,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       }
       let deliveryState = sendDraft && prompt ? 'accepted' : '';
       if (sendDraft && prompt) {
-        const result = await window.loadtoagent.terminalCommand(reusable.id, prompt, { deliveryId: options.deliveryId || '' });
+        const result = await window.whitebox.terminalCommand(reusable.id, prompt, { deliveryId: options.deliveryId || '' });
         if (!result || result.ok === false) throw resultError(result, t('terminal.agent.send_failed'));
         deliveryState = normalizedDeliveryState(result);
       }
@@ -913,7 +913,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
       && session.bridgeId === agentSession.id
       && session.status === 'running'
       && (excludedTerminalIds.has(session.id) || !strongAgentTerminalMatches(session, agentSession, connectionSignature)));
-    const created = await window.loadtoagent.terminalCreate({
+    const created = await window.whitebox.terminalCreate({
       type: 'agent',
       provider: support.provider,
       args: launchArgs,
@@ -946,7 +946,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     }
     let deliveryState = normalizedDeliveryState(created, created.promptSent ? 'accepted' : '');
     if (sendDraft && prompt && !created.promptSent && !['accepted', 'unknown'].includes(deliveryState)) {
-      const commandResult = await window.loadtoagent.terminalCommand(created.id, prompt, { deliveryId: options.deliveryId || '' });
+      const commandResult = await window.whitebox.terminalCommand(created.id, prompt, { deliveryId: options.deliveryId || '' });
       if (!commandResult || commandResult.ok === false) throw resultError(commandResult, t('terminal.agent.send_failed'));
       deliveryState = normalizedDeliveryState(commandResult);
     }
@@ -1017,8 +1017,8 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         error.code = 'TERMINAL_STARTUP_FAILED';
         throw error;
       }
-      if (typeof window.loadtoagent.terminalGet === 'function') {
-        latest = await window.loadtoagent.terminalGet(terminalId);
+      if (typeof window.whitebox.terminalGet === 'function') {
+        latest = await window.whitebox.terminalGet(terminalId);
       } else {
         await refreshSessions();
         latest = state.sessions.find(item => item.id === terminalId) || null;
@@ -1201,7 +1201,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
         || (state.wslDistros.length === 1 ? state.wslDistros[0] : '')).trim()
       : '';
     if (wslCwd && !distro) throw new Error(t('terminal.agent.wsl_distro_missing'));
-    const created = await window.loadtoagent.terminalCreate({
+    const created = await window.whitebox.terminalCreate({
       type: 'agent',
       provider,
       args: [],

@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification, screen, nativeImage } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -24,6 +24,8 @@ const {
   verifyDownloadedInstaller,
 } = require('./src/updateInstaller');
 const {
+  LEGACY_READY_PATH_ENV,
+  LEGACY_READY_TOKEN_ENV,
   READY_PATH_ENV,
   READY_TOKEN_ENV,
   readUpdateRelaunchRequest,
@@ -37,6 +39,7 @@ const { registerTmuxIpc } = require('./src/ipc/registerTmuxIpc');
 const { registerWorkspaceIpc } = require('./src/ipc/registerWorkspaceIpc');
 const { registerSourcePluginIpc } = require('./src/ipc/registerSourcePluginIpc');
 const { reportRecoverableError } = require('./src/diagnostics');
+const { selectBrandUserData } = require('./src/brandMigration');
 const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
 const { AttentionPopupManager } = require('./src/attentionPopupManager');
@@ -53,20 +56,28 @@ const packageMetadata = require('./package.json');
 const pendingUpdateRelaunch = readUpdateRelaunchRequest(process.env);
 delete process.env[READY_PATH_ENV];
 delete process.env[READY_TOKEN_ENV];
+delete process.env[LEGACY_READY_PATH_ENV];
+delete process.env[LEGACY_READY_TOKEN_ENV];
 
-const PRODUCT_NAME = 'LoadToAgent';
+const PRODUCT_NAME = 'Whitebox';
+const BRAND_ICON_PATH = path.join(__dirname, 'build', 'icon.png');
 const DEFAULT_LOCALE = 'en';
 const MONITOR_INTERVAL_MS = 5_000;
 const WSL_DISTRO_CACHE_MS = 60_000;
-const ALLOW_UNSIGNED_WINDOWS_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
-  && packageMetadata.loadToAgent?.allowUnsignedWindowsUpdates === true;
-const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.loadToAgent?.distributionChannel === 'internal'
-  && packageMetadata.loadToAgent?.allowUnsignedMacUpdates === true;
+const ALLOW_UNSIGNED_WINDOWS_UPDATES = packageMetadata.whitebox?.distributionChannel === 'internal'
+  && packageMetadata.whitebox?.allowUnsignedWindowsUpdates === true;
+const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.whitebox?.distributionChannel === 'internal'
+  && packageMetadata.whitebox?.allowUnsignedMacUpdates === true;
 app.setName(PRODUCT_NAME);
 process.title = PRODUCT_NAME;
-if (process.platform === 'win32') app.setAppUserModelId('com.wincube.loadtoagent');
+if (process.platform === 'win32') app.setAppUserModelId('com.wincube.whitebox');
+const brandUserData = selectBrandUserData({ userDataPath: app.getPath('userData') });
+for (const selectionError of brandUserData.errors) {
+  reportRecoverableError(`brand-user-data:${selectionError.operation}:${selectionError.path}`, new Error(selectionError.message));
+}
+if (brandUserData.path && brandUserData.path !== app.getPath('userData')) app.setPath('userData', brandUserData.path);
 
-const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
+const demoCapture = process.env.WHITEBOX_DEMO_CAPTURE === '1';
 const DESKTOP_NOTIFICATIONS_ENABLED = true;
 const ATTENTION_ACTIVATION_HANDOFF_MS = 8_000;
 const UPDATE_HELPER_CANCELLATION_GUARD_MS = 65_000;
@@ -121,8 +132,8 @@ const pendingTerminalBindings = new Map();
 let monitorSnapshotRevision = 0;
 const MAIN_COPY = {
   ko: {
-    trayTooltip: 'LoadToAgent · 뒤에서 실행 중인 작업 {count}개',
-    trayOpen: 'LoadToAgent 열기',
+    trayTooltip: 'Whitebox · 뒤에서 실행 중인 작업 {count}개',
+    trayOpen: 'Whitebox 열기',
     traySessions: '작업 {count}개가 뒤에서 실행 중',
     trayQuit: '프로그램 끝내기 · 명령창은 유지, 직접 실행은 중지',
     addWorkspaces: '추가할 프로젝트 폴더 선택',
@@ -136,17 +147,17 @@ const MAIN_COPY = {
     terminalHostReconnectFailed: '명령창 연결 복구가 지연되고 있습니다. 자동으로 다시 시도합니다: {reason}',
     updateActiveTitle: '실행 중인 작업을 중단하고 업데이트할까요?',
     updateActiveMessage: '실행 중인 명령창 {terminalCount}개와 직접 실행 작업 {runCount}개가 있습니다.',
-    updateActiveDetail: '업데이트를 계속하면 LoadToAgent와 명령창 연결 프로그램을 완전히 종료한 뒤 새 버전을 설치하고 다시 시작합니다. 관리형 명령창 작업은 분리해 유지하지만, 직접 실행 중인 작업은 중단되며 필요하면 업데이트 후 다시 시작해야 합니다.',
+    updateActiveDetail: '업데이트를 계속하면 Whitebox와 명령창 연결 프로그램을 완전히 종료한 뒤 새 버전을 설치하고 다시 시작합니다. 관리형 명령창 작업은 분리해 유지하지만, 직접 실행 중인 작업은 중단되며 필요하면 업데이트 후 다시 시작해야 합니다.',
     updateLater: '나중에',
     updateNow: '업데이트하고 다시 시작',
     updateCancellationGuardTitle: '업데이트 도우미 종료를 확인하는 중입니다',
-    updateCancellationGuardMessage: '지금은 LoadToAgent를 종료하지 마세요.',
+    updateCancellationGuardMessage: '지금은 Whitebox를 종료하지 마세요.',
     updateCancellationGuardDetail: '앱을 종료하지 않은 채 최소 60초 기다린 뒤 업데이트를 다시 시도해 주세요.',
     updateCancellationGuardConfirm: '확인',
   },
   en: {
-    trayTooltip: 'LoadToAgent · {count} background tasks',
-    trayOpen: 'Open LoadToAgent',
+    trayTooltip: 'Whitebox · {count} background tasks',
+    trayOpen: 'Open Whitebox',
     traySessions: '{count} background tasks active',
     trayQuit: 'Quit · Keep terminals, stop direct runs',
     addWorkspaces: 'Choose a project folder to add',
@@ -160,17 +171,17 @@ const MAIN_COPY = {
     terminalHostReconnectFailed: 'Terminal recovery is delayed and will retry automatically: {reason}',
     updateActiveTitle: 'Interrupt running work and update?',
     updateActiveMessage: '{terminalCount} terminal tasks and {runCount} direct runs are still active.',
-    updateActiveDetail: 'Continuing will fully close LoadToAgent and its terminal host, install the new version, and restart the app. Managed terminal work is detached and kept running, but direct work is stopped and may need to be restarted after the update.',
+    updateActiveDetail: 'Continuing will fully close Whitebox and its terminal host, install the new version, and restart the app. Managed terminal work is detached and kept running, but direct work is stopped and may need to be restarted after the update.',
     updateLater: 'Later',
     updateNow: 'Update and restart',
     updateCancellationGuardTitle: 'Waiting for the update helper to stop',
-    updateCancellationGuardMessage: 'Do not quit LoadToAgent yet.',
+    updateCancellationGuardMessage: 'Do not quit Whitebox yet.',
     updateCancellationGuardDetail: 'Keep the app open for at least 60 seconds, then try the update again.',
     updateCancellationGuardConfirm: 'OK',
   },
   'zh-CN': {
-    trayTooltip: 'LoadToAgent · {count} 个后台任务',
-    trayOpen: '打开 LoadToAgent',
+    trayTooltip: 'Whitebox · {count} 个后台任务',
+    trayOpen: '打开 Whitebox',
     traySessions: '正在保持 {count} 个后台任务',
     trayQuit: '退出 · 保留终端并停止直接运行',
     addWorkspaces: '选择要添加的项目文件夹',
@@ -184,11 +195,11 @@ const MAIN_COPY = {
     terminalHostReconnectFailed: '终端连接恢复延迟，将自动重试：{reason}',
     updateActiveTitle: '中断正在运行的任务并更新吗？',
     updateActiveMessage: '仍有 {terminalCount} 个终端任务和 {runCount} 个直接运行任务。',
-    updateActiveDetail: '继续后将完全关闭 LoadToAgent 及终端连接程序，安装新版本并重新启动。受管理的终端任务会分离并继续运行，但直接运行的任务会停止，更新后可能需要重新启动。',
+    updateActiveDetail: '继续后将完全关闭 Whitebox 及终端连接程序，安装新版本并重新启动。受管理的终端任务会分离并继续运行，但直接运行的任务会停止，更新后可能需要重新启动。',
     updateLater: '稍后',
     updateNow: '更新并重新启动',
     updateCancellationGuardTitle: '正在确认更新助手已停止',
-    updateCancellationGuardMessage: '现在请不要退出 LoadToAgent。',
+    updateCancellationGuardMessage: '现在请不要退出 Whitebox。',
     updateCancellationGuardDetail: '请保持应用打开至少 60 秒，然后再试一次更新。',
     updateCancellationGuardConfirm: '确定',
   },
@@ -204,8 +215,8 @@ let lastSnapshot = {
   },
 };
 
-const isolatedTestInstance = process.env.LOADTOAGENT_TEST_INSTANCE === '1';
-const bridgeHome = process.env.LOADTOAGENT_BRIDGE_HOME || os.homedir();
+const isolatedTestInstance = process.env.WHITEBOX_TEST_INSTANCE === '1';
+const bridgeHome = process.env.WHITEBOX_BRIDGE_HOME || process.env.LOADTOAGENT_BRIDGE_HOME || os.homedir();
 const singleInstance = isolatedTestInstance || app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
 else app.on('second-instance', () => {
@@ -252,25 +263,46 @@ function shellQuote(value) {
   return `'${String(value || '').replace(/'/g, `'"'"'`)}'`;
 }
 
-function installBridgeLauncher(home = bridgeHome) {
-  const directory = path.join(home, '.loadtoagent', 'bin');
+function writeBridgeLauncher({ directory, command, script }) {
   fs.mkdirSync(directory, { recursive: true });
-  const script = app.isPackaged
-    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'bin', 'loadtoagent.js')
-    : path.join(__dirname, 'bin', 'loadtoagent.js');
   if (process.platform === 'win32') {
-    const launcher = path.join(directory, 'loadtoagent.cmd');
-    const sourceMarker = app.isPackaged ? '' : 'set "LOADTOAGENT_SOURCE_LAUNCHER=1"\r\n';
+    const launcher = path.join(directory, `${command}.cmd`);
+    const sourceMarker = app.isPackaged ? '' : 'set "WHITEBOX_SOURCE_LAUNCHER=1"\r\n';
     const content = `@echo off\r\n${sourceMarker}set "ELECTRON_RUN_AS_NODE=1"\r\n"${process.execPath}" "${script}" %*\r\n`;
     fs.writeFileSync(launcher, content, 'utf8');
-    return { path: launcher, directory, commandPrefix: `& "${launcher}"`, simpleCommand: 'loadtoagent' };
+    return launcher;
   }
-  const launcher = path.join(directory, 'loadtoagent');
-  const sourceMarker = app.isPackaged ? '' : 'LOADTOAGENT_SOURCE_LAUNCHER=1 ';
+  const launcher = path.join(directory, command);
+  const sourceMarker = app.isPackaged ? '' : 'WHITEBOX_SOURCE_LAUNCHER=1 ';
   const content = `#!/bin/sh\n${sourceMarker}ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(process.execPath)} ${shellQuote(script)} "$@"\n`;
   fs.writeFileSync(launcher, content, { encoding: 'utf8', mode: 0o755 });
   fs.chmodSync(launcher, 0o755);
-  return { path: launcher, directory, commandPrefix: shellQuote(launcher), simpleCommand: 'loadtoagent' };
+  return launcher;
+}
+
+function installBridgeLauncher(home = bridgeHome) {
+  const directory = path.join(home, '.whitebox', 'bin');
+  const script = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked', 'bin', 'whitebox.js')
+    : path.join(__dirname, 'bin', 'whitebox.js');
+  const launcher = writeBridgeLauncher({ directory, command: 'whitebox', script });
+  let legacyPath = '';
+  try {
+    legacyPath = writeBridgeLauncher({
+      directory: path.join(home, '.loadtoagent', 'bin'),
+      command: 'loadtoagent',
+      script,
+    });
+  } catch (error) {
+    reportRecoverableError('legacy-bridge-launcher-install', error);
+  }
+  return {
+    path: launcher,
+    legacyPath,
+    directory,
+    commandPrefix: process.platform === 'win32' ? `& "${launcher}"` : shellQuote(launcher),
+    simpleCommand: 'whitebox',
+  };
 }
 
 function listWorkspaces() {
@@ -402,7 +434,7 @@ function requireAgentRunnerUpdateShutdown(result) {
   const errors = result && Array.isArray(result.errors) ? result.errors : [];
   reportAgentRunnerCleanupErrors('update-agent-runner', result);
   if (!errors.length) return result;
-  const error = new Error(`업데이트 전에 직접 실행 작업의 종료를 확인하지 못했습니다. LoadToAgent를 다시 시작한 뒤 재시도해 주세요. (${errors.map(item => item.error || '알 수 없는 종료 오류').join('; ')})`);
+  const error = new Error(`업데이트 전에 직접 실행 작업의 종료를 확인하지 못했습니다. Whitebox를 다시 시작한 뒤 재시도해 주세요. (${errors.map(item => item.error || '알 수 없는 종료 오류').join('; ')})`);
   error.code = 'UPDATE_AGENT_RUNNER_SHUTDOWN_UNCONFIRMED';
   error.failures = errors;
   throw error;
@@ -434,7 +466,8 @@ function createWindow() {
     height: 980,
     minWidth: 360,
     minHeight: 520,
-    title: 'LoadToAgent · AI 작업 도우미',
+    title: 'Whitebox · AI 작업 도우미',
+    icon: BRAND_ICON_PATH,
     backgroundColor: appearanceBackground(readAppearanceTheme()),
     show: false,
     webPreferences: {
@@ -527,7 +560,8 @@ function updateBackgroundTrayMenu() {
 async function ensureBackgroundTray() {
   if (backgroundTray || isQuitting) return backgroundTray;
   try {
-    const icon = await app.getFileIcon(process.execPath, { size: 'small' });
+    let icon = nativeImage.createFromPath(BRAND_ICON_PATH);
+    if (icon.isEmpty()) icon = await app.getFileIcon(process.execPath, { size: 'small' });
     if (isQuitting || backgroundTray) return backgroundTray;
     backgroundTray = new Tray(icon);
     backgroundTray.on('click', showMainWindow);
@@ -720,7 +754,7 @@ function startMonitorWorker() {
     }
   });
   worker.once('error', error => {
-    worker.__loadtoagentErrorReported = true;
+    worker.__whiteboxErrorReported = true;
     if (monitorWorker === worker) monitorWorker = null;
     rejectPendingDetails();
     sendMonitorError(error);
@@ -728,8 +762,8 @@ function startMonitorWorker() {
   });
   worker.once('exit', code => {
     if (monitorWorker === worker) monitorWorker = null;
-    if (isQuitting || worker.__loadtoagentIntentionalRestart) return;
-    if (code !== 0 && !worker.__loadtoagentErrorReported) sendMonitorError(new Error(`Monitor worker exited with code ${code}.`));
+    if (isQuitting || worker.__whiteboxIntentionalRestart) return;
+    if (code !== 0 && !worker.__whiteboxErrorReported) sendMonitorError(new Error(`Monitor worker exited with code ${code}.`));
     rejectPendingDetails();
     scheduleMonitorWorkerRestart();
   });
@@ -966,7 +1000,7 @@ function snapshotPopupRequests() {
           body: popupText(structured[0]?.question || attention.summary || session.responseIntent?.requestText, 1_000),
           detail: structuredRequestDetail(structured),
           openMain: true,
-          openMainLabel: appLocale === 'ko' ? 'LoadToAgent에서 답하기' : appLocale === 'zh-CN' ? '在 LoadToAgent 中回答' : 'Answer in LoadToAgent',
+          openMainLabel: appLocale === 'ko' ? 'Whitebox에서 답하기' : appLocale === 'zh-CN' ? '在 Whitebox 中回答' : 'Answer in Whitebox',
           createdAt: attention.requestedAt,
           ...popupSessionCopy(session),
           context: { kind: 'snapshot', sessionId: session.id, attentionSource: 'input-tool' },
@@ -983,7 +1017,7 @@ function snapshotPopupRequests() {
       title: appLocale === 'ko' ? '권한 확인이 필요합니다' : appLocale === 'zh-CN' ? '需要确认权限' : 'Permission needs confirmation',
       body: popupText(attention.summary || session.statusDetail, 1_000),
       openMain: true,
-      openMainLabel: appLocale === 'ko' ? 'LoadToAgent에서 확인' : appLocale === 'zh-CN' ? '在 LoadToAgent 中确认' : 'Review in LoadToAgent',
+      openMainLabel: appLocale === 'ko' ? 'Whitebox에서 확인' : appLocale === 'zh-CN' ? '在 Whitebox 中确认' : 'Review in Whitebox',
       createdAt: attention.requestedAt,
       ...popupSessionCopy(session),
       context: { kind: 'snapshot', sessionId: session.id, attentionSource: 'execution-approval' },
@@ -1148,7 +1182,7 @@ async function handleAttentionPopupDecision(request, decision, callback = {}) {
     return { ok: true };
   }
   if (context.kind === 'terminal') return respondToTerminalAttention(request, decision, callback);
-  throw new Error('이 요청은 LoadToAgent 본 창에서 확인해야 합니다.');
+  throw new Error('이 요청은 Whitebox 본 창에서 확인해야 합니다.');
 }
 
 function handleAttentionPopupDismiss(_request, meta = {}, callback = {}) {
@@ -1211,7 +1245,7 @@ async function restartMonitorWorkerForSourceSettings() {
   monitorWorkerConfig.sourcePluginSnapshots = sourcePluginControlHost ? sourcePluginControlHost.monitorState().snapshots : {};
   const worker = monitorWorker;
   if (worker) {
-    worker.__loadtoagentIntentionalRestart = true;
+    worker.__whiteboxIntentionalRestart = true;
     if (monitorWorker === worker) monitorWorker = null;
     rejectPendingDetails();
     try { worker.postMessage({ type: 'stop' }); } catch {}
@@ -1487,7 +1521,7 @@ async function performDownloadedUpdateInstall() {
     }
     if (agentRunnerPrepared && runner && !runner.resumeAfterUpdateFailure()) {
       if (!cancellationUnconfirmed) {
-        const stoppedError = new Error(`${error.message} 직접 실행 작업 기능은 안전을 위해 중지된 상태입니다. LoadToAgent를 다시 시작해 주세요.`);
+        const stoppedError = new Error(`${error.message} 직접 실행 작업 기능은 안전을 위해 중지된 상태입니다. Whitebox를 다시 시작해 주세요.`);
         stoppedError.code = error.code || 'UPDATE_AGENT_RUNNER_RESTART_REQUIRED';
         stoppedError.cause = error;
         failure = stoppedError;
@@ -1583,7 +1617,7 @@ async function setupAttentionPopupRuntime() {
 
 async function setupRuntime() {
   loadProviderVisibility();
-  await setupAttentionPopupRuntime();
+  if (!demoCapture) await setupAttentionPopupRuntime();
   const runsDir = userFile('agent-runs');
   runner = new AgentRunner({ runsDir });
   const terminalStoreFile = userFile('terminal-sessions.json');
@@ -1688,7 +1722,7 @@ async function setupRuntime() {
     }, 2_500);
     if (typeof sourcePluginRefreshTimer.unref === 'function') sourcePluginRefreshTimer.unref();
   }
-  updateManager.check().catch(error => reportRecoverableError('startup-update-check', error));
+  if (!demoCapture) updateManager.check().catch(error => reportRecoverableError('startup-update-check', error));
   if (demoCapture) {
     availability = Object.fromEntries(providerList().map(provider => [provider.id, true]));
     return;
@@ -1735,7 +1769,7 @@ function bridgePresence() {
       distro: session.distro || '',
       initialPromptFingerprint: session.initialPromptFingerprint || '',
       kind: 'bridge',
-      label: 'LoadToAgent 외부 명령창 연결',
+      label: 'Whitebox 외부 명령창 연결',
     }));
 }
 
@@ -1916,7 +1950,7 @@ function registerIpcHandlers() {
     bridgeCommand: provider => {
       const id = String(provider || '').toLowerCase();
       if (!['claude', 'codex', 'gemini', 'grok'].includes(id)) return { ok: false };
-      const prefix = bridgeLauncher && bridgeLauncher.commandPrefix || 'loadtoagent';
+      const prefix = bridgeLauncher && bridgeLauncher.commandPrefix || 'whitebox';
       return { ok: true, command: `${prefix} run ${id}`, launcher: bridgeLauncher };
     },
     openOrigin: async session => {
@@ -1955,7 +1989,7 @@ app.whenReady().then(async () => {
   app.on('activate', showMainWindow);
 }).catch(error => {
   console.error(error);
-  dialog.showErrorBox('LoadToAgent 시작 실패', 'LoadToAgent를 시작하지 못했습니다. 프로그램을 다시 실행해 주세요.');
+  dialog.showErrorBox('Whitebox 시작 실패', 'Whitebox를 시작하지 못했습니다. 프로그램을 다시 실행해 주세요.');
   app.quit();
 });
 

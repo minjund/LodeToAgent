@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOverview(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createRuntimeOverview = function createRuntimeOverview(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $,
     esc,
@@ -277,10 +277,10 @@ window.LoadToAgentAppFactories.createRuntimeOverview = function createRuntimeOve
     const resultNeedsReview = /결과|확인/.test(String(activePhase.label || ""));
     const activityTitle = resultNeedsReview
       ? "AI 작업이 끝났습니다. 결과를 확인해 주세요."
-      : window.LoadToAgentI18n.observedText(activity.title);
+      : window.WhiteboxI18n.observedText(activity.title);
     const activityDetail = resultNeedsReview
       ? "결과 화면을 열어보기만 해도 작업이 멈추거나 확인 완료로 바뀌지 않습니다."
-      : window.LoadToAgentI18n.observedText(activity.detail || session.statusDetail || "");
+      : window.WhiteboxI18n.observedText(activity.detail || session.statusDetail || "");
     const linkedAutomation = visibleAutomations().find((item) => automationSession(item)?.id === session.id);
     const linkedAutomationName = linkedAutomation?.name || t("runtime.linked_schedule_unknown");
     const panelSemantics = labelledByTab

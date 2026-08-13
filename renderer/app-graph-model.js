@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createGraphModel = function createGraphModel(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $,
     esc,

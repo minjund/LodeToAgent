@@ -136,7 +136,7 @@ class SourcePluginControlHost extends EventEmitter {
         start: true, sendInstruction: true, stop: false, archive: false, delete: true, live: true,
         readConversation: true, readSteps: true, readTabs: false, readArtifacts: true,
       }),
-      controlUnavailableReasons: { stop: 'LoadToAgent에서 시작한 OMO 프로세스만 실행 중에 중지할 수 있습니다.', archive: 'OpenCode CLI는 세션 보관 명령을 제공하지 않습니다.' },
+      controlUnavailableReasons: { stop: 'Whitebox에서 시작한 OMO 프로세스만 실행 중에 중지할 수 있습니다.', archive: 'OpenCode CLI는 세션 보관 명령을 제공하지 않습니다.' },
     } : {
       ...emptySourceStatus(OMO_MANIFEST, opencode
         ? 'OpenCode는 설치되어 있지만 Oh My OpenAgent 설정을 찾을 수 없습니다.'

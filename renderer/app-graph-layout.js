@@ -1,8 +1,8 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createGraphLayout = function createGraphLayout(context = {}) {
+window.WhiteboxAppFactories.createGraphLayout = function createGraphLayout(context = {}) {
   const {
     $,
   } = context;

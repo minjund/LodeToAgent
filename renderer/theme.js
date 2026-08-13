@@ -1,7 +1,7 @@
 'use strict';
 
 (() => {
-  const STORAGE_KEY = 'loadtoagent:theme:v1';
+  const STORAGE_KEY = 'whitebox:theme:v1';
   const THEMES = new Set(['dark', 'light']);
 
   function readTheme() {
@@ -18,7 +18,7 @@
 
   function syncNativeThemeAppearance() {
     try {
-      const result = window.loadtoagent?.setThemeAppearance?.(theme);
+      const result = window.whitebox?.setThemeAppearance?.(theme);
       result?.catch?.(() => {});
     } catch (_error) {
       // The page theme must remain usable even if the optional native bridge is unavailable.
@@ -28,7 +28,7 @@
   syncNativeThemeAppearance();
 
   function label(key, fallback) {
-    return window.LoadToAgentI18n?.t?.(key) || fallback;
+    return window.WhiteboxI18n?.t?.(key) || fallback;
   }
 
   function syncControls() {
@@ -71,12 +71,12 @@
       try {
         localStorage.setItem(STORAGE_KEY, theme);
       } catch (error) {
-        window.LoadToAgentRendererUtils?.reportRecoverableError?.('theme-save', error);
+        window.WhiteboxRendererUtils?.reportRecoverableError?.('theme-save', error);
       }
     }
     syncControls();
     if (changed) {
-      window.dispatchEvent(new CustomEvent('loadtoagent:theme-changed', {
+      window.dispatchEvent(new CustomEvent('whitebox:theme-changed', {
         detail: { theme },
       }));
     }
@@ -113,10 +113,10 @@
       setTheme(next.dataset.themeChoice);
       next.focus({ preventScroll: true });
     });
-    window.addEventListener('loadtoagent:locale-changed', syncControls);
+    window.addEventListener('whitebox:locale-changed', syncControls);
   }
 
-  window.LoadToAgentTheme = Object.freeze({
+  window.WhiteboxTheme = Object.freeze({
     getTheme: () => theme,
     setTheme,
     syncControls,

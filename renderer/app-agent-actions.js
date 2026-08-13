@@ -1,11 +1,11 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(context = {}) {
+window.WhiteboxAppFactories.createAgentActions = function createAgentActions(context = {}) {
   const QUICK_RESPONSE_DRAWER_TIMEOUT_MS = 30_000;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const errorText = (error, key, params) => window.LoadToAgentI18n.errorText(error, key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
+  const errorText = (error, key, params) => window.WhiteboxI18n.errorText(error, key, params);
   const {
     $,
     esc,
@@ -38,7 +38,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
 
     return Promise.resolve().then(async () => {
       if (!stillSelected()) return [];
-      const terminal = window.LoadToAgentTerminal;
+      const terminal = window.WhiteboxTerminal;
       if (!terminal || typeof terminal.preconnectForAgents !== "function") return [];
       const candidates = controlRoomRootSessions().filter((session) => {
         if (!session?.id || session.parentId || !isLiveSession(session)) return false;
@@ -59,18 +59,18 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         const error = outcome.reason;
         if (error?.deliveryState === "rejected"
           || ["TERMINAL_PRECONNECT_CANCELLED", "TERMINAL_ENSURE_SUPERSEDED"].includes(error?.code)) continue;
-        window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect", error);
+        window.WhiteboxRendererUtils.reportRecoverableError("project-pty-preconnect", error);
       }
       return outcomes || [];
     }).catch((error) => {
-      window.LoadToAgentRendererUtils.reportRecoverableError("project-pty-preconnect", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("project-pty-preconnect", error);
       return [{ status: "rejected", reason: error }];
     });
   }
 
   function emitTerminalDelivery(sessionId, deliveryState, target = null) {
     if (typeof window.dispatchEvent !== "function" || typeof CustomEvent !== "function") return;
-    window.dispatchEvent(new CustomEvent("loadtoagent:terminal-command-delivery", {
+    window.dispatchEvent(new CustomEvent("whitebox:terminal-command-delivery", {
       detail: { sessionId, target, deliveryState },
     }));
   }
@@ -78,11 +78,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   function agentCommandTargets(session) {
     if (isCodexDesktopSession(session)) return [];
     try {
-      return window.LoadToAgentTerminal && typeof window.LoadToAgentTerminal.agentTargets === "function"
-        ? window.LoadToAgentTerminal.agentTargets(session)
+      return window.WhiteboxTerminal && typeof window.WhiteboxTerminal.agentTargets === "function"
+        ? window.WhiteboxTerminal.agentTargets(session)
         : [];
     } catch (error) {
-      window.LoadToAgentRendererUtils.reportRecoverableError("agent-command-targets", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("agent-command-targets", error);
       return [];
     }
   }
@@ -97,8 +97,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       };
     }
     try {
-      return window.LoadToAgentTerminal && typeof window.LoadToAgentTerminal.resumeSupport === "function"
-        ? window.LoadToAgentTerminal.resumeSupport(session)
+      return window.WhiteboxTerminal && typeof window.WhiteboxTerminal.resumeSupport === "function"
+        ? window.WhiteboxTerminal.resumeSupport(session)
         : { supported: false, reason: t("agent.resume_preparing") };
     } catch (error) {
       return { supported: false, reason: errorText(error, "agent.resume_check_failed") };
@@ -244,7 +244,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (status === "awaiting") {
       entry.dispatchedAt = entry.dispatchedAt || new Date().toISOString();
       entry.phase = "confirming";
-      const delay = Number(window.LoadToAgentConversationDelivery?.CONFIRMATION_DELAY_MS || 60_000);
+      const delay = Number(window.WhiteboxConversationDelivery?.CONFIRMATION_DELAY_MS || 60_000);
       clearTimeout(entry.confirmationTimer);
       entry.confirmationTimer = setTimeout(() => {
         entry.confirmationTimer = 0;
@@ -271,7 +271,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function matchingPendingConversation(sessionId, command) {
-    const normalize = window.LoadToAgentConversationDelivery?.normalizedText
+    const normalize = window.WhiteboxConversationDelivery?.normalizedText
       || (value => String(value || "").replace(/\s+/g, " ").trim());
     const expected = normalize(command);
     return (state.pendingConversationMessages.get(sessionId) || []).find(entry =>
@@ -358,7 +358,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
               ? t("agent.origin_resume_status")
               : mode === "connect"
                 ? t("agent.connect_status")
-                : window.LoadToAgentI18n.t("ui.ended_session");
+                : window.WhiteboxI18n.t("ui.ended_session");
     const controlHelp = relayed
       ? t("agent.route_parent_inline_help")
       : mode === "direct"
@@ -569,7 +569,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   async function resumeAgentTerminal(sessionId, sendDraft = false) {
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
-    if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.session_not_found"));
+    if (!session || !window.WhiteboxTerminal) return context.toast(t("agent.session_not_found"));
     if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     const support = agentResumeSupport(session);
     if (!support.supported) return context.toast(support.reason || t("agent.cannot_reconnect"));
@@ -584,7 +584,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       const deliveryId = commandDeliveryId(deliveryKey);
       let resumed = null;
       try {
-        resumed = await window.LoadToAgentTerminal.resumeForAgent(session, draft, sendDraft, { deliveryId });
+        resumed = await window.WhiteboxTerminal.resumeForAgent(session, draft, sendDraft, { deliveryId });
       } catch (error) {
         if (sendDraft && deliveryStateOf(error) === "rejected") {
           settleCommandDelivery(deliveryKey, deliveryId, "rejected");
@@ -605,7 +605,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       try {
         document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
       } catch (error) {
-        window.LoadToAgentRendererUtils.reportRecoverableError("agent-resume-post-delivery", error);
+        window.WhiteboxRendererUtils.reportRecoverableError("agent-resume-post-delivery", error);
       }
       context.toast(t("agent.reconnected", { provider: providerInfo(session.provider).label }));
     } finally {
@@ -616,11 +616,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   async function dispatchAgentCommand(sessionId, form) {
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId);
-    if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.latest_not_found"));
+    if (!session || !window.WhiteboxTerminal) return context.toast(t("agent.latest_not_found"));
     const drawerSubmission = form?.dataset.agentCommandRouting === "conversation";
     const liveDrawerMode = form?.closest?.("#drawerComposer")?.dataset.mode || "";
     if (drawerSubmission && liveDrawerMode === "terminal") {
-      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
       const usableTarget = agentCommandTargets(session).some(target => target.kind === "terminal"
         && String(target.terminalId || target.id || "") === embedded.terminalId);
       if (form?.dataset.agentTerminalReady === "false"
@@ -667,7 +667,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           let resumedTarget = null;
           let transportError = null;
           try {
-            resumedTarget = await window.LoadToAgentTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false, deliveryId });
+            resumedTarget = await window.WhiteboxTerminal.resumeForAgent(targetSession, routedCommand, true, { focus: false, deliveryId });
           } catch (error) {
             transportError = error;
           }
@@ -744,7 +744,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       let dispatched = null;
       let transportError = null;
       try {
-        dispatched = await window.LoadToAgentTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id, { deliveryId });
+        dispatched = await window.WhiteboxTerminal.dispatchAgentCommand(targetSession, routedCommand, target.id, { deliveryId });
       } catch (error) {
         transportError = error;
       }
@@ -757,7 +757,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         if (shouldRecover) {
           state.agentCommandDrafts.set(sessionId, command);
           try {
-            dispatched = await window.LoadToAgentTerminal.resumeForAgent(
+            dispatched = await window.WhiteboxTerminal.resumeForAgent(
               latest,
               routedCommand,
               true,
@@ -832,13 +832,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   async function resetAgentSession(sessionId) {
     if (state.agentCommandSending.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
-    if (!session || !window.LoadToAgentTerminal?.resetForAgent) return context.toast(t("agent.session_not_found"));
+    if (!session || !window.WhiteboxTerminal?.resetForAgent) return context.toast(t("agent.session_not_found"));
     if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     state.agentCommandSending.add(sessionId);
     try {
       if ($("#detailDrawer").classList.contains("open")) context.closeDrawer(false);
       selectView("terminal");
-      await window.LoadToAgentTerminal.resetForAgent(session);
+      await window.WhiteboxTerminal.resetForAgent(session);
       document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
       context.toast(t("session.reset_complete"));
     } catch (error) {
@@ -856,13 +856,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       item?.target
       && !["failed", "interrupted"].includes(item.status)
       && !["responded", "interrupted"].includes(item.phase));
-    if (!session || !entry || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
+    if (!session || !entry || typeof window.WhiteboxTerminal?.interruptAgent !== "function") {
       return context.toast(t("agent.no_active_response"));
     }
     state.conversationInterruptRequests.add(sessionId);
     context.renderDrawer?.();
     try {
-      await window.LoadToAgentTerminal.interruptAgent(session, entry.target.id);
+      await window.WhiteboxTerminal.interruptAgent(session, entry.target.id);
       entry.status = "interrupted";
       entry.phase = "interrupted";
       entry.interruptedAt = new Date().toISOString();
@@ -883,13 +883,13 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (state.conversationInterruptRequests.has(sessionId)) return;
     const session = snapshotSession(sessionId) || state.details.get(sessionId);
     const target = session ? chosenAgentCommandTarget(session) : null;
-    if (!session || target?.kind !== "terminal" || typeof window.LoadToAgentTerminal?.interruptAgent !== "function") {
+    if (!session || target?.kind !== "terminal" || typeof window.WhiteboxTerminal?.interruptAgent !== "function") {
       return context.toast(t("agent.no_active_response"));
     }
     state.conversationInterruptRequests.add(sessionId);
     context.renderDrawer?.();
     try {
-      await window.LoadToAgentTerminal.interruptAgent(session, target.id);
+      await window.WhiteboxTerminal.interruptAgent(session, target.id);
       context.toast(t("agent.response_stopped"));
     } catch (error) {
       context.toast(errorText(error, "agent.interrupt_failed"));
@@ -902,7 +902,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
 
   async function openAgentTerminal(sessionId) {
     const session = snapshotSession(sessionId);
-    if (!session || !window.LoadToAgentTerminal) return context.toast(t("agent.terminal_info_not_found"));
+    if (!session || !window.WhiteboxTerminal) return context.toast(t("agent.terminal_info_not_found"));
     if (session.parentId) return context.toast(t("terminal.resume.parent_controlled"));
     const routeContext = routedAgentCommandContext(session);
     const target = chosenAgentCommandTarget(session, routeContext.route);
@@ -911,7 +911,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if ($("#detailDrawer").classList.contains("open")) context.closeDrawer?.(false);
     selectView(target.kind === "tmux" ? "tmux" : "terminal");
     try {
-      await window.LoadToAgentTerminal.openForAgent(routeContext.targetSession, target.id, state.agentCommandDrafts.get(sessionId) || "");
+      await window.WhiteboxTerminal.openForAgent(routeContext.targetSession, target.id, state.agentCommandDrafts.get(sessionId) || "");
       document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
     } catch (error) {
       context.toast(errorText(error, "agent.open_terminal_failed"));
@@ -920,10 +920,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
 
   async function copyBridgeCommand(provider) {
     try {
-      const result = await window.loadtoagent.bridgeCommand(provider);
+      const result = await window.whitebox.bridgeCommand(provider);
       if (!result || !result.ok) throw new Error(t("agent.bridge_create_failed"));
       const command = result.command;
-      await window.loadtoagent.writeClipboard(command);
+      await window.whitebox.writeClipboard(command);
       context.toast(t("agent.command_copied", { command }));
     } catch (error) {
       context.toast(errorText(error, "agent.bridge_copy_failed"));
@@ -942,12 +942,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       retry: "retryAgent",
     };
     const method = methods[action];
-    if (!method || typeof window.loadtoagent?.[method] !== "function") return context.toast(t("management.control_unavailable"));
+    if (!method || typeof window.whitebox?.[method] !== "function") return context.toast(t("management.control_unavailable"));
     state.runControlRequests.add(key);
     if (action === "stop") state.stopRequests.add(runId);
     context.renderDrawer?.();
     try {
-      const result = await window.loadtoagent[method](runId);
+      const result = await window.whitebox[method](runId);
       if (!result || result.ok === false) throw new Error(result && result.error || t("management.control_failed"));
       context.toast(t(`management.control_${action}_sent`));
     } catch (error) {
@@ -968,16 +968,16 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     try {
       let input = { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` };
       if (action === "delete") {
-        const prepared = await window.loadtoagent.prepareSourceDelete(sessionId);
+        const prepared = await window.whitebox.prepareSourceDelete(sessionId);
         const label = prepared?.title || session.title || "이 작업";
         if (!window.confirm(`“${label}” 기록을 삭제할까요?\n\n이 작업은 되돌릴 수 없습니다.`)) return;
         input = { ...input, deleteToken: prepared.token };
       }
-      const result = await window.loadtoagent.controlSourceSession(sessionId, action, input);
+      const result = await window.whitebox.controlSourceSession(sessionId, action, input);
       if (!result || result.ok === false) throw new Error(result?.error || `${action} 요청을 처리하지 못했습니다.`);
       context.toast(action === "delete" ? "기록을 삭제했습니다." : action === "archive" ? "작업을 보관했습니다." : "요청을 전달했습니다.");
       if (action === "delete") context.closeDrawer?.(false);
-      await window.loadtoagent.refreshSources?.();
+      await window.whitebox.refreshSources?.();
     } catch (error) {
       context.toast(error?.message || "작업 조작에 실패했습니다.");
     } finally {
@@ -993,7 +993,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     state.sourceActionRequests.add(key);
     context.renderDrawer?.();
     try {
-      const result = await window.loadtoagent.controlSourceSession(sessionId, "send", {
+      const result = await window.whitebox.controlSourceSession(sessionId, "send", {
         prompt,
         requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
       });
@@ -1034,7 +1034,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     if (!baseReady) return null;
     if (!options.drawer || !options.composer) return { input, target };
 
-    const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embedded = window.WhiteboxTerminal?.embeddedState?.() || {};
     const drawerReady = options.drawer.dataset?.mode === "session"
       && options.drawer.dataset?.terminalChat === "true"
       && options.drawer.dataset?.conversationSurface === "pty"
@@ -1064,7 +1064,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if (pending.timeout !== null) clearTimeout(pending.timeout);
       pending.observer?.disconnect?.();
       if (pending.terminalListener && typeof window.removeEventListener === "function") {
-        window.removeEventListener("loadtoagent:drawer-terminal-targets-changed", pending.terminalListener);
+        window.removeEventListener("whitebox:drawer-terminal-targets-changed", pending.terminalListener);
       }
       if (retry) context.toast?.(t("agent.delivery_retry_ready"));
     };
@@ -1096,7 +1096,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       try {
         form.requestSubmit();
       } catch (error) {
-        window.LoadToAgentRendererUtils.reportRecoverableError("quick-response-submit", error);
+        window.WhiteboxRendererUtils.reportRecoverableError("quick-response-submit", error);
         context.toast?.(t("agent.delivery_retry_ready"));
       }
     };
@@ -1113,7 +1113,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
 
     pending.terminalListener = () => scheduleAttempt();
     if (typeof window.addEventListener === "function") {
-      window.addEventListener("loadtoagent:drawer-terminal-targets-changed", pending.terminalListener);
+      window.addEventListener("whitebox:drawer-terminal-targets-changed", pending.terminalListener);
     }
     const drawer = document.querySelector?.("#detailDrawer");
     if (drawer && typeof MutationObserver === "function") {
@@ -1130,7 +1130,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       scheduleAttempt();
     } catch (error) {
       finish(true);
-      window.LoadToAgentRendererUtils.reportRecoverableError("quick-response-open-drawer", error);
+      window.WhiteboxRendererUtils.reportRecoverableError("quick-response-open-drawer", error);
     }
   }
 

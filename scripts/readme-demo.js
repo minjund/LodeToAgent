@@ -5,14 +5,20 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { app, BrowserWindow } = require('electron');
 
-process.env.LOADTOAGENT_DEMO_CAPTURE = '1';
+const root = path.resolve(__dirname, '..');
+const demoUserData = path.join(root, 'artifacts', 'readme-demo-user-data');
+fs.rmSync(demoUserData, { recursive: true, force: true });
+fs.mkdirSync(demoUserData, { recursive: true });
+app.setPath('userData', demoUserData);
+app.setPath('sessionData', path.join(demoUserData, 'session-data'));
+process.env.WHITEBOX_DEMO_CAPTURE = '1';
+process.env.WHITEBOX_TEST_INSTANCE = '1';
 require('../main');
 
-const root = path.resolve(__dirname, '..');
 const frameDir = path.join(root, 'artifacts', 'readme-demo-frames');
 const assetDir = path.join(root, 'docs', 'assets');
-const gifOutput = path.join(assetDir, 'loadtoagent-demo.gif');
-const screenshotOutput = path.join(assetDir, 'loadtoagent-dashboard.png');
+const gifOutput = path.join(assetDir, 'whitebox-demo.gif');
+const screenshotOutput = path.join(assetDir, 'whitebox-dashboard.png');
 let frameIndex = 0;
 
 function delay(ms) {
@@ -21,11 +27,11 @@ function delay(ms) {
 
 async function waitForRenderer(win, attempts = 80) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
-    const ready = await win.webContents.executeJavaScript("window.LoadToAgentApp?.state?.providers?.length === 4 && typeof window.LoadToAgentApp.render === 'function'");
+    const ready = await win.webContents.executeJavaScript("window.WhiteboxApp?.state?.providers?.length === 4 && typeof window.WhiteboxApp.render === 'function'");
     if (ready) return;
     await delay(100);
   }
-  throw new Error('LoadToAgent 화면이 준비되지 않았습니다.');
+  throw new Error('Whitebox 화면이 준비되지 않았습니다.');
 }
 
 async function capture(win, count, intervalMs = 90) {
@@ -49,8 +55,8 @@ async function installFixture(win) {
     const session = (value) => ({
       externalId: value.id.replace(/[^a-z0-9]/gi, '-'),
       model: value.provider === 'codex' ? 'gpt-5' : (value.provider === 'claude' ? 'claude-sonnet' : (value.provider === 'gemini' ? 'gemini-2.5-pro' : 'grok-4')),
-      cwd: '/Users/demo/loadtoagent',
-      workspace: 'LoadToAgent Demo',
+      cwd: '/Users/demo/whitebox',
+      workspace: 'Whitebox Demo',
       sourceLabel: '샘플 작업 기록',
       statusDetail: '작업을 진행하고 있습니다',
       startedAt: new Date(now - 180000).toISOString(),
@@ -95,7 +101,7 @@ async function installFixture(win) {
       session({ id: 'demo:grok:root', provider: 'grok', title: '느린 테스트 원인 조사', status: 'waiting', offset: 6300 }),
     ];
     const sessions = [root, claude, gemini, grok, ...extra];
-    const summaries = window.LoadToAgentApp.state.providers.map(provider => {
+    const summaries = window.WhiteboxApp.state.providers.map(provider => {
       const owned = sessions.filter(item => item.provider === provider.id);
       return {
         ...provider,
@@ -108,7 +114,7 @@ async function installFixture(win) {
       };
     });
     const totalUsage = sessions.reduce((total, item) => total + item.usage.total, 0);
-    window.__loadtoagentReadmeDemo = {
+    window.__whiteboxReadmeDemo = {
       rootId: root.id,
       childId: claude.id,
       sessions,
@@ -128,19 +134,19 @@ async function installFixture(win) {
         },
       },
     };
-    window.__ensureLoadToAgentReadmeDemo = (focusId = null) => {
-      const demo = window.__loadtoagentReadmeDemo;
-      window.LoadToAgentApp.state.snapshot = demo.snapshot;
-      window.LoadToAgentApp.state.details = new Map(demo.sessions.map(item => [item.id, item]));
-      window.LoadToAgentApp.state.availability = Object.fromEntries(window.LoadToAgentApp.state.providers.map(provider => [provider.id, true]));
-      window.LoadToAgentApp.state.workspaces = [{ path: '/Users/demo/loadtoagent', name: 'LoadToAgent Demo' }];
-      window.LoadToAgentApp.state.view = 'all';
-      window.LoadToAgentApp.state.provider = 'all';
-      window.LoadToAgentApp.state.providerFilters.clear();
-      window.LoadToAgentApp.state.workspace = 'all';
-      window.LoadToAgentApp.state.search = '';
-      window.LoadToAgentApp.state.graphFocusId = focusId;
-      window.LoadToAgentApp.render();
+    window.__ensureWhiteboxReadmeDemo = (focusId = null) => {
+      const demo = window.__whiteboxReadmeDemo;
+      window.WhiteboxApp.state.snapshot = demo.snapshot;
+      window.WhiteboxApp.state.details = new Map(demo.sessions.map(item => [item.id, item]));
+      window.WhiteboxApp.state.availability = Object.fromEntries(window.WhiteboxApp.state.providers.map(provider => [provider.id, true]));
+      window.WhiteboxApp.state.workspaces = [{ path: '/Users/demo/whitebox', name: 'Whitebox Demo' }];
+      window.WhiteboxApp.state.view = 'all';
+      window.WhiteboxApp.state.provider = 'all';
+      window.WhiteboxApp.state.providerFilters.clear();
+      window.WhiteboxApp.state.workspace = '/Users/demo/whitebox';
+      window.WhiteboxApp.state.search = '';
+      window.WhiteboxApp.state.graphFocusId = focusId;
+      window.WhiteboxApp.render();
       document.querySelector('.main-stage')?.scrollTo(0, 0);
     };
     const style = document.createElement('style');
@@ -169,7 +175,7 @@ async function installFixture(win) {
         try { animation.finish(); } catch {}
       });
     };
-    window.__ensureLoadToAgentReadmeDemo();
+    window.__ensureWhiteboxReadmeDemo();
     window.__readmeDemoFinishMotion();
     window.__readmeDemoPoint('[data-graph-focus="' + root.id + '"]');
   })()`);
@@ -177,9 +183,9 @@ async function installFixture(win) {
 
 async function setFocus(win, id, targetSelector) {
   await win.webContents.executeJavaScript(`(() => {
-    window.__ensureLoadToAgentReadmeDemo(${JSON.stringify(id)});
+    window.__ensureWhiteboxReadmeDemo(${JSON.stringify(id)});
     window.__readmeDemoPoint(${JSON.stringify(targetSelector)}, true);
-    window.LoadToAgentApp.renderSessions('focus');
+    window.WhiteboxApp.renderSessions('focus');
     window.__readmeDemoFinishMotion();
   })()`);
   await delay(180);
@@ -188,16 +194,16 @@ async function setFocus(win, id, targetSelector) {
 
 async function showDrawer(win, id) {
   await win.webContents.executeJavaScript(`(() => {
-    window.__ensureLoadToAgentReadmeDemo(${JSON.stringify(id)});
+    window.__ensureWhiteboxReadmeDemo(${JSON.stringify(id)});
     window.__readmeDemoPoint('[data-open-session="${id}"]', true);
-    window.LoadToAgentApp.state.selectedId = ${JSON.stringify(id)};
-    window.LoadToAgentApp.state.drawerTab = 'chat';
-    window.LoadToAgentApp.state.drawerForceLatest = true;
-    window.LoadToAgentApp.state.detailLoading = false;
+    window.WhiteboxApp.state.selectedId = ${JSON.stringify(id)};
+    window.WhiteboxApp.state.drawerTab = 'chat';
+    window.WhiteboxApp.state.drawerForceLatest = true;
+    window.WhiteboxApp.state.detailLoading = false;
     document.querySelector('#drawerBackdrop').classList.remove('hidden', 'closing');
     document.querySelector('#detailDrawer').classList.add('open');
     document.querySelector('#detailDrawer').setAttribute('aria-hidden', 'false');
-    window.LoadToAgentApp.renderDrawer();
+    window.WhiteboxApp.renderDrawer();
     window.__readmeDemoFinishMotion();
   })()`);
   await delay(180);
@@ -210,7 +216,7 @@ async function buildDemo() {
   fs.mkdirSync(assetDir, { recursive: true });
 
   const win = BrowserWindow.getAllWindows()[0];
-  if (!win) throw new Error('LoadToAgent 창을 찾을 수 없습니다.');
+  if (!win) throw new Error('Whitebox 창을 찾을 수 없습니다.');
   win.setSize(1440, 900);
   await waitForRenderer(win);
   await installFixture(win);
@@ -229,9 +235,9 @@ async function buildDemo() {
 
   await win.webContents.executeJavaScript(`(() => {
     window.__readmeDemoPoint('[data-tab="tokens"]', true);
-    window.LoadToAgentApp.state.drawerTab = 'tokens';
-    window.LoadToAgentApp.state.detailLoading = false;
-    window.LoadToAgentApp.renderDrawer();
+    window.WhiteboxApp.state.drawerTab = 'tokens';
+    window.WhiteboxApp.state.detailLoading = false;
+    window.WhiteboxApp.renderDrawer();
     window.__readmeDemoFinishMotion();
   })()`);
   await delay(180);
@@ -250,13 +256,14 @@ async function buildDemo() {
 
 app.whenReady().then(() => {
   const timeout = setTimeout(async () => {
+    let exitCode = 0;
     try {
       await buildDemo();
     } catch (error) {
       process.stderr.write(`${error.stack || error.message}\n`);
-      process.exitCode = 1;
+      exitCode = 1;
     } finally {
-      app.quit();
+      app.exit(exitCode);
     }
   }, 1200);
   timeout.unref?.();

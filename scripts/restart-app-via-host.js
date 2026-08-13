@@ -6,7 +6,7 @@ const { TerminalHostClient } = require('../src/terminalHost');
 const root = path.resolve(__dirname, '..');
 const discoveryFile = process.argv[2]
   ? path.resolve(process.argv[2])
-  : path.join(process.env.APPDATA || '', 'LoadToAgent', 'terminal-host.json');
+  : path.join(process.env.APPDATA || '', 'Whitebox', 'terminal-host.json');
 const electron = path.join(root, 'node_modules', 'electron', 'dist', 'electron.exe');
 const quote = value => `'${String(value).replace(/'/g, "''")}'`;
 
@@ -16,7 +16,7 @@ const quote = value => `'${String(value).replace(/'/g, "''")}'`;
   const helper = await client.create({
     type: 'powershell',
     cwd: root,
-    title: 'LoadToAgent UI restart helper',
+    title: 'Whitebox UI restart helper',
     transient: true,
     cols: 100,
     rows: 12,

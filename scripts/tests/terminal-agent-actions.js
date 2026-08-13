@@ -10,9 +10,9 @@ function registerTerminalAgentActionTests(context) {
 
   test('새 AI 작업은 headless runner 대신 대화형 PTY 시작 인자를 만든다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
-    const sandbox = { window: { LoadToAgentI18n: { t: key => key } } };
+    const sandbox = { window: { WhiteboxI18n: { t: key => key } } };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [] },
       providerLabel: provider => provider,
     });
@@ -51,8 +51,8 @@ function registerTerminalAgentActionTests(context) {
     const selections = [];
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             creates.push(options);
             return { id: `terminal:${options.provider}`, deliveryState: options.initialCommandInArgs ? 'accepted' : '' };
@@ -65,7 +65,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [] },
       init: async () => {},
       refreshSessions: async () => {},
@@ -110,8 +110,8 @@ function registerTerminalAgentActionTests(context) {
     let ptySpawns = 0;
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createAttempts.push(options);
             if (createdById.has(options.creationId)) {
@@ -142,7 +142,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [] },
       init: async () => {},
       refreshSessions: async () => {},
@@ -179,9 +179,9 @@ function registerTerminalAgentActionTests(context) {
     const selections = [];
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => { throw new Error('진단 보고 실패'); } },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        WhiteboxRendererUtils: { reportRecoverableError: () => { throw new Error('진단 보고 실패'); } },
+        whitebox: {
           terminalCreate: async () => ({ id: 'terminal:grok-unknown' }),
           terminalCommand: async (_id, _prompt, options) => {
             deliveryIds.push(options.deliveryId);
@@ -191,7 +191,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [] },
       init: async () => {},
       refreshSessions: async () => { refreshes += 1; },
@@ -227,7 +227,7 @@ function registerTerminalAgentActionTests(context) {
       '실제 AI 출력이 있을 수 있는 새 PTY를 오류 반환 전에 선택해야 합니다.');
 
     const lostCreateOptions = [];
-    sandbox.window.loadtoagent.terminalCreate = async options => {
+    sandbox.window.whitebox.terminalCreate = async options => {
       lostCreateOptions.push(options);
       throw new Error('명령창 생성 응답을 계속 받지 못했습니다.');
     };
@@ -245,7 +245,7 @@ function registerTerminalAgentActionTests(context) {
 
     const rejectedCreateIds = [];
     let rejectedCommandAttempts = 0;
-    sandbox.window.loadtoagent.terminalCreate = async options => {
+    sandbox.window.whitebox.terminalCreate = async options => {
       rejectedCreateIds.push(options.creationId);
       return {
         id: 'terminal:grok-command-retry',
@@ -253,7 +253,7 @@ function registerTerminalAgentActionTests(context) {
         creationDuplicate: rejectedCreateIds.length > 1,
       };
     };
-    sandbox.window.loadtoagent.terminalCommand = async () => {
+    sandbox.window.whitebox.terminalCommand = async () => {
       rejectedCommandAttempts += 1;
       if (rejectedCommandAttempts === 1) {
         return { ok: false, error: 'provider not ready', deliveryState: 'rejected' };
@@ -283,14 +283,14 @@ function registerTerminalAgentActionTests(context) {
     const selectionReports = [];
     const selectionSandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        LoadToAgentRendererUtils: {
+        WhiteboxI18n: { t: key => key },
+        WhiteboxRendererUtils: {
           reportRecoverableError: scope => {
             selectionReports.push(scope);
             if (scope === 'terminal-agent-start-refresh') throw new Error('diagnostic reporter failed');
           },
         },
-        loadtoagent: {
+        whitebox: {
           terminalCreate: async () => ({
             id: 'terminal:new-but-not-selected', status: 'running', deliveryState: 'accepted',
           }),
@@ -298,7 +298,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, selectionSandbox, { filename: 'terminal-agent.js' });
-    const selectionActions = selectionSandbox.window.LoadToAgentTerminalAgentActions({
+    const selectionActions = selectionSandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [], mode: 'old' },
       init: async () => {},
       refreshSessions: async () => { throw new Error('refresh failed'); },
@@ -326,8 +326,8 @@ function registerTerminalAgentActionTests(context) {
     let failedSelectionShouldThrow = false;
     const failedSandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async () => ({
             id: 'terminal:failed-start',
             status: 'failed',
@@ -341,7 +341,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, failedSandbox, { filename: 'terminal-agent.js' });
-    const failedActions = failedSandbox.window.LoadToAgentTerminalAgentActions({
+    const failedActions = failedSandbox.window.WhiteboxTerminalAgentActions({
       state: { snapshot: null, sessions: [] },
       init: async () => {},
       refreshSessions: async () => {},
@@ -367,7 +367,7 @@ function registerTerminalAgentActionTests(context) {
     assert.deepStrictEqual(failedSelectionIds, ['terminal:failed-start'],
       '실패 기록은 보이게 선택하되 작업 시작 성공으로 반환하면 안 됩니다.');
 
-    failedSandbox.window.loadtoagent.terminalCreate = async () => ({
+    failedSandbox.window.whitebox.terminalCreate = async () => ({
       id: 'terminal:termination-uncertain',
       status: 'stopping',
       creationFailed: true,
@@ -393,7 +393,7 @@ function registerTerminalAgentActionTests(context) {
       'terminal:failed-start', 'terminal:termination-uncertain',
     ], '종료 불확실 기록도 사용자에게 보이게 선택하되 시작 성공으로 반환하면 안 됩니다.');
 
-    failedSandbox.window.loadtoagent.terminalCreate = async () => ({
+    failedSandbox.window.whitebox.terminalCreate = async () => ({
       id: 'terminal:failed-and-unselectable',
       status: 'failed',
       creationFailed: true,
@@ -452,12 +452,12 @@ function registerTerminalAgentActionTests(context) {
       setTimeout: callback => { callback(); return 1; },
       clearTimeout: () => {},
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: {
           t: key => key,
           errorText: error => String(error?.message || error),
         },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
         crypto: { randomUUID: () => `fixture-${++generatedCreationIds}` },
       },
     };
@@ -533,8 +533,8 @@ function registerTerminalAgentActionTests(context) {
         visibleProviders: () => state.providers, isProviderVisible: () => true,
         selectView: view => { selectedViews.push(view); },
       };
-      Object.assign(app, modalSandbox.window.LoadToAgentAppFactories.createRunModal(app));
-      Object.assign(app, modalSandbox.window.LoadToAgentAppFactories.createQualityEnhancements(app));
+      Object.assign(app, modalSandbox.window.WhiteboxAppFactories.createRunModal(app));
+      Object.assign(app, modalSandbox.window.WhiteboxAppFactories.createQualityEnhancements(app));
       app.loadQualityState();
       // Bootstrap restores dashboard preferences before the user selects the
       // project whose locked cwd is used by the run modal.
@@ -548,7 +548,7 @@ function registerTerminalAgentActionTests(context) {
       page.elements['#allowWrites'].checked = false;
     };
     const submitIds = [];
-    modalSandbox.window.LoadToAgentTerminal = {
+    modalSandbox.window.WhiteboxTerminal = {
       startAgent: async options => {
         submitIds.push(options.creationId);
         const error = new Error('provider command rejected');
@@ -560,7 +560,7 @@ function registerTerminalAgentActionTests(context) {
     const firstPage = makeModalApp();
     setDraft(firstPage);
     await firstPage.app.handleRun({ preventDefault: () => {} });
-    const persistedPending = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    const persistedPending = JSON.parse(runDraftStore.get('whitebox:run-draft:v2'));
     assert.equal(persistedPending.creationId, submitIds[0]);
     assert.match(persistedPending.creationFingerprint, /^rc1:[a-f0-9]{32}$/u);
 
@@ -574,7 +574,7 @@ function registerTerminalAgentActionTests(context) {
     await reloadedPage.app.handleRun({ preventDefault: () => {} });
     assert.notEqual(submitIds[2], submitIds[1], '폼 payload가 바뀌면 persisted creationId를 재사용하면 안 됩니다.');
 
-    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+    modalSandbox.window.WhiteboxTerminal.startAgent = async options => {
       submitIds.push(options.creationId);
       const error = new Error('create rejected');
       error.creationState = 'rejected';
@@ -583,13 +583,13 @@ function registerTerminalAgentActionTests(context) {
     };
     await reloadedPage.app.handleRun({ preventDefault: () => {} });
     const rejectedId = submitIds.at(-1);
-    const afterCreateRejected = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    const afterCreateRejected = JSON.parse(runDraftStore.get('whitebox:run-draft:v2'));
     assert.equal(Object.hasOwn(afterCreateRejected, 'creationId'), false,
       'create 자체가 확정 거절되면 persisted creationId를 폐기해야 합니다.');
     await reloadedPage.app.handleRun({ preventDefault: () => {} });
     assert.notEqual(submitIds.at(-1), rejectedId, 'create 확정 거절 뒤 제출은 새 creationId를 발급해야 합니다.');
 
-    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+    modalSandbox.window.WhiteboxTerminal.startAgent = async options => {
       submitIds.push(options.creationId);
       const error = new Error('provider executable missing');
       error.creationState = 'failed';
@@ -600,7 +600,7 @@ function registerTerminalAgentActionTests(context) {
     setDraft(reloadedPage, '실행 파일이 없어도 이 긴 초안은 보존');
     await reloadedPage.app.handleRun({ preventDefault: () => {} });
     const failedCreationId = submitIds.at(-1);
-    const afterStartFailed = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    const afterStartFailed = JSON.parse(runDraftStore.get('whitebox:run-draft:v2'));
     assert.equal(afterStartFailed.prompt, '실행 파일이 없어도 이 긴 초안은 보존');
     assert.equal(Object.hasOwn(afterStartFailed, 'creationId'), false,
       '전달 전 생성 실패는 다음 명시적 재시도가 새 PTY를 만들도록 실패 creationId만 폐기해야 합니다.');
@@ -609,7 +609,7 @@ function registerTerminalAgentActionTests(context) {
     assert.notEqual(submitIds.at(-1), failedCreationId,
       '전달 전 생성 실패를 다시 시도할 때 실패한 terminal record만 다시 열면 안 됩니다.');
 
-    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+    modalSandbox.window.WhiteboxTerminal.startAgent = async options => {
       submitIds.push(options.creationId);
       const error = new Error('provider cleanup is still pending');
       error.creationState = 'accepted';
@@ -623,7 +623,7 @@ function registerTerminalAgentActionTests(context) {
     setDraft(reloadedPage, '종료 확인 전까지 이 긴 초안과 생성 ID를 모두 보존');
     await reloadedPage.app.handleRun({ preventDefault: () => {} });
     const uncertainCreationId = submitIds.at(-1);
-    const afterStartUncertain = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    const afterStartUncertain = JSON.parse(runDraftStore.get('whitebox:run-draft:v2'));
     assert.equal(afterStartUncertain.prompt, '종료 확인 전까지 이 긴 초안과 생성 ID를 모두 보존');
     assert.equal(afterStartUncertain.creationId, uncertainCreationId,
       '생성 정리는 진행 중이고 전달이 불명확하면 동일 PTY ledger를 확인하도록 creationId를 보존해야 합니다.');
@@ -637,15 +637,15 @@ function registerTerminalAgentActionTests(context) {
       '종료 불확실 상태의 명시적 재시도는 병렬 PTY를 만들지 않도록 같은 creationId를 사용해야 합니다.');
 
     const tampered = {
-      ...JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2')),
+      ...JSON.parse(runDraftStore.get('whitebox:run-draft:v2')),
       creationId: 'x'.repeat(241),
     };
-    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify(tampered));
+    runDraftStore.set('whitebox:run-draft:v2', JSON.stringify(tampered));
     const tamperedReload = makeModalApp();
     assert.equal(Object.hasOwn(tamperedReload.state.runDraft, 'creationId'), false,
       '길이 제한을 넘은 persisted creationId를 renderer가 신뢰하면 안 됩니다.');
 
-    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify({
+    runDraftStore.set('whitebox:run-draft:v2', JSON.stringify({
       version: 2, sourcePluginId: 'direct', provider: 'claude', prompt: '손상 모드', cwd: 'D:\\workspace',
       model: '', allowWrites: true, permissionMode: 'dangerouslyInvented',
     }));
@@ -654,7 +654,7 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(invalidModePage.elements['#runClaudePermissionMode'].value, '',
       '손상된 persisted Claude 모드를 쓰기 허용 모드로 승격하면 안 됩니다.');
 
-    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify({
+    runDraftStore.set('whitebox:run-draft:v2', JSON.stringify({
       version: 2, sourcePluginId: 'direct', provider: 'claude', prompt: '레거시 초안', cwd: 'D:\\workspace',
       model: '', allowWrites: true,
     }));
@@ -663,9 +663,9 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(legacyModePage.elements['#runClaudePermissionMode'].value, 'acceptEdits',
       'permissionMode 도입 전 쓰기 허용 초안은 Accept edits로 안전하게 이전해야 합니다.');
 
-    runDraftStore.delete('loadtoagent:run-draft:v2');
+    runDraftStore.delete('whitebox:run-draft:v2');
     const claudeLaunches = [];
-    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+    modalSandbox.window.WhiteboxTerminal.startAgent = async options => {
       claudeLaunches.push(options);
       const error = new Error('provider command rejected after creation');
       error.creationState = 'accepted';
@@ -689,7 +689,7 @@ function registerTerminalAgentActionTests(context) {
     assert.equal(claudeLaunches.at(-1).permissionMode, 'auto');
     assert.equal(claudeLaunches.at(-1).allowWrites, true);
     assert.notEqual(autoCreationId, planCreationId, 'Claude 시작 모드가 바뀌면 새 생성 payload로 취급해야 합니다.');
-    const persistedClaudeDraft = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    const persistedClaudeDraft = JSON.parse(runDraftStore.get('whitebox:run-draft:v2'));
     assert.equal(persistedClaudeDraft.permissionMode, 'auto');
     assert.equal(persistedClaudeDraft.allowWrites, true);
     assert.equal(persistedClaudeDraft.creationId, autoCreationId);
@@ -712,8 +712,8 @@ function registerTerminalAgentActionTests(context) {
     let workbenchOpened = false;
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             launchOptions = options;
             return {
@@ -733,7 +733,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       $: () => null,
       state: {
         snapshot: null,
@@ -807,8 +807,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             await new Promise(resolve => setTimeout(resolve, 10));
@@ -838,7 +838,7 @@ function registerTerminalAgentActionTests(context) {
       setTimeout,
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       $: () => null,
       state,
       init: async () => {},
@@ -928,8 +928,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const created = {
@@ -961,7 +961,7 @@ function registerTerminalAgentActionTests(context) {
       setTimeout,
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1045,8 +1045,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const created = {
@@ -1071,7 +1071,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1141,8 +1141,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             lifecycle.push(`create:${options.args[1]}`);
@@ -1189,7 +1189,7 @@ function registerTerminalAgentActionTests(context) {
       setTimeout,
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1253,8 +1253,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const created = {
@@ -1291,7 +1291,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1368,8 +1368,8 @@ function registerTerminalAgentActionTests(context) {
     let refreshes = 0;
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const created = {
@@ -1398,7 +1398,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {
@@ -1441,8 +1441,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             const created = {
               id: 'terminal:signature-a',
@@ -1460,7 +1460,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1503,9 +1503,9 @@ function registerTerminalAgentActionTests(context) {
       platform: { id: 'win32' },
       wslDistros: [],
     };
-    const sandbox = { window: { LoadToAgentI18n: { t: key => key } } };
+    const sandbox = { window: { WhiteboxI18n: { t: key => key } } };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       terminalTypeLabel: () => 'Codex',
     });
@@ -1600,9 +1600,9 @@ function registerTerminalAgentActionTests(context) {
       platform: { id: 'win32' },
       wslDistros: [],
     };
-    const sandbox = { window: { LoadToAgentI18n: { t: key => key } } };
+    const sandbox = { window: { WhiteboxI18n: { t: key => key } } };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       terminalTypeLabel: () => 'Codex',
     });
@@ -1679,13 +1679,13 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: error => String(error?.message || error || '') },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: error => String(error?.message || error || '') },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       state,
       providerInfo: provider => ({ label: provider }),
       isLiveSession: () => true,
@@ -1745,8 +1745,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalClose: async id => {
             lifecycle.push(`close:${id}`);
             state.sessions = state.sessions.filter(item => item.id !== id);
@@ -1777,7 +1777,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1867,8 +1867,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const created = {
@@ -1899,7 +1899,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -1980,8 +1980,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             const ordinal = createCalls.length;
@@ -2030,7 +2030,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -2102,8 +2102,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             createCalls.push(options);
             markFirstCreateStarted();
@@ -2142,7 +2142,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       refreshSessions: async () => {},
@@ -2213,8 +2213,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCommand: async (id, prompt) => {
             commands.push([id, prompt]);
             return { ok: true };
@@ -2227,7 +2227,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       $: () => null,
       state,
       init: async () => {},
@@ -2281,8 +2281,8 @@ function registerTerminalAgentActionTests(context) {
     let commands = 0;
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async () => ({
             id: 'terminal:uncertain-resume',
             type: 'agent',
@@ -2300,7 +2300,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       $: () => null,
       state: { snapshot: null, sessions: [], platform: { id: 'darwin' }, wslDistros: [] },
       init: async () => {},
@@ -2348,8 +2348,8 @@ function registerTerminalAgentActionTests(context) {
     const commands = [];
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalCreate: async options => {
             launchOptions = options;
             return {
@@ -2369,7 +2369,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       $: () => null,
       state: { snapshot: null, sessions: [], platform: { id: 'darwin' }, wslDistros: [] },
       init: async () => {},
@@ -2436,8 +2436,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalReconnect: async id => {
             calls.push(['reconnect', id]);
             return { id, status: 'running' };
@@ -2450,7 +2450,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       notice: () => {},
@@ -2472,11 +2472,11 @@ function registerTerminalAgentActionTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
+        WhiteboxI18n: { t: key => key },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: {
         snapshot: null,
         sessions: [],
@@ -2492,7 +2492,7 @@ function registerTerminalAgentActionTests(context) {
         terminalId: 'terminal:bridge-race',
         pid: 42420,
         runtime: 'codex',
-        label: 'LoadToAgent AI 명령창',
+        label: 'Whitebox AI 명령창',
       }],
     });
 
@@ -2503,11 +2503,11 @@ function registerTerminalAgentActionTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
+        WhiteboxI18n: { t: key => key },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: {
         snapshot: null,
         sessions: [{
@@ -2540,11 +2540,11 @@ function registerTerminalAgentActionTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
+        WhiteboxI18n: { t: key => key },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state: {
         snapshot: null,
         sessions: [],
@@ -2574,12 +2574,12 @@ function registerTerminalAgentActionTests(context) {
     let underlyingTargetChecks = 0;
     const sandbox = {
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: {
           t: key => key,
           errorText: (_error, key) => key,
         },
-        LoadToAgentTerminal: {
+        WhiteboxTerminal: {
           resumeSupport: () => {
             underlyingResumeChecks += 1;
             return { supported: true, args: ['resume', 'must-not-resume'] };
@@ -2589,11 +2589,11 @@ function registerTerminalAgentActionTests(context) {
             return [{ id: 'terminal:must-not-use', kind: 'terminal' }];
           },
         },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       state: {
         details: new Map(),
         snapshot: { sessions: [] },
@@ -2659,14 +2659,14 @@ function registerTerminalAgentActionTests(context) {
     const sandbox = {
       clearTimeout,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-        LoadToAgentConversationDelivery: { CONFIRMATION_DELAY_MS: 60_000 },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+        WhiteboxConversationDelivery: { CONFIRMATION_DELAY_MS: 60_000 },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({ state });
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({ state });
     const entry = { status: 'sending', phase: 'sending', dispatchedAt: null };
 
     assert.equal(typeof actions.updateConversationMessage, 'function');
@@ -2698,14 +2698,14 @@ function registerTerminalAgentActionTests(context) {
     const sandbox = {
       clearTimeout,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-        LoadToAgentConversationDelivery: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+        WhiteboxConversationDelivery: {
           CONFIRMATION_DELAY_MS: 60_000,
           normalizedText: value => String(value || '').replace(/\s+/g, ' ').trim(),
         },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
-        LoadToAgentTerminal: {
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxTerminal: {
           agentTargets: () => [target],
           resumeSupport: () => ({ supported: true, provider: 'codex', sessionId: 'unknown' }),
           dispatchAgentCommand: async () => ({ ok: true, target, deliveryState: 'unknown' }),
@@ -2713,7 +2713,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       state,
       isLiveSession: () => true,
       providerInfo: () => ({ label: 'GPT' }),
@@ -2762,10 +2762,10 @@ function registerTerminalAgentActionTests(context) {
     const sandbox = {
       document: { querySelector: () => null },
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
-        LoadToAgentTerminal: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxTerminal: {
           agentTargets: () => [],
           resumeSupport: () => ({ supported: true, provider: 'gemini', sessionId: 'resume-unknown' }),
           resumeForAgent: async (_session, prompt, sendDraft, options) => {
@@ -2776,7 +2776,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       $: () => ({ classList: { contains: () => false } }),
       state,
       isLiveSession: () => false,
@@ -2820,10 +2820,10 @@ function registerTerminalAgentActionTests(context) {
     const sandbox = {
       clearTimeout,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
-        LoadToAgentTerminal: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxTerminal: {
           agentTargets: () => [target],
           resumeSupport: () => ({ supported: false }),
           dispatchAgentCommand: async (_session, _command, _targetId, options) => {
@@ -2839,7 +2839,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       state,
       isLiveSession: () => true,
       providerInfo: () => ({ label: 'Claude' }),
@@ -2888,8 +2888,8 @@ function registerTerminalAgentActionTests(context) {
     };
     const sandbox = {
       window: {
-        LoadToAgentI18n: { t: key => key },
-        loadtoagent: {
+        WhiteboxI18n: { t: key => key },
+        whitebox: {
           terminalSignal: async (id, signal) => {
             terminalSignals.push([id, signal]);
             return { ok: true };
@@ -2903,7 +2903,7 @@ function registerTerminalAgentActionTests(context) {
     };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-agent.js' });
     const state = { platform: { id: 'win32' }, snapshot: null, sessions: [terminal] };
-    const actions = sandbox.window.LoadToAgentTerminalAgentActions({
+    const actions = sandbox.window.WhiteboxTerminalAgentActions({
       state,
       init: async () => {},
       notice: () => {},
@@ -2957,13 +2957,13 @@ function registerTerminalAgentActionTests(context) {
     const sandbox = {
       clearTimeout,
       window: {
-        LoadToAgentAppFactories: {},
-        LoadToAgentI18n: {
+        WhiteboxAppFactories: {},
+        WhiteboxI18n: {
           t: key => key === 'agent.terminal_interrupt' ? '응답 중단(Ctrl+C)' : key,
           errorText: (_error, key) => key,
         },
-        LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
-        LoadToAgentTerminal: {
+        WhiteboxRendererUtils: { reportRecoverableError: () => {} },
+        WhiteboxTerminal: {
           agentTargets: () => [target],
           resumeSupport: () => ({ supported: false }),
           interruptAgent: async (value, targetId) => {
@@ -2974,7 +2974,7 @@ function registerTerminalAgentActionTests(context) {
       },
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = sandbox.window.LoadToAgentAppFactories.createAgentActions({
+    const actions = sandbox.window.WhiteboxAppFactories.createAgentActions({
       $: () => null,
       esc: value => String(value),
       state,
@@ -3091,16 +3091,16 @@ function registerTerminalAgentActionTests(context) {
     };
     const removeEventListener = (name, listener) => listeners.get(name)?.delete(listener);
     const dispatchTerminalChange = sessionId => {
-      for (const listener of [...(listeners.get('loadtoagent:drawer-terminal-targets-changed') || [])]) {
+      for (const listener of [...(listeners.get('whitebox:drawer-terminal-targets-changed') || [])]) {
         listener({ detail: { sessionId } });
       }
     };
     const documentObject = { querySelector: selector => selector === '#detailDrawer' ? drawer : null };
     const windowObject = {
-      LoadToAgentAppFactories: {},
-      LoadToAgentI18n: { t: key => key, errorText: (_error, key) => key },
-      LoadToAgentRendererUtils: { reportRecoverableError: (scope, error) => errors.push([scope, error]) },
-      LoadToAgentTerminal: {
+      WhiteboxAppFactories: {},
+      WhiteboxI18n: { t: key => key, errorText: (_error, key) => key },
+      WhiteboxRendererUtils: { reportRecoverableError: (scope, error) => errors.push([scope, error]) },
+      WhiteboxTerminal: {
         embeddedState: () => ({ ...embedded }),
         agentTargets: session => targets.get(session.id) || [],
       },
@@ -3118,7 +3118,7 @@ function registerTerminalAgentActionTests(context) {
       clearTimeout,
     };
     vm.runInNewContext(source, sandbox, { filename: 'app-agent-actions.js' });
-    const actions = windowObject.LoadToAgentAppFactories.createAgentActions({
+    const actions = windowObject.WhiteboxAppFactories.createAgentActions({
       state,
       isLiveSession: () => true,
       providerInfo: provider => ({ label: provider }),
@@ -3206,7 +3206,7 @@ function registerTerminalAgentActionTests(context) {
     };
     // The drawer's listener is registered before the per-click waiter. Its
     // animation frame therefore renders the connected composer first.
-    harness.window.addEventListener('loadtoagent:drawer-terminal-targets-changed', event => {
+    harness.window.addEventListener('whitebox:drawer-terminal-targets-changed', event => {
       if (event.detail?.sessionId !== harness.sessionA.id) return;
       harness.requestFrame(() => {
         harness.targets.set(harness.sessionA.id, [target]);

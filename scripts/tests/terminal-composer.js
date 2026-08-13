@@ -12,7 +12,7 @@ function registerTerminalComposerTests(context) {
     const source = fs.readFileSync(path.join(root, 'renderer', 'terminal-composer.js'), 'utf8');
     const sandbox = { window: {} };
     vm.runInNewContext(source, sandbox, { filename: 'terminal-composer.js' });
-    const composer = sandbox.window.LoadToAgentTerminalComposer;
+    const composer = sandbox.window.WhiteboxTerminalComposer;
     const values = provider => Array.from(composer.commandsForProvider(provider), command => command.value);
 
     assert.deepStrictEqual(values('codex'), ['/model', '/status', '/compact', '/review', '/diff', '/new']);

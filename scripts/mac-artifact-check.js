@@ -12,7 +12,7 @@ if (process.platform !== 'darwin') {
 }
 
 const root = path.resolve(__dirname, '..');
-const release = path.resolve(process.env.LOADTOAGENT_RELEASE_DIR || path.join(root, 'release'));
+const release = path.resolve(process.env.WHITEBOX_RELEASE_DIR || path.join(root, 'release'));
 const version = require('../package.json').version;
 
 function run(command, args) {
@@ -54,8 +54,8 @@ const targets = [
 ];
 
 for (const target of targets) {
-  const app = path.join(release, target.directory, 'LoadToAgent.app');
-  const executable = path.join(app, 'Contents', 'MacOS', 'LoadToAgent');
+  const app = path.join(release, target.directory, 'Whitebox.app');
+  const executable = path.join(app, 'Contents', 'MacOS', 'Whitebox');
   const files = nodePtyFiles(app, target.arch);
   assert.ok(fs.existsSync(app), `패키징된 ${target.arch} 앱이 없습니다: ${app}`);
   assertExecutable(files.helper);
@@ -63,8 +63,8 @@ for (const target of targets) {
   assertArchitecture(files.helper, target.arch);
   assertArchitecture(files.addon, target.arch);
 
-  const zip = path.join(release, `LoadToAgent-${version}-${target.arch}.zip`);
-  const dmg = path.join(release, `LoadToAgent-${version}-${target.arch}.dmg`);
+  const zip = path.join(release, `Whitebox-${version}-${target.arch}.zip`);
+  const dmg = path.join(release, `Whitebox-${version}-${target.arch}.dmg`);
   assert.ok(fs.statSync(zip).size > 0, `${target.arch} ZIP이 비어 있습니다.`);
   assert.ok(fs.statSync(dmg).size > 0, `${target.arch} DMG가 비어 있습니다.`);
   const zipListing = run('/usr/bin/unzip', ['-Z', '-l', zip]);
@@ -72,10 +72,10 @@ for (const target of targets) {
   const helperLine = zipListing.split(/\r?\n/).find(line => line.includes(helperSuffix));
   assert.ok(helperLine && /^-rwx/.test(helperLine.trim()), `${target.arch} ZIP의 spawn-helper 실행 권한이 없습니다.`);
 
-  const mountPath = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-${target.arch}-dmg-`));
+  const mountPath = fs.mkdtempSync(path.join(os.tmpdir(), `whitebox-${target.arch}-dmg-`));
   try {
     run('/usr/bin/hdiutil', ['attach', dmg, '-nobrowse', '-readonly', '-mountpoint', mountPath]);
-    const mountedFiles = nodePtyFiles(path.join(mountPath, 'LoadToAgent.app'), target.arch);
+    const mountedFiles = nodePtyFiles(path.join(mountPath, 'Whitebox.app'), target.arch);
     assertExecutable(mountedFiles.helper);
     assertArchitecture(mountedFiles.helper, target.arch);
     assertArchitecture(mountedFiles.addon, target.arch);

@@ -6,7 +6,7 @@ const path = require('path');
 const { app, BrowserWindow, nativeImage } = require('electron');
 app.disableHardwareAcceleration();
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-philosophy-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-philosophy-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -31,9 +31,9 @@ async function stabilizeView(win, view, requiredSelector) {
       style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}';
       document.head.appendChild(style);
     }
-    window.LoadToAgentApp.selectView(${JSON.stringify(view)});
-    window.LoadToAgentApp.state.guideCompleted.clear();
-    window.LoadToAgentApp.render();
+    window.WhiteboxApp.selectView(${JSON.stringify(view)});
+    window.WhiteboxApp.state.guideCompleted.clear();
+    window.WhiteboxApp.render();
     document.querySelectorAll('.sidebar, .sidebar *').forEach(item => {
       item.style.setProperty('visibility', 'visible', 'important');
       item.style.setProperty('opacity', '1', 'important');
@@ -123,12 +123,12 @@ async function capture(win, name, view, requiredSelector) {
     captureWin.showInactive();
     await waitFor(
       captureWin,
-      'Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot)',
+      'Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot)',
       `${name} 캡처용 앱 상태를 준비하지 못했습니다.`,
     );
     await captureWin.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      const app = window.LoadToAgentApp;
+      window.WhiteboxI18n.setLocale('ko');
+      const app = window.WhiteboxApp;
       app.state.guideExpanded = false;
       app.state.search = '';
       app.state.workspace = ${JSON.stringify(view)} === 'all'
@@ -184,13 +184,13 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     await waitFor(
       win,
-      'Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot)',
+      'Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot)',
       '앱 픽스처가 준비되지 않았습니다.',
     );
     win.setSkipTaskbar(true);
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      const app = window.LoadToAgentApp;
+      window.WhiteboxI18n.setLocale('ko');
+      const app = window.WhiteboxApp;
       app.state.guideExpanded = false;
       app.state.search = '';
       app.state.workspace = app.state.workspaces[0]?.path || 'all';
@@ -227,10 +227,10 @@ app.whenReady().then(async () => {
       || nowMetrics.causalCheckpoints.length !== 0
       || nowMetrics.horizontalOverflow
     ) throw new Error(`지금 화면 쉬운 표현 계약 실패: ${JSON.stringify(nowMetrics)}`);
-    const nowOutput = await capture(win, 'loadtoagent-philosophical-now.png', 'all', '#liveSection');
+    const nowOutput = await capture(win, 'whitebox-philosophical-now.png', 'all', '#liveSection');
 
     await win.webContents.executeJavaScript(`(() => {
-      const app = window.LoadToAgentApp;
+      const app = window.WhiteboxApp;
       app.state.workspace = 'all';
       app.render();
     })()`);
@@ -310,7 +310,7 @@ app.whenReady().then(async () => {
       || memoryMetrics.stageOverflow
       || memoryMetrics.pageOverflow
     ) throw new Error(`기억 화면 계약 실패: ${JSON.stringify(memoryMetrics)}`);
-    const memoryOutput = await capture(win, 'loadtoagent-philosophical-memory.png', 'active', '#sessionSection');
+    const memoryOutput = await capture(win, 'whitebox-philosophical-memory.png', 'active', '#sessionSection');
 
     await win.webContents.executeJavaScript(`document.querySelector('#sessionGrid [data-session-id="fixture-ended"]')?.click()`);
     await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open') && !document.querySelector('.drawer-loading')`, '기억 상세가 열리지 않았습니다.');
@@ -322,12 +322,12 @@ app.whenReady().then(async () => {
       overflow: document.querySelector('#detailDrawer')?.scrollWidth > document.querySelector('#detailDrawer')?.clientWidth + 1,
     }))()`);
     if (!memoryDrawer.open || memoryDrawer.detailText < 50 || memoryDrawer.tabs < 1 || memoryDrawer.overflow) throw new Error(`기억 상세 계약 실패: ${JSON.stringify(memoryDrawer)}`);
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer?.(false)`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer?.(false)`);
 
     const toolViews = await win.webContents.executeJavaScript(`(async () => {
       const checks = {};
       for (const [view, selector] of [['waiting','#attentionInbox'],['runtime','#automationOverview'],['terminal','#terminalSection'],['tmux','#tmuxSection'],['settings','#settingsSection']]) {
-        window.LoadToAgentApp.selectView(view);
+        window.WhiteboxApp.selectView(view);
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         checks[view] = document.body.dataset.currentView === view && !document.querySelector(selector)?.classList.contains('hidden');
         if (view === 'waiting') checks.waitingHasNoInternalKeys = !document.querySelector(selector)?.textContent.includes('management.category.');
@@ -380,7 +380,7 @@ app.whenReady().then(async () => {
           && mobileNavRect.top >= 0 && mobileNavRect.bottom <= window.innerHeight),
       };
     })()`);
-    const mobileOutput = await capture(win, 'loadtoagent-philosophical-memory-mobile.png', 'active', '#sessionSection');
+    const mobileOutput = await capture(win, 'whitebox-philosophical-memory-mobile.png', 'active', '#sessionSection');
     if (mobileMetrics.view !== 'active' || mobileMetrics.activeNav !== 'active' || mobileMetrics.sectionOpacity < .99 || mobileMetrics.pageOverflow || mobileMetrics.stageOverflow || !mobileMetrics.firstCardVisible || !mobileMetrics.mobileNavVisible) {
       throw new Error(`기억 모바일 계약 실패: ${JSON.stringify(mobileMetrics)}`);
     }

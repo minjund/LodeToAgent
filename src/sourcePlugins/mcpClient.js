@@ -150,7 +150,7 @@ class McpStdioClient extends EventEmitter {
     this.timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : DEFAULT_TIMEOUT_MS;
     this.framing = options.framing === 'content-length' ? 'content-length' : 'newline';
     this.clientInfo = {
-      name: options.clientName || 'loadtoagent',
+      name: options.clientName || 'whitebox',
       version: options.clientVersion || '1.0.0',
     };
     this.child = null;

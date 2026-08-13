@@ -4,10 +4,10 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-responsive-${process.pid}-`));
-const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `loadtoagent-responsive-user-${process.pid}-`));
-process.env.LOADTOAGENT_TEST_INSTANCE = '1';
-process.env.LOADTOAGENT_BRIDGE_HOME = isolatedBridgeHome;
+const isolatedBridgeHome = fs.mkdtempSync(path.join(os.tmpdir(), `whitebox-responsive-${process.pid}-`));
+const isolatedUserData = fs.mkdtempSync(path.join(os.tmpdir(), `whitebox-responsive-user-${process.pid}-`));
+process.env.WHITEBOX_TEST_INSTANCE = '1';
+process.env.WHITEBOX_BRIDGE_HOME = isolatedBridgeHome;
 
 const { app, BrowserWindow } = require('electron');
 app.setPath('userData', isolatedUserData);
@@ -27,12 +27,12 @@ async function waitForWindow() {
     if (win && !win.isDestroyed()) return win;
     await wait(100);
   }
-  throw new Error('반응형 검증에 사용할 LoadToAgent 창을 찾지 못했습니다.');
+  throw new Error('반응형 검증에 사용할 Whitebox 창을 찾지 못했습니다.');
 }
 
 async function waitForRenderer(win) {
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const ready = await win.webContents.executeJavaScript(`document.readyState === 'complete' && window.LoadToAgentApp?.initialized === true`);
+    const ready = await win.webContents.executeJavaScript(`document.readyState === 'complete' && window.WhiteboxApp?.initialized === true`);
     if (ready) return;
     await wait(100);
   }
@@ -48,13 +48,13 @@ function setWindowSize(win, width, height) {
 
 async function openView(win, view) {
   await win.webContents.executeJavaScript(`(() => {
-    if (!window.LoadToAgentApp?.selectView) return false;
-    window.LoadToAgentApp.selectView(${JSON.stringify(view)});
+    if (!window.WhiteboxApp?.selectView) return false;
+    window.WhiteboxApp.selectView(${JSON.stringify(view)});
     document.querySelector('.main-stage')?.scrollTo(0, 0);
     return true;
   })()`);
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const activeView = await win.webContents.executeJavaScript(`window.LoadToAgentApp?.state?.view || ''`);
+    const activeView = await win.webContents.executeJavaScript(`window.WhiteboxApp?.state?.view || ''`);
     if (activeView === view) {
       await wait(320);
       return;
@@ -171,7 +171,7 @@ async function layoutMetrics(win) {
       width: window.innerWidth,
       height: window.innerHeight,
       compact,
-      currentView: window.LoadToAgentApp?.state?.view || '',
+      currentView: window.WhiteboxApp?.state?.view || '',
       documentOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 2,
       stageOverflow: Boolean(stage && stage.scrollWidth > stage.clientWidth + 2),
       stageOverflowItems,
@@ -217,7 +217,7 @@ async function layoutMetrics(win) {
         return Boolean(label && getComputedStyle(label).display !== 'none' && label.getBoundingClientRect().width > 0);
       }),
       narrowSidebarTitles: !narrowSidebar || visibleNavItems.every(item => item.getAttribute('title')?.trim()),
-      projectFilterAvailable: !['all', 'active'].includes(window.LoadToAgentApp?.state?.view)
+      projectFilterAvailable: !['all', 'active'].includes(window.WhiteboxApp?.state?.view)
         || (window.innerWidth <= 720
           ? Boolean(document.querySelector('#mobileWorkspaceList'))
           : Boolean(document.querySelector('#projectSidebarList [data-workspace]'))),
@@ -476,7 +476,7 @@ function assertStickyNavigation(metrics, context) {
 
 async function setupDashboardStickyFixture(win) {
   return win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const sessions = app.state.snapshot?.sessions || [];
     if (!window.__responsiveDashboardStickyOriginal) {
       window.__responsiveDashboardStickyOriginal = {
@@ -538,7 +538,7 @@ async function setupDashboardStickyFixture(win) {
 
 async function cleanupDashboardStickyFixture(win) {
   return win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const original = window.__responsiveDashboardStickyOriginal;
     if (!original) return '';
     app.state.snapshot.sessions = original.sessions;
@@ -660,7 +660,7 @@ function assertDashboardStickyNavigation(metrics, context) {
 
 async function overlayMetrics(win, capturePath = '') {
   await win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     if (!app.state.workspace || app.state.workspace === 'all' || app.state.workspace === '__projectless__') {
       app.state.workspace = app.state.workspaces?.[0]?.path
         || document.querySelector('#projectSidebarList [data-workspace]')?.dataset.workspace
@@ -720,7 +720,7 @@ async function overlayMetrics(win, capturePath = '') {
       return { className: element.className, left: rect.left, right: rect.right, scrollWidth: element.scrollWidth, clientWidth: element.clientWidth };
     }).filter(item => item.clientWidth && modal && (item.left < modal.left - 1 || item.right > modal.right + 1 || item.scrollWidth > item.clientWidth + 2));
     const runModal = document.querySelector('#runModal');
-    window.LoadToAgentA11y?.setDialogOpenState(runModal, false);
+    window.WhiteboxA11y?.setDialogOpenState(runModal, false);
     runModal?.classList.add('hidden');
     runModal?.classList.remove('closing');
     runModal?.setAttribute('aria-hidden', 'true');
@@ -757,7 +757,7 @@ async function overlayMetrics(win, capturePath = '') {
     drawer?.classList.remove('open');
     if (drawer) drawer.style.transition = '';
     backdrop?.classList.add('hidden');
-    window.LoadToAgentA11y?.setDialogOpenState(drawer, false);
+    window.WhiteboxA11y?.setDialogOpenState(drawer, false);
     return {
       modalInsideViewport: viewportContains(modal),
       modalNoHorizontalOverflow,
@@ -809,23 +809,23 @@ async function setupWorkflowFixture(win) {
     const fixtureIds = new Set([rootId, ...childIds]);
     window.__responsiveWorkflowFixtures = [root, ...children];
     window.__ensureResponsiveWorkflowFixture = () => {
-      const sessions = window.LoadToAgentApp.state.snapshot && window.LoadToAgentApp.state.snapshot.sessions || [];
-      window.LoadToAgentApp.state.snapshot.sessions = [...sessions.filter(session => !fixtureIds.has(session.id)), ...window.__responsiveWorkflowFixtures];
-      window.LoadToAgentApp.state.view = 'all';
-      window.LoadToAgentApp.state.workspace = '/responsive/project';
-      window.LoadToAgentApp.state.graphFocusId = rootId;
-      window.LoadToAgentApp.state.expandedCompletedSubagents.delete(rootId);
+      const sessions = window.WhiteboxApp.state.snapshot && window.WhiteboxApp.state.snapshot.sessions || [];
+      window.WhiteboxApp.state.snapshot.sessions = [...sessions.filter(session => !fixtureIds.has(session.id)), ...window.__responsiveWorkflowFixtures];
+      window.WhiteboxApp.state.view = 'all';
+      window.WhiteboxApp.state.workspace = '/responsive/project';
+      window.WhiteboxApp.state.graphFocusId = rootId;
+      window.WhiteboxApp.state.expandedCompletedSubagents.delete(rootId);
       document.querySelectorAll('.view-nav .nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === 'all'));
-      window.LoadToAgentApp.renderSessions();
+      window.WhiteboxApp.renderSessions();
     };
-    if (window.LoadToAgentTerminal && !window.__responsiveOriginalAgentTargets) {
-      window.__responsiveOriginalAgentTargets = window.LoadToAgentTerminal.agentTargets;
-      window.LoadToAgentTerminal.agentTargets = session => session && session.id === rootId
+    if (window.WhiteboxTerminal && !window.__responsiveOriginalAgentTargets) {
+      window.__responsiveOriginalAgentTargets = window.WhiteboxTerminal.agentTargets;
+      window.WhiteboxTerminal.agentTargets = session => session && session.id === rootId
         ? [{ id: 'responsive-terminal', label: '반응형 테스트 터미널', platform: 'macOS' }]
         : window.__responsiveOriginalAgentTargets(session);
     }
     window.__ensureResponsiveWorkflowFixture();
-    window.LoadToAgentApp.drawAgentWorkflowConnections();
+    window.WhiteboxApp.drawAgentWorkflowConnections();
     const stage = document.querySelector('.main-stage');
     const canvas = document.querySelector('.agent-workflow-canvas');
     if (stage && canvas) stage.scrollTo(0, Math.max(0, canvas.offsetTop - 12));
@@ -836,7 +836,7 @@ async function setupWorkflowFixture(win) {
 async function workflowMetrics(win) {
   return win.webContents.executeJavaScript(`(() => {
     window.__ensureResponsiveWorkflowFixture?.();
-    window.LoadToAgentApp.drawAgentWorkflowConnections();
+    window.WhiteboxApp.drawAgentWorkflowConnections();
     const canvas = document.querySelector('.agent-workflow-canvas');
     const progress = document.querySelector('[data-workflow-progress]');
     const upstream = document.querySelector('.upstream-column .agent-workflow-origin, .upstream-column .agent-workflow-node');
@@ -930,7 +930,7 @@ function assertWorkflow(metrics) {
 
 async function managementDetailMetrics(win) {
   return win.webContents.executeJavaScript(`(() => {
-    const app = window.LoadToAgentApp;
+    const app = window.WhiteboxApp;
     const sessions = app.state.snapshot?.sessions || [];
     const base = sessions.find(session => !session.parentId) || sessions[0] || {
       provider: 'codex', model: 'gpt-5.6', cwd: '/responsive/project', originCwd: '/responsive/project', workspace: 'responsive-project',
@@ -1051,7 +1051,7 @@ app.whenReady().then(async () => {
       const metrics = await settingsLayoutMetrics(win);
       assertSettingsLayout(metrics, `${width}×${height}`);
       if (width === 1375 || width === 738 || width === 320) {
-        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-settings-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        fs.writeFileSync(path.join(outputDir, `whitebox-responsive-settings-${width}.png`), (await win.webContents.capturePage()).toPNG());
       }
       if (width === 1181 || width === 320) {
         const stickyMetrics = await stickyNavigationMetrics(win);
@@ -1070,7 +1070,7 @@ app.whenReady().then(async () => {
       const metrics = await dashboardStickyNavigationMetrics(win);
       assertDashboardStickyNavigation(metrics, `${width}×${height}`);
       if (width === 1080 || width === 360) {
-        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-sticky-dashboard-${width}.png`), (await win.webContents.capturePage()).toPNG());
+        fs.writeFileSync(path.join(outputDir, `whitebox-responsive-sticky-dashboard-${width}.png`), (await win.webContents.capturePage()).toPNG());
       }
       dashboardStickyReports.push({ requested: `${width}×${height}`, ...metrics });
     }
@@ -1086,17 +1086,17 @@ app.whenReady().then(async () => {
       await wait(240);
       const metrics = await managementDetailMetrics(win);
       assertManagementDetail(metrics);
-      fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-management-detail-${width}.png`), (await win.webContents.capturePage()).toPNG());
+      fs.writeFileSync(path.join(outputDir, `whitebox-responsive-management-detail-${width}.png`), (await win.webContents.capturePage()).toPNG());
       managementDetailReports.push(metrics);
     }
     await win.webContents.executeJavaScript(`(() => {
       const drawer = document.querySelector('#detailDrawer');
-      window.LoadToAgentA11y?.setDialogOpenState(drawer, false);
+      window.WhiteboxA11y?.setDialogOpenState(drawer, false);
       drawer?.classList.remove('open');
       document.querySelector('#drawerBackdrop')?.classList.add('hidden');
-      window.LoadToAgentApp.state.selectedId = null;
-      window.LoadToAgentApp.state.graphFocusId = null;
-      window.LoadToAgentApp.renderSessions('filter');
+      window.WhiteboxApp.state.selectedId = null;
+      window.WhiteboxApp.state.graphFocusId = null;
+      window.WhiteboxApp.renderSessions('filter');
     })()`);
     console.log(`management detail responsive check passed ${JSON.stringify(managementDetailReports)}`);
 
@@ -1108,11 +1108,11 @@ app.whenReady().then(async () => {
       assertLayout(home, `${width}×${height} 홈 화면`);
       if (width === 1224 || width === 720 || width === 360) {
         const image = await win.webContents.capturePage();
-        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-${width}.png`), image.toPNG());
+        fs.writeFileSync(path.join(outputDir, `whitebox-responsive-${width}.png`), image.toPNG());
       }
       if (width === 360) {
         const mobileProjects = await win.webContents.executeJavaScript(`(() => {
-          const app = window.LoadToAgentApp;
+          const app = window.WhiteboxApp;
           const liveFixtureId = 'responsive-mobile-live-project';
           const liveFixture = {
             id: liveFixtureId,
@@ -1163,7 +1163,7 @@ app.whenReady().then(async () => {
         })()`);
         if (!mobileProjects.visible || !mobileProjects.selected || !mobileProjects.selectedRepresentedOnce || !mobileProjects.singleScrollRegion || !mobileProjects.noHorizontalOverflow || !mobileProjects.insideViewport || !mobileProjects.liveDotCompact || !mobileProjects.liveDotLabel) throw new Error(`360×520 모바일 프로젝트 선택기가 올바르지 않습니다: ${JSON.stringify(mobileProjects)}`);
         await wait(120);
-        fs.writeFileSync(path.join(outputDir, 'loadtoagent-responsive-projects-360.png'), (await win.webContents.capturePage()).toPNG());
+        fs.writeFileSync(path.join(outputDir, 'whitebox-responsive-projects-360.png'), (await win.webContents.capturePage()).toPNG());
         const projectSelection = await win.webContents.executeJavaScript(`(() => {
           const choice = [...document.querySelectorAll('#mobileWorkspaceList [data-workspace]')].find(item => item.getAttribute('aria-pressed') !== 'true');
           choice?.click();
@@ -1177,7 +1177,7 @@ app.whenReady().then(async () => {
           focusedMain: !document.hasFocus() || document.activeElement?.id === 'mainContent' || Boolean(document.activeElement?.closest?.('[data-session-id], [data-graph-focus], [data-open-session], [data-inline-pty-trigger]')),
           activeElement: { id: document.activeElement?.id || '', tag: document.activeElement?.tagName || '', hasFocus: document.hasFocus() },
           focusContext: { appInert: document.querySelector('#appShell')?.inert, mainInert: document.querySelector('#mainContent')?.inert, mainTabIndex: document.querySelector('#mainContent')?.tabIndex, mainRects: document.querySelector('#mainContent')?.getClientRects().length },
-          workspace: window.LoadToAgentApp.state.workspace,
+          workspace: window.WhiteboxApp.state.workspace,
         }))()`);
         const focusCorrect = projectSelection
           ? projectSelectionResult.focusedMain
@@ -1185,7 +1185,7 @@ app.whenReady().then(async () => {
         const workspaceCorrect = !projectSelection || projectSelectionResult.workspace === projectSelection;
         if (!projectSelectionResult.menuClosed || projectSelectionResult.expanded !== 'false' || !focusCorrect || !workspaceCorrect) throw new Error(`360×520 모바일 프로젝트 선택 후 닫기·포커스 복귀가 올바르지 않습니다: ${JSON.stringify({ projectSelection, ...projectSelectionResult })}`);
         await win.webContents.executeJavaScript(`(() => {
-          const app = window.LoadToAgentApp;
+          const app = window.WhiteboxApp;
           app.state.snapshot.sessions = (app.state.snapshot?.sessions || [])
             .filter(session => session.id !== 'responsive-mobile-live-project');
           app.state.workspace = 'all';
@@ -1194,7 +1194,7 @@ app.whenReady().then(async () => {
         })()`);
       }
 
-      const overlays = await overlayMetrics(win, width === 720 || width === 360 ? path.join(outputDir, `loadtoagent-responsive-new-run-${width}.png`) : '');
+      const overlays = await overlayMetrics(win, width === 720 || width === 360 ? path.join(outputDir, `whitebox-responsive-new-run-${width}.png`) : '');
       if (!overlays.modalInsideViewport || !overlays.drawerInsideViewport || !overlays.modalNoHorizontalOverflow || !overlays.providerCardsInsideModal || !overlays.actionsInsideViewport || !overlays.promptCounterVisible || !overlays.promptFirst || overlays.drawerLeakedControls.length) {
         throw new Error(`${width}×${height} 오버레이 배치가 올바르지 않습니다: ${JSON.stringify(overlays)}`);
       }
@@ -1232,7 +1232,7 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(`new Promise(resolve => {
           window.__ensureResponsiveWorkflowFixture?.();
           requestAnimationFrame(() => requestAnimationFrame(() => {
-            window.LoadToAgentApp.drawAgentWorkflowConnections();
+            window.WhiteboxApp.drawAgentWorkflowConnections();
             const stage = document.querySelector('.main-stage');
             const canvas = document.querySelector('.agent-workflow-canvas');
             if (stage && canvas) stage.scrollTo(0, Math.max(0, canvas.offsetTop - 12));
@@ -1240,7 +1240,7 @@ app.whenReady().then(async () => {
           }));
         })`);
         const image = await win.webContents.capturePage();
-        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-workflow-${width}.png`), image.toPNG());
+        fs.writeFileSync(path.join(outputDir, `whitebox-responsive-workflow-${width}.png`), image.toPNG());
         await win.webContents.executeJavaScript(`(() => {
           const stage = document.querySelector('.main-stage');
           const downstream = document.querySelector('.downstream-stack .child-session');
@@ -1251,7 +1251,7 @@ app.whenReady().then(async () => {
         })()`);
         await wait(180);
         const helpImage = await win.webContents.capturePage();
-        fs.writeFileSync(path.join(outputDir, `loadtoagent-responsive-help-sessions-${width}.png`), helpImage.toPNG());
+        fs.writeFileSync(path.join(outputDir, `whitebox-responsive-help-sessions-${width}.png`), helpImage.toPNG());
       }
       workflowReports.push(metrics);
     }

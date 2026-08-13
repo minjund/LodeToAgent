@@ -1,8 +1,8 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createGraphView = function createGraphView(context = {}) {
+window.WhiteboxAppFactories.createGraphView = function createGraphView(context = {}) {
   const {
     $,
     esc,
@@ -40,7 +40,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     matchesWorkspaceFilter = () => true,
     ensureProjectOrder = projectKeys => projectKeys,
   } = context;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const statusLabel = (status, session) => session ? sessionStatusLabel(session, status) : ({
     starting: t("ui.preparing"), running: t("ui.working"), waiting: t("ui.waiting_for_review"), idle: t("ui.idle"),
     completed: t("ui.completed"), failed: t("ui.problem"), cancelled: t("ui.stopped"),
@@ -127,7 +127,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <b>${context.window ? `${percent.toFixed(1)}%` : "--"}</b>
           </span>
           <span>
-          <small>${window.LoadToAgentI18n.t("ui.tokens_used_2")}</small>
+          <small>${window.WhiteboxI18n.t("ui.tokens_used_2")}</small>
           <b>${compact(usage.total)}</b>
           </span>
           <span>
@@ -572,7 +572,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       [/\bgit\s+commit\b|커밋/, "control.work_save_changes"],
       [/\bgit\s+push\b|업로드|배포/, "control.work_publish"],
       [/(?:\brg\b|grep|findstr|select-string|get-content|read-file|코드.*확인|파일.*확인)/, "control.work_inspect_code"],
-      [/(?:start-process|loadtoagent\.exe|electron\s+\.)|프로그램\s*실행|앱\s*실행/, "control.work_launch_app"],
+      [/(?:start-process|(?:whitebox|loadtoagent)\.exe|electron\s+\.)|프로그램\s*실행|앱\s*실행/, "control.work_launch_app"],
       [/(?:index|인덱스).*(?:refresh|update|갱신)/, "control.work_refresh_index"],
       [/(?:crawl|scrape|수집)/, "control.work_collect_data"],
     ];
@@ -650,7 +650,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const inlineSession = state.inlineTerminalSessionId === root.id ? root : null;
     const terminalReviewSources = actors.map(session => ({
       session,
-      prompt: window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || null,
+      prompt: window.WhiteboxTerminal?.pendingPromptForSession?.(session) || null,
     })).filter(item => item.prompt);
     const reviewSources = actors.filter(sessionNeedsReview).sort((left, right) => (
       Date.parse(left.attention?.requestedAt || left.updatedAt || 0)
@@ -780,7 +780,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       const firstLiveRoot = projectTotals.roots.find((root) => ["running", "starting"].includes(String(controlRoomStatus(root) || "")));
       const currentWork = firstLiveRoot ? currentActivity(firstLiveRoot) : null;
       const currentWorkSummary = currentWork?.title
-        ? `지금 하는 일: ${readablePreview(window.LoadToAgentI18n.observedText(currentWork.title), 48).text}`
+        ? `지금 하는 일: ${readablePreview(window.WhiteboxI18n.observedText(currentWork.title), 48).text}`
         : "";
       const tmuxSummary = projectTotals.tmuxEntries.length
         ? "여러 AI가 함께 작업 중"
@@ -854,16 +854,16 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     return `<div class="agent-workflow-summary" data-collaboration-summary="true">
       <div class="workflow-metric-grid">
         <span data-collaboration-metric="created">
-          <small>${esc(t("graph.created_in_task"))}</small><b>${esc(metrics.cumulativeCreated)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.created_in_task"))}</small><b>${esc(metrics.cumulativeCreated)}</b><em>${window.WhiteboxI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="capacity">
-          <small>${esc(t("graph.simultaneous_capacity"))}</small><b>${esc(capacity)}</b><em>${capacity === "--" ? "" : window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.simultaneous_capacity"))}</small><b>${esc(capacity)}</b><em>${capacity === "--" ? "" : window.WhiteboxI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="running">
-          <small>${esc(t("graph.currently_running"))}</small><b>${esc(metrics.currentlyRunning)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.currently_running"))}</small><b>${esc(metrics.currentlyRunning)}</b><em>${window.WhiteboxI18n.t("ui.items")}</em>
         </span>
         <span data-collaboration-metric="completed">
-          <small>${esc(t("graph.completed_records"))}</small><b>${esc(metrics.completedRecords)}</b><em>${window.LoadToAgentI18n.t("ui.items")}</em>
+          <small>${esc(t("graph.completed_records"))}</small><b>${esc(metrics.completedRecords)}</b><em>${window.WhiteboxI18n.t("ui.items")}</em>
         </span>
       </div>
       <div class="workflow-summary-evidence"><span>${esc(retained)} · ${esc(t("graph.completed_records_collapsed"))}</span><small>${esc(source)} · ${esc(t("graph.event_basis"))}</small></div>
@@ -892,8 +892,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const currentSource = activeCheckpoint || latestCheckpoint;
     const currentRaw = progress.currentStep || activity.title || latestWorkCopy(session) || session.statusDetail || session.title;
     const detailRaw = currentSource?.detail || activity.detail || (session.statusDetail !== currentRaw ? session.statusDetail : "");
-    const current = readablePreview(window.LoadToAgentI18n.observedText(currentRaw), 240);
-    const detail = readablePreview(window.LoadToAgentI18n.observedText(detailRaw), 360);
+    const current = readablePreview(window.WhiteboxI18n.observedText(currentRaw), 240);
+    const detail = readablePreview(window.WhiteboxI18n.observedText(detailRaw), 360);
     const normalizeObservationStatus = value => {
       const status = String(value || "").toLowerCase();
       if (["failed", "error"].includes(status)) return "failed";
@@ -957,8 +957,8 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
       : t("common.events", { count: observations.length });
     const activityRows = recent.length
       ? `<ol class="workflow-progress-events">${recent.map(row => {
-        const rowLabel = readablePreview(window.LoadToAgentI18n.observedText(row.label), 150);
-        const rowDetail = readablePreview(window.LoadToAgentI18n.observedText(row.detail), 220);
+        const rowLabel = readablePreview(window.WhiteboxI18n.observedText(row.label), 150);
+        const rowDetail = readablePreview(window.WhiteboxI18n.observedText(row.detail), 220);
         return `<li class="${esc(row.status)}" data-progress-event-kind="${esc(row.kind)}">
           <i class="workflow-progress-node" aria-hidden="true"></i>
           <span class="workflow-progress-kind">${esc(row.kindLabel)}</span>
@@ -1075,7 +1075,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           <b>${esc(communicationEndpoint(event.to, owner, model))}</b>
         </span>
         <span class="communication-copy">
-          <small>${esc(window.LoadToAgentI18n.observedText(event.label))}${event.taskName ? ` · ${esc(event.taskName)}` : ""}</small>
+          <small>${esc(window.WhiteboxI18n.observedText(event.label))}${event.taskName ? ` · ${esc(event.taskName)}` : ""}</small>
           <strong>${esc(text)}</strong>
           </span>
         <time>${esc(timeOnly(event.timestamp))}</time>

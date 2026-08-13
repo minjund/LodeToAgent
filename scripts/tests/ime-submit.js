@@ -9,7 +9,7 @@ function createImeSubmit(root) {
   const source = fs.readFileSync(path.join(root, 'renderer', 'ime-submit.js'), 'utf8');
   const sandbox = { window: {}, setTimeout, clearTimeout };
   vm.runInNewContext(source, sandbox, { filename: 'ime-submit.js' });
-  return sandbox.window.LoadToAgentImeSubmit;
+  return sandbox.window.WhiteboxImeSubmit;
 }
 
 function inputFixture(value = '한글 질문') {

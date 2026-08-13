@@ -1,6 +1,6 @@
 'use strict';
 
-window.LoadToAgentTerminalEventKeys = {
+window.WhiteboxTerminalEventKeys = {
   handleClaudeModeCycle(event, context = {}) {
     const modeCycleKey = event?.type === 'keydown'
       && event.key === 'Tab'
@@ -20,8 +20,8 @@ window.LoadToAgentTerminalEventKeys = {
 };
 
 /** Bind terminal DOM/preload events using dependencies owned by terminal.js. */
-window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxTerminalEvents = function bindTerminalEvents(context) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, state, createTerminal, openTmuxModal, refreshSnapshot, selectSession, selectTmux,
     sendCommand, currentTargetId, sendSignal, currentSession, guarded, renderAll, showSelection,
@@ -222,7 +222,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       if (reopen) {
         const id = reopen.dataset.terminalRestartInline;
         const restarted = await runBusy(reopen, () => guarded(
-          () => window.loadtoagent.terminalRestart(id),
+          () => window.whitebox.terminalRestart(id),
           t('terminal.session.restarted'),
           `terminal-restart:${id}`,
         ));
@@ -268,7 +268,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       setTimeout(() => { state.sessionDragJustEnded = false; }, 0);
       if (changed) {
         renderAll();
-        notice(window.LoadToAgentI18n.t('terminal.reordered'), 'success');
+        notice(window.WhiteboxI18n.t('terminal.reordered'), 'success');
       }
     });
     sessionList.addEventListener('dragend', () => {
@@ -300,7 +300,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       if (!changed) return;
       renderAll();
       requestAnimationFrame(() => sessionList.querySelector(`[data-terminal-id="${CSS.escape(item.dataset.terminalId)}"]`)?.focus());
-      notice(window.LoadToAgentI18n.t('terminal.reordered'), 'success');
+      notice(window.WhiteboxI18n.t('terminal.reordered'), 'success');
     });
     $('#terminalTmuxList').addEventListener('click', event => {
       const item = event.target.closest('[data-tmux-distro][data-tmux-pane]');
@@ -321,7 +321,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#terminalCommandForm').addEventListener('submit', async event => {
       event.preventDefault();
-      window.LoadToAgentImeSubmit?.handleSubmit(event.currentTarget);
+      window.WhiteboxImeSubmit?.handleSubmit(event.currentTarget);
       if (state.commandSending) return;
       const input = $('#terminalCommandInput');
       const sent = await sendCommand(input.value);
@@ -356,12 +356,12 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       $('#terminalCommandForm button[type="submit"]').disabled = state.commandSending
         || event.target.disabled
         || !event.target.value.trim();
-      if (warning && !wasWarning) window.LoadToAgentA11y?.announce(t('quality.command_near_limit', { count: 8_000 - event.target.value.length }));
+      if (warning && !wasWarning) window.WhiteboxA11y?.announce(t('quality.command_near_limit', { count: 8_000 - event.target.value.length }));
       state.commandHistoryNavigation = { targetId, index: -1, draft: event.target.value };
       composer?.sync();
     });
     $('#terminalCommandInput').addEventListener('keydown', event => {
-      if (window.LoadToAgentTerminalEventKeys.handleClaudeModeCycle(event, {
+      if (window.WhiteboxTerminalEventKeys.handleClaudeModeCycle(event, {
         provider: currentTerminalProvider(),
         isAiSession: isAiTerminalSession(currentSession()),
         sendRawInput: sendRawInputToCurrentSession,
@@ -373,7 +373,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         return;
       }
       if (composer?.handleKeydown(event)) return;
-      if (window.LoadToAgentImeSubmit?.handleKeydown(event, event.currentTarget)) return;
+      if (window.WhiteboxImeSubmit?.handleKeydown(event, event.currentTarget)) return;
       if (event.key === 'Escape' && event.currentTarget.value) {
         event.preventDefault();
         $('#terminalCommandClearBtn').click();
@@ -403,7 +403,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       });
     });
     $('#terminalCommandInput').addEventListener('compositionend', event => {
-      window.LoadToAgentImeSubmit?.handleCompositionEnd(event);
+      window.WhiteboxImeSubmit?.handleCompositionEnd(event);
     });
     $('#terminalCommandClearBtn').addEventListener('click', () => {
       const input = $('#terminalCommandInput');
@@ -417,7 +417,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       $('#terminalCommandCount').classList.remove('warning');
       composer?.sync();
       input.focus({ preventScroll: true });
-      window.LoadToAgentA11y?.announce(t('quality.terminal_draft_cleared'));
+      window.WhiteboxA11y?.announce(t('quality.terminal_draft_cleared'));
     });
     $('#terminalFontDecreaseBtn').addEventListener('click', () => setTerminalFontSize(state.terminalFontSize - 1));
     $('#terminalFontIncreaseBtn').addEventListener('click', () => setTerminalFontSize(state.terminalFontSize + 1));
@@ -433,8 +433,8 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
         const managedSession = session.backend === 'managed-tmux';
         const restarted = await guarded(
           () => managedSession
-            ? window.loadtoagent.terminalReconnect(session.id)
-            : window.loadtoagent.terminalRestart(session.id),
+            ? window.whitebox.terminalReconnect(session.id)
+            : window.whitebox.terminalRestart(session.id),
           managedSession ? t('terminal.session.reconnected') : t('terminal.session.restarted'),
           `${managedSession ? 'terminal-reconnect' : 'terminal-restart'}:${session.id}`,
         );
@@ -458,8 +458,8 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
           : session.type === 'tmux' ? t('terminal.tmux.detached_input') : t('terminal.session.ended');
         const closed = await guarded(
           () => stopManagedSession
-            ? window.loadtoagent.terminalStop(session.id)
-            : window.loadtoagent.terminalClose(session.id),
+            ? window.whitebox.terminalStop(session.id)
+            : window.whitebox.terminalClose(session.id),
           message,
           `${stopManagedSession ? 'terminal-stop' : 'terminal-close'}:${session.id}`,
         );
@@ -491,7 +491,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       if (isAiTerminalSession(session)) {
         if (session.backend === 'managed-tmux' && session.status === 'running') {
           const detached = await runBusy(event.currentTarget, () => guarded(
-            () => window.loadtoagent.terminalDetach(session.id),
+            () => window.whitebox.terminalDetach(session.id),
             t('terminal.tmux.detached_input'),
             `terminal-detach:${session.id}`,
           ));
@@ -528,7 +528,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     $('#terminalTmuxLayout').addEventListener('change', async event => {
       const remote = currentTmux();
       if (!remote) return;
-      const result = await guarded(() => window.loadtoagent.tmuxSelectLayout({ distro: remote.distro.name, target: remote.window.nativeId, layout: event.target.value }), t('terminal.tmux.layout_changed'), `tmux-layout:${remote.window.nativeId}`);
+      const result = await guarded(() => window.whitebox.tmuxSelectLayout({ distro: remote.distro.name, target: remote.window.nativeId, layout: event.target.value }), t('terminal.tmux.layout_changed'), `tmux-layout:${remote.window.nativeId}`);
       if (result) setTimeout(refreshSnapshot, 250);
     });
     $('#tmuxCreateForm').addEventListener('submit', async event => {
@@ -543,7 +543,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       const error = $('#tmuxCreateError');
       error.classList.add('hidden');
       try {
-        const result = await window.loadtoagent.tmuxNewSession({
+        const result = await window.whitebox.tmuxNewSession({
           distro: $('#tmuxCreateDistro').value,
           name: $('#tmuxCreateName').value,
           cwd: $('#tmuxCreateCwd').value,
@@ -585,7 +585,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     });
     $('#pickTmuxCwdBtn').addEventListener('click', event => runBusy(event.currentTarget, async () => {
       try {
-        const folder = await window.loadtoagent.pickWorkspace();
+        const folder = await window.whitebox.pickWorkspace();
         if (folder) $('#tmuxCreateCwd').value = folder;
       } catch (failure) {
         notice(errorMessage(failure), 'error');
@@ -609,18 +609,18 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       const entry = currentSession() ? state.terminals.get(state.selectedId) : state.remoteTerminal;
       fitEntry(entry, state.selectedId || '');
     });
-    window.loadtoagent.onTerminalData(payload => {
+    window.whitebox.onTerminalData(payload => {
       const entry = state.terminals.get(payload && payload.id);
       const data = entry?.acceptOutput ? entry.acceptOutput(payload) : payload && payload.data;
       writeTerminalOutput(entry, data);
       schedulePendingPromptRefresh();
     });
-    window.loadtoagent.onTerminalState(payload => {
+    window.whitebox.onTerminalState(payload => {
       refreshSessions(payload);
       schedulePendingPromptRefresh(true);
     });
-    window.loadtoagent.onTerminalError(payload => notice(payload && payload.message || t('terminal.error.input_failed'), 'error'));
-    window.loadtoagent.onTerminalConnection?.(payload => {
+    window.whitebox.onTerminalError(payload => notice(payload && payload.message || t('terminal.error.input_failed'), 'error'));
+    window.whitebox.onTerminalConnection?.(payload => {
       const tone = payload?.state === 'failed' ? 'error' : payload?.state === 'connected' ? 'success' : 'info';
       notice(payload?.message || t('terminal.error.input_failed'), tone);
     });

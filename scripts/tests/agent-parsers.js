@@ -319,14 +319,14 @@ function registerClaudeParserTests(context) {
 
     const managed = mergeManagedWithHistory(completed, {
       ...completed,
-      source: 'loadtoagent',
+      source: 'whitebox',
       runId: 'managed-run',
       file: 'managed-events.jsonl',
       messages: [{ id: 'managed-final', role: 'assistant', text: '관리 실행 완료', timestamp: '2026-07-14T02:00:07Z' }],
       childIds: [],
       collaboration: { capacity: {}, spawns: [], communications: [], retainedAgents: [] },
     });
-    assert.equal(managed.source, 'loadtoagent');
+    assert.equal(managed.source, 'whitebox');
     assert.equal(managed.historyFile, completed.file);
     assert.equal(managed.collaboration.spawns.length, 1);
     assert.equal(managed.collaboration.communications.length, 5);

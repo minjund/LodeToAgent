@@ -4,7 +4,7 @@ const assert = require('assert');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { BridgeServer } = require('../../src/bridgeServer');
-const { createSocketBackpressure, createStdoutBackpressure } = require('../../bin/loadtoagent');
+const { createSocketBackpressure, createStdoutBackpressure } = require('../../bin/whitebox');
 
 class FakeBridgeSocket extends EventEmitter {
   constructor({ blockFirstWrite = false } = {}) {

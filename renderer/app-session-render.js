@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRenderer(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createSessionRenderer = function createSessionRenderer(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $,
     esc,
@@ -76,7 +76,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     if (user) rows.push({ label: t("session.me"), text: readablePreview(user.text, 140).text, tone: "user" });
     if (assistant) rows.push({ label: providerInfo(session.provider).label, text: readablePreview(assistant.text, 140).text, tone: "assistant" });
     else if (tool) rows.push({ label: tool.title || t("session.tool"), text: readablePreview(tool.text, 140).text, tone: "tool" });
-    if (!rows.length) rows.push({ label: t("session.status"), text: window.LoadToAgentI18n.observedText(session.statusDetail || t("session.waiting_for_event")), tone: "system" });
+    if (!rows.length) rows.push({ label: t("session.status"), text: window.WhiteboxI18n.observedText(session.statusDetail || t("session.waiting_for_event")), tone: "system" });
     return rows.slice(-2);
   }
 
@@ -86,14 +86,14 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const conversation = recentConversation(session);
     const titlePreview = readablePreview(session.title, 96);
     const latest = conversation[conversation.length - 1];
-    const activityCopy = latest?.text || latestWorkCopy(session) || window.LoadToAgentI18n.observedText(session.statusDetail) || t("session.waiting_for_new_event");
+    const activityCopy = latest?.text || latestWorkCopy(session) || window.WhiteboxI18n.observedText(session.statusDetail) || t("session.waiting_for_new_event");
     const activityPreview = readablePreview(activityCopy, 138);
     const accessibleId = `session-${String(session.id || "").replace(/[^a-zA-Z0-9_-]/g, "-")}`;
     const originPath = sessionOriginPath(session);
     const originLabel = sessionWorkspaceLabel(session);
     const explicitWaiting = session?.attention?.category === "required"
       && ["execution-approval", "input-tool"].includes(session.attention.source);
-    const presentationStatus = window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || explicitWaiting ? "waiting" : session.status;
+    const presentationStatus = window.WhiteboxTerminal?.pendingPromptForSession?.(session) || explicitWaiting ? "waiting" : session.status;
     return `<article class="session-card session-record ${opts.live ? "live-card" : ""} ${statusClass(presentationStatus)} ${session.parentId ? "subagent" : ""}"
       data-session-id="${esc(session.id)}"
       data-session-sortable="${esc(session.id)}"
@@ -110,7 +110,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       </div>
       ${sessionBadgesHtml(session, { compact: true })}
       <h3 id="${accessibleId}-title" class="card-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</h3>
-      <div class="card-subtitle"><span class="origin-project" title="${esc(isProjectlessSession(session) ? window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project") : originPath)}"
+      <div class="card-subtitle"><span class="origin-project" title="${esc(isProjectlessSession(session) ? window.WhiteboxI18n.t("ui.session_not_linked_to_a_specific_project") : originPath)}"
           aria-label="${esc(t("project.origin_named", { name: originLabel }))}">
           <small>${esc(t("project.origin"))}</small><b>${esc(originLabel)}</b></span></div>
       <div id="${accessibleId}-summary" class="now-strip">
@@ -213,7 +213,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
   function memoryActivityTime(value) {
     const date = new Date(value);
     if (!Number.isFinite(date.getTime())) return t("memory.time_unknown");
-    const localeTag = window.LoadToAgentI18n.getLocaleTag();
+    const localeTag = window.WhiteboxI18n.getLocaleTag();
     return new Intl.DateTimeFormat(localeTag, {
       year: "numeric", month: "long", day: "numeric",
       hour: localeTag.startsWith("ko") ? "2-digit" : "numeric",
@@ -305,7 +305,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderUpdateSettings();
     if (runtimeView) {
       $("#liveSection").classList.add("hidden");
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.deactivate();
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
@@ -314,14 +314,14 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       $("#liveSection").classList.add("hidden");
       renderAttentionPopupSettings();
       renderProviderVisibilitySettings();
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.deactivate();
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
     }
     if (terminalView) {
       $("#liveSection").classList.add("hidden");
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(visibleSnapshot(), state.workspaces, "general");
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.activate(visibleSnapshot(), state.workspaces, "general");
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
@@ -329,12 +329,12 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     if (tmuxView) {
       $("#liveSection").classList.add("hidden");
       renderTmuxMap();
-      if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.activate(visibleSnapshot(), state.workspaces, "tmux");
+      if (window.WhiteboxTerminal) window.WhiteboxTerminal.activate(visibleSnapshot(), state.workspaces, "tmux");
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
       if (motionKind === "view") animateVisibleSections();
       return;
     }
-    if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
+    if (window.WhiteboxTerminal) window.WhiteboxTerminal.deactivate();
     const sessions = filteredSessions();
     if (operationsView) renderOperationsOverview();
     const attentionCount = attentionView ? renderAttentionInbox() : 0;
@@ -352,7 +352,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const resultSummaryKey = window.matchMedia("(max-width: 760px)").matches
       ? "quality.results_summary_mobile"
       : "quality.results_summary";
-    $("#sessionResultSummary").textContent = window.LoadToAgentI18n.t(resultSummaryKey, {
+    $("#sessionResultSummary").textContent = window.WhiteboxI18n.t(resultSummaryKey, {
       count: resultCount,
       total: resultCount,
       shown: visible.length,
@@ -361,23 +361,23 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     const activeEmpty = homeView && projectSelected && !state.graphFocusId && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
     $("#liveSection").classList.toggle("hidden", !homeView || !projectSelected);
-    $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
+    $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.WhiteboxI18n.t("ui.recent_conversations_and_tasks");
     $("#sessionGrid").innerHTML = visible.map((session) => memoryView ? memoryCard(session) : sessionCard(session)).join("");
     if (memoryView) renderMemoryMetrics(regular);
     $("#sessionGrid").classList.toggle("hidden", visible.length === 0);
     $("#loadMoreBtn").classList.toggle("hidden", regular.length <= effectiveLimit);
-    $("#loadMoreBtn").textContent = window.LoadToAgentI18n.t("common.remaining", { count: Math.max(0, regular.length - visible.length) });
+    $("#loadMoreBtn").textContent = window.WhiteboxI18n.t("common.remaining", { count: Math.max(0, regular.length - visible.length) });
     $("#emptyState").classList.toggle("hidden", attentionView || graphLiveCount + regular.length !== 0);
     const hasConditions = Boolean(state.search || state.providerFilters.size || state.workspace !== "all" || state.sort !== "recent");
     $("#emptyClearFiltersBtn").classList.toggle("hidden", resultCount !== 0 || !hasConditions);
     if (graphLiveCount + regular.length === 0) {
       const emptyCopy = state.search
-        ? [window.LoadToAgentI18n.t("ui.no_search_results"), window.LoadToAgentI18n.t("ui.clear_the_search_or_change_the_ai_and_workspace_filters")]
+        ? [window.WhiteboxI18n.t("ui.no_search_results"), window.WhiteboxI18n.t("ui.clear_the_search_or_change_the_ai_and_workspace_filters")]
         : memoryView
-          ? [window.LoadToAgentI18n.t("memory.empty_title"), window.LoadToAgentI18n.t("memory.empty_description")]
+          ? [window.WhiteboxI18n.t("memory.empty_title"), window.WhiteboxI18n.t("memory.empty_description")]
           : state.view === "waiting"
-            ? [window.LoadToAgentI18n.t("ui.all_caught_up"), window.LoadToAgentI18n.t("ui.no_tasks_are_waiting_for_your_response_or_choice")]
-            : [window.LoadToAgentI18n.t("ui.no_tasks_to_show_yet"), window.LoadToAgentI18n.t("ui.check_ai_readiness_then_start_your_first_task")];
+            ? [window.WhiteboxI18n.t("ui.all_caught_up"), window.WhiteboxI18n.t("ui.no_tasks_are_waiting_for_your_response_or_choice")]
+            : [window.WhiteboxI18n.t("ui.no_tasks_to_show_yet"), window.WhiteboxI18n.t("ui.check_ai_readiness_then_start_your_first_task")];
       $("#emptyState h3").textContent = emptyCopy[0];
       $("#emptyState p").textContent = emptyCopy[1];
     }
@@ -387,7 +387,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
 
   function renderSessions(motionKind = "refresh", deferMotion = false) {
     return preserveFocusDuringRender(() => {
-      const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+      const restoreScroll = window.WhiteboxRendererUtils.preserveScrollPositions(
         motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
       );
       context.rememberDisclosureStates?.(document);
@@ -413,7 +413,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
 
   function render(motionKind = "refresh") {
     return preserveFocusDuringRender(() => {
-      const restoreScroll = window.LoadToAgentRendererUtils.preserveScrollPositions(
+      const restoreScroll = window.WhiteboxRendererUtils.preserveScrollPositions(
         motionKind === "view" ? [".main-stage"] : [".main-stage", ".sidebar"],
       );
       context.rememberDisclosureStates?.(document);

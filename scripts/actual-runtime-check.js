@@ -14,7 +14,7 @@ async function pageTarget() {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
       const targets = await fetch(`http://127.0.0.1:${port}/json`).then(response => response.json());
-      const target = targets.find(item => item.type === 'page' && /LoadToAgent/i.test(item.title || '')) || targets.find(item => item.type === 'page');
+      const target = targets.find(item => item.type === 'page' && /Whitebox/i.test(item.title || '')) || targets.find(item => item.type === 'page');
       if (target && target.webSocketDebuggerUrl) return target;
     } catch {}
     await pause(250);
@@ -90,7 +90,7 @@ async function screenshot(send, name) {
     if (runtimeSplit.segments !== runtimeSplit.expectedSegments || runtimeSplit.firstIsTmux !== runtimeSplit.tmuxLive || runtimeSplit.tmuxCards !== 0 || runtimeSplit.overflow) throw new Error(`실제 진행 중 실행 방식 분리 UI가 맞지 않습니다: ${JSON.stringify(runtimeSplit)}`);
     await pause(700);
     await evaluate(send, `(() => { for (const animation of document.getAnimations()) { try { animation.finish(); } catch {} } return true; })()`);
-    const runtimeSplitImage = await screenshot(send, 'loadtoagent-actual-runtime-split.png');
+    const runtimeSplitImage = await screenshot(send, 'whitebox-actual-runtime-split.png');
     const tmuxOpen = await evaluate(send, `(() => { state.view = 'tmux'; renderSessions('view'); const pane = document.querySelector('[data-tmux-type="pane"][data-tmux-id]'); const id = pane?.dataset.tmuxId || ''; pane?.click(); return { id, view: state.view, focus: state.tmuxFocus }; })()`);
     if (!tmuxOpen.id || tmuxOpen.view !== 'tmux' || tmuxOpen.focus?.id !== tmuxOpen.id) throw new Error(`TMUX 자원을 전용 탭에서 열지 못했습니다: ${JSON.stringify(tmuxOpen)}`);
     await evaluate(send, `(() => {
@@ -112,7 +112,7 @@ async function screenshot(send, name) {
     if (!probe || probe.childIds < 1 || probe.domChildren !== 0 || !probe.completedToggle || probe.completedExpanded || probe.legacyFilters !== 0 || probe.recentSubagents !== 0 || probe.parsedSpawns !== probe.childIds
       || probe.domCommunications !== Math.min(probe.relevantCommunications, 60)
       || probe.domCommunicationTotal !== probe.relevantCommunications) throw new Error(`실제 세션의 서브에이전트 또는 통신 기록 수가 맞지 않습니다: ${JSON.stringify(probe)}`);
-    const collapsedWorkflow = await screenshot(send, 'loadtoagent-actual-collaboration-collapsed.png');
+    const collapsedWorkflow = await screenshot(send, 'whitebox-actual-collaboration-collapsed.png');
     await evaluate(send, `(() => { document.querySelector('[data-subagent-completed-toggle]')?.click(); return true; })()`);
     await waitFor(send, `document.querySelectorAll('.downstream-column .agent-workflow-node').length === ${probe.childIds} && Boolean(document.querySelector('[data-completed-subagent-list]'))`, '완료된 서브에이전트 펼치기가 동작하지 않았습니다.');
     await pause(700);
@@ -157,18 +157,18 @@ async function screenshot(send, name) {
       && !metrics.legacyProtectionCopy
       && metrics.taskNames.length === metrics.childCards && metrics.agentNames.length === metrics.childCards && metrics.outcomes.length === metrics.childCards;
     if (!expected) throw new Error(`실제 앱 협업 수치가 맞지 않습니다: ${JSON.stringify({ parsedMetrics, probe, metrics })}`);
-    const workflow = await screenshot(send, 'loadtoagent-actual-collaboration-workflow.png');
+    const workflow = await screenshot(send, 'whitebox-actual-collaboration-workflow.png');
     const focusBeforeConversation = await evaluate(send, 'state.graphFocusId');
     const selectedConversation = await evaluate(send, `(() => { const cards = [...document.querySelectorAll('[data-open-subagent-chat]')]; const wanted = ${JSON.stringify(childTaskName)}; const card = wanted ? cards.find(node => state.snapshot.sessions.find(item => item.id === node.dataset.openSubagentChat)?.taskName === wanted) : cards[cards.length - 1]; const id = card?.dataset.openSubagentChat || ''; const session = state.snapshot.sessions.find(item => item.id === id); const expectedEvents = session ? subagentCoordinationEvents(session).length : 0; const expectsResume = Boolean(session && !isLiveSession(session) && agentResumeSupport(session).supported); card?.click(); return { id, taskName: session?.taskName || '', expectedEvents, expectsResume, clientKind: session?.clientKind || '', assignmentSource: session?.delegation?.assignmentSource || '' }; })()`);
     await waitFor(send, `!document.querySelector('.drawer-loading') && Boolean(document.querySelector('[data-subagent-work-messages]'))`, '실제 서브에이전트 전체 작업 기록을 불러오지 못했습니다.');
     const conversationMetrics = await evaluate(send, `({ focusId: state.graphFocusId, drawerMode: state.drawerMode, events: document.querySelectorAll('[data-subagent-communication]').length, workMessages: Number(document.querySelector('[data-subagent-work-messages]')?.dataset.subagentWorkMessages || 0), assistantMessages: document.querySelectorAll('#drawerContent .chat-row.assistant').length, coordinationCollapsed: !document.querySelector('.subagent-coordination')?.open, visibleTabs: document.querySelectorAll('.drawer-tab:not(.hidden)').length, resumeAvailable: Boolean(document.querySelector('[data-resume-agent]')), composerHidden: document.querySelector('#drawerComposer')?.classList.contains('hidden') && !document.querySelector('#drawerComposer [data-agent-command-form], #drawerComposer [data-agent-command-draft]'), assignmentVisible: Boolean(document.querySelector('.subagent-assignment-card')), text: document.querySelector('#drawerContent')?.innerText || '' })`);
     if (!selectedConversation.id || (childTaskName && selectedConversation.taskName !== childTaskName) || (childTaskName && !['protected', 'spawn-message'].includes(selectedConversation.assignmentSource)) || conversationMetrics.workMessages < 1 || conversationMetrics.assistantMessages < 1 || !conversationMetrics.text.includes('도움 AI 응답과 진행') || /보호된 메시지|내용 없이 통신 상태|도움 AI 실행이 시작|실제로 보낸 작업 지시는|도움 AI에게 일을 맡기기 직전/.test(conversationMetrics.text) || (selectedConversation.assignmentSource === 'protected' && conversationMetrics.assignmentVisible) || !conversationMetrics.composerHidden || conversationMetrics.focusId !== focusBeforeConversation || conversationMetrics.drawerMode !== 'subagent' || conversationMetrics.events !== selectedConversation.expectedEvents || !conversationMetrics.coordinationCollapsed || conversationMetrics.visibleTabs !== 1 || conversationMetrics.resumeAvailable !== selectedConversation.expectsResume) throw new Error(`실제 앱 도움 AI 응답 상세가 맞지 않습니다: ${JSON.stringify({ selectedConversation, conversationMetrics })}`);
-    const subagentConversation = await screenshot(send, 'loadtoagent-actual-subagent-conversation.png');
+    const subagentConversation = await screenshot(send, 'whitebox-actual-subagent-conversation.png');
     await evaluate(send, `(() => { document.querySelector('#closeDrawerBtn')?.click(); return true; })()`);
     await pause(350);
     await evaluate(send, `(() => { document.querySelector('.agent-communication-panel')?.scrollIntoView({ block: 'start' }); return true; })()`);
     await pause(350);
-    const communication = await screenshot(send, 'loadtoagent-actual-collaboration-communication.png');
+    const communication = await screenshot(send, 'whitebox-actual-collaboration-communication.png');
     process.stdout.write(`${JSON.stringify({ ok: true, sessionId, runtimeSplit, runtimeSplitImage, probe, metrics, selectedConversation, conversationMetrics, collapsedWorkflow, workflow, subagentConversation, communication }, null, 2)}\n`);
   } finally {
     socket.close();

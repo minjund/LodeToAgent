@@ -54,7 +54,7 @@
       $, state, currentTargetId, isAiTarget, providerForTarget, allowSlashCommands,
       esc = value => String(value ?? ''),
     } = context;
-    const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+    const t = (key, params) => window.WhiteboxI18n.t(key, params);
     let bound = false;
     let menuOpen = false;
     let activeIndex = 0;
@@ -227,7 +227,7 @@
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.focus({ preventScroll: true });
       input.setSelectionRange(input.value.length, input.value.length);
-      window.LoadToAgentA11y?.announce(t('terminal.slash.selected', { command: command.value }));
+      window.WhiteboxA11y?.announce(t('terminal.slash.selected', { command: command.value }));
       return true;
     }
 
@@ -275,7 +275,7 @@
       longDraftExpanded = !longDraftExpanded;
       syncLongDraft();
       $('#terminalCommandInput')?.focus({ preventScroll: true });
-      window.LoadToAgentA11y?.announce(t(longDraftExpanded ? 'terminal.composer.expanded_announcement' : 'terminal.composer.collapsed_announcement'));
+      window.WhiteboxA11y?.announce(t(longDraftExpanded ? 'terminal.composer.expanded_announcement' : 'terminal.composer.collapsed_announcement'));
     }
 
     function bind() {
@@ -310,7 +310,7 @@
     };
   }
 
-  window.LoadToAgentTerminalComposer = Object.freeze({
+  window.WhiteboxTerminalComposer = Object.freeze({
     create: createTerminalComposer,
     commandsForProvider,
     filterCommands,

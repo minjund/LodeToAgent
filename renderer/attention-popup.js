@@ -354,7 +354,7 @@
     current = request;
     busy = false;
     document.documentElement.lang = request.locale || 'ko';
-    document.title = `${request.title || '확인 요청'} · LoadToAgent`;
+    document.title = `${request.title || '확인 요청'} · Whitebox`;
     card.replaceChildren();
     card.dataset.type = request.type;
     card.setAttribute('role', 'dialog');

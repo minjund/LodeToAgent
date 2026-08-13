@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-project-selection-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-project-selection-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -46,12 +46,12 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, 'Boolean(window.LoadToAgentApp?.initialized)', '앱 초기화를 기다리다 시간이 초과되었습니다.');
-    await win.webContents.executeJavaScript(`window.LoadToAgentI18n.setLocale('ko')`);
+    await waitFor(win, 'Boolean(window.WhiteboxApp?.initialized)', '앱 초기화를 기다리다 시간이 초과되었습니다.');
+    await win.webContents.executeJavaScript(`window.WhiteboxI18n.setLocale('ko')`);
     await waitFor(
       win,
-      `Boolean(window.LoadToAgentApp?.initialized
-        && window.LoadToAgentApp.state.workspace === 'all'
+      `Boolean(window.WhiteboxApp?.initialized
+        && window.WhiteboxApp.state.workspace === 'all'
         && !document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
         && document.querySelector('#projectSelectionPrompt h2')?.textContent.trim() === '프로젝트를 선택해주세요'
         && document.querySelectorAll('#projectSidebarList [data-workspace]').length >= 2)`,
@@ -60,7 +60,7 @@ app.whenReady().then(async () => {
 
     if (reorderOnly) {
       const projectReorder = await win.webContents.executeJavaScript(`(() => {
-        const app = window.LoadToAgentApp;
+        const app = window.WhiteboxApp;
         const list = document.querySelector('#projectSidebarList');
         const selector = '.project-sidebar-group[data-project-sortable]';
         const groups = [...list.querySelectorAll(selector)];
@@ -154,7 +154,7 @@ app.whenReady().then(async () => {
           || (priorityDifference === 0 && collator.compare(previous.name, project.name) <= 0);
       });
       return {
-        workspace: window.LoadToAgentApp.state.workspace,
+        workspace: window.WhiteboxApp.state.workspace,
         prompt: prompt?.querySelector('h2')?.textContent.trim() || '',
         designReady: Boolean(prompt?.querySelector('.project-selection-visual') && !prompt?.querySelector('.project-selection-flow')),
         ongoingAnimations: [...(prompt?.querySelectorAll('.project-selection-orbit, .project-selection-stack, .project-selection-scan') || [])]
@@ -202,7 +202,7 @@ app.whenReady().then(async () => {
 
     const outputDir = path.join(__dirname, '..', 'artifacts');
     fs.mkdirSync(outputDir, { recursive: true });
-    const initialOutput = path.join(outputDir, 'loadtoagent-project-selection.png');
+    const initialOutput = path.join(outputDir, 'whitebox-project-selection.png');
     await capture(win, initialOutput);
 
     const removeHoverBefore = await win.webContents.executeJavaScript(`(() => {
@@ -253,14 +253,14 @@ app.whenReady().then(async () => {
       || removeHoverAfter.scrollWidth > removeHoverAfter.clientWidth + 1) {
       throw new Error(`프로젝트 삭제 버튼 호버·가로 넘침 검증 실패: ${JSON.stringify({ removeHoverBefore, removeHoverAfter })}`);
     }
-    const removeHoverOutput = path.join(outputDir, 'loadtoagent-project-remove-hover.png');
+    const removeHoverOutput = path.join(outputDir, 'whitebox-project-remove-hover.png');
     await capture(win, removeHoverOutput);
     win.webContents.sendInputEvent({ type: 'mouseMove', x: 900, y: 700 });
 
     await win.webContents.executeJavaScript(`document.querySelector('#sidebarSettingsBtn')?.click()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.view === 'settings'
+      `window.WhiteboxApp.state.view === 'settings'
         && !document.querySelector('#settingsSection')?.classList.contains('hidden')`,
       'AI 목록 위 설정 버튼에서 설정 화면을 열지 못했습니다.',
     );
@@ -307,7 +307,7 @@ app.whenReady().then(async () => {
       || settingsHelpLayout.legacyHelpCopyVisible) {
       throw new Error(`설정 도움말 제거·탐색 탭·브랜드 단축키 배치 검증 실패: ${JSON.stringify(settingsHelpLayout)}`);
     }
-    const settingsOutput = path.join(outputDir, 'loadtoagent-settings-with-brand-shortcut.png');
+    const settingsOutput = path.join(outputDir, 'whitebox-settings-with-brand-shortcut.png');
     await capture(win, settingsOutput);
     await win.webContents.executeJavaScript(`document.querySelector('#shortcutHelpBtn')?.click()`);
     await waitFor(win, `!document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '브랜드 단축키 버튼이 키보드 도움말을 열지 못했습니다.');
@@ -320,16 +320,16 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.view === 'all'
-        && window.LoadToAgentApp.state.workspace === ${JSON.stringify(settingsReturnWorkspace)}`,
+      `window.WhiteboxApp.state.view === 'all'
+        && window.WhiteboxApp.state.workspace === ${JSON.stringify(settingsReturnWorkspace)}`,
       '설정 화면의 왼쪽 프로젝트 탭으로 작업 화면에 돌아오지 못했습니다.',
     );
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentApp.state.workspace = 'all';
-      window.LoadToAgentApp.renderWorkspaces();
-      window.LoadToAgentApp.renderSessions('filter');
+      window.WhiteboxApp.state.workspace = 'all';
+      window.WhiteboxApp.renderWorkspaces();
+      window.WhiteboxApp.renderSessions('filter');
     })()`);
-    await waitFor(win, `window.LoadToAgentApp.state.view === 'all' && window.LoadToAgentApp.state.workspace === 'all'`, '프로젝트 선택 화면 복원에 실패했습니다.');
+    await waitFor(win, `window.WhiteboxApp.state.view === 'all' && window.WhiteboxApp.state.workspace === 'all'`, '프로젝트 선택 화면 복원에 실패했습니다.');
 
     const selectedWorkspace = await win.webContents.executeJavaScript(`(() => {
       const first = document.querySelector('#projectSidebarList [data-workspace]');
@@ -339,7 +339,7 @@ app.whenReady().then(async () => {
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === ${JSON.stringify(selectedWorkspace)}
+      `window.WhiteboxApp.state.workspace === ${JSON.stringify(selectedWorkspace)}
         && document.querySelector('#projectSelectionPrompt')?.classList.contains('hidden')
         && !document.querySelector('#liveSection')?.classList.contains('hidden')`,
       '프로젝트 선택 결과가 열리지 않았습니다.',
@@ -388,18 +388,18 @@ app.whenReady().then(async () => {
       throw new Error(`전체 프로젝트 유지·선택 프로젝트 단일 행 검증 실패: ${JSON.stringify(selected)}`);
     }
 
-    const selectedOutput = path.join(outputDir, 'loadtoagent-project-selected-all-visible.png');
+    const selectedOutput = path.join(outputDir, 'whitebox-project-selected-all-visible.png');
     await capture(win, selectedOutput);
 
     await win.webContents.executeJavaScript(`document.querySelector('[data-control-review] [data-open-session]')?.click()`);
     await waitFor(
       win,
       `document.querySelector('#detailDrawer')?.classList.contains('open')
-        && window.LoadToAgentApp.state.selectedId === ${JSON.stringify(selected.reviewCards[0].sessionId)}`,
+        && window.WhiteboxApp.state.selectedId === ${JSON.stringify(selected.reviewCards[0].sessionId)}`,
       '확인할 내용의 바로가기에서 해당 AI 대화를 열지 못했습니다.',
     );
     const directReview = await win.webContents.executeJavaScript(`(() => ({
-      selectedId: window.LoadToAgentApp.state.selectedId,
+      selectedId: window.WhiteboxApp.state.selectedId,
       drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open'),
       drawerTitle: document.querySelector('#drawerTitle')?.textContent.trim() || '',
     }))()`);
@@ -434,7 +434,7 @@ app.whenReady().then(async () => {
       || !runModal.pickerHidden || !runModal.suggestionsHidden) {
       throw new Error(`새 AI 작업의 프로젝트 고정 검증 실패: ${JSON.stringify(runModal)}`);
     }
-    const modalOutput = path.join(outputDir, 'loadtoagent-project-locked-new-task.png');
+    const modalOutput = path.join(outputDir, 'whitebox-project-locked-new-task.png');
     await capture(win, modalOutput);
     await win.webContents.executeJavaScript(`document.querySelector('#cancelRunBtn')?.click()`);
     await waitFor(win, `document.querySelector('#runModal')?.classList.contains('hidden')`, '새 AI 작업 창이 닫히지 않았습니다.');
@@ -459,7 +459,7 @@ Would you like to make the following edits?
     })()`);
     await waitFor(
       win,
-      `window.LoadToAgentApp.state.workspace === ${JSON.stringify(approvalWorkspace)}
+      `window.WhiteboxApp.state.workspace === ${JSON.stringify(approvalWorkspace)}
         && document.querySelectorAll('[data-terminal-prompt] [data-terminal-prompt-choice]').length === 3`,
       'Codex 파일 수정 승인 선택지가 프로젝트 화면에 나타나지 않았습니다.',
       220,
@@ -476,7 +476,7 @@ Would you like to make the following edits?
       || approval.choices.map(choice => choice.id).join(',') !== 'proceed,always,reject') {
       throw new Error(`파일 수정 승인 내용·선택지 검증 실패: ${JSON.stringify(approval)}`);
     }
-    const approvalOutput = path.join(outputDir, 'loadtoagent-project-file-approval.png');
+    const approvalOutput = path.join(outputDir, 'whitebox-project-file-approval.png');
     await capture(win, approvalOutput);
     await win.webContents.executeJavaScript(`document.querySelector('[data-terminal-prompt-choice="proceed"]')?.click()`);
     await wait(900);
@@ -485,7 +485,7 @@ Would you like to make the following edits?
       promptVisible: Boolean(document.querySelector('[data-terminal-prompt]')),
       buttonDisabled: Boolean(document.querySelector('[data-terminal-prompt-choice="proceed"]')?.disabled),
       buttonError: document.querySelector('[data-terminal-prompt-choice="proceed"]')?.dataset.error || '',
-      pendingPrompt: window.LoadToAgentTerminal.pendingPromptForSession('fixture-root'),
+      pendingPrompt: window.WhiteboxTerminal.pendingPromptForSession('fixture-root'),
     }))()`);
     if (approvalState.promptVisible) {
       throw new Error(`파일 수정 승인 선택 후 확인 카드가 정리되지 않았습니다: ${JSON.stringify(approvalState)}`);
@@ -505,7 +505,7 @@ Would you like to make the following edits?
         window.interactionTest.clearCalls();
         window.interactionTest.setTerminalReplay('terminal-main', ${JSON.stringify(promptVariant)});
         window.interactionTest.emitSnapshot();
-        window.LoadToAgentTerminal.refreshPendingPrompts();
+        window.WhiteboxTerminal.refreshPendingPrompts();
       })()`);
       await waitFor(
         win,
@@ -535,14 +535,14 @@ Would you like to make the following edits?
       if (choiceId === 'reject') {
         await waitFor(
           win,
-          `window.LoadToAgentApp.state.view === 'terminal'`,
+          `window.WhiteboxApp.state.view === 'terminal'`,
           '수정 거절 후 원래 Codex 입력 화면이 열리지 않았습니다.',
         );
-        await win.webContents.executeJavaScript(`window.LoadToAgentApp.selectView('all')`);
+        await win.webContents.executeJavaScript(`window.WhiteboxApp.selectView('all')`);
         await waitFor(
           win,
-          `window.LoadToAgentApp.state.view === 'all'
-            && window.LoadToAgentApp.state.workspace === ${JSON.stringify(approvalWorkspace)}`,
+          `window.WhiteboxApp.state.view === 'all'
+            && window.WhiteboxApp.state.workspace === ${JSON.stringify(approvalWorkspace)}`,
           '수정 거절 후 프로젝트 화면으로 돌아오지 못했습니다.',
         );
       }
@@ -556,12 +556,12 @@ Would you like to make the following edits?
     await waitFor(
       win,
       `window.interactionTest.getCalls().some(call => call.name === 'addWorkspaces')
-        && window.LoadToAgentApp.state.workspace === 'D:\\\\fixture'`,
+        && window.WhiteboxApp.state.workspace === 'D:\\\\fixture'`,
       '왼쪽 프로젝트 추가 동작이 프로젝트를 선택하지 못했습니다.',
     );
     const addProject = await win.webContents.executeJavaScript(`(() => ({
       runModalHidden: document.querySelector('#runModal')?.classList.contains('hidden'),
-      selectedWorkspace: window.LoadToAgentApp.state.workspace,
+      selectedWorkspace: window.WhiteboxApp.state.workspace,
     }))()`);
     if (!addProject.runModalHidden || addProject.selectedWorkspace !== 'D:\\fixture') {
       throw new Error(`프로젝트 추가와 AI 작업 시작 분리 검증 실패: ${JSON.stringify(addProject)}`);

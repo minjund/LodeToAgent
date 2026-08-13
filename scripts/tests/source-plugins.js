@@ -248,7 +248,7 @@ function registerSourcePluginTests(context) {
     await host.dispose();
   });
 
-  test('LoadToAgent가 실행한 OMO 세션만 관찰된 stop 권한을 활성화한다', async () => {
+  test('Whitebox가 실행한 OMO 세션만 관찰된 stop 권한을 활성화한다', async () => {
     const controlHost = new SourcePluginControlHost({ platform: 'linux', findExecutable: () => null });
     controlHost.statuses.set(OMO_MANIFEST.id, {
       id: OMO_MANIFEST.id,

@@ -1,10 +1,10 @@
 'use strict';
 
 (() => {
-  const { $, esc, uiLocale, providerLabel, reportRecoverableError } = window.LoadToAgentRendererUtils;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const SESSION_ORDER_KEY = 'loadtoagent:terminal-session-order:v1';
-  const TERMINAL_VIEW_KEY = 'loadtoagent:terminal-view:v1';
+  const { $, esc, uiLocale, providerLabel, reportRecoverableError } = window.WhiteboxRendererUtils;
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
+  const SESSION_ORDER_KEY = 'whitebox:terminal-session-order:v1';
+  const TERMINAL_VIEW_KEY = 'whitebox:terminal-view:v1';
   const TERMINAL_SMOOTH_SCROLL_MS = 100;
   const tmuxTargetKey = (distroName, paneId) => JSON.stringify([String(distroName || ''), String(paneId || '')]);
   const XTERM_THEMES = Object.freeze({
@@ -178,7 +178,7 @@
   }
 
   function errorMessage(error) {
-    return window.LoadToAgentI18n.errorText(error, 'terminal.error.unknown');
+    return window.WhiteboxI18n.errorText(error, 'terminal.error.unknown');
   }
 
   function persistSessionOrder() {
@@ -358,14 +358,14 @@
     persistTerminalViewPreferences();
     syncTerminalViewControls();
     refitVisibleTerminal();
-    window.LoadToAgentA11y?.announce(t('terminal.view.font_size_value', { size: next }));
+    window.WhiteboxA11y?.announce(t('terminal.view.font_size_value', { size: next }));
   }
 
   function toggleTerminalFocusMode() {
     state.terminalFocusMode = !state.terminalFocusMode;
     syncTerminalViewControls();
     requestAnimationFrame(refitVisibleTerminal);
-    window.LoadToAgentA11y?.announce(state.terminalFocusMode ? t('terminal.view.focus_on') : t('terminal.view.focus_off'));
+    window.WhiteboxA11y?.announce(state.terminalFocusMode ? t('terminal.view.focus_on') : t('terminal.view.focus_off'));
   }
 
   function currentTargetId() {
@@ -377,7 +377,7 @@
 
   function visibleBoundAgent() {
     if (!state.boundAgent || state.boundTargetId !== currentTargetId()) return null;
-    if (window.LoadToAgentApp?.isProviderVisible?.(state.boundAgent.provider) === false) return null;
+    if (window.WhiteboxApp?.isProviderVisible?.(state.boundAgent.provider) === false) return null;
     return state.boundAgent;
   }
 
@@ -397,10 +397,10 @@
   }
 
   function observedProgressText(value) {
-    const observed = window.LoadToAgentI18n.observedText
-      ? window.LoadToAgentI18n.observedText(value)
+    const observed = window.WhiteboxI18n.observedText
+      ? window.WhiteboxI18n.observedText(value)
       : String(value || '');
-    const readable = window.LoadToAgentApp?.readableActivityDetail?.(observed);
+    const readable = window.WhiteboxApp?.readableActivityDetail?.(observed);
     return String(readable || observed || '').replace(/\s+/g, ' ').trim();
   }
 
@@ -472,9 +472,9 @@
           && candidate.timestamp === event.timestamp
         )))
         .slice(-4);
-      const workState = window.LoadToAgentApp?.subagentWorkState?.(session)
+      const workState = window.WhiteboxApp?.subagentWorkState?.(session)
         || (session.status === 'running' || session.status === 'starting' ? 'working' : (session.status === 'failed' ? 'attention' : 'resting'));
-      const stateLabel = window.LoadToAgentApp?.subagentWorkLabel?.(session)
+      const stateLabel = window.WhiteboxApp?.subagentWorkLabel?.(session)
         || ({ working: t('ui.working'), attention: t('ui.needs_attention'), resting: t('ui.idle') })[workState];
       return {
         session,
@@ -554,14 +554,14 @@
     $('#terminalHistoryTitle').textContent = agent.title || t('terminal.history.provider_session', { provider: providerLabel(agent.provider) });
     $('#terminalHistoryMeta').textContent = [
       providerLabel(agent.provider),
-      window.LoadToAgentI18n.t('session.messages', { count: messages.length }),
+      window.WhiteboxI18n.t('session.messages', { count: messages.length }),
       subagents.count ? t('tmux.subagents.connected_count', { count: subagents.count }) : '',
-      activityCount ? window.LoadToAgentI18n.t('terminal.activity_details', { count: activityCount }) : '',
-      messages.length > shown.length ? window.LoadToAgentI18n.t('session.latest_count', { count: shown.length }) : '',
+      activityCount ? window.WhiteboxI18n.t('terminal.activity_details', { count: activityCount }) : '',
+      messages.length > shown.length ? window.WhiteboxI18n.t('session.latest_count', { count: shown.length }) : '',
     ].filter(Boolean).join(' · ');
     const list = $('#terminalHistoryList');
     const previousTop = list.scrollTop;
-    const wasAtBottom = window.LoadToAgentRendererUtils.isScrolledToEnd(list);
+    const wasAtBottom = window.WhiteboxRendererUtils.isScrolledToEnd(list);
     const renderKey = JSON.stringify([
       agent.id,
       uiLocale(),
@@ -630,7 +630,7 @@
       if (!state.boundAgent) return;
       const id = state.boundAgent.id;
       if (state.historyRequests.has(id)) return;
-      const request = window.loadtoagent.sessionDetail(id);
+      const request = window.whitebox.sessionDetail(id);
       state.historyRequests.set(id, request);
       try {
         const detail = await request;
@@ -694,7 +694,7 @@
     const rank = new Map(normalizedSessionOrder().map((id, index) => [id, index]));
     return state.sessions
       .filter(Boolean)
-      .filter(session => session.type !== 'agent' || window.LoadToAgentApp?.isProviderVisible?.(session.provider) !== false)
+      .filter(session => session.type !== 'agent' || window.WhiteboxApp?.isProviderVisible?.(session.provider) !== false)
       .filter(session => mode === 'tmux' ? session.type === 'tmux' : session.type !== 'tmux')
       .sort((left, right) => (rank.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.id) ?? Number.MAX_SAFE_INTEGER));
   }
@@ -769,7 +769,7 @@
 
   const {
     createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput, sendRawInputToCurrentSession,
-  } = window.LoadToAgentTerminalWorkbench({
+  } = window.WhiteboxTerminalWorkbench({
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
     esc, errorMessage, modeSessions, STATUS_LABELS, visibleBoundAgent, moveWorkbench,
@@ -779,7 +779,7 @@
     updateSnapshot: (...args) => updateSnapshot(...args),
   });
 
-  composer = window.LoadToAgentTerminalComposer.create({
+  composer = window.WhiteboxTerminalComposer.create({
     $, state, currentTargetId, esc,
     isAiTarget: () => isAiTerminalSession(currentSession()),
     allowSlashCommands: () => !currentSession()?.conversationBound,
@@ -788,7 +788,7 @@
 
   const {
     agentConnectionSignature, tmuxRows, agentTargets, requiredAgentTarget, dispatchAgentCommand, interruptAgent, startAgent, openForAgent, resumeForAgent, ensureForAgent, preconnectForAgents, bindAgentConnection, resetForAgent,
-  } = window.LoadToAgentTerminalAgentActions({
+  } = window.WhiteboxTerminalAgentActions({
     $, state, init, notice, moveWorkbench, selectTmux, selectSession, bindAgent, queueHistoryRefresh,
     renderTarget, fitEntry, refreshSessions, resumeSupport, resumeLaunchArgs, preferredWorkspace, providerLabel, terminalTypeLabel, esc,
     tmuxTargetKey, ensureSessionTerminal,
@@ -877,7 +877,7 @@
 
     const terminalId = String(target.terminalId || target.id || '');
     if (target.reconnectable) {
-      const reconnected = await window.loadtoagent.terminalReconnect(terminalId);
+      const reconnected = await window.whitebox.terminalReconnect(terminalId);
       if (!reconnected || reconnected.ok === false) throw new Error(reconnected?.error || t('agent.reconnect_failed'));
       if (generation !== state.embeddedGeneration) {
         return { ok: false, reason: 'cancelled', target, targets };
@@ -951,7 +951,7 @@
       return { ok: false, reason: 'target-expired', target, targets };
     }
 
-    const restarted = await window.loadtoagent.terminalRestart(terminalId);
+    const restarted = await window.whitebox.terminalRestart(terminalId);
     if (!restarted || restarted.ok === false) {
       throw new Error(restarted?.error || t('agent.reconnect_failed'));
     }
@@ -961,12 +961,12 @@
     // A process restart is also a transport boundary for xterm. Reuse the
     // host reconnect rehydration path so pending raw-input tails, old replay,
     // and the former helper textarea cannot leak into the new provider PTY.
-    let listed = await window.loadtoagent.terminalList();
+    let listed = await window.whitebox.terminalList();
     let restartedTerminal = listed.find(item => item.id === terminalId) || null;
     const deadline = Date.now() + 10_000;
     while (restartedTerminal && restartedTerminal.status === 'starting' && Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 50));
-      listed = await window.loadtoagent.terminalList();
+      listed = await window.whitebox.terminalList();
       restartedTerminal = listed.find(item => item.id === terminalId) || null;
     }
     if (!restartedTerminal || restartedTerminal.status !== 'running') {
@@ -1028,8 +1028,8 @@
   }
 
   function syncPendingPromptsToMain(prompts = state.pendingPrompts) {
-    if (!window.loadtoagent?.syncAttentionPrompts) return Promise.resolve({ ok: false });
-    return Promise.resolve(window.loadtoagent.syncAttentionPrompts(serializedPendingPrompts(prompts)))
+    if (!window.whitebox?.syncAttentionPrompts) return Promise.resolve({ ok: false });
+    return Promise.resolve(window.whitebox.syncAttentionPrompts(serializedPendingPrompts(prompts)))
       .catch(error => {
         reportRecoverableError('terminal-prompt-sync', error);
         return { ok: false };
@@ -1037,7 +1037,7 @@
   }
 
   async function scanPendingPrompts() {
-    const detector = window.LoadToAgentTerminalPrompts?.detectPendingPrompt;
+    const detector = window.WhiteboxTerminalPrompts?.detectPendingPrompt;
     if (typeof detector !== 'function' || !state.snapshot?.sessions) {
       return { prompts: new Map(), observedTargets: new Map(), failedTargets: new Set() };
     }
@@ -1049,7 +1049,7 @@
     }
     const detected = await Promise.all(mappings.map(async ({ agent, target }) => {
       try {
-        const output = (await window.loadtoagent.terminalGet(target.terminalId))?.replay;
+        const output = (await window.whitebox.terminalGet(target.terminalId))?.replay;
         const prompt = detector(output);
         if (!prompt) return { targetId: target.id, sessionId: agent.id, prompt: null, failed: false };
         return {
@@ -1096,7 +1096,7 @@
     if (!state.snapshot?.sessions?.length) {
       if (state.pendingPrompts.size) {
         state.pendingPrompts = new Map();
-        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+        window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
       }
       void syncPendingPromptsToMain(new Map());
       return;
@@ -1119,7 +1119,7 @@
           prompts.set(sessionId, prompt);
         }
       }
-      window.LoadToAgentTerminalPrompts?.reconcilePromptDismissals?.(
+      window.WhiteboxTerminalPrompts?.reconcilePromptDismissals?.(
         state.promptDismissals,
         result.observedTargets,
       );
@@ -1132,7 +1132,7 @@
         for (const [sessionId, prompt] of prompts) {
           const previous = previousPrompts.get(sessionId);
           if (previous?.fingerprint === prompt.fingerprint && previous?.target?.id === prompt.target?.id) continue;
-          window.loadtoagent.notifyAttentionPrompt?.({
+          window.whitebox.notifyAttentionPrompt?.({
             sessionId,
             fingerprint: `${prompt.target?.id || ''}:${prompt.fingerprint || ''}`,
             kind: prompt.kind,
@@ -1143,7 +1143,7 @@
         state.promptNotificationsPrimed = true;
       }
       if (promptMapSignature(prompts) !== previousSignature) {
-        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+        window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
       }
     }).catch(error => {
       reportRecoverableError('terminal-prompt-refresh', error);
@@ -1158,13 +1158,13 @@
   }
 
   function resolveAttentionPrompt(payload = {}) {
-    const result = window.LoadToAgentTerminalPrompts?.applyPromptResolution?.(
+    const result = window.WhiteboxTerminalPrompts?.applyPromptResolution?.(
       state.pendingPrompts,
       state.promptDismissals,
       payload,
     ) || { ok: false, changed: false, requiresText: false };
     if (result.changed) {
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
     }
     return result;
   }
@@ -1188,21 +1188,21 @@
     } catch (error) {
       state.pendingPrompts.delete(String(sessionId || ''));
       void syncPendingPromptsToMain();
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
       throw error;
     }
     if (target.kind !== 'terminal' || target.terminalId !== prompt.target.terminalId) {
       state.pendingPrompts.delete(String(sessionId || ''));
       void syncPendingPromptsToMain();
-      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
       throw rejectedPromptError('이 승인 요청의 실제 PTY 연결이 더 이상 현재 대화와 일치하지 않습니다.');
     }
-    const result = await window.loadtoagent.terminalRespond(target.terminalId, choice.key);
+    const result = await window.whitebox.terminalRespond(target.terminalId, choice.key);
     if (!result || result.ok === false) throw new Error(result?.error || '승인 선택을 전달하지 못했습니다.');
     state.promptDismissals.set(prompt.target.id, prompt.fingerprint);
     state.pendingPrompts.delete(String(sessionId || ''));
     void syncPendingPromptsToMain();
-    window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+    window.dispatchEvent(new CustomEvent('whitebox:terminal-prompts-changed'));
     setTimeout(() => {
       state.promptLastRefreshAt = 0;
       schedulePendingPromptRefresh(true);
@@ -1211,7 +1211,7 @@
   }
 
   function bindEvents() {
-    window.LoadToAgentTerminalEvents({
+    window.WhiteboxTerminalEvents({
       $,
       state,
       createTerminal,
@@ -1303,8 +1303,8 @@
       : inputFocusRestoreGeneration;
     let restoreFocusRevision = inputFocusRevision;
     if (focusedTerminalPair) state.pendingInputFocusId = focusedTerminalId;
-    const projected = snapshot && window.LoadToAgentApp?.projectVisibleSnapshot
-      ? window.LoadToAgentApp.projectVisibleSnapshot(snapshot)
+    const projected = snapshot && window.WhiteboxApp?.projectVisibleSnapshot
+      ? window.WhiteboxApp.projectVisibleSnapshot(snapshot)
       : snapshot;
     if (projected && state.suppressedTmuxTargets.size) {
       const availableTargets = new Set();
@@ -1420,12 +1420,12 @@
   function init() {
     if (state.initPromise) return state.initPromise;
     state.initPromise = (async () => {
-      if (!window.loadtoagent) return;
+      if (!window.whitebox) return;
       if (!state.eventsBound) {
         bindEvents();
         state.eventsBound = true;
       }
-      const [bootstrap] = await Promise.all([window.LoadToAgentRendererUtils.bootstrap(), refreshSessions()]);
+      const [bootstrap] = await Promise.all([window.WhiteboxRendererUtils.bootstrap(), refreshSessions()]);
       state.platform = bootstrap.platform || state.platform;
       state.initialized = true;
       configurePlatform();
@@ -1441,7 +1441,7 @@
       schedulePendingPromptRefresh(true);
       // WSL discovery may start the subsystem and take seconds on Windows. It
       // should update the optional Linux controls, not hold the PTY screen open.
-      Promise.resolve(window.loadtoagent.wslDistros()).then(environments => {
+      Promise.resolve(window.whitebox.wslDistros()).then(environments => {
         state.wslDistros = Array.isArray(environments) ? environments : [];
         if (!state.initialized) return;
         configurePlatform();
@@ -1457,7 +1457,7 @@
     return state.initPromise;
   }
 
-  window.LoadToAgentTerminal = {
+  window.WhiteboxTerminal = {
     activate,
     deactivate,
     updateSnapshot,
@@ -1493,13 +1493,13 @@
     scrollTmuxByLines,
     scrollTerminalToLine,
   };
-  window.addEventListener('loadtoagent:locale-changed', () => {
+  window.addEventListener('whitebox:locale-changed', () => {
     refreshStatusLabels();
     if (!state.initialized) return;
     configurePlatform();
     syncTerminalViewControls();
     renderAll();
   });
-  window.addEventListener('loadtoagent:theme-changed', syncXtermTheme);
+  window.addEventListener('whitebox:theme-changed', syncXtermTheme);
   init().catch(error => notice(t('terminal.error.initialization_failed', { message: errorMessage(error) }), 'error'));
 })();

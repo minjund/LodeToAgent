@@ -1,16 +1,16 @@
 "use strict";
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
-window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
-  const { $, $$, esc, uiLocale, providerLabel, reportRecoverableError } = window.LoadToAgentRendererUtils;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
-  const observedText = (value) => window.LoadToAgentI18n.observedText(value);
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
+window.WhiteboxAppFactories.createCore = function createCore(context = {}) {
+  const { $, $$, esc, uiLocale, providerLabel, reportRecoverableError } = window.WhiteboxRendererUtils;
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
+  const observedText = (value) => window.WhiteboxI18n.observedText(value);
   const PROJECTLESS_WORKSPACE = "__projectless__";
   const SESSION_RETENTION_MS = 30 * 60 * 1000;
   const LIVE_ACTIVITY_STATES = new Set(["thinking", "working", "juggling", "notification"]);
-  const SESSION_ARCHIVE_STORAGE_KEY = "loadtoagent:session-archives:v1";
-  const RESULT_REVIEW_STORAGE_KEY = "loadtoagent:result-reviews:v1";
-  const PROJECT_NOTICE_ACK_STORAGE_KEY = "loadtoagent:project-notice-acks:v1";
-  const PROJECT_DISMISSALS_STORAGE_KEY = "loadtoagent:project-dismissals:v1";
+  const SESSION_ARCHIVE_STORAGE_KEY = "whitebox:session-archives:v1";
+  const RESULT_REVIEW_STORAGE_KEY = "whitebox:result-reviews:v1";
+  const PROJECT_NOTICE_ACK_STORAGE_KEY = "whitebox:project-notice-acks:v1";
+  const PROJECT_DISMISSALS_STORAGE_KEY = "whitebox:project-dismissals:v1";
   const loadProjectDismissals = () => {
     try {
       const saved = JSON.parse(localStorage.getItem(PROJECT_DISMISSALS_STORAGE_KEY) || "[]");
@@ -382,7 +382,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       return keys ? { eyebrow: t(keys[0]), title: t(keys[1]), subtitle: t(keys[2]) } : undefined;
     },
   });
-  const GUIDE_STORAGE_KEY = "loadtoagent:start-guide:v1";
+  const GUIDE_STORAGE_KEY = "whitebox:start-guide:v1";
   const GUIDE_STEPS = ["create", "active", "waiting", "detail"];
   function loadGuideState() {
     try {
@@ -415,14 +415,14 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     const progress = $(".guide-progress");
     progress.setAttribute("aria-valuenow", String(completed));
     $("#guideButtonProgress").textContent = completed === GUIDE_STEPS.length
-      ? window.LoadToAgentI18n.t("ui.basics_completed")
+      ? window.WhiteboxI18n.t("ui.basics_completed")
       : completed === 0
-        ? window.LoadToAgentI18n.t("guide.progress_none", { total: GUIDE_STEPS.length })
-        : window.LoadToAgentI18n.t("common.progress", { current: completed, total: GUIDE_STEPS.length });
+        ? window.WhiteboxI18n.t("guide.progress_none", { total: GUIDE_STEPS.length })
+        : window.WhiteboxI18n.t("common.progress", { current: completed, total: GUIDE_STEPS.length });
     $("#guideProgressText").textContent =
       completed === GUIDE_STEPS.length
-        ? window.LoadToAgentI18n.t("ui.you_completed_the_basics_you_can_reopen_this_guide_anytime")
-        : window.LoadToAgentI18n.t("guide.steps_remaining", { count: GUIDE_STEPS.length - completed });
+        ? window.WhiteboxI18n.t("ui.you_completed_the_basics_you_can_reopen_this_guide_anytime")
+        : window.WhiteboxI18n.t("guide.steps_remaining", { count: GUIDE_STEPS.length - completed });
     $("#guideBtn").setAttribute("aria-expanded", state.guideExpanded ? "true" : "false");
   }
   function markGuideStep(step) {
@@ -439,7 +439,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     $("#pageEyebrow").classList.toggle("hidden", state.view === "active");
     $("#pageTitle").textContent = meta.title;
     $("#pageSubtitle").textContent = meta.subtitle;
-    document.title = `${VIEW_TITLES[state.view] || "LoadToAgent"} · LoadToAgent`;
+    document.title = `${VIEW_TITLES[state.view] || "Whitebox"} · Whitebox`;
     $$(".nav-item[data-view]").forEach((item) => {
       const active = item.dataset.view === state.view;
       item.classList.toggle("active", active);
@@ -676,7 +676,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       region.textContent = String(message || "");
     });
   }
-  window.LoadToAgentA11y = { rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState, announce };
+  window.WhiteboxA11y = { rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState, announce };
   function readablePreview(value, maxCharacters = 120) {
     const full = String(value == null ? "" : value)
       .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
@@ -863,15 +863,15 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function timeAgo(value) {
     const ms = Date.now() - Date.parse(value || 0);
     if (!Number.isFinite(ms)) return "-";
-    if (ms < 8_000) return window.LoadToAgentI18n.t("time.just_now");
+    if (ms < 8_000) return window.WhiteboxI18n.t("time.just_now");
     const sec = Math.floor(ms / 1000);
-    if (sec < 60) return window.LoadToAgentI18n.t("time.seconds_ago", { count: sec });
+    if (sec < 60) return window.WhiteboxI18n.t("time.seconds_ago", { count: sec });
     const min = Math.floor(sec / 60);
-    if (min < 60) return window.LoadToAgentI18n.t("time.minutes_ago", { count: min });
+    if (min < 60) return window.WhiteboxI18n.t("time.minutes_ago", { count: min });
     const hour = Math.floor(min / 60);
-    if (hour < 24) return window.LoadToAgentI18n.t("time.hours_ago", { count: hour });
+    if (hour < 24) return window.WhiteboxI18n.t("time.hours_ago", { count: hour });
     const day = Math.floor(hour / 24);
-    return day < 30 ? window.LoadToAgentI18n.t("time.days_ago", { count: day }) : new Date(value).toLocaleDateString(uiLocale());
+    return day < 30 ? window.WhiteboxI18n.t("time.days_ago", { count: day }) : new Date(value).toLocaleDateString(uiLocale());
   }
   function timeOnly(value) {
     const date = new Date(value);
@@ -885,9 +885,9 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function sessionDimensions(session = {}) {
     const provenance = session.provenance || {};
-    const sourceId = String(provenance.source?.id || session.orchestrator || (session.runId ? "loadtoagent" : "direct"));
+    const sourceId = String(provenance.source?.id || session.orchestrator || (session.runId ? "whitebox" : "direct"));
     const baseSourceLabel = String(provenance.source?.label || session.sourceLabel || ({
-      omo: "OMO · OpenCode", aside: "Aside Browser", loadtoagent: "LoadToAgent", direct: "Direct",
+      omo: "OMO · OpenCode", aside: "Aside Browser", whitebox: "Whitebox", direct: "Direct",
     })[sourceId] || sourceId);
     const sourceLabel = session.controlAuthority === "read-only-import" || session.importMode === "selected-folder"
       ? `${baseSourceLabel} · 읽기 전용 폴더`
@@ -923,11 +923,11 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function agentRoleLabel(value) {
     const labels = {
-      explorer: window.LoadToAgentI18n.t("ui.research"), reviewer: window.LoadToAgentI18n.t("ui.review"),
-      worker: window.LoadToAgentI18n.t("ui.execution"), general: window.LoadToAgentI18n.t("ui.assistance"),
-      planner: window.LoadToAgentI18n.t("ui.planning"), tester: window.LoadToAgentI18n.t("ui.testing"),
+      explorer: window.WhiteboxI18n.t("ui.research"), reviewer: window.WhiteboxI18n.t("ui.review"),
+      worker: window.WhiteboxI18n.t("ui.execution"), general: window.WhiteboxI18n.t("ui.assistance"),
+      planner: window.WhiteboxI18n.t("ui.planning"), tester: window.WhiteboxI18n.t("ui.testing"),
     };
-    return labels[String(value || "").toLowerCase()] || String(value || window.LoadToAgentI18n.t("ui.assistance"));
+    return labels[String(value || "").toLowerCase()] || String(value || window.WhiteboxI18n.t("ui.assistance"));
   }
   function statusClass(status) {
     return ["running", "paused", "waiting", "completed", "failed", "cancelled"].includes(status) ? status : "";
@@ -992,7 +992,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     return Number.isFinite(completedAt) ? completedAt : 0;
   }
   function conversationMessageKey(message) {
-    const delivery = window.LoadToAgentConversationDelivery;
+    const delivery = window.WhiteboxConversationDelivery;
     if (delivery?.messageKey) return delivery.messageKey(message);
     const id = String(message?.id || "").trim();
     if (id) return `id:${id}`;
@@ -1020,7 +1020,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
         observations.push(state.details.get(candidate.id) || candidate);
       }
     }
-    return window.LoadToAgentConversationDelivery?.deliveryState?.({
+    return window.WhiteboxConversationDelivery?.deliveryState?.({
       ...session,
       deliveryObservationSessions: observations,
     }, entry, now) || null;
@@ -1071,7 +1071,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
       const unique = new Map([...previous, ...delivered].map(message => [conversationMessageKey(message), message]));
       state.resolvedConversationMessages.set(sessionId, [...unique.values()].slice(-80));
     }
-    console.info("[LoadToAgent:conversation-delivery]", {
+    console.info("[Whitebox:conversation-delivery]", {
       event: "conversation-delivery-phase-changed",
       sessionId: String(session?.id || ""),
       previousPhase,
@@ -1332,7 +1332,7 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     isControlRoomSession(session, now);
     const explicitWaiting = session?.attention?.category === "required"
       && ["execution-approval", "input-tool"].includes(session.attention.source);
-    if (window.LoadToAgentTerminal?.pendingPromptForSession?.(session) || explicitWaiting) return "waiting";
+    if (window.WhiteboxTerminal?.pendingPromptForSession?.(session) || explicitWaiting) return "waiting";
     if (!["waiting", "paused", "failed"].includes(String(session?.status || "")) && isWorkflowLive(session)) return "running";
     return session?.status;
   }
@@ -1377,8 +1377,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   }
   function subagentWorkLabel(session) {
     const labels = {
-      working: window.LoadToAgentI18n.t("ui.working"), resting: window.LoadToAgentI18n.t("ui.idle"),
-      attention: window.LoadToAgentI18n.t("ui.needs_attention"),
+      working: window.WhiteboxI18n.t("ui.working"), resting: window.WhiteboxI18n.t("ui.idle"),
+      attention: window.WhiteboxI18n.t("ui.needs_attention"),
     };
     return labels[subagentWorkState(session)];
   }

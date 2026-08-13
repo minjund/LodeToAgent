@@ -1,15 +1,15 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createAttentionPopupSettings = function createAttentionPopupSettings(context = {}) {
+window.WhiteboxAppFactories.createAttentionPopupSettings = function createAttentionPopupSettings(context = {}) {
   const MAX_HOOK_DETAIL_LENGTH = 240;
   const HOOK_ISSUE_MESSAGE_KEYS = Object.freeze({
     warning: "settings.attention_popups.hook_warning",
     error: "settings.attention_popups.hook_error",
     "review-required": "settings.attention_popups.hook_review_required",
   });
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const { $, state, toast = () => {}, announce = () => {}, reportRecoverableError = () => {} } = context;
   let bound = false;
   let saving = false;
@@ -72,7 +72,7 @@ window.LoadToAgentAppFactories.createAttentionPopupSettings = function createAtt
       loadAttentionPopupSettings({ ...state.attentionPopups, enabled: desired });
       renderAttentionPopupSettings();
       try {
-        const saved = await window.loadtoagent.setAttentionPopups({ enabled: desired });
+        const saved = await window.whitebox.setAttentionPopups({ enabled: desired });
         loadAttentionPopupSettings(saved || { enabled: desired });
         const key = state.attentionPopups.enabled
           ? "settings.attention_popups.enabled_toast"

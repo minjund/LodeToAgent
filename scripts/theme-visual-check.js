@@ -6,7 +6,7 @@ const path = require('path');
 const { app, BrowserWindow } = require('electron');
 app.disableHardwareAcceleration();
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-theme-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-theme-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -495,25 +495,25 @@ app.whenReady().then(async () => {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
     await waitFor(
       win,
-      `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot && window.LoadToAgentTheme)`,
+      `Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot && window.WhiteboxTheme)`,
       '테마 검수용 앱 화면이 준비되지 않았습니다.',
     );
     await win.webContents.executeJavaScript(`(() => {
-      window.LoadToAgentI18n.setLocale('ko');
-      window.LoadToAgentApp.state.guideExpanded = false;
-      window.LoadToAgentApp.state.workspace = window.LoadToAgentApp.state.workspaces[0]?.path || 'all';
-      window.LoadToAgentApp.render();
+      window.WhiteboxI18n.setLocale('ko');
+      window.WhiteboxApp.state.guideExpanded = false;
+      window.WhiteboxApp.state.workspace = window.WhiteboxApp.state.workspaces[0]?.path || 'all';
+      window.WhiteboxApp.render();
       document.querySelector('#beginnerGuide')?.classList.add('hidden');
       return true;
     })()`);
 
     for (const theme of ['dark', 'light']) {
-      await win.webContents.executeJavaScript(`window.LoadToAgentTheme.setTheme(${JSON.stringify(theme)})`);
+      await win.webContents.executeJavaScript(`window.WhiteboxTheme.setTheme(${JSON.stringify(theme)})`);
       for (const view of ['all', 'active', 'waiting', 'runtime', 'terminal', 'tmux', 'settings']) {
         await win.webContents.executeJavaScript(`(() => {
-          window.LoadToAgentApp.selectView(${JSON.stringify(view)});
-          window.LoadToAgentApp.state.guideCompleted.clear();
-          window.LoadToAgentApp.render();
+          window.WhiteboxApp.selectView(${JSON.stringify(view)});
+          window.WhiteboxApp.state.guideCompleted.clear();
+          window.WhiteboxApp.render();
           document.querySelector('.main-stage')?.scrollTo(0, 0);
           return true;
         })()`);
@@ -526,38 +526,38 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`document.querySelector('#cancelRunBtn')?.click()`);
 
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('all');
-        const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => !item.parentId)
-          || window.LoadToAgentApp.state.snapshot.sessions[0];
-        if (session) window.LoadToAgentApp.openDrawer(session.id);
+        window.WhiteboxApp.selectView('all');
+        const session = window.WhiteboxApp.state.snapshot.sessions.find(item => !item.parentId)
+          || window.WhiteboxApp.state.snapshot.sessions[0];
+        if (session) window.WhiteboxApp.openDrawer(session.id);
         return Boolean(session);
       })()`);
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')`, '작업 상세 패널을 열지 못했습니다.');
       await inspect(theme, 'drawer');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
 
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('all');
-        window.LoadToAgentApp.openDrawer('fixture-failed', { tab: 'summary' });
+        window.WhiteboxApp.selectView('all');
+        window.WhiteboxApp.openDrawer('fixture-failed', { tab: 'summary' });
         return true;
       })()`);
       await waitFor(
         win,
         `document.querySelector('#detailDrawer')?.classList.contains('open')
-          && window.LoadToAgentApp.state.selectedId === 'fixture-failed'
-          && window.LoadToAgentApp.state.drawerTab === 'summary'
+          && window.WhiteboxApp.state.selectedId === 'fixture-failed'
+          && window.WhiteboxApp.state.drawerTab === 'summary'
           && Boolean(document.querySelector('.management-result-review [data-result-review-complete="fixture-failed"]'))`,
         '결과 검토 요약 패널을 열지 못했습니다.',
       );
       await inspect(theme, 'result-review-drawer');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
 
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openSubagentConversation('fixture-child')`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openSubagentConversation('fixture-child')`);
       await waitFor(win, `document.querySelector('#detailDrawer')?.classList.contains('open')`, '도움 AI 상세 패널을 열지 못했습니다.');
       await inspect(theme, 'subagent-drawer');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
 
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openExecutionActivity('fixture-root', 'fixture-shell-running')`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openExecutionActivity('fixture-root', 'fixture-shell-running')`);
       await waitFor(
         win,
         `document.querySelector('#detailDrawer[data-mode="execution"]')?.classList.contains('open')
@@ -565,31 +565,31 @@ app.whenReady().then(async () => {
         '실행 과정 상세 패널을 열지 못했습니다.',
       );
       await inspect(theme, 'execution-drawer');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
 
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openQuickPalette()`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openQuickPalette()`);
       await waitFor(win, `!document.querySelector('#quickPaletteModal')?.classList.contains('hidden')`, '빠른 이동 창을 열지 못했습니다.');
       await inspect(theme, 'quick-palette');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeQuickPalette()`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeQuickPalette()`);
 
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.openShortcutHelp()`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.openShortcutHelp()`);
       await waitFor(win, `!document.querySelector('#shortcutHelpModal')?.classList.contains('hidden')`, '키보드 단축키 창을 열지 못했습니다.');
       await inspect(theme, 'shortcut-help');
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeShortcutHelp()`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeShortcutHelp()`);
 
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.openDrawer('fixture-root');
+        window.WhiteboxApp.openDrawer('fixture-root');
         document.querySelector('[data-session-reset="fixture-root"]')?.click();
         return true;
       })()`);
       await waitFor(win, `!document.querySelector('#sessionResetModal')?.classList.contains('hidden')`, '새 대화 확인 창을 열지 못했습니다.');
       await inspect(theme, 'session-reset');
       await win.webContents.executeJavaScript(`document.querySelector('#cancelSessionResetBtn')?.click()`);
-      await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+      await win.webContents.executeJavaScript(`window.WhiteboxApp.closeDrawer(false)`);
 
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('tmux');
-        window.LoadToAgentTerminal?.openTmuxModal();
+        window.WhiteboxApp.selectView('tmux');
+        window.WhiteboxTerminal?.openTmuxModal();
         return true;
       })()`);
       await waitFor(win, `!document.querySelector('#tmuxCreateModal')?.classList.contains('hidden')`, '관련 작업 만들기 창을 열지 못했습니다.');
@@ -598,7 +598,7 @@ app.whenReady().then(async () => {
 
       win.setBounds({ width: 1840, height: 900 }, false);
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('all');
+        window.WhiteboxApp.selectView('all');
         document.querySelector('.main-stage')?.scrollTo(0, 0);
         return true;
       })()`);
@@ -606,7 +606,7 @@ app.whenReady().then(async () => {
 
       win.setBounds({ width: 390, height: 844 }, false);
       await win.webContents.executeJavaScript(`(() => {
-        window.LoadToAgentApp.selectView('all');
+        window.WhiteboxApp.selectView('all');
         document.querySelector('.main-stage')?.scrollTo(0, 0);
         return true;
       })()`);
@@ -614,12 +614,12 @@ app.whenReady().then(async () => {
       win.setBounds({ width: 1440, height: 900 }, false);
     }
 
-    await win.webContents.executeJavaScript(`window.LoadToAgentTheme.setTheme('light')`);
+    await win.webContents.executeJavaScript(`window.WhiteboxTheme.setTheme('light')`);
     await win.webContents.reload();
     await waitFor(
       win,
       `document.documentElement.dataset.theme === 'light'
-        && window.LoadToAgentApp?.initialized
+        && window.WhiteboxApp?.initialized
         && document.querySelector('[data-theme-choice="light"]')?.getAttribute('aria-checked') === 'true'`,
       '저장한 라이트 모드가 앱 재실행 상태에서 복원되지 않았습니다.',
     );

@@ -1,10 +1,10 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}) {
+window.WhiteboxAppFactories.createDrawer = function createDrawer(context = {}) {
   const CONTEXT_DRAWER_MIN_WIDTH = 1680;
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const {
     $, $$, esc, state, motionPreference, motionState, STATUS, sessionStatusLabel = (session, status = session?.status) => STATUS[status] || status, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState,
     providerInfo, sessionBadgesHtml = () => "", isLiveSession, controlRoomStatus = session => session?.status, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionOriginPath, sessionWorkspaceLabel,
@@ -62,7 +62,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     return true;
   }
 
-  window.addEventListener("loadtoagent:drawer-terminal-targets-changed", event => {
+  window.addEventListener("whitebox:drawer-terminal-targets-changed", event => {
     const sessionId = String(event.detail?.sessionId || "");
     if (sessionId && sessionId !== state.selectedId) return;
     if (terminalRefreshQueued || state.drawerTab !== "chat" || !$("#detailDrawer")?.classList.contains("open")) return;
@@ -75,8 +75,8 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
   function scheduleFlowConnections() {
     requestAnimationFrame(() => {
-      window.LoadToAgentApp?.scheduleAgentWorkflowConnections?.();
-      window.LoadToAgentApp?.drawAgentWorkflowConnections?.();
+      window.WhiteboxApp?.scheduleAgentWorkflowConnections?.();
+      window.WhiteboxApp?.drawAgentWorkflowConnections?.();
     });
   }
 
@@ -112,7 +112,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   }
 
   function openDrawerSurface(presentation) {
-    window.LoadToAgentInlineTerminal?.close?.({ render: false });
+    window.WhiteboxInlineTerminal?.close?.({ render: false });
     clearTimeout(motionState.drawerTimer);
     setDrawerPresentation(presentation);
     $("#detailDrawer").classList.add("open");
@@ -135,7 +135,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const selected = snapshotSession(id) || state.details.get(id);
     if (selected?.parentId) return openSubagentConversation(id, options);
     if (options.attentionActivation !== true && typeof CustomEvent === "function") {
-      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+      window.dispatchEvent(new CustomEvent("whitebox:terminal-manual-selection"));
     }
     rememberDrawerTrigger();
     markGuideStep("detail");
@@ -162,7 +162,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const child = snapshotSession(id) || state.details.get(id);
     if (!child || !child.parentId) return openDrawer(id, options);
     if (options.attentionActivation !== true && typeof CustomEvent === "function") {
-      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+      window.dispatchEvent(new CustomEvent("whitebox:terminal-manual-selection"));
     }
     rememberDrawerTrigger();
     markGuideStep("detail");
@@ -191,7 +191,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const owner = snapshotSession(ownerId) || state.details.get(ownerId);
     if (!owner) return;
     if (typeof CustomEvent === "function") {
-      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+      window.dispatchEvent(new CustomEvent("whitebox:terminal-manual-selection"));
     }
     rememberDrawerTrigger();
     markGuideStep("detail");
@@ -211,7 +211,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
 
   function closeDrawer(restoreFocus = true) {
     if (!$("#detailDrawer").classList.contains("open")) return;
-    window.LoadToAgentDrawerTerminal?.unmount?.({ resetAvailability: true, sessionId: state.selectedId });
+    window.WhiteboxDrawerTerminal?.unmount?.({ resetAvailability: true, sessionId: state.selectedId });
     const presentation = state.drawerPresentation;
     const focusToken = drawerFocusToken;
     $("#detailDrawer").classList.remove("open");
@@ -269,22 +269,22 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     const ptyConversation = conversationTab && !session.parentId && !subagentMode && !executionMode;
     const terminalPtyConversation = ptyConversation && conversationSurface === "pty";
     const terminalTargets = terminalPtyConversation
-      ? (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
+      ? (window.WhiteboxTerminal?.agentTargets?.(session) || [])
       : [];
     const savedTargetId = state.agentCommandTargets.get(session.id) || "";
     const attachableTerminalTargets = terminalTargets.filter(target => target.kind === "terminal");
     const savedTerminalTarget = attachableTerminalTargets.find(target => target.id === savedTargetId) || null;
     const terminalTarget = [savedTerminalTarget, ...attachableTerminalTargets]
       .filter((target, index, targets) => target && targets.indexOf(target) === index)
-      .find(target => window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id) !== false)
+      .find(target => window.WhiteboxDrawerTerminal?.canMount?.(session, target.id) !== false)
       || null;
     const terminalConversation = terminalTarget?.kind === "terminal";
-    const embeddedTerminal = window.LoadToAgentTerminal?.embeddedState?.() || {};
+    const embeddedTerminal = window.WhiteboxTerminal?.embeddedState?.() || {};
     const terminalId = String(terminalTarget?.terminalId || terminalTarget?.id || "");
-    const drawerTerminalState = window.LoadToAgentDrawerTerminal?.state?.() || {};
+    const drawerTerminalState = window.WhiteboxDrawerTerminal?.state?.() || {};
     const embeddedInventoryTarget = attachableTerminalTargets.find(target =>
       String(target.terminalId || target.id || "") === embeddedTerminal.terminalId
-      && window.LoadToAgentDrawerTerminal?.canMount?.(session, target.id) !== false) || null;
+      && window.WhiteboxDrawerTerminal?.canMount?.(session, target.id) !== false) || null;
     const embeddedJustConnected = drawerTerminalState.sessionId === session.id
       && drawerTerminalState.targetId === embeddedTerminal.terminalId
       && drawerTerminalState.phase === "connected";
@@ -418,7 +418,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     content.classList.toggle("hidden", actualTerminalChat);
     terminalSurface.classList.toggle("hidden", !actualTerminalChat);
     terminalSurface.setAttribute("aria-hidden", actualTerminalChat ? "false" : "true");
-    if (!actualTerminalChat) window.LoadToAgentDrawerTerminal?.unmount?.();
+    if (!actualTerminalChat) window.WhiteboxDrawerTerminal?.unmount?.();
     if (actualTerminalChat) {
       content.removeAttribute("aria-label");
       content.removeAttribute("aria-labelledby");
@@ -432,7 +432,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
     rememberDisclosureStates(content);
     const previousTop = content.scrollTop;
-    const wasAtBottom = window.LoadToAgentRendererUtils.isScrolledToEnd(content);
+    const wasAtBottom = window.WhiteboxRendererUtils.isScrolledToEnd(content);
     const renderKey = `${state.drawerMode}:${state.selectedId}:${state.drawerTab}:${detailLoading ? "loading" : "ready"}`;
     const previousRenderKey = motionState.drawerRenderKey;
     const shouldAnimateContent = previousRenderKey !== renderKey;
@@ -551,14 +551,14 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
     const createTerminalIfMissing = state.drawerCreateTerminalIfMissing !== false;
     if (state.drawerMountTerminal !== false && actualTerminalChat && terminalTarget) {
-      window.LoadToAgentDrawerTerminal?.mount?.(session, {
+      window.WhiteboxDrawerTerminal?.mount?.(session, {
         targetId: terminalTarget.id,
         createIfMissing: createTerminalIfMissing,
       });
     } else if (state.drawerMountTerminal !== false && actualTerminalChat && attachableTerminalTargets.length === 0) {
-      window.LoadToAgentDrawerTerminal?.mount?.(session, { createIfMissing: createTerminalIfMissing });
+      window.WhiteboxDrawerTerminal?.mount?.(session, { createIfMissing: createTerminalIfMissing });
     } else if (state.drawerMountTerminal !== false && actualTerminalChat) {
-      window.LoadToAgentDrawerTerminal?.mount?.(session, {
+      window.WhiteboxDrawerTerminal?.mount?.(session, {
         targetId: attachableTerminalTargets[0].id,
         createIfMissing: false,
       });

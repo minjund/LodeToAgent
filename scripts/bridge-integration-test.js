@@ -12,7 +12,7 @@ function runCli(file, discovery) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [file, 'run', 'codex'], {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', LOADTOAGENT_BRIDGE_FILE: discovery },
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', WHITEBOX_BRIDGE_FILE: discovery },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -26,20 +26,20 @@ function runCli(file, discovery) {
 }
 
 app.whenReady().then(async () => {
-  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-bridge-e2e-'));
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-bridge-e2e-'));
   const discovery = path.join(temp, 'bridge.json');
-  const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\loadtoagent-e2e-${process.pid}` : path.join(temp, 'bridge.sock');
+  const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\whitebox-e2e-${process.pid}` : path.join(temp, 'bridge.sock');
   const command = process.platform === 'win32'
-    ? { command: process.env.ComSpec || 'cmd.exe', args: ['/Q', '/D', '/C', 'echo LOADTOAGENT_BRIDGE_E2E'], label: '가짜 Codex' }
-    : { command: '/bin/sh', args: ['-lc', 'printf LOADTOAGENT_BRIDGE_E2E'], label: '가짜 Codex' };
+    ? { command: process.env.ComSpec || 'cmd.exe', args: ['/Q', '/D', '/C', 'echo WHITEBOX_BRIDGE_E2E'], label: '가짜 Codex' }
+    : { command: '/bin/sh', args: ['-lc', 'printf WHITEBOX_BRIDGE_E2E'], label: '가짜 Codex' };
   const manager = new TerminalManager({ platform: process.platform, agentProviders: { codex: command } });
   const server = new BridgeServer({ terminalManager: manager, home: temp, platform: process.platform, endpoint, discoveryFile: discovery, token: 'e2e-token' });
   try {
     await server.start();
-    const result = await runCli(path.join(__dirname, '..', 'bin', 'loadtoagent.js'), discovery);
-    if (result.code !== 0 || !result.stdout.includes('LOADTOAGENT_BRIDGE_E2E')) throw new Error(`브리지 왕복 실패: code=${result.code}\nstdout=${result.stdout}\nstderr=${result.stderr}`);
+    const result = await runCli(path.join(__dirname, '..', 'bin', 'whitebox.js'), discovery);
+    if (result.code !== 0 || !result.stdout.includes('WHITEBOX_BRIDGE_E2E')) throw new Error(`브리지 왕복 실패: code=${result.code}\nstdout=${result.stdout}\nstderr=${result.stderr}`);
     if (!manager.list().some(session => session.type === 'agent' && session.provider === 'codex')) throw new Error('브리지 AI PTY가 생성되지 않았습니다.');
-    process.stdout.write('✓ 외부 CLI → 인증 소켓 → LoadToAgent PTY → AI 출력 왕복 검증\n');
+    process.stdout.write('✓ 외부 CLI → 인증 소켓 → Whitebox PTY → AI 출력 왕복 검증\n');
   } catch (error) {
     process.stderr.write(`${error.stack || error.message}\n`);
     process.exitCode = 1;

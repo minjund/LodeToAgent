@@ -1,9 +1,9 @@
 "use strict";
 
-window.LoadToAgentAppFactories = window.LoadToAgentAppFactories || {};
+window.WhiteboxAppFactories = window.WhiteboxAppFactories || {};
 
-window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(context = {}) {
-  const t = (key, params) => window.LoadToAgentI18n.t(key, params);
+window.WhiteboxAppFactories.createDrawerData = function createDrawerData(context = {}) {
+  const t = (key, params) => window.WhiteboxI18n.t(key, params);
   const { reportRecoverableError, state } = context;
   const detailRequests = new Map();
   let detailRequestGeneration = 0;
@@ -42,7 +42,7 @@ window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(cont
     context.renderDrawer();
     const promise = (async () => {
       try {
-        const detail = await window.loadtoagent.sessionDetail(id);
+        const detail = await window.whitebox.sessionDetail(id);
         const active = detailRequests.get(id);
         // If a newer snapshot arrived during this read, do not briefly replace
         // the live preview/cache with the now-known stale response. The queued
@@ -54,7 +54,7 @@ window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(cont
       } catch (error) {
         const active = detailRequests.get(id);
         if (active?.generation === generation && !active.refreshQueued)
-          state.detailErrors.set(id, window.LoadToAgentI18n.errorText(error, "drawer.history_failed"));
+          state.detailErrors.set(id, window.WhiteboxI18n.errorText(error, "drawer.history_failed"));
         return null;
       } finally {
         const active = detailRequests.get(id);
@@ -93,7 +93,7 @@ window.LoadToAgentAppFactories.createDrawerData = function createDrawerData(cont
   async function loadSubagentParentDetail(child) {
     if (!child || !child.parentId || state.details.has(child.parentId)) return;
     try {
-      const detail = await window.loadtoagent.sessionDetail(child.parentId);
+      const detail = await window.whitebox.sessionDetail(child.parentId);
       if (detail) state.details.set(child.parentId, detail);
       if ((state.drawerMode === "subagent" || state.drawerMode === "execution") && state.selectedId === child.id) context.renderDrawer();
     } catch (error) {

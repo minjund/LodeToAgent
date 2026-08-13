@@ -1,29 +1,31 @@
 <div align="center">
 
-# LoadToAgent
+<img src="build/icon.png" alt="Whitebox 아이콘" width="112" />
 
-### 일하는 모든 AI를 한곳에서 보는 로컬 작업 지휘실
+# Whitebox
+
+### 모든 AI가 지금 하는 일을 한눈에 보고, 필요할 때 바로 개입하세요
 
 Claude, Codex, Gemini, Grok 세션을 모니터링하고, 메인 AI와 도움 AI의 관계를 따라가며, 토큰 사용량을 확인하고, 연결된 터미널로 바로 일을 전달하세요. 대화 기록은 외부로 업로드하지 않습니다.
 
-[![Desktop CI](https://github.com/minjund/LodeToAgent/actions/workflows/desktop-ci.yml/badge.svg)](https://github.com/minjund/LodeToAgent/actions/workflows/desktop-ci.yml)
-[![npm version](https://img.shields.io/npm/v/loadtoagent?logo=npm&color=CB3837)](https://www.npmjs.com/package/loadtoagent)
-[![GitHub Release](https://img.shields.io/github/v/release/minjund/LodeToAgent?display_name=tag&sort=semver)](https://github.com/minjund/LodeToAgent/releases/latest)
+[![Desktop CI](https://github.com/minjund/Whitebox/actions/workflows/desktop-ci.yml/badge.svg)](https://github.com/minjund/Whitebox/actions/workflows/desktop-ci.yml)
+[![npm version](https://img.shields.io/npm/v/whitebox-ai?logo=npm&color=CB3837)](https://www.npmjs.com/package/whitebox-ai)
+[![GitHub Release](https://img.shields.io/github/v/release/minjund/Whitebox?display_name=tag&sort=semver)](https://github.com/minjund/Whitebox/releases/latest)
 ![macOS](https://img.shields.io/badge/macOS-지원-111827?logo=apple)
 ![Windows](https://img.shields.io/badge/Windows-지원-111827?logo=windows11)
 ![Local first](https://img.shields.io/badge/데이터-로컬--퍼스트-35d69f)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | **한국어**
 
-[**Windows·macOS 프로그램 다운로드**](https://github.com/minjund/LodeToAgent/releases/latest) · [**npm으로 설치**](https://www.npmjs.com/package/loadtoagent)
+[**Windows·macOS 프로그램 다운로드**](https://github.com/minjund/Whitebox/releases/latest) · [**npm으로 설치**](https://www.npmjs.com/package/whitebox-ai)
 
 </div>
 
 <div align="center">
-  <img src="docs/assets/loadtoagent-demo.gif" alt="AI 작업과 도움 AI, 대화, 토큰 사용량을 차례로 보여주는 LoadToAgent 데모" width="960" />
+  <img src="docs/assets/whitebox-demo.gif" alt="AI 작업과 도움 AI, 대화, 토큰 사용량을 차례로 보여주는 Whitebox 데모" width="960" />
 </div>
 
-> AI 대화 기록은 내 컴퓨터에 그대로 남습니다. LoadToAgent는 이미 사용 중인 AI 도구가 만든 로컬 세션 파일을 직접 읽습니다.
+> AI 대화 기록은 내 컴퓨터에 그대로 남습니다. Whitebox는 이미 사용 중인 AI 도구가 만든 로컬 세션 파일을 직접 읽습니다.
 
 ## 설치와 실행
 
@@ -31,39 +33,39 @@ npm을 사용하거나, 바로 실행할 수 있는 프로그램 파일을 내�
 
 ### 방법 1: npm
 
-LoadToAgent는 npm에 [`loadtoagent`](https://www.npmjs.com/package/loadtoagent)로 공개되어 있습니다. 전역 설치한 뒤 `loadtoagent` 명령으로 데스크톱 앱을 여세요.
+Whitebox는 npm에 [`whitebox-ai`](https://www.npmjs.com/package/whitebox-ai)로 공개됩니다. 전역 설치한 뒤 더 짧은 `whitebox` 명령으로 데스크톱 앱을 여세요.
 
 ```bash
-npm install -g loadtoagent
-loadtoagent
+npm install -g whitebox-ai
+whitebox
 ```
 
-npm 방식은 바탕 화면이나 응용 프로그램 바로가기를 만들지 않습니다. 앱을 열 때마다 터미널에서 `loadtoagent`를 실행하세요. 설치 직후 명령을 찾지 못하면 터미널을 한 번 닫았다가 다시 여세요.
+npm 방식은 바탕 화면이나 응용 프로그램 바로가기를 만들지 않습니다. 앱을 열 때마다 터미널에서 `whitebox`를 실행하세요. 설치 직후 명령을 찾지 못하면 터미널을 한 번 닫았다가 다시 여세요.
 
 ```bash
 # 업데이트
-npm install -g loadtoagent@latest
+npm install -g whitebox-ai@latest
 
 # 삭제
-npm uninstall -g loadtoagent
+npm uninstall -g whitebox-ai
 ```
 
 ### 방법 2: 프로그램 파일 직접 다운로드
 
-[최신 GitHub Release](https://github.com/minjund/LodeToAgent/releases/latest)에서 내 컴퓨터에 맞는 파일을 내려받으세요. 이 방식은 Node.js가 필요하지 않습니다.
+[최신 GitHub Release](https://github.com/minjund/Whitebox/releases/latest)에서 내 컴퓨터에 맞는 파일을 내려받으세요. 이 방식은 Node.js가 필요하지 않습니다.
 
 | 운영체제 | 받을 파일 | 실행 방법 |
 |---|---|---|
-| Windows 10/11 (x64) | `LoadToAgent-Setup-<version>.exe` | 권장 설치본입니다. 처음 설치하거나 앱 안에서 업데이트할 때 사용하세요. |
-| Windows 10/11 (x64) | `LoadToAgent-<version>-portable.exe` | 받은 파일을 더블클릭하세요. 설치 과정이 없는 포터블 실행 파일입니다. |
-| Apple Silicon Mac | `LoadToAgent-<version>-arm64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
-| Intel Mac | `LoadToAgent-<version>-x64.dmg` | DMG를 열고 LoadToAgent를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
+| Windows 10/11 (x64) | `Whitebox-Setup-<version>.exe` | 권장 설치본입니다. 처음 설치하거나 앱 안에서 업데이트할 때 사용하세요. |
+| Windows 10/11 (x64) | `Whitebox-<version>-portable.exe` | 받은 파일을 더블클릭하세요. 설치 과정이 없는 포터블 실행 파일입니다. |
+| Apple Silicon Mac | `Whitebox-<version>-arm64.dmg` | DMG를 열고 Whitebox를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
+| Intel Mac | `Whitebox-<version>-x64.dmg` | DMG를 열고 Whitebox를 응용 프로그램 폴더로 옮긴 뒤 응용 프로그램에서 실행하세요. |
 
-현재 배포 파일에는 코드 서명이 없어 Windows SmartScreen 또는 macOS Gatekeeper가 알 수 없는 개발자 경고를 표시할 수 있습니다. 이 저장소의 공식 Releases 페이지에서 받은 파일일 때만 계속하세요. macOS에서는 LoadToAgent를 Control-클릭하고 **열기**를 선택합니다. Windows에서는 **추가 정보 → 실행**을 선택합니다.
+현재 배포 파일에는 코드 서명이 없어 Windows SmartScreen 또는 macOS Gatekeeper가 알 수 없는 개발자 경고를 표시할 수 있습니다. 이 저장소의 공식 Releases 페이지에서 받은 파일일 때만 계속하세요. macOS에서는 Whitebox를 Control-클릭하고 **열기**를 선택합니다. Windows에서는 **추가 정보 → 실행**을 선택합니다.
 
 ### 앱에서 업데이트
 
-LoadToAgent는 시작할 때 현재 패키지 버전과 GitHub의 최신 정식 Release 태그를 비교합니다. 더 높은 버전이 있으면 화면 위쪽과 **설정 → 프로그램 업데이트**에 안내가 나타납니다. 업데이트 파일 받기를 누르면 운영체제와 CPU에 맞는 파일을 다운로드하고, GitHub가 제공한 파일 크기와 SHA-256을 검증한 뒤 설치 파일을 열 수 있습니다. Windows는 Setup EXE, macOS는 DMG가 우선 선택됩니다. npm 설치본은 위의 `npm install -g loadtoagent@latest` 명령으로 갱신할 수도 있습니다.
+Whitebox는 시작할 때 현재 패키지 버전과 GitHub의 최신 정식 Release 태그를 비교합니다. 더 높은 버전이 있으면 화면 위쪽과 **설정 → 프로그램 업데이트**에 안내가 나타납니다. 업데이트 파일 받기를 누르면 운영체제와 CPU에 맞는 파일을 다운로드하고, GitHub가 제공한 파일 크기와 SHA-256을 검증한 뒤 설치 파일을 열 수 있습니다. Windows는 Setup EXE, macOS는 DMG가 우선 선택됩니다. npm 설치본은 위의 `npm install -g whitebox-ai@latest` 명령으로 갱신할 수도 있습니다.
 
 ### 필요한 환경
 
@@ -85,7 +87,7 @@ LoadToAgent는 시작할 때 현재 패키지 버전과 GitHub의 최신 정식 
 
 작업의 **대화 내용** 탭에서 **내용을 이어서 보내기**를 사용하면 지원되는 연결 세션에 새 메시지를 보낼 수 있습니다. 별도 채팅을 만들지 않고 같은 작업과 같은 AI 세션에서 대화가 이어집니다.
 
-LoadToAgent는 전달 상태를 실제로 관측한 세 단계로 보여 줍니다.
+Whitebox는 전달 상태를 실제로 관측한 세 단계로 보여 줍니다.
 
 1. 앱에서 전송 요청을 보냈는지
 2. 같은 사용자 메시지가 AI 세션 기록에 나타났는지
@@ -109,49 +111,49 @@ LoadToAgent는 전달 상태를 실제로 관측한 세 단계로 보여 줍니�
 
 예약·실행 단계, AI 세션 터미널, tmux 터미널 관리는 왼쪽의 **고급 도구** 아래에 모여 있어 일상적인 관제 흐름을 방해하지 않습니다.
 
-LoadToAgent는 `직접 입력 가능`, `브리지 연결 후 입력 가능`, `원래 앱에서 계속해야 하는 보기 전용`, `종료된 세션`을 구분합니다. 임의의 외부 창에 키 입력을 보내지 않습니다.
+Whitebox는 `직접 입력 가능`, `브리지 연결 후 입력 가능`, `원래 앱에서 계속해야 하는 보기 전용`, `종료된 세션`을 구분합니다. 임의의 외부 창에 키 입력을 보내지 않습니다.
 
 홈과 세션 목록은 현재 실행 중이거나 마지막 활동이 24시간 이내인 세션을 표시합니다. **확인할 일**은 `진행 차단`, `선택 사항`, `실행 위험`을 별도 분류합니다. 홈의 `지금 개입할 작업`에는 진행 차단 응답과 실행 위험만 포함하며 선택 사항은 포함하지 않습니다. 정보 확인 수준이 낮다는 이유만으로도 포함하지 않습니다.
 
 ## 연결된 터미널 사용
 
-LoadToAgent 앱을 열어 둔 뒤 인증된 로컬 브리지로 AI CLI를 시작합니다.
+Whitebox 앱을 열어 둔 뒤 인증된 로컬 브리지로 AI CLI를 시작합니다.
 
 ```bash
-loadtoagent run claude
-loadtoagent run codex
-loadtoagent run gemini
-loadtoagent run grok
+whitebox run claude
+whitebox run codex
+whitebox run gemini
+whitebox run grok
 ```
 
 `--` 뒤의 값은 각 AI CLI 옵션으로 그대로 전달됩니다.
 
 ```bash
-loadtoagent run claude -- --model claude-sonnet-4-6
+whitebox run claude -- --model claude-sonnet-4-6
 ```
 
-이제 외부 터미널과 LoadToAgent 대시보드가 같은 LoadToAgent 전용 세션을 조작합니다. AI 카드에서 `터미널에서 열기`를 누르면 새 셸을 만들지 않고 정확히 연결된 기존 터미널을 열며, 왼쪽에는 해당 세션의 이전 대화가 계속 표시됩니다. 터미널 탭을 바꿔도 출력은 지워지지 않고, 최신 대화 기록도 자동으로 갱신됩니다. 다른 곳에서 임의로 시작한 세션은 계속 볼 수 있지만, 원래 앱이 지원하는 연결 방식이 없으면 보기 전용으로 유지됩니다.
+이제 외부 터미널과 Whitebox 대시보드가 같은 Whitebox 전용 세션을 조작합니다. AI 카드에서 `터미널에서 열기`를 누르면 새 셸을 만들지 않고 정확히 연결된 기존 터미널을 열며, 왼쪽에는 해당 세션의 이전 대화가 계속 표시됩니다. 터미널 탭을 바꿔도 출력은 지워지지 않고, 최신 대화 기록도 자동으로 갱신됩니다. 다른 곳에서 임의로 시작한 세션은 계속 볼 수 있지만, 원래 앱이 지원하는 연결 방식이 없으면 보기 전용으로 유지됩니다.
 
 ### Codex 작업을 두 터미널에서 함께 열기
 
-LoadToAgent가 직접 관리하는 Windows/macOS/Linux의 native direct Codex 터미널은 앱의 터미널 호스트가 소유한 하나의 localhost `codex app-server`를 공유합니다. 같은 작업을 일반 Codex CLI에서도 열려면 LoadToAgent에서 해당 direct Codex 작업을 먼저 연 뒤 공유 주소를 사용하세요.
+Whitebox가 직접 관리하는 Windows/macOS/Linux의 native direct Codex 터미널은 앱의 터미널 호스트가 소유한 하나의 localhost `codex app-server`를 공유합니다. 같은 작업을 일반 Codex CLI에서도 열려면 Whitebox에서 해당 direct Codex 작업을 먼저 연 뒤 공유 주소를 사용하세요.
 
 ```powershell
 # PowerShell
-$codexSharedEndpoint = loadtoagent codex-endpoint
+$codexSharedEndpoint = whitebox codex-endpoint
 codex --remote $codexSharedEndpoint resume <SESSION_ID>
 ```
 
 ```bash
 # macOS / Linux
-codex --remote "$(loadtoagent codex-endpoint)" resume <SESSION_ID>
+codex --remote "$(whitebox codex-endpoint)" resume <SESSION_ID>
 ```
 
 이 주소는 `127.0.0.1`에만 열리며 Codex 서버가 다시 시작되면 바뀔 수 있으므로 저장하지 말고 매번 조회하세요. 대화 ID는 기존처럼 저장되지만 공유 서버 주소는 세션 기록에 저장되지 않습니다. 호스트보다 오래 살아야 하는 macOS/Linux managed-tmux Codex와 Windows WSL Codex에는 이 주소를 주입하지 않으므로 기존 백그라운드·재연결 수명이 유지됩니다. Claude, Gemini, Grok 실행 인자도 이 기능으로 변경되지 않습니다.
 
-공식 Codex Desktop에서 연 작업은 예외입니다. 현재 Desktop 앱의 app-server는 외부 연결 주소를 공개하지 않으므로 LoadToAgent나 별도 CLI가 그 writer에 동시에 붙을 수 없습니다. 턴 완료나 `attention` 표시는 writer 해제의 근거가 아니므로, LoadToAgent는 Desktop에서 시작한 작업에는 상태와 무관하게 독립 `codex resume`을 실행하지 않고 원래 Codex 앱에서 계속하도록 합니다. 이 제한은 [Codex App Server 문서](https://learn.chatgpt.com/docs/app-server)에 공개된 연결 방식 기준입니다.
+공식 Codex Desktop에서 연 작업은 예외입니다. 현재 Desktop 앱의 app-server는 외부 연결 주소를 공개하지 않으므로 Whitebox나 별도 CLI가 그 writer에 동시에 붙을 수 없습니다. 턴 완료나 `attention` 표시는 writer 해제의 근거가 아니므로, Whitebox는 Desktop에서 시작한 작업에는 상태와 무관하게 독립 `codex resume`을 실행하지 않고 원래 Codex 앱에서 계속하도록 합니다. 이 제한은 [Codex App Server 문서](https://learn.chatgpt.com/docs/app-server)에 공개된 연결 방식 기준입니다.
 
-macOS와 WSL의 지속형 AI 터미널은 개인 tmux와 분리된 `tmux -L loadtoagent` 서버에서 실행됩니다. `터미널 화면 닫기`는 attach 화면만 분리하고 AI 작업은 백그라운드에서 계속합니다. 목록의 `기존 작업 다시 연결`은 새 AI 대화를 만들지 않고 같은 tmux 세션과 LoadToAgent 세션 ID에 다시 붙습니다. `AI 세션 종료`는 실제 tmux 작업을 끝내되 확인할 수 있도록 기록을 남기며, 중지된 기록은 별도로 제거할 수 있습니다.
+macOS와 WSL의 지속형 AI 터미널은 개인 tmux와 분리된 `tmux -L whitebox` 서버에서 실행됩니다. `터미널 화면 닫기`는 attach 화면만 분리하고 AI 작업은 백그라운드에서 계속합니다. 목록의 `기존 작업 다시 연결`은 새 AI 대화를 만들지 않고 같은 tmux 세션과 Whitebox 세션 ID에 다시 붙습니다. `AI 세션 종료`는 실제 tmux 작업을 끝내되 확인할 수 있도록 기록을 남기며, 중지된 기록은 별도로 제거할 수 있습니다.
 
 대시보드나 터미널 호스트가 예기치 않게 끝나도 tmux 작업이 살아 있으면 다음 실행에서 같은 세션으로 복구합니다. 저장된 tmux가 사라졌다면 중복 AI 대화를 자동 생성하지 않고 `작업 중지됨`으로 표시합니다. Windows 네이티브 AI 세션과 일반 명령창은 기존 직접 PTY/터미널 호스트 방식을 유지합니다. 두 방식 모두 실행 중·분리됨·자연 종료·시작 실패 기록은 사용자가 명시적으로 제거할 때까지 세션 터미널 목록에 남습니다.
 
@@ -219,7 +221,7 @@ git push origin HEAD --follow-tags
 
 ## 라이선스
 
-LoadToAgent는 [MIT 라이선스](LICENSE)로 제공됩니다.
+Whitebox는 [MIT 라이선스](LICENSE)로 제공됩니다.
 
 ---
 

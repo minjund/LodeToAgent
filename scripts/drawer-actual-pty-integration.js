@@ -14,12 +14,12 @@ app.disableHardwareAcceleration();
 const root = path.resolve(__dirname, '..');
 const artifacts = path.join(root, 'artifacts');
 const logFile = path.join(artifacts, 'inline-actual-pty-integration.log');
-const screenshotFile = path.join(artifacts, 'loadtoagent-inline-actual-pty-failure.png');
-const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-drawer-actual-pty-'));
+const screenshotFile = path.join(artifacts, 'whitebox-inline-actual-pty-failure.png');
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-drawer-actual-pty-'));
 const discoveryFile = path.join(temporary, 'terminal-host.json');
 const storeFile = path.join(temporary, 'terminals.json');
 const endpoint = process.platform === 'win32'
-  ? `\\\\.\\pipe\\loadtoagent-drawer-actual-pty-${process.pid}-${Date.now()}`
+  ? `\\\\.\\pipe\\whitebox-drawer-actual-pty-${process.pid}-${Date.now()}`
   : path.join(temporary, 'terminal-host.sock');
 const ipcChannels = [
   'terminals:list', 'wsl:list-distros', 'terminals:get', 'terminals:create',
@@ -203,9 +203,9 @@ async function run() {
       webPreferences: {
         preload: path.join(__dirname, 'interaction-fixture-preload.js'),
         additionalArguments: [
-          `--loadtoagent-real-terminal-id=${terminalId}`,
-          `--loadtoagent-real-terminal-pid=${session.pid}`,
-          encodedAdditionalArgument('loadtoagent-real-terminal-cwd', root),
+          `--whitebox-real-terminal-id=${terminalId}`,
+          `--whitebox-real-terminal-pid=${session.pid}`,
+          encodedAdditionalArgument('whitebox-real-terminal-cwd', root),
         ],
         contextIsolation: true,
         nodeIntegration: false,
@@ -236,7 +236,7 @@ async function run() {
 
     await win.loadFile(path.join(root, 'renderer', 'index.html'));
     await waitForRenderer(win,
-      `Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentTerminal && window.LoadToAgentInlineTerminal && window.interactionTest)`,
+      `Boolean(window.WhiteboxApp?.initialized && window.WhiteboxTerminal && window.WhiteboxInlineTerminal && window.interactionTest)`,
       'renderer와 실제 PTY preload가 준비되지 않았습니다.');
 
     const openedInline = await rendererValue(win, `(() => {
@@ -250,8 +250,8 @@ async function run() {
     assert(openedInline, '실제 PTY를 열 프로젝트 또는 메인 AI 영역을 찾지 못했습니다.');
     await waitForRenderer(win, `(() => {
       const inline = document.querySelector('[data-inline-agent-terminal="fixture-root"]');
-      const embedded = window.LoadToAgentTerminal.embeddedState();
-      const rootSession = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
+      const embedded = window.WhiteboxTerminal.embeddedState();
+      const rootSession = window.WhiteboxApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
       const terminal = window.interactionTest.getTerminals().find(item =>
         item.id === ${JSON.stringify(terminalId)});
       return inline
@@ -259,7 +259,7 @@ async function run() {
         && embedded.connected
         && embedded.agentSessionId === 'fixture-root'
         && embedded.terminalId === ${JSON.stringify(terminalId)}
-        && window.LoadToAgentTerminal.agentTargets(rootSession).some(target =>
+        && window.WhiteboxTerminal.agentTargets(rootSession).some(target =>
           target.terminalId === ${JSON.stringify(terminalId)})
         && terminal?.conversationBound === true
         && terminal?.backend === 'direct'
@@ -282,7 +282,7 @@ async function run() {
 
     const focused = await rendererValue(win, `(() => {
       window.interactionTest.clearCalls();
-      return window.LoadToAgentTerminal.focusEmbedded()
+      return window.WhiteboxTerminal.focusEmbedded()
         && document.activeElement === document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
     })()`);
     assert(focused, '인라인 PTY의 실제 xterm 입력 커서에 포커스하지 못했습니다.');
@@ -307,7 +307,7 @@ async function run() {
     assert(shiftTabResult.focused, 'Shift+Tab 뒤 xterm 입력 포커스가 브라우저의 이전 컨트롤로 이동했습니다.');
     assert(shiftTabResult.terminalId === terminalId && shiftTabResult.data === '\u001b[Z',
       `Shift+Tab raw 입력이 정확한 PTY backtab 한 번이 아닙니다: ${JSON.stringify(shiftTabResult)}`);
-    if (process.env.LOADTOAGENT_SHIFT_TAB_ONLY === '1') {
+    if (process.env.WHITEBOX_SHIFT_TAB_ONLY === '1') {
       process.stdout.write(`✓ xterm Shift+Tab → PTY backtab 통합 검증\n${JSON.stringify(shiftTabResult, null, 2)}\n`);
       return;
     }
@@ -342,9 +342,9 @@ async function run() {
     const scrolledState = await rendererValue(win, scrollStateExpression);
 
     const remountResult = await rendererValue(win, `(async () => {
-      const rootSession = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
+      const rootSession = window.WhiteboxApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
       const mount = document.querySelector('#agentInlineTerminalViewport');
-      const result = await window.LoadToAgentTerminal.mountForAgent(rootSession, {
+      const result = await window.WhiteboxTerminal.mountForAgent(rootSession, {
         mount,
         targetId: ${JSON.stringify(terminalId)},
       });
@@ -377,7 +377,7 @@ async function run() {
       '실제 PTY live marker가 인라인 xterm에 표시되지 않았습니다.');
 
     const rendererResult = await rendererValue(win, `(() => ({
-      embedded: window.LoadToAgentTerminal.embeddedState(),
+      embedded: window.WhiteboxTerminal.embeddedState(),
       inlineMounted: Boolean(document.querySelector('[data-inline-agent-terminal="fixture-root"]')),
       drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
       xtermMounted: Boolean(document.querySelector('#agentInlineTerminalViewport > .terminal-screen .xterm')),

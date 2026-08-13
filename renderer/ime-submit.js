@@ -4,7 +4,7 @@
 // in-progress keydown. Ignoring it forces a second Enter. Defer that same
 // intent until compositionend, while cancelling the deferred request if the
 // browser also emits a normal Enter or the form is submitted by a click.
-window.LoadToAgentImeSubmit = (() => {
+window.WhiteboxImeSubmit = (() => {
   const pendingInputs = new WeakSet();
   const deferredSubmissions = new WeakMap();
 

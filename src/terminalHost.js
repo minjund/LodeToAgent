@@ -107,7 +107,7 @@ function unsentRawWriteDeliveryError(error, deliveryId) {
 
 function incompatibleHostError(message, discovery) {
   const error = new Error(message);
-  error.code = 'LOADTOAGENT_INCOMPATIBLE_TERMINAL_HOST';
+  error.code = 'WHITEBOX_INCOMPATIBLE_TERMINAL_HOST';
   error.discovery = discovery;
   return error;
 }
@@ -241,6 +241,10 @@ function terminalHostLockEndpoint(discoveryFile, platform = process.platform) {
   const identity = platform === 'win32' ? resolved.toLowerCase() : resolved;
   const digest = crypto.createHash('sha256').update(identity).digest('hex');
   if (platform === 'win32') {
+    // Keep the pre-rename lock identity permanently. A released LoadToAgent
+    // daemon and a newly installed Whitebox daemon can overlap during update
+    // recovery; sharing this OS-owned lock prevents both from opening and
+    // rewriting the same terminal session store.
     return `\\\\.\\pipe\\loadtoagent-terminal-host-lock-${digest.slice(0, 32)}`;
   }
   if (platform === 'darwin') {
@@ -441,7 +445,7 @@ class TerminalHostServer {
   constructor(options = {}) {
     this.manager = options.manager;
     this.platform = options.platform || process.platform;
-    this.discoveryFile = path.resolve(options.discoveryFile || path.join(os.tmpdir(), 'loadtoagent-terminal-host.json'));
+    this.discoveryFile = path.resolve(options.discoveryFile || path.join(os.tmpdir(), 'whitebox-terminal-host.json'));
     this.endpoint = options.endpoint || endpointFor(this.platform, `${path.dirname(this.discoveryFile)}:terminal-host`);
     this.token = options.token || crypto.randomBytes(32).toString('hex');
     this.runtime = String(options.runtime || TERMINAL_HOST_RUNTIME);
@@ -956,7 +960,7 @@ class TerminalHostClient extends EventEmitter {
       } catch (error) {
         lastError = error;
         this.resetSocket();
-        if (error?.code === 'LOADTOAGENT_INCOMPATIBLE_TERMINAL_HOST') {
+        if (error?.code === 'WHITEBOX_INCOMPATIBLE_TERMINAL_HOST') {
           let verified = false;
           let verification = null;
           try {

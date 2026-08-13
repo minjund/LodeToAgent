@@ -142,7 +142,7 @@ function normalizeRequest(raw, fallbackId = '') {
     allowLabel: text(raw.allowLabel, '허용', 100),
     denyLabel: text(raw.denyLabel, '거부', 100),
     submitLabel: text(raw.submitLabel, '답변 보내기', 100),
-    openMainLabel: text(raw.openMainLabel, 'LoadToAgent에서 열기', 100),
+    openMainLabel: text(raw.openMainLabel, 'Whitebox에서 열기', 100),
     canDeny: type === 'question' && raw.canDeny === true,
     questions,
     choices,
@@ -222,7 +222,7 @@ function canonicalDecision(request, supplied) {
     if (decision.action === 'deny' && request.canDeny) return { action: 'deny' };
     return canonicalQuestionDecision(request, decision);
   }
-  throw popupError('ATTENTION_POPUP_READ_ONLY', 'This request can only be opened in LoadToAgent.');
+  throw popupError('ATTENTION_POPUP_READ_ONLY', 'This request can only be opened in Whitebox.');
 }
 
 function callbackFailure(result) {

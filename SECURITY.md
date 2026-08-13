@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest released version of LoadToAgent.
+Security fixes are provided for the latest released version of Whitebox.
 
 ## Reporting a vulnerability
 
@@ -14,7 +14,7 @@ is available.
 
 ## Security boundaries
 
-LoadToAgent is a local desktop observer and controller. Its stored terminal
+Whitebox is a local desktop observer and controller. Its stored terminal
 replay, prompts, working directories, and agent metadata are sensitive. The
 application assumes the operating-system user account is trusted; it does not
 protect data from another process already running with the same user's

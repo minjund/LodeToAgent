@@ -8,7 +8,7 @@ const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
 const { spawnSync } = require('child_process');
-const { parseArguments } = require('../../bin/loadtoagent');
+const { parseArguments } = require('../../bin/whitebox');
 const { parseGeneric, buildSummary, snapshotWithoutSessions } = require('../../src/agentMonitor');
 const { AgentRunner, commandSpec, handleClaude } = require('../../src/agentRunner');
 const { BridgeServer, decodeBase64 } = require('../../src/bridgeServer');
@@ -29,6 +29,7 @@ const { TmuxController, safeName, safeTarget } = require('../../src/tmuxControll
 const { TmuxMonitor, normalizeWslList, parseTmuxProbe, buildDistroTopology, linkAgentSessions, providerFromProcess } = require('../../src/tmuxMonitor');
 const { ManagedTmuxRuntime } = require('../../src/managedTmuxRuntime');
 const { parseLaunchPayload } = require('../../src/tmuxControlProxy');
+const { retentionDays } = require('../../src/dataRetention');
 
 async function waitUntil(predicate, timeoutMs = 2_000, intervalMs = 10) {
   const deadline = Date.now() + timeoutMs;
@@ -38,6 +39,22 @@ async function waitUntil(predicate, timeoutMs = 2_000, intervalMs = 10) {
 
 function registerTmuxAndProcessTests(context) {
   const { test } = context;
+  test('보존 기간은 Whitebox 환경 변수를 우선하고 기존 공개 설정도 이어받는다', () => {
+    const current = process.env.WHITEBOX_RETENTION_DAYS;
+    const legacy = process.env.LOADTOAGENT_RETENTION_DAYS;
+    try {
+      delete process.env.WHITEBOX_RETENTION_DAYS;
+      process.env.LOADTOAGENT_RETENTION_DAYS = '45';
+      assert.equal(retentionDays(), 45);
+      process.env.WHITEBOX_RETENTION_DAYS = '12';
+      assert.equal(retentionDays(), 12);
+    } finally {
+      if (current === undefined) delete process.env.WHITEBOX_RETENTION_DAYS;
+      else process.env.WHITEBOX_RETENTION_DAYS = current;
+      if (legacy === undefined) delete process.env.LOADTOAGENT_RETENTION_DAYS;
+      else process.env.LOADTOAGENT_RETENTION_DAYS = legacy;
+    }
+  });
   test('WSL tmux 패널의 PID 계보에서 AI 프로세스를 식별한다', () => {
     const sep = '|~|';
     const argvRow = (pid, parentPid, age, command, argv) => [
@@ -474,7 +491,7 @@ function registerNativeProcessTests(context) {
 
 function registerBridgeIntegrationTests(context) {
   const { test, temp, root } = context;
-  test('LoadToAgent 외부 브리지는 인증 소켓으로 전용 PTY에만 입력한다', async () => {
+  test('Whitebox 외부 브리지는 인증 소켓으로 전용 PTY에만 입력한다', async () => {
     class FakeManager extends EventEmitter {
       constructor() { super(); this.writes = []; this.sessions = []; this.lastOptions = null; }
       create(options) {
@@ -490,7 +507,7 @@ function registerBridgeIntegrationTests(context) {
       list() { return this.sessions; }
     }
     const manager = new FakeManager();
-    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\loadtoagent-test-${process.pid}-${Date.now()}` : path.join(temp, 'bridge.sock');
+    const endpoint = process.platform === 'win32' ? `\\\\.\\pipe\\whitebox-test-${process.pid}-${Date.now()}` : path.join(temp, 'bridge.sock');
     const discovery = path.join(temp, 'bridge.json');
     const server = new BridgeServer({ terminalManager: manager, home: temp, platform: process.platform, endpoint, discoveryFile: discovery, token: 'test-token' });
     await server.start();
@@ -765,10 +782,10 @@ function registerTerminalLifecycleTests(context) {
     const session = manager.create({ type: 'agent', provider: 'codex', cwd: root });
 
     assert.equal(session.backend, 'managed-tmux');
-    assert.equal(session.tmuxSocket, 'loadtoagent');
+    assert.equal(session.tmuxSocket, 'whitebox');
     assert.match(session.managedTmuxSession, /^lta-codex-/);
     assert.equal(spawns[0].file, 'tmux');
-    assert.deepStrictEqual(spawns[0].args.slice(0, 5), ['-L', 'loadtoagent', 'new-session', '-A', '-s']);
+    assert.deepStrictEqual(spawns[0].args.slice(0, 5), ['-L', 'whitebox', 'new-session', '-A', '-s']);
     assert.equal(spawns[0].args.includes(session.managedTmuxSession), true);
     assert.deepStrictEqual(spawns[0].args.slice(-5), ['codex', ';', 'set-option', '-g', 'window-size', 'largest'].slice(-5));
     manager.close(session.id);
@@ -955,7 +972,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(result.pid, null);
     assert.equal(processHandle.killed, true);
     assert.deepStrictEqual(stopped, [{
-      socket: 'loadtoagent',
+      socket: 'whitebox',
       session: session.managedTmuxSession,
     }]);
     assert.equal(manager.list().length, 1);
@@ -1028,14 +1045,14 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(spawned.length, 4);
     assert.equal(spawned[2].file, 'tmux');
     assert.deepStrictEqual(spawned[2].args, [
-      '-L', 'loadtoagent',
+      '-L', 'whitebox',
       'attach-session', '-t', `=${created.managedTmuxSession}`,
     ]);
     assert.deepStrictEqual(spawned[3].args, [
-      '-L', 'loadtoagent',
+      '-L', 'whitebox',
       'attach-session', '-t', `=${secondCreated.managedTmuxSession}`,
     ]);
-    assert.deepStrictEqual(listedServers, [['', 'loadtoagent']], '같은 tmux 서버는 복구 중 한 번만 목록을 조회해야 합니다.');
+    assert.deepStrictEqual(listedServers, [['', 'whitebox']], '같은 tmux 서버는 복구 중 한 번만 목록을 조회해야 합니다.');
     assert.equal(individualExistsProbes, 0, '목록으로 확인한 managed session을 has-session으로 다시 조회하면 안 됩니다.');
     assert.match(afterCrash.get(created.id, true).replay, /실행 중이던 작업에 다시 연결/);
     afterCrash.close(created.id);
@@ -1156,7 +1173,7 @@ function registerTerminalLifecycleTests(context) {
 
     assert.equal(spawns.length, 2);
     assert.deepStrictEqual(spawns[1].args, [
-      '-L', 'loadtoagent',
+      '-L', 'whitebox',
       'attach-session', '-t', `=${session.managedTmuxSession}`,
     ]);
     assert.equal(spawns[1].args.includes('new-session'), false);
@@ -1198,7 +1215,7 @@ function registerTerminalLifecycleTests(context) {
       file: 'wsl.exe',
       args: [
         '-d', 'Ubuntu', '--cd', '/mnt/c/workspace', '--',
-        'tmux', '-L', 'loadtoagent', 'attach-session', '-t', `=${wslSession.managedTmuxSession}`,
+        'tmux', '-L', 'whitebox', 'attach-session', '-t', `=${wslSession.managedTmuxSession}`,
       ],
     });
     assert.equal(wslSpawns[1].args.includes('gemini'), false);
@@ -1472,7 +1489,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(manager.list().length, 0);
 
     const alreadyExited = new FakePty(8_803);
-    alreadyExited.__loadtoagentExited = true;
+    alreadyExited.__whiteboxExited = true;
     assert.deepStrictEqual(await killPtyTree(alreadyExited, alreadyExited.pid, 50, {
       platform: 'darwin', killProcess: posixKillProcess,
     }), {
@@ -1484,7 +1501,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(alreadyExited.exitCallbacks.size, 0);
 
     const preferredSignalHandle = new FakePty(8_804);
-    preferredSignalHandle.__loadtoagentPosixSignal = 'SIGTERM';
+    preferredSignalHandle.__whiteboxPosixSignal = 'SIGTERM';
     const preferredSignals = [];
     let preferredGroupAlive = true;
     const preferredCompletion = killPtyTree(preferredSignalHandle, preferredSignalHandle.pid, 200, {
@@ -1699,7 +1716,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(successfulTaskkillHandle.killed, false);
 
     const preExitedHandle = new FakePty(8_813);
-    preExitedHandle.__loadtoagentExited = true;
+    preExitedHandle.__whiteboxExited = true;
     const preExitedTaskkill = new EventEmitter();
     preExitedTaskkill.unref = () => {};
     preExitedTaskkill.kill = () => {};
@@ -1981,7 +1998,7 @@ function registerTerminalLifecycleTests(context) {
     const uncertaintySuffix = `${process.pid}-${Date.now()}-uncertain`;
     const uncertaintyDiscovery = path.join(temp, `terminal-host-uncertain-${uncertaintySuffix}.json`);
     const uncertaintyEndpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-uncertain-${uncertaintySuffix}`
+      ? `\\\\.\\pipe\\whitebox-host-uncertain-${uncertaintySuffix}`
       : path.join(os.tmpdir(), `lta-host-uncertain-${uncertaintySuffix}.sock`);
     let uncertaintyShutdowns = 0;
     const uncertaintyServer = new TerminalHostServer({
@@ -2109,12 +2126,12 @@ function registerTerminalLifecycleTests(context) {
       },
     });
     assert.deepStrictEqual(
-      [...listingRuntime.listSessionsStrict({ distro: 'Ubuntu', tmuxSocket: 'loadtoagent' })],
+      [...listingRuntime.listSessionsStrict({ distro: 'Ubuntu', tmuxSocket: 'whitebox' })],
       ['managed-one', 'managed-two'],
     );
     assert.deepStrictEqual(listCommands, [[
       'wsl.exe',
-      ['-d', 'Ubuntu', '--', 'tmux', '-L', 'loadtoagent', 'list-sessions', '-F', '#{session_name}'],
+      ['-d', 'Ubuntu', '--', 'tmux', '-L', 'whitebox', 'list-sessions', '-F', '#{session_name}'],
     ]]);
 
     let releaseKill;
@@ -2482,7 +2499,7 @@ function registerTerminalLifecycleTests(context) {
     }
     const manager = new FakeManager();
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-managed-lifecycle-${process.pid}-${Date.now()}`
+      ? `\\\\.\\pipe\\whitebox-managed-lifecycle-${process.pid}-${Date.now()}`
       : path.join(os.tmpdir(), `lta-managed-lifecycle-${process.pid}-${Date.now()}.sock`);
     const discovery = path.join(temp, 'managed-tmux-lifecycle-host.json');
     const server = new TerminalHostServer({
@@ -2646,8 +2663,8 @@ function registerTerminalLifecycleTests(context) {
   });
 
   test('macOS 패키지는 터미널 호스트를 숨김 Helper 실행 파일로 연다', () => {
-    const executable = '/Applications/LoadToAgent.app/Contents/MacOS/LoadToAgent';
-    const helper = '/Applications/LoadToAgent.app/Contents/Frameworks/LoadToAgent Helper.app/Contents/MacOS/LoadToAgent Helper';
+    const executable = '/Applications/Whitebox.app/Contents/MacOS/Whitebox';
+    const helper = '/Applications/Whitebox.app/Contents/Frameworks/Whitebox Helper.app/Contents/MacOS/Whitebox Helper';
     const fileSystem = { existsSync: file => file === helper };
     assert.equal(resolveTerminalHostExecutable({ platform: 'darwin', isPackaged: true, executable, fileSystem }), helper);
     assert.equal(resolveTerminalHostExecutable({ platform: 'darwin', isPackaged: false, executable, fileSystem }), executable);
@@ -3410,7 +3427,7 @@ function registerTerminalLifecycleTests(context) {
     }
     const suffix = `${process.pid}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-raw-write-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-raw-write-${suffix}`
       : path.join(os.tmpdir(), `lta-raw-write-${suffix}.sock`);
     const discovery = path.join(temp, `raw-write-host-${suffix}.json`);
     const manager = new TerminalManager({
@@ -3514,7 +3531,7 @@ function registerTerminalLifecycleTests(context) {
       assert.equal(manager.sessions.get(session.id).rawInputDeliveries.length, 256);
 
       const replacementEndpoint = process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-raw-write-replacement-${suffix}`
+        ? `\\\\.\\pipe\\whitebox-raw-write-replacement-${suffix}`
         : path.join(os.tmpdir(), `lta-raw-write-replacement-${suffix}.sock`);
       replacementServer = new TerminalHostServer({
         manager,
@@ -3558,7 +3575,7 @@ function registerTerminalLifecycleTests(context) {
       assert.equal(client.discovery.token, `raw-write-replacement-token-${suffix}`);
 
       const safeFirstSendEndpoint = process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-raw-write-safe-first-${suffix}`
+        ? `\\\\.\\pipe\\whitebox-raw-write-safe-first-${suffix}`
         : path.join(os.tmpdir(), `lta-raw-write-safe-first-${suffix}.sock`);
       safeFirstSendServer = new TerminalHostServer({
         manager,
@@ -3623,7 +3640,7 @@ function registerTerminalLifecycleTests(context) {
     }
     const suffix = `${process.pid}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-raw-write-legacy-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-raw-write-legacy-${suffix}`
       : path.join(os.tmpdir(), `lta-raw-write-legacy-${suffix}.sock`);
     const discovery = path.join(temp, `raw-write-legacy-host-${suffix}.json`);
     const manager = new TerminalManager({
@@ -3770,7 +3787,7 @@ function registerTerminalLifecycleTests(context) {
       } },
     });
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-test-${process.pid}-${Date.now()}`
+      ? `\\\\.\\pipe\\whitebox-host-test-${process.pid}-${Date.now()}`
       : path.join(os.tmpdir(), `lta-host-${process.pid}-${Date.now()}.sock`);
     const discovery = path.join(temp, 'terminal-host-discovery.json');
     const server = new TerminalHostServer({ manager, endpoint, discoveryFile: discovery, token: 'host-test-token' });
@@ -3904,6 +3921,16 @@ function registerTerminalLifecycleTests(context) {
   });
 
   test('동시에 시작한 터미널 호스트는 OS 잠금을 하나만 소유하고 해제 뒤에만 교체된다', async () => {
+    assert.match(
+      terminalHostLockEndpoint('C:\\Users\\fixture\\terminal-host.json', 'win32'),
+      /^\\\\\.\\pipe\\loadtoagent-terminal-host-lock-/u,
+      'Whitebox와 기존 데몬은 Windows에서 같은 업그레이드 잠금을 사용해야 합니다.',
+    );
+    assert.match(
+      terminalHostLockEndpoint('/Users/fixture/terminal-host.json', 'darwin'),
+      /\.loadtoagent-terminal-host-[a-f0-9]{64}\.lock$/u,
+      'Whitebox와 기존 데몬은 macOS에서 같은 업그레이드 잠금을 사용해야 합니다.',
+    );
     const formerlyCollidingA = terminalHostLockEndpoint('C:/audit/discovery-129.json', 'linux');
     const formerlyCollidingB = terminalHostLockEndpoint('C:/audit/discovery-190.json', 'linux');
     assert.notDeepStrictEqual(formerlyCollidingA, formerlyCollidingB, '서로 다른 discovery가 같은 10k-port 잠금으로 충돌하면 안 됩니다.');
@@ -3926,7 +3953,7 @@ function registerTerminalLifecycleTests(context) {
         assert.equal(fileDescriptor, 71);
       },
     };
-    const darwinLock = await acquireTerminalHostProcessLock('/tmp/loadtoagent/discovery.json', {
+    const darwinLock = await acquireTerminalHostProcessLock('/tmp/whitebox/discovery.json', {
       platform: 'darwin',
       fileSystem: darwinFileSystem,
       setInterval(callback, delay) {
@@ -3956,7 +3983,7 @@ function registerTerminalLifecycleTests(context) {
 
     let failClosedCloseCalls = 0;
     let failClosedClearCalls = 0;
-    const failClosedLock = await acquireTerminalHostProcessLock('/tmp/loadtoagent/fail-closed.json', {
+    const failClosedLock = await acquireTerminalHostProcessLock('/tmp/whitebox/fail-closed.json', {
       platform: 'darwin',
       fileSystem: {
         ...darwinFileSystem,
@@ -3978,7 +4005,7 @@ function registerTerminalLifecycleTests(context) {
     assert.equal((await failClosedLock.release()).ok, true, 'release 실패 뒤 재시도할 수 있어야 합니다.');
     assert.equal(failClosedClearCalls, 1);
     await assert.rejects(
-      acquireTerminalHostProcessLock('/tmp/loadtoagent/discovery.json', {
+      acquireTerminalHostProcessLock('/tmp/whitebox/discovery.json', {
         platform: 'darwin',
         fileSystem: {
           ...darwinFileSystem,
@@ -4064,7 +4091,7 @@ function registerTerminalLifecycleTests(context) {
     const manager = new EmptyManager();
     const discovery = path.join(temp, 'terminal-host-runtime-upgrade.json');
     const endpoint = suffix => process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-runtime-${process.pid}-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-host-runtime-${process.pid}-${suffix}`
       : path.join(os.tmpdir(), `lta-host-runtime-${process.pid}-${suffix}.sock`);
     let oldServer = null;
     let legacyExitedNaturally = false;
@@ -4171,7 +4198,7 @@ function registerTerminalLifecycleTests(context) {
       removeListener() { return super.removeListener(...arguments); }
     }
     const endpoint = suffix => process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-protocol-${process.pid}-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-host-protocol-${process.pid}-${suffix}`
       : path.join(os.tmpdir(), `lta-host-protocol-${process.pid}-${suffix}.sock`);
     const removeLegacyDiscovery = file => {
       if (fs.existsSync(file)) fs.unlinkSync(file);
@@ -4355,7 +4382,7 @@ function registerTerminalLifecycleTests(context) {
     fs.writeFileSync(discovery, JSON.stringify({
       protocol: 1,
       endpoint: process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-live-unresponsive-${process.pid}`
+        ? `\\\\.\\pipe\\whitebox-live-unresponsive-${process.pid}`
         : path.join(os.tmpdir(), `lta-live-unresponsive-${process.pid}.sock`),
       token: 'live-unresponsive-token',
       pid: process.pid,
@@ -4392,7 +4419,7 @@ function registerTerminalLifecycleTests(context) {
     fs.writeFileSync(discovery, JSON.stringify({
       protocol: 1,
       endpoint: process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-unknown-${process.pid}`
+        ? `\\\\.\\pipe\\whitebox-unknown-${process.pid}`
         : path.join(os.tmpdir(), `lta-unknown-${process.pid}.sock`),
       token: 'unknown-token',
       pid: 98_765,
@@ -4419,7 +4446,7 @@ function registerTerminalLifecycleTests(context) {
     fs.writeFileSync(discovery, JSON.stringify({
       protocol: 8,
       endpoint: process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-shared-live-${process.pid}`
+        ? `\\\\.\\pipe\\whitebox-shared-live-${process.pid}`
         : path.join(os.tmpdir(), `lta-shared-live-${process.pid}.sock`),
       token: 'shared-live-token',
       pid: process.pid,
@@ -4448,12 +4475,12 @@ function registerTerminalLifecycleTests(context) {
     const manager = new EmptyManager();
     const discovery = path.join(temp, 'terminal-host-stale-runtime.json');
     const replacementEndpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-stale-${process.pid}`
+      ? `\\\\.\\pipe\\whitebox-host-stale-${process.pid}`
       : path.join(os.tmpdir(), `lta-host-stale-${process.pid}.sock`);
     fs.writeFileSync(discovery, JSON.stringify({
       protocol: 1,
       endpoint: process.platform === 'win32'
-        ? `\\\\.\\pipe\\loadtoagent-missing-${process.pid}`
+        ? `\\\\.\\pipe\\whitebox-missing-${process.pid}`
         : path.join(os.tmpdir(), `lta-host-missing-${process.pid}.sock`),
       token: 'stale-token',
       pid: 98_766,
@@ -4709,7 +4736,7 @@ function registerTerminalLifecycleTests(context) {
     });
     const discovery = path.join(temp, 'terminal-host-reconnect-discovery.json');
     const endpoint = suffix => process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-reconnect-${process.pid}-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-host-reconnect-${process.pid}-${suffix}`
       : path.join(os.tmpdir(), `lta-host-reconnect-${process.pid}-${suffix}.sock`);
     const firstServer = new TerminalHostServer({ manager, endpoint: endpoint('first'), discoveryFile: discovery, token: 'first-token' });
     await firstServer.start();
@@ -5022,7 +5049,7 @@ function registerTerminalLifecycleTests(context) {
     const confirmedSuffix = `${process.pid}-${Date.now()}-confirmed-stop`;
     const confirmedDiscovery = path.join(temp, `terminal-host-update-stop-${confirmedSuffix}.json`);
     const confirmedEndpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-update-stop-${confirmedSuffix}`
+      ? `\\\\.\\pipe\\whitebox-host-update-stop-${confirmedSuffix}`
       : path.join(os.tmpdir(), `lta-host-update-stop-${confirmedSuffix}.sock`);
     const confirmedServer = new TerminalHostServer({
       manager: confirmedStopManager,
@@ -5175,7 +5202,7 @@ function registerTerminalLifecycleTests(context) {
     const managedSuffix = `${process.pid}-${Date.now()}-confirmed-detach`;
     const managedDiscovery = path.join(temp, `terminal-host-update-detach-${managedSuffix}.json`);
     const managedEndpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-update-detach-${managedSuffix}`
+      ? `\\\\.\\pipe\\whitebox-host-update-detach-${managedSuffix}`
       : path.join(os.tmpdir(), `lta-host-update-detach-${managedSuffix}.sock`);
     const managedServer = new TerminalHostServer({
       manager: managedDetachManager,
@@ -5242,7 +5269,7 @@ function registerTerminalLifecycleTests(context) {
     const suffix = `${process.pid}-${Date.now()}`;
     const overlapDiscovery = path.join(temp, `terminal-host-update-retire-${suffix}.json`);
     const overlapEndpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-update-retire-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-host-update-retire-${suffix}`
       : path.join(os.tmpdir(), `lta-host-update-retire-${suffix}.sock`);
     const overlapServer = new TerminalHostServer({
       manager,
@@ -5308,7 +5335,7 @@ function registerTerminalLifecycleTests(context) {
     const manager = new EmptyManager();
     const discovery = path.join(temp, 'terminal-host-idle-discovery.json');
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-idle-${process.pid}`
+      ? `\\\\.\\pipe\\whitebox-host-idle-${process.pid}`
       : path.join(os.tmpdir(), `lta-host-idle-${process.pid}.sock`);
     let shutdowns = 0;
     const server = new TerminalHostServer({
@@ -5341,7 +5368,7 @@ function registerTerminalLifecycleTests(context) {
     const suffix = `${process.pid}-${Date.now()}`;
     const discovery = path.join(temp, `terminal-host-orphan-${suffix}.json`);
     const endpoint = process.platform === 'win32'
-      ? `\\\\.\\pipe\\loadtoagent-host-orphan-${suffix}`
+      ? `\\\\.\\pipe\\whitebox-host-orphan-${suffix}`
       : path.join(os.tmpdir(), `lta-host-orphan-${suffix}.sock`);
     let shutdowns = 0;
     const server = new TerminalHostServer({
@@ -5902,7 +5929,7 @@ function registerTerminalFailureTests(context) {
       'x&whoami',
       'x&echo INJECTED>batch-injected.txt',
       '%PATH%',
-      '!LOADTOAGENT_LITERAL_TEST!',
+      '!WHITEBOX_LITERAL_TEST!',
       'embedded"quote',
       String.raw`two-backslashes-before-quote:a\\"b`,
       'argument-after-backslash-quote',
@@ -5937,7 +5964,7 @@ function registerTerminalFailureTests(context) {
       assert.equal(path.win32.normalize(batchSpec.file).toLowerCase(), path.win32.normalize(trustedCmd).toLowerCase());
       const launched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', commandLine], {
         cwd: batchSpec.cwd,
-        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        env: { ...process.env, WHITEBOX_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
         timeout: 10_000,
         windowsVerbatimArguments: true,
@@ -5953,7 +5980,7 @@ function registerTerminalFailureTests(context) {
       fs.rmSync(captureFile, { force: true });
       const launchedAfterDelayedExpansion = spawnSync(trustedCmd, ['/d', '/v:on', '/v:off', '/s', '/c', commandLine], {
         cwd: batchSpec.cwd,
-        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        env: { ...process.env, WHITEBOX_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
         timeout: 10_000,
         windowsVerbatimArguments: true,
@@ -5974,7 +6001,7 @@ function registerTerminalFailureTests(context) {
     if (process.platform === 'win32') {
       const batLaunched = spawnSync(trustedCmd, ['/d', '/v:off', '/s', '/c', batCommandLine], {
         cwd: batSpec.cwd,
-        env: { ...process.env, LOADTOAGENT_LITERAL_TEST: 'EXPANDED' },
+        env: { ...process.env, WHITEBOX_LITERAL_TEST: 'EXPANDED' },
         encoding: 'utf8',
         timeout: 10_000,
         windowsVerbatimArguments: true,
@@ -6051,7 +6078,7 @@ function registerTmuxControlTests(context) {
     assert.equal(calls[0].file, 'wsl.exe');
     assert.deepStrictEqual(calls[0].args.slice(-5, -2), ['tmux', 'load-buffer', '-b']);
     const bufferName = calls[0].args.at(-2);
-    assert.match(bufferName, /^loadtoagent-/);
+    assert.match(bufferName, /^whitebox-/);
     assert.equal(calls[0].args.at(-1), '-');
     assert.equal(calls[0].options.input, command);
     assert.equal(calls[0].options.timeoutMs, 15_000);

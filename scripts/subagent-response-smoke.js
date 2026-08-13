@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
-const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-subagent-response-'));
+const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-subagent-response-'));
 app.setPath('userData', userData);
 app.once('quit', () => {
   try { fs.rmSync(userData, { recursive: true, force: true }); } catch {}
@@ -37,10 +37,10 @@ app.whenReady().then(async () => {
 
   try {
     await win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    await waitFor(win, 'Boolean(window.LoadToAgentApp?.initialized && window.LoadToAgentApp?.state?.snapshot)', '앱 픽스처가 준비되지 않았습니다.');
+    await waitFor(win, 'Boolean(window.WhiteboxApp?.initialized && window.WhiteboxApp?.state?.snapshot)', '앱 픽스처가 준비되지 않았습니다.');
     await win.webContents.executeJavaScript(`(() => {
-      const control = window.LoadToAgentApp;
-      window.LoadToAgentI18n.setLocale('ko');
+      const control = window.WhiteboxApp;
+      window.WhiteboxI18n.setLocale('ko');
       control.state.view = 'all';
       control.state.workspace = 'D:\\\\fixture';
       control.state.provider = 'all';
@@ -55,7 +55,7 @@ app.whenReady().then(async () => {
       && document.querySelector('#drawerComposer')?.classList.contains('hidden')
       && !document.querySelector('.subagent-assignment-card')`, '진행 응답 중심의 서브에이전트 상세가 준비되지 않았습니다.');
 
-    await win.webContents.executeJavaScript(`window.LoadToAgentApp.openSubagentConversation('fixture-resting', { context: true })`);
+    await win.webContents.executeJavaScript(`window.WhiteboxApp.openSubagentConversation('fixture-resting', { context: true })`);
     await waitFor(win, `document.querySelector('[data-subagent-work-messages="3"]')
       && document.querySelector('#drawerContent .chat-row.assistant:last-of-type')?.innerText.includes('검토 결과 이상이 없습니다.')
       && document.querySelector('#drawerComposer')?.classList.contains('hidden')`, '최종 응답이 서브에이전트 상세에 표시되지 않았습니다.');

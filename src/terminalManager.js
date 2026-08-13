@@ -51,7 +51,7 @@ const TMUX_PROXY_DELIVERY_RECOVERY_GRACE_MS = 1_000;
 const TMUX_PROXY_LARGE_DELIVERY_TIMEOUT_MS = 60_000;
 const TERMINAL_TYPES = new Set(['powershell', 'cmd', 'shell', 'wsl', 'tmux', 'agent']);
 const SESSION_BACKENDS = new Set(['direct', 'managed-tmux']);
-const DEFAULT_TMUX_SOCKET = 'loadtoagent';
+const DEFAULT_TMUX_SOCKET = 'whitebox';
 const WINDOWS_CMD_META_CHARACTERS = /([()\][%!^"`<>&|;, *?])/g;
 const AGENT_PROVIDERS = Object.freeze({
   claude: { command: 'claude', label: 'Claude' },
@@ -599,7 +599,7 @@ function terminatePosixPtyGroup(handle, pid, timeoutMs, runtime = {}) {
     try {
       killProcess(-pid, signal);
     } catch (cause) {
-      if (cause?.code === 'ESRCH' && !handle.__loadtoagentExited) {
+      if (cause?.code === 'ESRCH' && !handle.__whiteboxExited) {
         const missingGroup = new Error('실행 중인 PTY 루트의 POSIX process group을 찾지 못했습니다.');
         missingGroup.code = 'POSIX_PROCESS_GROUP_UNCONFIRMED';
         missingGroup.cause = cause;
@@ -609,7 +609,7 @@ function terminatePosixPtyGroup(handle, pid, timeoutMs, runtime = {}) {
       }
       if (cause?.code !== 'ESRCH') {
         runBestEffort('terminal-posix-group-fallback', () => {
-          if (!handle.__loadtoagentExited) handle.kill();
+          if (!handle.__whiteboxExited) handle.kill();
         });
         finish(ptyTreeUnconfirmedError(cause));
         return;
@@ -621,7 +621,7 @@ function terminatePosixPtyGroup(handle, pid, timeoutMs, runtime = {}) {
 
 function waitForPtyExitAfter(handle, terminate, timeoutMs = PTY_EXIT_CONFIRM_TIMEOUT_MS, options = {}) {
   if (!handle) return Promise.resolve({ ok: true, alreadyExited: true });
-  if (handle.__loadtoagentExited && !options.alwaysTerminate) {
+  if (handle.__whiteboxExited && !options.alwaysTerminate) {
     return Promise.resolve({ ok: true, alreadyExited: true });
   }
   const requestedTimeout = Math.floor(Number(timeoutMs));
@@ -661,7 +661,7 @@ function waitForPtyExitAfter(handle, terminate, timeoutMs = PTY_EXIT_CONFIRM_TIM
       if (exitConfirmed && terminationComplete) finish();
     };
     const confirmed = () => {
-      handle.__loadtoagentExited = true;
+      handle.__whiteboxExited = true;
       exitConfirmed = true;
       completeIfReady();
     };
@@ -677,7 +677,7 @@ function waitForPtyExitAfter(handle, terminate, timeoutMs = PTY_EXIT_CONFIRM_TIM
     } catch (error) {
       registrationError = error;
     }
-    if (handle.__loadtoagentExited) confirmed();
+    if (handle.__whiteboxExited) confirmed();
     let termination;
     try {
       termination = typeof terminate === 'function' ? terminate() : null;
@@ -688,7 +688,7 @@ function waitForPtyExitAfter(handle, terminate, timeoutMs = PTY_EXIT_CONFIRM_TIM
     const afterTermination = () => {
       if (settled) return;
       terminationComplete = true;
-      if (handle.__loadtoagentExited) confirmed();
+      if (handle.__whiteboxExited) confirmed();
       if (registrationError) {
         finish(registrationError);
         return;
@@ -756,7 +756,7 @@ function killPtyTree(handle, pid, exitTimeoutMs = PTY_EXIT_CONFIRM_TIMEOUT_MS, r
   if (platform === 'win32' && (!Number.isSafeInteger(numericPid) || numericPid <= 0)) {
     const error = ptyTreeUnconfirmedError(new Error('Windows process-tree PID를 확인할 수 없습니다.'));
     try {
-      if (!handle.__loadtoagentExited) handle.kill();
+      if (!handle.__whiteboxExited) handle.kill();
     } catch (fallbackError) {
       error.cause = fallbackError;
     }
@@ -766,11 +766,11 @@ function killPtyTree(handle, pid, exitTimeoutMs = PTY_EXIT_CONFIRM_TIMEOUT_MS, r
     if (!Number.isSafeInteger(numericPid) || numericPid <= 0) {
       const error = ptyTreeUnconfirmedError(new Error('POSIX PTY process group PID를 확인할 수 없습니다.'));
       runBestEffort('terminal-posix-root-fallback', () => {
-        if (!handle.__loadtoagentExited) handle.kill();
+        if (!handle.__whiteboxExited) handle.kill();
       });
       return Promise.reject(error);
     }
-    const handleSignal = String(handle.__loadtoagentPosixSignal || '');
+    const handleSignal = String(handle.__whiteboxPosixSignal || '');
     const preferredSignal = runtime.posixSignal
       || (['SIGHUP', 'SIGTERM'].includes(handleSignal) ? handleSignal : '');
     const posixRuntime = preferredSignal ? { ...runtime, posixSignal: preferredSignal } : runtime;
@@ -828,7 +828,7 @@ function killPtyTree(handle, pid, exitTimeoutMs = PTY_EXIT_CONFIRM_TIMEOUT_MS, r
         return;
       }
       try {
-        if (!handle.__loadtoagentExited) handle.kill();
+        if (!handle.__whiteboxExited) handle.kill();
       } catch (error) {
         failure.cause = error;
       }
@@ -1379,7 +1379,11 @@ function restoredOptions(value = {}, platform = process.platform, storeVersion =
     sessionBackend: SESSION_BACKENDS.has(value.sessionBackend)
       ? value.sessionBackend
       : (storeVersion < STORE_VERSION ? 'direct' : undefined),
-    tmuxSocket: cleanText(value.tmuxSocket, 100),
+    // A pre-Whitebox managed record without an explicit socket belonged to
+    // the legacy isolated tmux server. Falling back here avoids starting a
+    // duplicate conversation while new sessions use DEFAULT_TMUX_SOCKET.
+    tmuxSocket: cleanText(value.tmuxSocket, 100)
+      || (value.sessionBackend === 'managed-tmux' ? 'loadtoagent' : ''),
     managedTmuxSession: cleanText(value.managedTmuxSession, 100),
     bridgeId: String(value.bridgeId == null ? '' : value.bridgeId).trim(),
     agentConnectionSignature: cleanText(value.agentConnectionSignature, 1_000),
@@ -1750,13 +1754,13 @@ class TerminalManager extends EventEmitter {
           session.pid = null;
           session.recoveredAfterHostRestart = false;
           session.recoverySkippedReason = 'managed-tmux-missing';
-          const missingMessage = '\r\n[LoadToAgent] 저장된 명령창 묶음을 찾지 못해 새 AI 대화를 자동으로 시작하지 않았습니다.\r\n';
+          const missingMessage = '\r\n[Whitebox] 저장된 명령창 묶음을 찾지 못해 새 AI 대화를 자동으로 시작하지 않았습니다.\r\n';
           appendSessionReplay(session, missingMessage, { immediate: true });
           continue;
         }
         session.recoveredAfterHostRestart = true;
         session.recoverySkippedReason = '';
-        const reattachMessage = '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
+        const reattachMessage = '\r\n[Whitebox] 명령창 연결이 끊긴 뒤에도 실행 중이던 작업에 다시 연결했습니다.\r\n';
         appendSessionReplay(session, reattachMessage, { immediate: true });
         try {
           session.spec = managedTmuxAttachSpec(session.options, this.platform);
@@ -1777,7 +1781,7 @@ class TerminalManager extends EventEmitter {
         session.pid = null;
         session.recoveredAfterHostRestart = false;
         session.recoverySkippedReason = 'unsafe-agent-restart';
-        const skippedMessage = '\r\n[LoadToAgent] 이어갈 기존 AI 대화를 찾지 못했습니다. 새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다.\r\n';
+        const skippedMessage = '\r\n[Whitebox] 이어갈 기존 AI 대화를 찾지 못했습니다. 새 대화를 만들 수 있어 자동으로 이어가지는 않았습니다.\r\n';
         appendSessionReplay(session, skippedMessage, { immediate: true });
         continue;
       }
@@ -1788,8 +1792,8 @@ class TerminalManager extends EventEmitter {
         && Boolean(session.options.tmuxPane)
         && Boolean(session.options.tmuxPanePid);
       const message = exactTmuxReattach
-        ? '\r\n[LoadToAgent] 명령창 호스트가 다시 시작되어 기존 tmux pane의 실제 PTY에 다시 연결했습니다.\r\n'
-        : '\r\n[LoadToAgent] 명령창 연결이 끊긴 뒤 새 프로그램으로 복구했습니다. 이전 명령창의 임시 상태는 이어지지 않습니다.\r\n';
+        ? '\r\n[Whitebox] 명령창 호스트가 다시 시작되어 기존 tmux pane의 실제 PTY에 다시 연결했습니다.\r\n'
+        : '\r\n[Whitebox] 명령창 연결이 끊긴 뒤 새 프로그램으로 복구했습니다. 이전 명령창의 임시 상태는 이어지지 않습니다.\r\n';
       appendSessionReplay(session, message, { immediate: true });
       try {
         this.spawn(session);
@@ -1970,7 +1974,7 @@ class TerminalManager extends EventEmitter {
       }
       const removedForKey = removedByKey.get(key) || 0;
       if (removedForKey && this.sessions.get(survivor.id) === survivor) {
-        const message = `\r\n[LoadToAgent] 같은 AI 대화에 중복으로 열린 연결 ${removedForKey}개를 정리했습니다.\r\n`;
+        const message = `\r\n[Whitebox] 같은 AI 대화에 중복으로 열린 연결 ${removedForKey}개를 정리했습니다.\r\n`;
         appendSessionReplay(survivor, message, { immediate: true });
       }
     }
@@ -2775,7 +2779,7 @@ class TerminalManager extends EventEmitter {
     session.startupFailure = true;
     session.startupBuffer = '';
     this.clearStartupTimer(session);
-    const failureMessage = `\r\n[LoadToAgent] ${message}\r\n`;
+    const failureMessage = `\r\n[Whitebox] ${message}\r\n`;
     appendSessionReplay(session, failureMessage, { immediate: true });
     session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
     session.updatedAt = new Date().toISOString();
@@ -2823,7 +2827,7 @@ class TerminalManager extends EventEmitter {
       this.emitState('updated', session);
     };
     const fail = cleanupError => {
-      if (processHandle.__loadtoagentExited) {
+      if (processHandle.__whiteboxExited) {
         finish();
         return;
       }
@@ -2844,7 +2848,7 @@ class TerminalManager extends EventEmitter {
       this.emitState('updated', session);
     };
     try {
-      const startupCancellation = Boolean(processHandle.__loadtoagentStartupPending);
+      const startupCancellation = Boolean(processHandle.__whiteboxStartupPending);
       const terminateWithPid = resolvedPid => {
         if (Number.isSafeInteger(Number(resolvedPid)) && Number(resolvedPid) > 0) {
           session.pid = Number(resolvedPid);
@@ -2959,7 +2963,7 @@ class TerminalManager extends EventEmitter {
         this.schedulePersist();
       });
       processHandle.onExit(event => {
-        processHandle.__loadtoagentExited = true;
+        processHandle.__whiteboxExited = true;
         if (session.generation !== generation) return;
         flushSessionReplay(session);
         this.clearStartupTimer(session);
@@ -2981,7 +2985,7 @@ class TerminalManager extends EventEmitter {
         if (session.spec.readyMarker && !session.startupReady) {
           if (!session.startupFailure) {
             session.startupFailure = true;
-            const failureMessage = '\r\n[LoadToAgent] 요청한 tmux pane 연결이 끝나 입력을 차단했습니다.\r\n';
+            const failureMessage = '\r\n[Whitebox] 요청한 tmux pane 연결이 끝나 입력을 차단했습니다.\r\n';
             appendSessionReplay(session, failureMessage, { immediate: true });
             session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
             this.emit('data', { id: session.id, data: failureMessage, outputSequence: session.outputSequence });
@@ -3025,7 +3029,7 @@ class TerminalManager extends EventEmitter {
         session.status = 'failed';
       }
       session.updatedAt = new Date().toISOString();
-      const failureMessage = `\r\n[LoadToAgent] 명령창을 시작하지 못했습니다: ${error.message}\r\n`;
+      const failureMessage = `\r\n[Whitebox] 명령창을 시작하지 못했습니다: ${error.message}\r\n`;
       appendSessionReplay(session, failureMessage, { immediate: true });
       if (processHandle) this.cleanupFailedSpawnProcess(session, processHandle, generation, error);
       session.outputSequence = (Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0) + 1;
@@ -3582,7 +3586,7 @@ class TerminalManager extends EventEmitter {
       // through the handle in the same main-thread tick; waiting on a sampled
       // probe PID would race the probe→control handoff and could kill a stale
       // process while allowing the real control client to start afterward.
-      const startupCancellation = Boolean(context.handle?.__loadtoagentStartupPending);
+      const startupCancellation = Boolean(context.handle?.__whiteboxStartupPending);
       const terminateWithPid = resolvedPid => {
         context.pid = resolvedPid;
         if (context.handle

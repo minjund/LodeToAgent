@@ -7,7 +7,7 @@ const path = require('path');
 const { app, BrowserWindow } = require('electron');
 
 const root = path.resolve(__dirname, '..');
-const temporaryUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'loadtoagent-popup-settings-'));
+const temporaryUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'whitebox-popup-settings-'));
 app.setPath('userData', temporaryUserData);
 app.commandLine.appendSwitch('disable-gpu');
 
@@ -45,7 +45,7 @@ async function run() {
   });
   await win.loadFile(path.join(root, 'renderer', 'index.html'));
   win.show();
-  await waitFor(() => win.webContents.executeJavaScript('Boolean(window.LoadToAgentApp?.initialized)', true), 'renderer initialization');
+  await waitFor(() => win.webContents.executeJavaScript('Boolean(window.WhiteboxApp?.initialized)', true), 'renderer initialization');
   await win.webContents.executeJavaScript("document.querySelector('#sidebarSettingsBtn').click()", true);
   await waitFor(() => win.webContents.executeJavaScript("!document.querySelector('#settingsSection').classList.contains('hidden')", true), 'settings view');
   assert.equal(await win.webContents.executeJavaScript("document.querySelector('#attentionPopupEnabled').checked", true), true);

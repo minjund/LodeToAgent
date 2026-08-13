@@ -1,7 +1,7 @@
 (function exposeAttentionActivation(root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
-  if (root) root.LoadToAgentAttentionActivation = api;
+  if (root) root.WhiteboxAttentionActivation = api;
 })(typeof window !== 'undefined' ? window : globalThis, function createAttentionActivationApi() {
   'use strict';
 
