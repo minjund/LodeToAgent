@@ -784,7 +784,7 @@ function launchTerminalHost(options = {}) {
 function resolveTerminalHostExecutable(options = {}) {
   const platform = options.platform || process.platform;
   const executable = String(options.executable || process.execPath);
-  if (platform !== 'darwin' || !options.isPackaged) return executable;
+  if (platform !== 'darwin') return executable;
   const targetPath = path.posix;
   const resolvedExecutable = targetPath.resolve(executable);
   const productName = targetPath.basename(resolvedExecutable);
@@ -798,7 +798,12 @@ function resolveTerminalHostExecutable(options = {}) {
     `${productName} Helper`,
   );
   const fileSystem = options.fileSystem || fs;
-  return fileSystem.existsSync(helper) ? helper : executable;
+  if (!fileSystem.existsSync(helper)) {
+    const error = new Error(`macOS 명령창 연결 프로그램용 Helper 실행 파일을 찾을 수 없습니다: ${helper}`);
+    error.code = 'TERMINAL_HOST_HELPER_UNAVAILABLE';
+    throw error;
+  }
+  return helper;
 }
 
 class TerminalHostClient extends EventEmitter {

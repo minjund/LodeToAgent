@@ -22,6 +22,7 @@ const {
   terminalHostLockEndpoint,
   terminateHostProcess,
   verifyHostDiscovery,
+  launchTerminalHost,
   resolveTerminalHostExecutable,
 } = require('../../src/terminalHost');
 const { parseConfig: parseTerminalHostConfig, run: runTerminalHostDaemon } = require('../../src/terminalHostDaemon');
@@ -2662,13 +2663,55 @@ function registerTerminalLifecycleTests(context) {
     overflowServer.dispose();
   });
 
-  test('macOS 패키지는 터미널 호스트를 숨김 Helper 실행 파일로 연다', () => {
-    const executable = '/Applications/Whitebox.app/Contents/MacOS/Whitebox';
-    const helper = '/Applications/Whitebox.app/Contents/Frameworks/Whitebox Helper.app/Contents/MacOS/Whitebox Helper';
-    const fileSystem = { existsSync: file => file === helper };
-    assert.equal(resolveTerminalHostExecutable({ platform: 'darwin', isPackaged: true, executable, fileSystem }), helper);
-    assert.equal(resolveTerminalHostExecutable({ platform: 'darwin', isPackaged: false, executable, fileSystem }), executable);
-    assert.equal(resolveTerminalHostExecutable({ platform: 'win32', isPackaged: true, executable, fileSystem }), executable);
+  test('macOS 터미널 호스트는 소스와 패키지에서 숨김 generic Helper로 실행한다', () => {
+    const packagedExecutable = '/Applications/Whitebox.app/Contents/MacOS/Whitebox';
+    const packagedHelper = '/Applications/Whitebox.app/Contents/Frameworks/Whitebox Helper.app/Contents/MacOS/Whitebox Helper';
+    const sourceExecutable = '/workspace/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron';
+    const sourceHelper = '/workspace/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron Helper.app/Contents/MacOS/Electron Helper';
+    const fileSystem = { existsSync: file => [packagedHelper, sourceHelper].includes(file) };
+
+    assert.equal(resolveTerminalHostExecutable({
+      platform: 'darwin', isPackaged: true, executable: packagedExecutable, fileSystem,
+    }), packagedHelper);
+    assert.equal(resolveTerminalHostExecutable({
+      platform: 'darwin', isPackaged: false, executable: sourceExecutable, fileSystem,
+    }), sourceHelper);
+    assert.throws(
+      () => resolveTerminalHostExecutable({
+        platform: 'darwin', isPackaged: false, executable: sourceExecutable,
+        fileSystem: { existsSync: () => false },
+      }),
+      error => error.code === 'TERMINAL_HOST_HELPER_UNAVAILABLE' && error.message.includes(sourceHelper),
+    );
+    assert.equal(resolveTerminalHostExecutable({
+      platform: 'win32', isPackaged: true, executable: packagedExecutable,
+      fileSystem: { existsSync: () => { throw new Error('Windows must not inspect the macOS Helper'); } },
+    }), packagedExecutable);
+    assert.equal(resolveTerminalHostExecutable({
+      platform: 'linux', isPackaged: false, executable: sourceExecutable,
+      fileSystem: { existsSync: () => { throw new Error('Linux must not inspect the macOS Helper'); } },
+    }), sourceExecutable);
+
+    const launches = [];
+    let unrefCalls = 0;
+    const pid = launchTerminalHost({
+      executable: sourceHelper,
+      script: '/workspace/src/terminalHostDaemon.js',
+      storeFile: path.join(temp, 'terminal-host-launch-store.json'),
+      discoveryFile: path.join(temp, 'terminal-host-launch-discovery.json'),
+      bridgeHome: path.join(temp, 'terminal-host-launch-bridge'),
+      env: { ELECTRON_RUN_AS_NODE: '0' },
+      spawnProcess: (file, args, options) => {
+        launches.push({ file, args, options });
+        return { pid: 26_650, unref: () => { unrefCalls += 1; } };
+      },
+    });
+    assert.equal(pid, 26_650);
+    assert.equal(launches[0].file, sourceHelper);
+    assert.equal(launches[0].options.env.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(launches[0].options.detached, true);
+    assert.equal(launches[0].options.stdio, 'ignore');
+    assert.equal(unrefCalls, 1);
   });
 
   test('PTY 터미널을 만들고 입력·명령·리사이즈·신호·재시작·종료를 제어한다', async () => {
