@@ -20,9 +20,12 @@ else {
       cwd: String(cwd || '').slice(0, 4_000),
     });
   });
+  if (process.platform === 'darwin') app.setActivationPolicy('prohibited');
   const acquired = app.requestSingleInstanceLock();
-  process.send?.({ type: GUARD_READY, acquired });
-  if (!acquired) app.exit(3);
+  if (!acquired) {
+    process.send?.({ type: GUARD_READY, acquired: false });
+    app.exit(3);
+  }
   else {
     process.title = 'Whitebox Profile Guard';
     process.on('message', message => {
@@ -30,5 +33,11 @@ else {
     });
     process.on('disconnect', () => app.exit(0));
     setInterval(() => {}, 60_000);
+    if (process.platform === 'darwin') {
+      app.whenReady().then(() => {
+        app.setActivationPolicy('prohibited');
+        process.send?.({ type: GUARD_READY, acquired: true });
+      });
+    } else process.send?.({ type: GUARD_READY, acquired: true });
   }
 }

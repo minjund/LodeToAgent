@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('assert');
+const { execFileSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -26,6 +27,17 @@ const packagedEntryOptions = {
   helper: path.join(__dirname, '..', 'main.js'),
 };
 
+function macActivationPolicy(pid) {
+  const script = [
+    'ObjC.import("AppKit");',
+    `const runningApp = $.NSRunningApplication.runningApplicationWithProcessIdentifier(${Number(pid)});`,
+    'runningApp ? runningApp.activationPolicy : -1;',
+  ].join('\n');
+  return Number(execFileSync('/usr/bin/osascript', ['-l', 'JavaScript', '-e', script], {
+    encoding: 'utf8',
+  }).trim());
+}
+
 app.whenReady().then(async () => {
   let activationCount = 0;
   const first = await acquireInterimProfileGuard({
@@ -34,6 +46,11 @@ app.whenReady().then(async () => {
   });
   assert.equal(first.acquired, true);
   assert.equal(first.skipped, false);
+  if (process.platform === 'darwin') {
+    const activationPolicy = macActivationPolicy(first.pid);
+    assert.equal(activationPolicy, 2,
+      `the guard must use NSApplicationActivationPolicyProhibited (received ${activationPolicy})`);
+  }
   const competing = await acquireInterimProfileGuard(options);
   assert.equal(competing.acquired, false, 'an interim Whitebox instance must block the new split-profile app');
   for (let attempt = 0; attempt < 100 && activationCount === 0; attempt += 1) {
@@ -43,6 +60,11 @@ app.whenReady().then(async () => {
   await first.release();
   const packagedEntry = await acquireInterimProfileGuard(packagedEntryOptions);
   assert.equal(packagedEntry.acquired, true, 'the packaged main entry must support guard mode');
+  if (process.platform === 'darwin') {
+    const activationPolicy = macActivationPolicy(packagedEntry.pid);
+    assert.equal(activationPolicy, 2,
+      `the packaged guard must use NSApplicationActivationPolicyProhibited (received ${activationPolicy})`);
+  }
   const packagedCompeting = await acquireInterimProfileGuard(options);
   assert.equal(packagedCompeting.acquired, false, 'the packaged guard entry must own the Whitebox profile lock');
   await packagedEntry.release();
