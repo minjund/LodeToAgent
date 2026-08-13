@@ -1342,6 +1342,8 @@ function registerUiContractTests(context) {
     managementState.snapshot.sessions = [managementResultSession];
     assert.equal(management.needsManagementInbox(managementResultSession, managementNow), true,
       '답변 요청이 없는 순수 완료 결과도 확인 대기 목록에 들어가야 합니다.');
+    assert.equal(management.needsUserResponse(managementResultSession), false,
+      '순수 완료 결과를 실행 흐름을 가리는 답변 대기로 분류하면 안 됩니다.');
     assert.equal(management.needsManagementReview(managementResultSession, managementNow), true,
       '순수 완료 결과가 홈 확인 목록에서 제외되면 안 됩니다.');
     assert.equal(management.rootManagementReviews([managementResultSession], managementNow).length, 1,

@@ -661,7 +661,12 @@ window.WhiteboxAppFactories.createGraphView = function createGraphView(context =
       ...terminalReviewSources.map(item => String(item.session.id || "")),
     ]);
     const attentionCount = reviewSessionIds.size;
-    const hasAttention = attentionCount > 0;
+    const hasReview = attentionCount > 0;
+    const hasAttention = terminalReviewSources.length > 0 || reviewSources.some(session => (
+      typeof context.needsUserResponse === "function"
+        ? context.needsUserResponse(session)
+        : Boolean(session?.attention?.actionable || session?.attention?.required)
+    ));
     const executionItems = actors.flatMap(owner => (owner.executions || []).map(activity => ({ activity, owner })));
     const activeChildren = descendants.filter(isOngoingSubagent);
     const completedChildren = descendants.filter(isCompletedSubagent);
@@ -719,7 +724,7 @@ window.WhiteboxAppFactories.createGraphView = function createGraphView(context =
     return `<article class="control-room-session ${waiting ? "is-waiting" : ""} ${waitingWithBackground ? "has-background-work" : ""} ${hasAttention ? "has-attention" : ""} ${inlineSession ? "has-inline-terminal" : ""}" data-control-session="${esc(root.id)}" data-session-sortable="${esc(root.id)}" data-attention-count="${attentionCount}"
       style="${providerStyle(root.provider)}" role="group" tabindex="0" draggable="true" aria-grabbed="false"
       aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown" aria-label="${esc(t("session.drag_label", { title: title.text }))}" aria-describedby="sessionReorderHelp">
-      <header><div><span class="control-session-live"><i></i>${esc(hasAttention ? t("control.causal_judgement") : t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}" aria-label="${esc(t("control.open_full_flow", { title: root.title }))}">${esc(t("control.open_project_progress_short"))}</button></header>
+      <header><div><span class="control-session-live"><i></i>${esc(hasReview ? t("control.causal_judgement") : t(sessionStateKey))}</span><b>${esc(title.text)}</b>${retention}</div><span class="session-drag-handle" aria-hidden="true" title="${esc(t("session.reorder_hint"))}"></span>${archive}<button type="button" class="control-session-flow" data-graph-focus="${esc(root.id)}" aria-label="${esc(t("control.open_full_flow", { title: root.title }))}">${esc(t("control.open_project_progress_short"))}</button></header>
       ${review}
       <div class="control-room-flow">
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>

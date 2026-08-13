@@ -830,6 +830,7 @@ window.WhiteboxAppFactories.createManagement = function createManagement(context
 
   return {
     isRecentSession,
+    needsUserResponse,
     managementBucket,
     matchesManagementFilter,
     rootManagementReviews,

@@ -4570,13 +4570,16 @@ async function exerciseInlineTerminal(win, round) {
   await clearCalls(win);
   await click(win, `#projectHistoryList [data-open-session=${JSON.stringify(transcriptHistorySessionId)}]`, 'history:transcript');
   await waitFor(win, `window.WhiteboxApp.state.selectedId === ${JSON.stringify(transcriptHistorySessionId)}
+    && window.WhiteboxApp.state.drawerTab === 'summary'
     && document.querySelector('#detailDrawer')?.classList.contains('open')
     && document.querySelector('#detailDrawer')?.dataset.presentation === 'context'
-    && document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'transcript'
+    && document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'standard'
     && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')
     && window.WhiteboxApp.state.inlineTerminalSessionId === null
+    && window.WhiteboxApp.isResultReviewComplete(window.WhiteboxApp.state.snapshot.sessions
+      .find(session => session.id === ${JSON.stringify(transcriptHistorySessionId)}))
     && !window.interactionTest.getCalls().some(call => call.name === 'terminalCreate')`,
-  '읽기 전용 지난 기록이 진행 중 AI와 같은 컨텍스트 상세 화면으로 안전하게 열리지 않았습니다.');
+  '읽기 전용 지난 기록의 결과 요약이 컨텍스트 상세 화면에서 확인 처리되지 않았습니다.');
   const transcriptHistoryDiagnostic = await win.webContents.executeJavaScript(`(() => ({
     id: ${JSON.stringify(transcriptHistorySessionId)},
     presentation: document.querySelector('#detailDrawer')?.dataset.presentation || '',
