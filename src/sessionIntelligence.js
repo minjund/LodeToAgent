@@ -235,7 +235,12 @@ function outcomeFor(session, evidence) {
       status: checkStatus(row.status),
       timestamp: row.completedAt || row.timestamp || null,
     }));
-  const latestAssistant = [...(session.messages || [])].reverse().find(row => row && row.role === 'assistant' && text(row.text));
+  const messages = Array.isArray(session.messages) ? session.messages : [];
+  const latestUserIndex = messages.reduce((latest, row, index) => (
+    row && row.role === 'user' && text(row.text) ? index : latest
+  ), -1);
+  const latestAssistant = messages.slice(latestUserIndex + 1).reverse()
+    .find(row => row && row.role === 'assistant' && text(row.text));
   return {
     status: session.status === 'completed' ? 'completed'
       : session.status === 'failed' ? 'failed'

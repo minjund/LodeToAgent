@@ -274,7 +274,16 @@ function createExecutionTracker(options = {}) {
   }
 
   function finalize(limit = 120) {
-    return activities.slice(-limit).map(activity => ({ ...activity }));
+    const boundedLimit = Math.max(0, Number(limit) || 0);
+    const tailStart = Math.max(0, activities.length - boundedLimit);
+    const selected = new Set();
+    for (let index = tailStart; index < activities.length; index += 1) selected.add(index);
+    // A long transcript must never trim an older process that is still live;
+    // completion notifications use this projection as an active-work guard.
+    for (let index = 0; index < tailStart; index += 1) {
+      if (activities[index] && activities[index].status === 'running') selected.add(index);
+    }
+    return [...selected].sort((a, b) => a - b).map(index => ({ ...activities[index] }));
   }
 
   return { activities, recordCall, recordOutput, finalize };

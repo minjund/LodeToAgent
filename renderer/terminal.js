@@ -255,6 +255,15 @@
   function resumeSupport(agentSession) {
     if (!agentSession) return { supported: false, reason: t('terminal.resume.no_session_info') };
     if (agentSession.parentId) return { supported: false, parentControlled: true, reason: t('terminal.resume.parent_controlled') };
+    if (String(agentSession.provider || '').toLowerCase() === 'codex'
+      && String(agentSession.clientKind || '').toLowerCase() === 'codex-desktop') {
+      return {
+        supported: false,
+        originOwned: true,
+        code: 'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
+        reason: t('terminal.resume.codex_desktop_live'),
+      };
+    }
     const sessionId = String(agentSession.externalId || '').trim();
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(sessionId)) {
       return { supported: false, reason: t('terminal.resume.no_session_id') };

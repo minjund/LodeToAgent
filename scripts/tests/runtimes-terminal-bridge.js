@@ -4160,7 +4160,7 @@ function registerTerminalLifecycleTests(context) {
     replacementServer?.dispose();
   });
 
-  test('native PTY 입력 정책이 오래된 v10 호스트는 자연 종료를 확인한 뒤 v11 호스트로 교체한다', async () => {
+  test('native PTY 입력 정책이 오래된 v10 호스트는 자연 종료를 확인한 뒤 v12 호스트로 교체한다', async () => {
     class EmptyManager extends EventEmitter {
       constructor(sessions = []) {
         super();
@@ -4193,7 +4193,7 @@ function registerTerminalLifecycleTests(context) {
         transitionOrder.push('legacy-exit');
         oldServer.dispose();
         // This test simulates a v10 daemon with the current server class. Its
-        // v11 dispose validator intentionally cannot remove the tampered v10
+        // v12 dispose validator intentionally cannot remove the tampered v10
         // discovery, while the real v10 daemon removes its own discovery.
         removeLegacyDiscovery(discovery);
       },
@@ -4213,9 +4213,9 @@ function registerTerminalLifecycleTests(context) {
         transitionOrder.push('spawn');
         replacementServer = new TerminalHostServer({
           manager,
-          endpoint: endpoint('v11'),
+          endpoint: endpoint('v12'),
           discoveryFile: discovery,
-          token: 'v11-protocol-token',
+          token: 'v12-protocol-token',
         });
         await replacementServer.start();
       },
@@ -4226,14 +4226,14 @@ function registerTerminalLifecycleTests(context) {
         && error.retryable === true,
     );
     assert.equal(await waitUntil(() => client.connected, 4_000), true,
-      'idle v10 verifier가 연결을 놓은 뒤 legacy daemon이 자연 종료되면 v11을 시작해야 합니다.');
+      'idle v10 verifier가 연결을 놓은 뒤 legacy daemon이 자연 종료되면 v12를 시작해야 합니다.');
 
     const replacementDiscovery = JSON.parse(fs.readFileSync(discovery, 'utf8'));
-    assert.equal(TERMINAL_HOST_PROTOCOL, 11);
+    assert.equal(TERMINAL_HOST_PROTOCOL, 12);
     assert.equal(legacyExitedNaturally, true);
     assert.equal(terminateCalls, 0, '인증된 idle v10 host도 tree-kill하면 안 됩니다.');
     assert.equal(client.connected, true);
-    assert.equal(replacementDiscovery.protocol, 11);
+    assert.equal(replacementDiscovery.protocol, 12);
     assert.deepStrictEqual(transitionOrder, ['legacy-exit', 'spawn']);
     client.dispose();
     replacementServer?.dispose();
@@ -4275,9 +4275,9 @@ function registerTerminalLifecycleTests(context) {
         activeSpawnCalls += 1;
         activeReplacementServer = new TerminalHostServer({
           manager: activeManager,
-          endpoint: endpoint('active-v11'),
+          endpoint: endpoint('active-v12'),
           discoveryFile: activeDiscovery,
-          token: 'active-v11-protocol-token',
+          token: 'active-v12-protocol-token',
         });
         await activeReplacementServer.start();
       },
@@ -4294,11 +4294,11 @@ function registerTerminalLifecycleTests(context) {
     activeManager.sessions = [];
     activeManager.emit('state', { change: 'updated', session: null, sessions: [] });
     assert.equal(await waitUntil(() => activeClient.connected, 4_000), true,
-      '구버전 PTY가 모두 끝나고 daemon이 자연 종료되면 background retry가 v11을 시작해야 합니다.');
+      '구버전 PTY가 모두 끝나고 daemon이 자연 종료되면 background retry가 v12를 시작해야 합니다.');
     assert.equal(activeLegacyExitedNaturally, true);
     assert.equal(activeTerminateCalls, 0);
     assert.equal(activeSpawnCalls, 1);
-    assert.equal(JSON.parse(fs.readFileSync(activeDiscovery, 'utf8')).protocol, 11);
+    assert.equal(JSON.parse(fs.readFileSync(activeDiscovery, 'utf8')).protocol, 12);
     activeClient.dispose();
     activeReplacementServer?.dispose();
 

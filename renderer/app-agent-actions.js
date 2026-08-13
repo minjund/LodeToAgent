@@ -42,6 +42,9 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
       if (!terminal || typeof terminal.preconnectForAgents !== "function") return [];
       const candidates = controlRoomRootSessions().filter((session) => {
         if (!session?.id || session.parentId || !isLiveSession(session)) return false;
+        // A Codex Desktop thread is owned by that app's private writer.
+        // Project selection must not silently start an independent resume.
+        if (isCodexDesktopSession(session)) return false;
         try {
           const projectKey = normalizedProjectPath(controlRoomProject(session)?.path);
           return projectKey === requestedKey || projectKey.startsWith(`${requestedKey}/`);
@@ -73,6 +76,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function agentCommandTargets(session) {
+    if (isCodexDesktopSession(session)) return [];
     try {
       return window.LoadToAgentTerminal && typeof window.LoadToAgentTerminal.agentTargets === "function"
         ? window.LoadToAgentTerminal.agentTargets(session)
@@ -84,6 +88,14 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function agentResumeSupport(session) {
+    if (isCodexDesktopSession(session)) {
+      return {
+        supported: false,
+        originOwned: true,
+        code: "CODEX_DESKTOP_SESSION_ORIGIN_OWNED",
+        reason: t("terminal.resume.codex_desktop_live"),
+      };
+    }
     try {
       return window.LoadToAgentTerminal && typeof window.LoadToAgentTerminal.resumeSupport === "function"
         ? window.LoadToAgentTerminal.resumeSupport(session)
@@ -94,13 +106,18 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function originAppInfo(session) {
-    if (session && session.provider === "codex" && session.clientKind === "codex-desktop") {
+    if (isCodexDesktopSession(session)) {
       return { provider: "Codex", label: t("agent.desktop_app", { provider: "Codex" }) };
     }
     if (session && session.provider === "claude" && session.clientKind === "claude-desktop") {
       return { provider: "Claude", label: t("agent.desktop_app", { provider: "Claude" }) };
     }
     return null;
+  }
+
+  function isCodexDesktopSession(session) {
+    return String(session?.provider || "").toLowerCase() === "codex"
+      && String(session?.clientKind || "").toLowerCase() === "codex-desktop";
   }
 
   function agentCommandRouteOptions(session) {
@@ -265,6 +282,10 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
   }
 
   function agentControlMode(session, targets) {
+    // Turn completion and attention states do not prove that Codex Desktop's
+    // private app-server released the thread writer. Keep every Desktop-origin
+    // thread origin-owned even if stale terminal metadata is still present.
+    if (isCodexDesktopSession(session)) return "origin-owned";
     // A discovered terminal target is stronger evidence than the transcript's
     // projected status. This also keeps provider-neutral managed terminals
     // writable after their UI attachment has been detached.
@@ -331,6 +352,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
           ? t("agent.handoff_status")
           : mode === "resume"
             ? t("agent.resume_status")
+            : mode === "origin-owned"
+              ? t("agent.codex_desktop_live_status")
             : mode === "origin-resume"
               ? t("agent.origin_resume_status")
               : mode === "connect"
@@ -342,9 +365,11 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
         ? t("agent.direct_help")
         : mode === "handoff"
           ? t("agent.handoff_help")
-          : mode === "resume"
-            ? t("agent.resume_help")
-            : mode === "origin-resume"
+        : mode === "resume"
+          ? t("agent.resume_help")
+          : mode === "origin-owned"
+            ? t("terminal.resume.codex_desktop_live")
+          : mode === "origin-resume"
               ? t("agent.origin_resume_help", { provider: (origin && origin.provider) || t("agent.desktop") })
               : mode === "connect"
                 ? t("agent.connect_help", { provider: targetSession.provider })
@@ -506,7 +531,7 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     // provider session, workspace, environment, or tmux pane writable.
     const selected = { ...detail };
     for (const field of [
-      "provider", "externalId", "cwd", "environment", "runtimePresence", "sourcePluginId", "sourcePlugin",
+      "provider", "clientKind", "externalId", "cwd", "environment", "runtimePresence", "sourcePluginId", "sourcePlugin",
       "provenance", "orchestrator", "modelProvider", "modelProviderLabel", "terminalBackend", "presentation",
       "controlCapabilities", "sourceControlCapabilities", "controlUnavailableReasons", "resources",
       "readOnly", "controlAuthority", "importMode",

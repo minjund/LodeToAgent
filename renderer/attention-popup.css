@@ -10,6 +10,9 @@
   --muted: #aeb7c8;
   --accent: #7c9cff;
   --accent-strong: #9bb2ff;
+  --approval-accent: #e47a57;
+  --approval-accent-hover: #ee8965;
+  --request-panel: rgba(2, 4, 8, 0.7);
   --danger: #ff8d8d;
   --shadow: 0 18px 46px rgba(0, 0, 0, 0.45), 0 3px 12px rgba(0, 0, 0, 0.28);
 }
@@ -115,6 +118,42 @@ label {
   line-height: 1.28;
 }
 
+.popup-request-context {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.popup-tool-pill {
+  max-width: 100%;
+  padding: 3px 8px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--approval-accent);
+  color: #fff;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.popup-meta {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .popup-dismiss {
   width: 29px;
   height: 29px;
@@ -145,6 +184,27 @@ label {
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+.popup-command {
+  min-height: 42px;
+  margin: 9px 0 0;
+  padding: 11px 12px;
+  overflow: auto;
+  border: 1px solid rgba(255, 255, 255, 0.035);
+  border-radius: 11px;
+  background: var(--request-panel);
+  color: #e9eaf0;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  white-space: pre-wrap;
+}
+
+.popup-command:first-child {
+  margin-top: 0;
 }
 
 .popup-body {
@@ -293,6 +353,25 @@ label {
   margin-top: 13px;
 }
 
+.permission-actions,
+.question-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.permission-actions .popup-button,
+.question-actions .popup-button {
+  width: 100%;
+  min-width: 0;
+}
+
+.permission-actions .full-width,
+.question-actions .full-width,
+.question-actions:not(.has-deny) .question-submit {
+  grid-column: 1 / -1;
+}
+
 .popup-button {
   min-height: 34px;
   padding: 7px 12px;
@@ -302,6 +381,21 @@ label {
   color: var(--text);
   cursor: pointer;
   font-weight: 680;
+}
+
+.popup-button-label,
+.popup-button-description {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.popup-button-description {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .popup-button:hover,
@@ -322,6 +416,53 @@ label {
   color: #ffb4b4;
 }
 
+.permission-actions .popup-button.allow {
+  border-color: var(--approval-accent);
+  background: var(--approval-accent);
+  color: #fff;
+}
+
+.permission-actions .popup-button.allow:hover,
+.permission-actions .popup-button.allow:focus-visible {
+  border-color: var(--approval-accent-hover);
+  background: var(--approval-accent-hover);
+}
+
+.permission-actions .popup-button.deny,
+.question-actions .popup-button.deny {
+  color: var(--text);
+}
+
+.permission-actions .popup-button.suggestion,
+.permission-actions .popup-button.open-main,
+.question-actions .popup-button.open-main {
+  justify-content: flex-start;
+  padding-inline: 12px;
+  text-align: left;
+}
+
+.permission-actions .popup-button.suggestion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 34px;
+}
+
+.terminal-actions .popup-button:has(.popup-button-description) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.popup-card[data-type="permission"] {
+  background: linear-gradient(155deg, var(--surface-strong), var(--surface));
+}
+
+.popup-card[data-type="permission"] .popup-header {
+  padding-bottom: 8px;
+}
+
 .popup-button:disabled,
 .popup-dismiss:disabled {
   cursor: wait;
@@ -339,6 +480,9 @@ label {
     --muted: #667085;
     --accent: #4869d8;
     --accent-strong: #3454bd;
+    --approval-accent: #c95f3d;
+    --approval-accent-hover: #b95234;
+    --request-panel: rgba(31, 40, 58, 0.055);
     --danger: #b42318;
     --shadow: 0 18px 46px rgba(29, 41, 68, 0.2), 0 3px 12px rgba(29, 41, 68, 0.12);
   }
@@ -354,6 +498,11 @@ label {
   .popup-text,
   .popup-other-text {
     background: rgba(255, 255, 255, 0.82);
+  }
+
+  .popup-command {
+    border-color: rgba(20, 30, 52, 0.08);
+    color: #28344d;
   }
 }
 

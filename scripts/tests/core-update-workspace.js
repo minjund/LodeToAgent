@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { EventEmitter } = require('events');
-const { parseCliArguments, desktopLaunchSpec } = require('../../bin/loadtoagent');
+const { parseCliArguments, desktopLaunchSpec, readCodexEndpoint } = require('../../bin/loadtoagent');
 const { providerList, normalizeProvider, modelContextWindow } = require('../../src/providerRegistry');
 const { UpdateManager, compareVersions, normalizeVersion, safeFileName, selectReleaseAsset } = require('../../src/updateManager');
 const {
@@ -88,10 +88,29 @@ function registerCliAndUpdateTests(context) {
     assert.deepStrictEqual(parseCliArguments(['open']), { action: 'open' });
     assert.deepStrictEqual(parseCliArguments(['--help']), { action: 'help' });
     assert.deepStrictEqual(parseCliArguments(['--version']), { action: 'version' });
+    assert.deepStrictEqual(parseCliArguments(['codex-endpoint']), { action: 'codex-endpoint' });
     assert.deepStrictEqual(parseCliArguments(['run', 'codex', '--', '--model', 'gpt-5']), {
       action: 'run', provider: 'codex', args: ['--model', 'gpt-5'],
     });
     assert.throws(() => parseCliArguments(['unknown']), /사용법/);
+    const bridgeFile = path.join(temp, 'codex-endpoint-bridge.json');
+    fs.writeFileSync(bridgeFile, JSON.stringify({
+      protocol: 1,
+      endpoint: 'local-bridge',
+      token: 'bridge-token',
+      codexAppServer: { ready: true, endpoint: 'ws://127.0.0.1:45123' },
+    }), 'utf8');
+    assert.equal(readCodexEndpoint(temp, { env: { LOADTOAGENT_BRIDGE_FILE: bridgeFile } }), 'ws://127.0.0.1:45123');
+    fs.writeFileSync(bridgeFile, JSON.stringify({
+      protocol: 1,
+      endpoint: 'local-bridge',
+      token: 'bridge-token',
+      codexAppServer: { ready: true, endpoint: 'ws://example.com:45123' },
+    }), 'utf8');
+    assert.throws(
+      () => readCodexEndpoint(temp, { env: { LOADTOAGENT_BRIDGE_FILE: bridgeFile } }),
+      /아직 준비되지 않았습니다/,
+    );
   });
 
   test('npm 설치본과 패키지 앱의 데스크톱 실행 경로를 만든다', () => {

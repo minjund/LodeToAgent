@@ -292,6 +292,28 @@ function canonicalIdentityOption(args, name) {
   return { found, value: unique.length === 1 ? unique[0] : '' };
 }
 
+function codexArgumentsWithoutRemoteTransport(args) {
+  const filtered = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = String(args[index] || '');
+    if (argument === '--') {
+      filtered.push(...args.slice(index).map(value => String(value || '')));
+      break;
+    }
+    if (argument === '--remote' || argument === '--remote-auth-token-env') {
+      if (!String(args[index + 1] || '').trim()) return [];
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith('--remote=') || argument.startsWith('--remote-auth-token-env=')) {
+      if (!argument.slice(argument.indexOf('=') + 1).trim()) return [];
+      continue;
+    }
+    filtered.push(argument);
+  }
+  return filtered;
+}
+
 function processSessionExternalId(processInfo = {}, provider = '') {
   const args = providerInvocationArguments(processInfo, provider);
   if (!args.length) return '';
@@ -305,9 +327,10 @@ function processSessionExternalId(processInfo = {}, provider = '') {
     return canonicalIdentityOption(args, '--resume').value;
   }
   if (provider === 'codex') {
-    if (args[0] !== 'resume' || args[1] === '--last') return '';
-    const sessionIndex = args[1] === '--' ? 2 : 1;
-    return canonicalSessionId(args[sessionIndex]);
+    const identityArgs = codexArgumentsWithoutRemoteTransport(args);
+    if (identityArgs[0] !== 'resume' || identityArgs[1] === '--last') return '';
+    const sessionIndex = identityArgs[1] === '--' ? 2 : 1;
+    return canonicalSessionId(identityArgs[sessionIndex]);
   }
   if (provider === 'gemini' || provider === 'grok') {
     return canonicalLeadingOption(args, '--resume');

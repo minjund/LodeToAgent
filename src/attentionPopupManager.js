@@ -90,6 +90,22 @@ function normalizeChoice(choice, index) {
   };
 }
 
+function normalizePermissionSuggestion(suggestion, index) {
+  const raw = suggestion && typeof suggestion === 'object'
+    ? suggestion
+    : { label: suggestion, id: suggestion };
+  const label = text(
+    raw.label || raw.title || raw.description || raw.id,
+    `항상 허용 ${index + 1}`,
+    MAX_SHORT_TEXT_LENGTH,
+  );
+  return {
+    id: text(raw.id || raw.key, `permission-suggestion-${index + 1}`, MAX_SHORT_TEXT_LENGTH),
+    label,
+    description: text(raw.description || raw.detail, '', MAX_SHORT_TEXT_LENGTH),
+  };
+}
+
 function normalizeRequest(raw, fallbackId = '') {
   if (!raw || typeof raw !== 'object') throw popupError('ATTENTION_POPUP_INVALID_REQUEST', 'Popup request must be an object.');
   const id = text(raw.id || raw.requestId || fallbackId, '', MAX_SHORT_TEXT_LENGTH);
@@ -102,6 +118,9 @@ function normalizeRequest(raw, fallbackId = '') {
     : [];
   const suppliedChoices = Array.isArray(raw.choices) ? raw.choices : Array.isArray(raw.options) ? raw.options : [];
   const choices = type === 'terminal-approval' ? suppliedChoices.slice(0, 100).map(normalizeChoice) : [];
+  const permissionSuggestions = type === 'permission' && Array.isArray(raw.permissionSuggestions)
+    ? raw.permissionSuggestions.slice(0, 20).map(normalizePermissionSuggestion)
+    : [];
   if (type === 'question' && !questions.length) throw popupError('ATTENTION_POPUP_INVALID_REQUEST', 'Question popup requires at least one question.');
   if (type === 'terminal-approval' && !choices.length) throw popupError('ATTENTION_POPUP_INVALID_REQUEST', 'Terminal approval popup requires at least one choice.');
 
@@ -114,6 +133,8 @@ function normalizeRequest(raw, fallbackId = '') {
     detail: text(raw.detail || raw.description, '', MAX_TEXT_LENGTH),
     provider: text(raw.provider, '', 80),
     project: text(raw.project || raw.projectName, '', MAX_SHORT_TEXT_LENGTH),
+    meta: text(raw.meta || raw.sessionMeta, '', MAX_SHORT_TEXT_LENGTH),
+    toolLabel: text(raw.toolLabel || raw.toolName, '', 100),
     sessionId: text(raw.sessionId, '', MAX_SHORT_TEXT_LENGTH),
     terminalId: text(raw.terminalId, '', MAX_SHORT_TEXT_LENGTH),
     requestId: text(raw.requestId || id, id, MAX_SHORT_TEXT_LENGTH),
@@ -122,8 +143,10 @@ function normalizeRequest(raw, fallbackId = '') {
     denyLabel: text(raw.denyLabel, '거부', 100),
     submitLabel: text(raw.submitLabel, '답변 보내기', 100),
     openMainLabel: text(raw.openMainLabel, 'LoadToAgent에서 열기', 100),
+    canDeny: type === 'question' && raw.canDeny === true,
     questions,
     choices,
+    permissionSuggestions,
     dismissible: raw.dismissible !== false,
     openMain: type === 'input' ? raw.openMain !== false : Boolean(raw.openMain),
     closeOnOpenMain: raw.closeOnOpenMain !== false,
@@ -179,8 +202,14 @@ function canonicalQuestionDecision(request, supplied) {
 function canonicalDecision(request, supplied) {
   const decision = supplied && typeof supplied === 'object' ? supplied : {};
   if (request.type === 'permission') {
-    if (!['allow', 'deny'].includes(decision.action)) throw popupError('ATTENTION_POPUP_INVALID_DECISION', 'Permission response must be allow or deny.');
-    return { action: decision.action };
+    if (['allow', 'deny'].includes(decision.action)) return { action: decision.action };
+    const suggestionId = text(decision.suggestionId, '', MAX_SHORT_TEXT_LENGTH);
+    if (decision.action === 'suggestion'
+      && suggestionId
+      && request.permissionSuggestions.some(suggestion => suggestion.id === suggestionId)) {
+      return { action: 'suggestion', suggestionId };
+    }
+    throw popupError('ATTENTION_POPUP_INVALID_DECISION', 'Permission response must allow, deny, or select an available permission suggestion.');
   }
   if (request.type === 'terminal-approval') {
     const choiceId = text(decision.choiceId, '', MAX_SHORT_TEXT_LENGTH);
@@ -189,7 +218,10 @@ function canonicalDecision(request, supplied) {
     }
     return { action: 'choice', choiceId };
   }
-  if (request.type === 'question') return canonicalQuestionDecision(request, decision);
+  if (request.type === 'question') {
+    if (decision.action === 'deny' && request.canDeny) return { action: 'deny' };
+    return canonicalQuestionDecision(request, decision);
+  }
   throw popupError('ATTENTION_POPUP_READ_ONLY', 'This request can only be opened in LoadToAgent.');
 }
 

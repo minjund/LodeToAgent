@@ -11,9 +11,18 @@
   let pushedRequestSeen = false;
 
   const copy = {
-    ko: { dismiss: '닫기', other: '기타', required: '필수 답변입니다.', failed: '요청을 처리하지 못했습니다.' },
-    en: { dismiss: 'Dismiss', other: 'Other', required: 'This answer is required.', failed: 'The request could not be processed.' },
-    'zh-CN': { dismiss: '关闭', other: '其他', required: '此项为必答。', failed: '无法处理请求。' },
+    ko: {
+      dismiss: '닫기', other: '기타', required: '필수 답변입니다.', failed: '요청을 처리하지 못했습니다.',
+      permissionActions: '권한 선택', questionActions: '질문 응답', terminalActions: '터미널 선택', requestDetail: '요청 내용',
+    },
+    en: {
+      dismiss: 'Dismiss', other: 'Other', required: 'This answer is required.', failed: 'The request could not be processed.',
+      permissionActions: 'Permission choices', questionActions: 'Question response', terminalActions: 'Terminal choices', requestDetail: 'Request details',
+    },
+    'zh-CN': {
+      dismiss: '关闭', other: '其他', required: '此项为必答。', failed: '无法处理请求。',
+      permissionActions: '权限选择', questionActions: '问题回答', terminalActions: '终端选择', requestDetail: '请求内容',
+    },
   };
 
   function localeText(key) {
@@ -84,16 +93,45 @@
     return control;
   }
 
+  function actionGroup(className, label) {
+    const group = element('div', `popup-actions ${className || ''}`.trim());
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', label);
+    return group;
+  }
+
+  function describedButton(label, className, description, descriptionId, action) {
+    const control = button('', className, action);
+    control.setAttribute('aria-label', label);
+    control.append(element('span', 'popup-button-label', label));
+    if (description) {
+      const detail = element('span', 'popup-button-description', description);
+      detail.id = descriptionId;
+      control.setAttribute('aria-describedby', detail.id);
+      control.append(detail);
+    }
+    return control;
+  }
+
   function renderHeader(container, request) {
     const header = element('header', 'popup-header');
     const heading = element('div', 'popup-heading');
-    const eyebrow = element('div', 'popup-eyebrow');
-    if (request.provider) eyebrow.append(element('span', 'popup-provider', request.provider));
-    if (request.project) eyebrow.append(element('span', 'popup-project', request.project));
-    if (eyebrow.childNodes.length) heading.append(eyebrow);
     const title = element('h1', 'popup-title', request.title);
     title.id = 'popupTitle';
-    heading.append(title);
+    const requestMeta = request.meta || (request.toolLabel ? request.project : '');
+    if (request.toolLabel || requestMeta) {
+      heading.append(title);
+      const context = element('div', 'popup-request-context');
+      if (request.toolLabel) context.append(element('span', 'popup-tool-pill', request.toolLabel));
+      if (requestMeta) context.append(element('span', 'popup-meta', requestMeta));
+      heading.append(context);
+    } else {
+      const eyebrow = element('div', 'popup-eyebrow');
+      if (request.provider) eyebrow.append(element('span', 'popup-provider', request.provider));
+      if (request.project) eyebrow.append(element('span', 'popup-project', request.project));
+      if (eyebrow.childNodes.length) heading.append(eyebrow);
+      heading.append(title);
+    }
     header.append(heading);
     if (request.dismissible) {
       const dismiss = element('button', 'popup-dismiss', '×');
@@ -106,24 +144,73 @@
   }
 
   function renderCopy(container, request) {
-    if (request.body) container.append(element('p', 'popup-body', request.body));
-    if (request.detail && request.detail !== request.body) container.append(element('p', 'popup-detail', request.detail));
+    const descriptionIds = [];
+    if (request.type === 'permission') {
+      if (request.body && request.detail && request.detail !== request.body) {
+        const body = element('p', 'popup-body', request.body);
+        body.id = 'popupBody';
+        descriptionIds.push(body.id);
+        container.append(body);
+      }
+      const commandText = request.detail || request.body;
+      if (commandText) {
+        const command = element('pre', 'popup-command', commandText);
+        command.id = 'popupCommand';
+        command.setAttribute('role', 'region');
+        command.setAttribute('aria-label', localeText('requestDetail'));
+        descriptionIds.push(command.id);
+        container.append(command);
+      }
+      return descriptionIds;
+    }
+    if (request.body) {
+      const body = element('p', 'popup-body', request.body);
+      body.id = 'popupBody';
+      descriptionIds.push(body.id);
+      container.append(body);
+    }
+    if (request.detail && request.detail !== request.body) {
+      const detail = element('p', 'popup-detail', request.detail);
+      detail.id = 'popupDetail';
+      descriptionIds.push(detail.id);
+      container.append(detail);
+    }
+    return descriptionIds;
   }
 
   function renderPermission(container, request) {
-    const actions = element('div', 'popup-actions');
-    actions.append(button(request.denyLabel, 'deny', () => perform(() => bridge.decide({ action: 'deny' }))));
+    const actions = actionGroup('permission-actions', localeText('permissionActions'));
     actions.append(button(request.allowLabel, 'allow', () => perform(() => bridge.decide({ action: 'allow' }))));
+    actions.append(button(request.denyLabel, 'deny', () => perform(() => bridge.decide({ action: 'deny' }))));
+    const suggestions = Array.isArray(request.permissionSuggestions) ? request.permissionSuggestions : [];
+    suggestions.forEach((suggestion, index) => {
+      const raw = suggestion && typeof suggestion === 'object' ? suggestion : { id: suggestion, label: suggestion };
+      const suggestionId = String(raw.id || '').trim();
+      const label = String(raw.label || '').trim();
+      if (!suggestionId || !label) return;
+      actions.append(describedButton(
+        label,
+        'suggestion full-width',
+        String(raw.description || '').trim(),
+        `permissionSuggestionDescription${index}`,
+        () => perform(() => bridge.decide({ action: 'suggestion', suggestionId })),
+      ));
+    });
+    if (request.openMain) {
+      actions.append(button(request.openMainLabel, 'open-main full-width', () => perform(() => bridge.openMain())));
+    }
     container.append(actions);
   }
 
   function renderTerminal(container, request) {
-    const actions = element('div', 'popup-actions');
-    for (const choice of request.choices) {
-      const control = button(choice.label, choice.tone, () => perform(() => bridge.decide({ action: 'choice', choiceId: choice.id })));
-      if (choice.description) control.title = choice.description;
-      actions.append(control);
-    }
+    const actions = actionGroup('terminal-actions', localeText('terminalActions'));
+    request.choices.forEach((choice, index) => actions.append(describedButton(
+      choice.label,
+      choice.tone,
+      choice.description,
+      `terminalChoiceDescription${index}`,
+      () => perform(() => bridge.decide({ action: 'choice', choiceId: choice.id })),
+    )));
     container.append(actions);
   }
 
@@ -227,11 +314,16 @@
     const questions = element('div', 'popup-questions');
     request.questions.forEach((question, index) => questions.append(renderQuestionField(question, index)));
     form.append(questions);
-    const actions = element('div', 'popup-actions');
-    if (request.openMain) actions.append(button(request.openMainLabel, '', () => perform(() => bridge.openMain())));
-    const submit = button(request.submitLabel, 'primary');
+    const actions = actionGroup(`question-actions${request.canDeny ? ' has-deny' : ''}`, localeText('questionActions'));
+    const submit = button(request.submitLabel, 'primary question-submit');
     submit.type = 'submit';
     actions.append(submit);
+    if (request.canDeny) {
+      actions.append(button(request.denyLabel, 'deny question-deny', () => perform(() => bridge.decide({ action: 'deny' }))));
+    }
+    if (request.openMain) {
+      actions.append(button(request.openMainLabel, 'open-main full-width', () => perform(() => bridge.openMain())));
+    }
     form.append(actions);
     form.addEventListener('submit', event => {
       event.preventDefault();
@@ -248,7 +340,7 @@
   }
 
   function renderInput(container, request) {
-    const actions = element('div', 'popup-actions');
+    const actions = actionGroup('input-actions', localeText('questionActions'));
     actions.append(button(request.openMainLabel, 'primary', () => perform(() => bridge.openMain())));
     container.append(actions);
   }
@@ -264,16 +356,25 @@
     document.documentElement.lang = request.locale || 'ko';
     document.title = `${request.title || '확인 요청'} · LoadToAgent`;
     card.replaceChildren();
+    card.dataset.type = request.type;
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'false');
     card.setAttribute('aria-labelledby', 'popupTitle');
     card.setAttribute('aria-busy', 'false');
     renderHeader(card, request);
     const content = element('section', 'popup-content');
-    renderCopy(content, request);
+    const descriptionIds = renderCopy(content, request);
+    if (descriptionIds.length) card.setAttribute('aria-describedby', descriptionIds.join(' '));
+    else card.removeAttribute('aria-describedby');
     if (request.type === 'permission') renderPermission(content, request);
     else if (request.type === 'terminal-approval') renderTerminal(content, request);
     else if (request.type === 'question') renderQuestions(content, request);
     else renderInput(content, request);
-    content.append(element('p', 'popup-error'));
+    const error = element('p', 'popup-error');
+    error.setAttribute('role', 'alert');
+    error.setAttribute('aria-live', 'assertive');
+    error.setAttribute('aria-atomic', 'true');
+    content.append(error);
     card.append(content);
     scheduleMeasure(lifecycle);
   }

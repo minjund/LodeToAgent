@@ -61,6 +61,8 @@ class BridgeServer {
     this.maxOutboundQueueBytes = Number.isFinite(Number(options.maxOutboundQueueBytes))
       ? Math.max(1, Number(options.maxOutboundQueueBytes))
       : MAX_OUTBOUND_QUEUE_BYTES;
+    this.beforeRun = typeof options.beforeRun === 'function' ? options.beforeRun : null;
+    this.extraInfo = typeof options.extraInfo === 'function' ? options.extraInfo : null;
     this.server = null;
     this.clients = new Map();
     this.terminalListenersAttached = false;
@@ -87,7 +89,7 @@ class BridgeServer {
       this.server.listen(this.endpoint, () => {
         this.server.removeListener('error', fail);
         try {
-          safeWriteJson(this.file, this.info());
+          this.refreshDiscovery();
           this.attachTerminalListeners();
           resolve(this.info());
         } catch (error) {
@@ -112,14 +114,23 @@ class BridgeServer {
   }
 
   info() {
+    const extra = this.extraInfo ? this.extraInfo() : null;
     return {
       protocol: PROTOCOL_VERSION,
       endpoint: this.endpoint,
       token: this.token,
       pid: process.pid,
       platform: this.platform,
+      ...(extra && typeof extra === 'object' ? extra : {}),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  refreshDiscovery() {
+    if (!this.server) return this.info();
+    const info = this.info();
+    safeWriteJson(this.file, info);
+    return info;
   }
 
   accept(socket) {
@@ -140,6 +151,8 @@ class BridgeServer {
       outboundEndRequested: false,
       outboundEndCalled: false,
       detached: false,
+      preparing: false,
+      queue: Promise.resolve(),
     };
     client.onDrain = () => {
       if (client.detached) return;
@@ -171,13 +184,14 @@ class BridgeServer {
       } catch (_invalidBridgeFrame) {
         return client.socket.destroy(new Error('외부 명령창에서 받은 메시지 형식이 올바르지 않습니다.'));
       }
-      try { this.handle(client, message || {}); } catch (error) {
-        this.enqueueFrame(client, { type: 'error', message: String(error.message || error) });
-        if (!client.authenticated) {
-          this.endWhenFlushed(client);
-          return;
-        }
-      }
+      client.queue = client.queue.then(() => {
+        if (client.detached || client.outboundEndRequested) return undefined;
+        return Promise.resolve(this.handle(client, message || {}));
+      })
+        .catch(error => {
+          this.enqueueFrame(client, { type: 'error', message: String(error.message || error) });
+          if (!client.authenticated) this.endWhenFlushed(client);
+        });
       if (client.detached || client.outboundEndRequested) return;
     }
   }
@@ -187,30 +201,54 @@ class BridgeServer {
       if (message.type !== 'run' || message.token !== this.token) throw new Error('LoadToAgent와 외부 명령창의 연결을 확인하지 못했습니다.');
       const provider = validProvider(message.provider);
       if (!provider) throw new Error('선택한 AI 종류는 사용할 수 없습니다.');
-      const bridgeId = crypto.randomUUID();
-      const session = this.terminalManager.create({
-        type: 'agent',
-        provider,
-        args: Array.isArray(message.args) ? message.args : [],
-        cwd: message.cwd || this.home,
-        title: `외부 연결 · ${AGENT_PROVIDERS[provider].label}`,
-        bridgeId,
-        cols: message.cols,
-        rows: message.rows,
-      });
-      client.authenticated = true;
-      clearTimeout(client.authTimer);
+      // A valid, authenticated run may need to wait for the Codex app-server
+      // readiness budget. Stop the unauthenticated-socket deadline now; the
+      // queued preparation still has to succeed before the client is marked
+      // authenticated or any provider PTY is created.
+      client.preparing = true;
+      if (client.authTimer) clearTimeout(client.authTimer);
       client.authTimer = null;
-      client.terminalId = session.id;
-      client.bridgeId = bridgeId;
-      this.enqueueFrame(client, {
-        type: 'started',
-        bridgeId,
-        terminalId: session.id,
-        pid: session.pid,
-        replay: Buffer.from(session.replay || '', 'utf8').toString('base64'),
-      });
-      return;
+      const start = () => {
+        // Codex app-server preparation is asynchronous. The CLI can disconnect
+        // while it is in flight, in which case creating an unattached PTY
+        // would leak a provider process that no client can control.
+        client.preparing = false;
+        if (client.detached || client.outboundEndRequested) return null;
+        // Keep the discovery file current so another local Codex client can
+        // opt into the exact same app-server endpoint.
+        if (this.extraInfo) this.refreshDiscovery();
+        const bridgeId = crypto.randomUUID();
+        const session = this.terminalManager.create({
+          type: 'agent',
+          provider,
+          args: Array.isArray(message.args) ? message.args : [],
+          cwd: message.cwd || this.home,
+          title: `외부 연결 · ${AGENT_PROVIDERS[provider].label}`,
+          bridgeId,
+          cols: message.cols,
+          rows: message.rows,
+        });
+        client.authenticated = true;
+        clearTimeout(client.authTimer);
+        client.authTimer = null;
+        client.terminalId = session.id;
+        client.bridgeId = bridgeId;
+        this.enqueueFrame(client, {
+          type: 'started',
+          bridgeId,
+          terminalId: session.id,
+          pid: session.pid,
+          replay: Buffer.from(session.replay || '', 'utf8').toString('base64'),
+        });
+        return session;
+      };
+      const preparation = this.beforeRun ? this.beforeRun({ ...message, provider }) : null;
+      return preparation && typeof preparation.then === 'function'
+        ? Promise.resolve(preparation).then(start, error => {
+            client.preparing = false;
+            throw error;
+          })
+        : start();
     }
     if (message.type === 'input') {
       this.terminalManager.write(client.terminalId, decodeBase64(message.data));

@@ -32,6 +32,21 @@ independently, so a host restart reconnects to a live tmux session instead of
 starting a duplicate provider conversation. Native Windows and transient
 commands remain on the direct PTY backend.
 
+Direct native Codex PTYs are a special case inside that terminal-host boundary.
+The host lazily owns one loopback `codex app-server` and injects its ephemeral
+`--remote` endpoint only while constructing a direct Codex process. Canonical
+resume arguments and persisted conversation identity never contain the
+endpoint. Host-independent managed-tmux Codex processes never receive it, so
+their detach and crash-recovery lifetime remains independent of the terminal
+host. Readiness is confirmed through `/readyz` before a direct Codex PTY can
+start, and a startup or recovery failure is fail-closed for that Codex process
+without preventing unrelated providers and shells from recovering. Claude,
+Gemini, Grok, and Windows WSL launch paths are unchanged. A thread originating
+in the official Codex Desktop app cannot join this server because that app's
+private stdio endpoint is not exposed. Turn-level completion is not proof that
+the writer was released, so renderer guards keep every Desktop-origin thread
+in its origin app.
+
 Regression tests are registered by feature suites in `scripts/tests/` and run
 through a shared harness. Electron integration scripts cover renderer events,
 responsive layouts, the terminal bridge, and real BrowserWindow interaction.

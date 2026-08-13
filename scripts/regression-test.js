@@ -27,6 +27,7 @@ const { registerAttentionActivationTests } = require('./tests/attention-activati
 const { registerAttentionHookTests } = require('./tests/attention-hook');
 const { registerStructuredInputRequestTests } = require('./tests/structured-input-request');
 const { registerSourcePluginTests } = require('./tests/source-plugins');
+const { registerCodexSharedAppServerTests } = require('./tests/codex-shared-app-server');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -54,12 +55,13 @@ registerAttentionActivationTests(context);
 registerAttentionHookTests(context);
 registerStructuredInputRequestTests(context);
 registerSourcePluginTests(context);
+registerCodexSharedAppServerTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 326) {
-  throw new Error(`회귀 테스트 등록 수가 326개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 341) {
+  throw new Error(`회귀 테스트 등록 수가 341개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

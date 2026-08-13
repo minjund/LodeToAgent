@@ -19,6 +19,7 @@ function usage() {
     '  loadtoagent                                           데스크톱 앱 열기',
     '  loadtoagent open                                      데스크톱 앱 열기',
     '  loadtoagent run <claude|codex|gemini|grok> [-- 옵션]  앱 브리지에서 AI 실행',
+    '  loadtoagent codex-endpoint                              공유 Codex 서버 주소 확인',
     '  loadtoagent --version                                 버전 확인',
     '',
     '예시:',
@@ -36,6 +37,7 @@ function parseCliArguments(argv) {
   if (!command || command === 'open') return { action: 'open' };
   if (command === '--help' || command === '-h' || command === 'help') return { action: 'help' };
   if (command === '--version' || command === '-v' || command === 'version') return { action: 'version' };
+  if (command === 'codex-endpoint') return { action: 'codex-endpoint' };
   if (command === 'run') return { action: 'run', ...parseArguments(args) };
   throw new Error(usage());
 }
@@ -91,12 +93,25 @@ function launchDesktop(options = {}) {
   return spec;
 }
 
-function readDiscovery(home = os.homedir()) {
-  const file = process.env.LOADTOAGENT_BRIDGE_FILE || path.join(home, '.loadtoagent', 'bridge.json');
+function readDiscovery(home = os.homedir(), options = {}) {
+  const environment = options.env || process.env;
+  const fileSystem = options.fileSystem || fs;
+  const file = environment.LOADTOAGENT_BRIDGE_FILE || path.join(home, '.loadtoagent', 'bridge.json');
   let value;
-  try { value = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { throw new Error('실행 중인 LoadToAgent 브리지를 찾지 못했습니다. LoadToAgent 프로그램을 먼저 여세요.'); }
+  try { value = JSON.parse(fileSystem.readFileSync(file, 'utf8')); } catch { throw new Error('실행 중인 LoadToAgent 브리지를 찾지 못했습니다. LoadToAgent 프로그램을 먼저 여세요.'); }
   if (!value || value.protocol !== 1 || !value.endpoint || !value.token) throw new Error('LoadToAgent 브리지 정보가 올바르지 않습니다. 프로그램을 다시 시작하세요.');
   return value;
+}
+
+function readCodexEndpoint(home = os.homedir(), options = {}) {
+  const discovery = readDiscovery(home, options);
+  const endpoint = String(discovery?.codexAppServer?.endpoint || '');
+  if (!discovery?.codexAppServer?.ready || !/^ws:\/\/127\.0\.0\.1:[1-9]\d{0,4}$/u.test(endpoint)) {
+    throw new Error('공유 Codex 서버가 아직 준비되지 않았습니다. LoadToAgent에서 Codex 작업을 먼저 여세요.');
+  }
+  const port = Number(endpoint.slice(endpoint.lastIndexOf(':') + 1));
+  if (port > 65_535) throw new Error('LoadToAgent의 공유 Codex 서버 주소가 올바르지 않습니다.');
+  return endpoint;
 }
 
 function writeFrame(socket, value) {
@@ -418,6 +433,7 @@ if (require.main === module) {
     if (command.action === 'open') launchDesktop();
     else if (command.action === 'help') process.stdout.write(`${usage()}\n`);
     else if (command.action === 'version') process.stdout.write(`${require('../package.json').version}\n`);
+    else if (command.action === 'codex-endpoint') process.stdout.write(`${readCodexEndpoint()}\n`);
     else run(process.argv.slice(2));
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
@@ -425,4 +441,16 @@ if (require.main === module) {
   }
 }
 
-module.exports = { parseArguments, parseCliArguments, desktopLaunchSpec, launchDesktop, readDiscovery, terminalSize, createSocketBackpressure, createStdoutBackpressure, run, usage };
+module.exports = {
+  parseArguments,
+  parseCliArguments,
+  desktopLaunchSpec,
+  launchDesktop,
+  readCodexEndpoint,
+  readDiscovery,
+  terminalSize,
+  createSocketBackpressure,
+  createStdoutBackpressure,
+  run,
+  usage,
+};

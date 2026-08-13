@@ -1029,6 +1029,10 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
   }
   if (options.type === 'agent') {
     const provider = agentProviders[options.provider] || AGENT_PROVIDERS[options.provider];
+    const providerArgs = normalizedArguments(
+      typeof provider.argsFor === 'function' ? provider.argsFor(options) : provider.args,
+      MAX_AGENT_ARGUMENT_CHARS,
+    );
     if (options.sessionBackend === 'managed-tmux') {
       if (!options.managedTmuxSession) throw new Error('명령창 묶음 이름을 입력하세요.');
       const tmuxArgs = [
@@ -1037,7 +1041,7 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
         '-s', options.managedTmuxSession,
         '-c', options.cwd,
         provider.command,
-        ...(provider.args || []),
+        ...providerArgs,
         ...options.args,
         ';',
         'set-option', '-g', 'window-size', 'largest',
@@ -1061,7 +1065,7 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
       if (options.distro) {
         const args = ['-d', options.distro];
         if (options.cwd) args.push('--cd', options.cwd);
-        args.push('--', provider.command, ...(provider.args || []), ...options.args);
+        args.push('--', provider.command, ...providerArgs, ...options.args);
         return {
           file: 'wsl.exe',
           args,
@@ -1073,17 +1077,17 @@ function launchSpec(options, platform = process.platform, agentProviders = AGENT
       if (path.extname(command).toLowerCase() === '.ps1') {
         return {
           file: powershellExecutable(),
-          args: ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', command, ...(provider.args || []), ...options.args],
+          args: ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', command, ...providerArgs, ...options.args],
           cwd: options.cwd,
           label: provider.label,
         };
       }
       if (/\.(?:cmd|bat)$/i.test(command)) {
-        return windowsBatchLaunchSpec(command, [...(provider.args || []), ...options.args], options, provider);
+        return windowsBatchLaunchSpec(command, [...providerArgs, ...options.args], options, provider);
       }
-      return { file: command, args: [...(provider.args || []), ...options.args], cwd: options.cwd, label: provider.label };
+      return { file: command, args: [...providerArgs, ...options.args], cwd: options.cwd, label: provider.label };
     }
-    return { file: provider.command, args: [...(provider.args || []), ...options.args], cwd: options.cwd, label: provider.label };
+    return { file: provider.command, args: [...providerArgs, ...options.args], cwd: options.cwd, label: provider.label };
   }
   if (options.type === 'wsl') {
     const args = ['-d', options.distro];

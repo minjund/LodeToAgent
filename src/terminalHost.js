@@ -11,10 +11,10 @@ const { spawn } = require('child_process');
 const { endpointFor, safeWriteJson } = require('./bridgeServer');
 const { runBestEffort } = require('./diagnostics');
 
-// Protocol 11 also marks the native-input terminal semantics introduced after
-// the 1.6.14 host. Long-lived terminal daemons must not keep serving the old
-// conversation-bound raw-input policy to a newer renderer.
-const TERMINAL_HOST_PROTOCOL = 11;
+// Protocol 12 adds Codex shared-app-server launch preparation. Long-lived
+// terminal daemons must be replaced so a newer renderer can never fall back to
+// an independent Codex writer through an older host.
+const TERMINAL_HOST_PROTOCOL = 12;
 const TERMINAL_HOST_RUNTIME = `node-pty-${require('node-pty/package.json').version}`;
 // A retained replay may contain two million control characters. JSON escapes
 // each one as six characters (for example ESC -> "\\u001b"), so a valid get
@@ -24,7 +24,10 @@ const MAX_REQUEST_FRAME_CHARS = 4 * 1024 * 1024;
 const MAX_RESPONSE_FRAME_CHARS = 16 * 1024 * 1024;
 const MAX_SERVER_OUTBOUND_QUEUE_BYTES = 32 * 1024 * 1024;
 const AUTH_TIMEOUT_MS = 5_000;
-const REQUEST_TIMEOUT_MS = 15_000;
+// Starting the shared Codex app-server can legitimately consume its full
+// 15-second readiness budget. Leave enough room for request transport and PTY
+// creation so a successful launch is not reported as a timed-out orphan.
+const REQUEST_TIMEOUT_MS = 30_000;
 const RECONNECT_RETRY_BASE_MS = 500;
 const RECONNECT_RETRY_MAX_MS = 30_000;
 const RAW_WRITE_DELIVERY_CAPABILITY = 1;
@@ -457,6 +460,10 @@ class TerminalHostServer {
       ? Math.max(1, Number(options.maxOutboundQueueBytes))
       : MAX_SERVER_OUTBOUND_QUEUE_BYTES;
     this.onShutdown = typeof options.onShutdown === 'function' ? options.onShutdown : () => {};
+    this.beforeOperation = typeof options.beforeOperation === 'function'
+      ? options.beforeOperation
+      : null;
+    this.extraInfo = typeof options.extraInfo === 'function' ? options.extraInfo : null;
     this.onManagerData = payload => this.broadcast({ type: 'event', event: 'data', payload });
     this.onManagerState = payload => {
       this.broadcast({ type: 'event', event: 'state', payload });
@@ -465,6 +472,7 @@ class TerminalHostServer {
   }
 
   info() {
+    const extra = this.extraInfo ? this.extraInfo() : null;
     return {
       protocol: TERMINAL_HOST_PROTOCOL,
       runtime: this.runtime,
@@ -473,8 +481,16 @@ class TerminalHostServer {
       pid: process.pid,
       platform: this.platform,
       capabilities: { ...this.capabilities },
+      ...(extra && typeof extra === 'object' ? extra : {}),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  refreshDiscovery() {
+    if (!this.server) return this.info();
+    const info = this.info();
+    safeWriteJson(this.discoveryFile, info);
+    return info;
   }
 
   start() {
@@ -494,7 +510,7 @@ class TerminalHostServer {
       this.server.listen(this.endpoint, () => {
         this.server.removeListener('error', fail);
         try {
-          safeWriteJson(this.discoveryFile, this.info());
+          this.refreshDiscovery();
           this.manager.on('data', this.onManagerData);
           this.manager.on('state', this.onManagerState);
           this.scheduleShutdownIfIdle();
@@ -607,6 +623,7 @@ class TerminalHostServer {
     }
     const operation = message.operation;
     const args = Array.isArray(message.args) ? message.args : [];
+    if (this.beforeOperation) await Promise.resolve(this.beforeOperation(operation, args));
     const result = await Promise.resolve(this.manager[operation](...args));
     this.enqueueFrame(client, { type: 'response', requestId: String(message.requestId || ''), ok: true, result });
   }

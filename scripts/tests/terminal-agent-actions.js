@@ -2568,8 +2568,10 @@ function registerTerminalAgentActionTests(context) {
     assert.deepStrictEqual(JSON.parse(JSON.stringify(targets)), []);
   });
 
-  test('분리된 관리 터미널이 있으면 히스토리 세션도 직접 전송 경로를 쓴다', () => {
+  test('분리된 관리 터미널은 직접 전송하되 Codex Desktop은 완료·attention 상태도 origin-owned로 둔다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-agent-actions.js'), 'utf8');
+    let underlyingResumeChecks = 0;
+    let underlyingTargetChecks = 0;
     const sandbox = {
       window: {
         LoadToAgentAppFactories: {},
@@ -2578,7 +2580,14 @@ function registerTerminalAgentActionTests(context) {
           errorText: (_error, key) => key,
         },
         LoadToAgentTerminal: {
-          resumeSupport: () => ({ supported: false, reason: 'resume unsupported' }),
+          resumeSupport: () => {
+            underlyingResumeChecks += 1;
+            return { supported: true, args: ['resume', 'must-not-resume'] };
+          },
+          agentTargets: () => {
+            underlyingTargetChecks += 1;
+            return [{ id: 'terminal:must-not-use', kind: 'terminal' }];
+          },
         },
         LoadToAgentRendererUtils: { reportRecoverableError: () => {} },
       },
@@ -2592,8 +2601,11 @@ function registerTerminalAgentActionTests(context) {
         agentCommandTargets: new Map(),
         agentCommandDrafts: new Map(),
         agentCommandSending: new Set(),
+        conversationInterruptRequests: new Set(),
       },
-      isLiveSession: () => false,
+      isLiveSession: session => session?.status === 'running',
+      esc: value => String(value),
+      providerInfo: provider => ({ label: provider }),
     });
 
     assert.equal(actions.agentControlMode({ id: 'grok:history', provider: 'grok' }, [{
@@ -2601,6 +2613,35 @@ function registerTerminalAgentActionTests(context) {
       kind: 'terminal',
       reconnectable: true,
     }]), 'direct');
+    const desktopCompleted = {
+      id: 'codex:desktop-completed',
+      provider: 'codex',
+      clientKind: 'codex-desktop',
+      externalId: 'desktop-completed',
+      status: 'completed',
+      activityState: 'attention',
+    };
+    const support = actions.agentResumeSupport(desktopCompleted);
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(support)), {
+      supported: false,
+      originOwned: true,
+      code: 'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
+      reason: 'terminal.resume.codex_desktop_live',
+    });
+    assert.equal(underlyingResumeChecks, 0, 'Codex Desktop 지원 확인이 일반 resume 경로로 내려갔습니다.');
+    assert.deepStrictEqual(Array.from(actions.agentCommandTargets(desktopCompleted)), []);
+    assert.equal(underlyingTargetChecks, 0, 'Codex Desktop의 stale terminal target을 조회했습니다.');
+    assert.equal(actions.agentControlMode(desktopCompleted, [{
+      id: 'terminal:stale-desktop-target',
+      kind: 'terminal',
+    }]), 'origin-owned', '완료된 Codex Desktop 작업이 stale target 때문에 직접 제어로 열렸습니다.');
+
+    const composer = actions.agentCommandComposer(desktopCompleted);
+    assert.match(composer, /control-origin-owned/u);
+    assert.match(composer, /<textarea[^>]*disabled/u);
+    assert.match(composer, /terminal\.resume\.codex_desktop_live/u);
+    assert.equal(composer.includes('<button type="submit"'), false,
+      '완료·attention Desktop 카드가 resume 전송 버튼을 노출했습니다.');
   });
 
   test('전송 결과를 확인하지 못한 대화는 실패가 아니라 확인 필요로 남긴다', () => {

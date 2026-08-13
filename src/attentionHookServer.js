@@ -11,6 +11,21 @@ const ATTENTION_HOOK_SERVICE = 'loadtoagent-attention-hook';
 const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 9 * 60 * 1000;
 const LOOPBACK_HOST = '127.0.0.1';
+const MAX_PERMISSION_SUGGESTIONS = 20;
+const MAX_PERMISSION_RULES = 32;
+const MAX_PERMISSION_DIRECTORIES = 32;
+const MAX_PERMISSION_LABEL_LENGTH = 512;
+const MAX_PERMISSION_TOOL_NAME_LENGTH = 256;
+const MAX_PERMISSION_RULE_LENGTH = 4_096;
+const MAX_PERMISSION_DIRECTORY_LENGTH = 4_096;
+const PERMISSION_UPDATE_TYPES = new Set([
+  'addRules', 'replaceRules', 'removeRules', 'setMode', 'addDirectories', 'removeDirectories',
+]);
+const PERMISSION_UPDATE_DESTINATIONS = new Set([
+  'userSettings', 'projectSettings', 'localSettings', 'session',
+]);
+const PERMISSION_BEHAVIORS = new Set(['allow', 'deny', 'ask']);
+const PERMISSION_MODES = new Set(['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk']);
 
 function isPlainObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
@@ -76,6 +91,81 @@ function normalizeQuestions(toolInput) {
   }).filter(Boolean).slice(0, 20);
 }
 
+function normalizePermissionRule(value) {
+  if (!isPlainObject(value)) return null;
+  const toolName = cleanString(value.toolName, MAX_PERMISSION_TOOL_NAME_LENGTH);
+  if (!toolName) return null;
+  const entry = { toolName };
+  if (Object.prototype.hasOwnProperty.call(value, 'ruleContent')) {
+    const ruleContent = cleanString(value.ruleContent, MAX_PERMISSION_RULE_LENGTH);
+    if (!ruleContent) return null;
+    entry.ruleContent = ruleContent;
+  }
+  return Object.freeze(entry);
+}
+
+function normalizePermissionUpdate(value) {
+  if (!isPlainObject(value)) return null;
+  const type = cleanString(value.type, 64);
+  const destination = cleanString(value.destination, 64);
+  if (!PERMISSION_UPDATE_TYPES.has(type) || !PERMISSION_UPDATE_DESTINATIONS.has(destination)) return null;
+
+  if (type === 'addRules' || type === 'replaceRules' || type === 'removeRules') {
+    const behavior = cleanString(value.behavior, 32);
+    if (!PERMISSION_BEHAVIORS.has(behavior)
+      || !Array.isArray(value.rules)
+      || value.rules.length === 0
+      || value.rules.length > MAX_PERMISSION_RULES) return null;
+    const rules = value.rules.map(normalizePermissionRule);
+    if (rules.some(rule => !rule)) return null;
+    return Object.freeze({ type, rules: Object.freeze(rules), behavior, destination });
+  }
+
+  if (type === 'setMode') {
+    const mode = cleanString(value.mode, 64);
+    if (!PERMISSION_MODES.has(mode)) return null;
+    return Object.freeze({ type, mode, destination });
+  }
+
+  if (!Array.isArray(value.directories)
+    || value.directories.length === 0
+    || value.directories.length > MAX_PERMISSION_DIRECTORIES) return null;
+  const directories = value.directories.map(directory => cleanString(directory, MAX_PERMISSION_DIRECTORY_LENGTH));
+  if (directories.some(directory => !directory)) return null;
+  return Object.freeze({ type, directories: Object.freeze(directories), destination });
+}
+
+function permissionSuggestionLabel(entry) {
+  let scopes = [];
+  if (Array.isArray(entry.rules)) {
+    scopes = entry.rules.map(rule => (
+      rule.ruleContent ? `${rule.toolName}(${rule.ruleContent})` : rule.toolName
+    ));
+  } else if (Array.isArray(entry.directories)) {
+    scopes = entry.directories;
+  } else if (entry.mode) {
+    scopes = [entry.mode];
+  }
+  return cleanString(scopes.join(', '), MAX_PERMISSION_LABEL_LENGTH);
+}
+
+function normalizePermissionSuggestions(value) {
+  if (!Array.isArray(value)) return Object.freeze([]);
+  const suggestions = [];
+  value.slice(0, MAX_PERMISSION_SUGGESTIONS).forEach((candidate, index) => {
+    const entry = normalizePermissionUpdate(candidate);
+    if (!entry) return;
+    const label = permissionSuggestionLabel(entry);
+    if (!label) return;
+    suggestions.push(Object.freeze({
+      id: `permission-suggestion:${index}:${hashValue(entry, 16)}`,
+      label,
+      entry,
+    }));
+  });
+  return Object.freeze(suggestions);
+}
+
 function permissionDetail(toolInput) {
   if (!isPlainObject(toolInput)) return '';
   const preferred = [
@@ -137,6 +227,9 @@ function normalizeHookRequest(payload, options = {}) {
     : { sessionId, requestInstanceId }, 40)}`;
   const questionDetail = questions.map(question => question.question).join('\n');
   const firstHeader = questions.map(question => question.header).find(Boolean);
+  const permissionSuggestions = provider === 'claude' && eventName === 'PermissionRequest'
+    ? normalizePermissionSuggestions(payload.permission_suggestions)
+    : Object.freeze([]);
   return Object.freeze({
     key,
     provider,
@@ -148,6 +241,7 @@ function normalizeHookRequest(payload, options = {}) {
     toolName,
     toolInput,
     questions,
+    permissionSuggestions,
     title: kind === 'question'
       ? (firstHeader || 'Agent question')
       : `${toolName || 'Tool'} permission request`,
@@ -258,8 +352,17 @@ function buildOfficialHookResponse(request, rawDecision) {
   if (request.provider !== 'codex' && decision.action === 'allow' && isPlainObject(decision.updatedInput)) {
     officialDecision.updatedInput = decision.updatedInput;
   }
-  if (request.provider !== 'codex' && decision.action === 'allow' && Array.isArray(decision.updatedPermissions)) {
-    officialDecision.updatedPermissions = decision.updatedPermissions;
+  const permissionSuggestionId = cleanString(decision.permissionSuggestionId, 256);
+  if (request.provider !== 'codex' && decision.action === 'allow' && permissionSuggestionId) {
+    const suggestion = Array.isArray(request.permissionSuggestions)
+      ? request.permissionSuggestions.find(candidate => candidate.id === permissionSuggestionId)
+      : null;
+    if (!suggestion) {
+      const error = new TypeError('The selected permission suggestion is not available for this request.');
+      error.code = 'ATTENTION_HOOK_INVALID_PERMISSION_SUGGESTION';
+      throw error;
+    }
+    officialDecision.updatedPermissions = [suggestion.entry];
   }
   return {
     hookSpecificOutput: {
@@ -579,5 +682,6 @@ module.exports = {
   AttentionHookServer,
   buildOfficialHookResponse,
   normalizeHookRequest,
+  normalizePermissionSuggestions,
   normalizeQuestions,
 };

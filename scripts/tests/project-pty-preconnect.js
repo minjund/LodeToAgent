@@ -229,7 +229,11 @@ function registerProjectPtyPreconnectTests(context) {
     const grandchild = { id: 'codex:grandchild', externalId: 'grandchild', provider: 'codex', cwd: 'D:\\project-a', status: 'running', parentId: child.id };
     const otherRoot = { id: 'codex:other-root', externalId: 'other-root', provider: 'codex', cwd: 'D:\\project-b', status: 'running', parentId: null };
     const completedRoot = { id: 'codex:completed-root', externalId: 'completed-root', provider: 'codex', cwd: 'D:\\project-a', status: 'completed', parentId: null };
-    const harness = createProjectPreconnectHarness(root, [rootA, rootB, child, grandchild, otherRoot, completedRoot]);
+    const desktopRoot = {
+      id: 'codex:desktop-root', externalId: 'desktop-root', provider: 'codex', clientKind: 'codex-desktop',
+      cwd: 'D:\\project-a', status: 'running', parentId: null,
+    };
+    const harness = createProjectPreconnectHarness(root, [rootA, rootB, child, grandchild, otherRoot, completedRoot, desktopRoot]);
 
     await harness.actions.preconnectProjectAgentTerminals(harness.state.workspace);
 
@@ -237,7 +241,7 @@ function registerProjectPtyPreconnectTests(context) {
     assert.deepStrictEqual(
       Array.from(harness.preconnectCalls[0].candidates, session => session.id),
       [rootA.id, rootB.id],
-      '하위 AI·다른 프로젝트·종료 기록이 PTY 사전 연결 batch에 포함됐습니다.',
+      '하위 AI·다른 프로젝트·종료 기록·실행 중인 Codex Desktop 대화가 PTY 사전 연결 batch에 포함됐습니다.',
     );
     assert.equal(typeof harness.preconnectCalls[0].options?.shouldStart, 'function');
     assert.equal(harness.preconnectCalls[0].options.shouldStart(), true);
@@ -248,6 +252,45 @@ function registerProjectPtyPreconnectTests(context) {
     harness.state.workspace = 'D:\\project-b';
     assert.equal(harness.preconnectCalls[0].options.shouldStart(), false,
       '다른 프로젝트로 이동한 뒤 이전 batch가 새 PTY 시작 권한을 유지했습니다.');
+  });
+
+  test('Codex Desktop 대화는 status·activity와 무관하게 독립 resume·ensure·preconnect를 거부한다', async () => {
+    const harness = createTerminalPreconnectHarness(root);
+    const desktopSession = {
+      id: 'codex:desktop-owned',
+      externalId: 'desktop-owned',
+      provider: 'codex',
+      clientKind: 'codex-desktop',
+      cwd: 'D:\\project-a',
+      status: 'running',
+      activityState: 'idle',
+    };
+    const projections = [
+      desktopSession,
+      { ...desktopSession, status: 'idle', activityState: 'working' },
+      { ...desktopSession, status: 'completed', activityState: 'attention' },
+    ];
+    const isOriginOwnedRejection = error => error?.code === 'CODEX_DESKTOP_SESSION_ORIGIN_OWNED'
+      && error?.deliveryState === 'rejected'
+      && error?.message === 'terminal.resume.codex_desktop_live';
+
+    for (const projection of projections) {
+      await assert.rejects(
+        () => harness.actions.resumeForAgent(projection, '', false, { focus: false }),
+        isOriginOwnedRejection,
+      );
+      await assert.rejects(
+        () => harness.actions.ensureForAgent(projection),
+        isOriginOwnedRejection,
+      );
+      const [preconnect] = await harness.actions.preconnectForAgents([projection]);
+      assert.equal(preconnect?.status, 'rejected');
+      assert.equal(isOriginOwnedRejection(preconnect?.reason), true);
+      assert.deepStrictEqual(Array.from(harness.actions.agentTargets(projection)), []);
+    }
+
+    assert.equal(harness.initCalls(), 0, 'Desktop 소유권 거절 전에 terminal init을 시작했습니다.');
+    assert.deepStrictEqual(harness.ensureCalls, [], 'Desktop 소유 대화에 codex resume PTY를 만들었습니다.');
   });
 
   test('PTY 사전 연결은 같은 canonical identity를 합치고 identity 변경은 별도 요청으로 시작한다', async () => {
