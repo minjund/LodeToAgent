@@ -64,6 +64,14 @@ jobs:
       - run: npm run test:terminal
       - run: npm run test:terminal:tmux-pane
       - run: npm run test:bridge
+      - name: Verify renderer profile recovery and idempotence
+        run: npm run test:brand-profile-recovery
+      - name: Verify cross-version profile locking
+        run: npm run test:interim-profile-guard
+      - name: Verify visible Whitebox name and icons
+        run: npm run test:brand-surface
+      - name: Verify completed-result review persistence
+        run: npm run test:result-review
       - name: Verify inline PTY interaction contract
         if: runner.os == 'Windows'
         timeout-minutes: 5
@@ -152,6 +160,9 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+      - name: Explain skipped npm publication
+        if: ${{ vars.PUBLISH_NPM != 'true' }}
+        run: echo "Desktop release continues without npm publication; bootstrap whitebox-ai separately, then enable trusted publishing."
       - name: Publish npm package with provenance
         if: ${{ vars.PUBLISH_NPM == 'true' && steps.npm_version.outputs.published != 'true' }}
         run: npm publish --access public --tag latest

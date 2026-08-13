@@ -1288,9 +1288,16 @@ function registerUiContractTests(context) {
       Intl,
     };
     vm.runInNewContext(managementSource, managementSandbox, { filename: 'app-management.js' });
+    let managementResultReviewed = false;
+    const managementState = { snapshot: { sessions: [] }, providers: [], availability: {} };
     const management = managementSandbox.window.WhiteboxAppFactories.createManagement({
-      state: { snapshot: { sessions: [] }, providers: [], availability: {} },
-      isResultReviewComplete: () => false,
+      state: managementState,
+      esc: value => String(value ?? ''),
+      providerInfo: () => ({ label: 'Codex', mark: 'C', accent: '#64cbe5' }),
+      timeAgo: () => '방금 전',
+      readablePreview: value => ({ text: String(value || ''), full: String(value || '') }),
+      isResultReviewComplete: session => managementResultReviewed && session?.id === 'result-contract',
+      resultReviewTargets: session => session?.pendingResultReview && !managementResultReviewed ? [session] : [],
     });
     const managementNow = Date.parse('2026-08-06T01:00:00.000Z');
     const managementSession = {
@@ -1317,6 +1324,42 @@ function registerUiContractTests(context) {
       attention: { category: 'risk', kind: 'error', source: 'observed-status' },
       health: { signals: [{ code: 'run-failed', severity: 'critical' }] },
     }, managementNow), false, '실패나 위험 신호만으로 확인 필요에 들어가면 안 됩니다.');
+    assert.equal(management.needsManagementInbox({
+      ...managementSession,
+      id: 'stale-completed-outcome', status: 'failed', pendingResultReview: true,
+      outcome: { status: 'completed', verified: true, summary: '이전 완료 결과' },
+      attention: { category: 'none', required: false },
+    }, managementNow), false, '실패 상태에 남은 과거 완료 outcome을 성공 완료 결과로 다시 표시하면 안 됩니다.');
+    const managementResultSession = {
+      id: 'result-contract', provider: 'codex', title: '완료 결과 확인 계약',
+      status: 'completed', statusDetail: '작업 완료', pendingResultReview: true,
+      completedAt: '2026-08-06T01:00:00.000Z', updatedAt: '2026-08-06T01:00:00.000Z',
+      attention: { category: 'none', required: false },
+      outcome: { status: 'completed', verified: true, summary: '요청한 작업을 모두 마쳤습니다.' },
+      health: { level: 'healthy', signals: [] },
+      evidence: { confidence: 'high' },
+    };
+    managementState.snapshot.sessions = [managementResultSession];
+    assert.equal(management.needsManagementInbox(managementResultSession, managementNow), true,
+      '답변 요청이 없는 순수 완료 결과도 확인 대기 목록에 들어가야 합니다.');
+    assert.equal(management.needsUserResponse(managementResultSession), false,
+      '순수 완료 결과를 실행 흐름을 가리는 답변 대기로 분류하면 안 됩니다.');
+    assert.equal(management.needsManagementReview(managementResultSession, managementNow), true,
+      '순수 완료 결과가 홈 확인 목록에서 제외되면 안 됩니다.');
+    assert.equal(management.rootManagementReviews([managementResultSession], managementNow).length, 1,
+      '순수 완료 결과가 홈의 실제 렌더링 소스로 그룹화되어야 합니다.');
+    const managementResultHtml = management.attentionCardHtml(managementResultSession);
+    assert.equal((managementResultHtml.match(/data-result-review="true"/g) || []).length, 2,
+      '완료 결과 카드의 기본·상세 열기 모두 확인 저장 동작을 사용해야 합니다.');
+    assert.match(managementResultHtml, /class="attention-primary-action"[^>]*data-result-review="true"/,
+      '완료 결과 기본 버튼은 키보드 클릭에도 동일한 확인 저장 경로를 사용해야 합니다.');
+    assert.doesNotMatch(managementResultHtml, /data-attention-quick=/,
+      '완료 결과 확인 카드에 답변·승인 빠른 응답을 노출하면 안 됩니다.');
+    managementResultReviewed = true;
+    assert.equal(management.needsManagementInbox(managementResultSession, managementNow), false,
+      '확인 저장을 마친 완료 결과는 확인 대기 목록에서 사라져야 합니다.');
+    assert.equal(management.rootManagementReviews([managementResultSession], managementNow).length, 0,
+      '확인 저장을 마친 완료 결과는 홈 확인 목록에서도 사라져야 합니다.');
     const operationsStart = managementSource.indexOf('function renderOperationsOverview()');
     const operationsEnd = managementSource.indexOf('\n  function outcomeHtml', operationsStart);
     const operationsSource = managementSource.slice(operationsStart, operationsEnd);
@@ -1555,11 +1598,20 @@ function registerUiContractTests(context) {
     );
     const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     assert.equal(pkg.build.productName, 'Whitebox');
+    assert.equal(pkg.build.executableName, 'Whitebox');
+    assert.equal(pkg.build.appId, 'com.wincube.whitebox');
     assert.equal(pkg.build.win.icon, 'build/icon.ico');
     assert.equal(pkg.build.mac.icon, 'build/icon.png');
     assert.equal(pkg.build.portable.unpackDirName, false);
     assert.ok(mainEntry.includes("app.setName(PRODUCT_NAME)"));
     assert.ok(mainEntry.includes("app.setAppUserModelId('com.wincube.whitebox')"));
+    assert.ok(mainEntry.includes("icon: BRAND_ICON_PATH"));
+    assert.ok(mainEntry.includes("new Tray(icon)"));
+    assert.ok(mainEntry.includes("app.dock.setIcon(sourceDockIcon)"));
+    assert.ok(html.includes('id="brandIcon"'));
+    assert.ok(html.includes('src="assets/whitebox-mark.svg"'));
+    const brandMark = fs.readFileSync(path.join(root, 'renderer', 'assets', 'whitebox-mark.svg'), 'utf8');
+    assert.match(brandMark, /<svg[^>]+viewBox="0 0 64 64"/);
     assert.ok(
       mainEntry.includes('WHITEBOX_SOURCE_LAUNCHER=1'),
       '소스 브리지에서 데스크톱 앱을 열 때 Electron 실행 파일과 앱 경로를 함께 전달해야 합니다.',
@@ -1737,12 +1789,40 @@ function registerUiContractTests(context) {
     const reloaded = sandbox.window.WhiteboxAppFactories.createCore({});
     reloaded.state.snapshot = core.state.snapshot;
     assert.equal(reloaded.isResultReviewComplete(resultSession), true);
+    const drawerSource = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
+    const sessionEventSource = fs.readFileSync(path.join(root, 'renderer', 'app-events-sessions.js'), 'utf8');
+    const bootstrapSource = fs.readFileSync(path.join(root, 'renderer', 'app-bootstrap.js'), 'utf8');
+    assert.match(drawerSource, /options\.resultReview === true \? markResultReviewComplete/,
+      '완료 결과를 열 때 확인 상태를 즉시 저장해야 합니다.');
+    assert.match(sessionEventSource, /tab: "summary", resultReview: true/,
+      '결과 확인 진입점이 자동 확인 옵션을 전달해야 합니다.');
+    assert.match(bootstrapSource, /\{ tab: 'summary', resultReview: true \}/,
+      '완료 알림을 열어 확인한 경우에도 확인 상태를 저장해야 합니다.');
+    assert.ok(bootstrapSource.indexOf('window.whitebox.onUpdateState')
+      < bootstrapSource.indexOf('window.WhiteboxRendererUtils.bootstrap()'),
+    '시작 중 업데이트 상태 변경을 놓치지 않도록 bootstrap 전에 구독해야 합니다.');
+    assert.match(bootstrapSource, /state\.update = latestUpdateState \|\| bootstrap\.update/,
+      'bootstrap 도중 도착한 최신 업데이트 상태를 초기 스냅샷보다 우선해야 합니다.');
+    const mainSource = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
+    assert.match(mainSource, /if \(updateManager\) sendUpdateState\(updateManager\.getState\(\)\)/,
+      'renderer ready 시 최신 업데이트 상태를 한 번 더 보내 이벤트 경합을 닫아야 합니다.');
 
     resultSession.outcome = { ...resultSession.outcome, summary: `${'같은 앞부분'.repeat(160)} · 뒤에서 바뀐 결과` };
     assert.equal(core.isResultReviewComplete(resultSession), false,
       '타임스탬프와 긴 앞부분이 같아도 결과 뒷부분이 바뀌면 다시 확인해야 합니다.');
     assert.equal(core.markResultReviewComplete(resultSession), 1);
     assert.equal(core.isResultReviewComplete(resultSession), true);
+
+    resultSession.outcome = { ...resultSession.outcome, completedAt: undefined, summary: '완료 시각이 없는 안정된 결과' };
+    delete resultSession.completedAt;
+    resultSession.updatedAt = '2026-07-31T03:00:00.000Z';
+    assert.equal(core.markResultReviewComplete(resultSession), 1);
+    resultSession.updatedAt = '2026-07-31T03:30:00.000Z';
+    assert.equal(core.isResultReviewComplete(resultSession), true,
+      '재스캔 시각만 바뀐 같은 완료 결과가 다시 나타나면 안 됩니다.');
+    resultSession.outcome = { ...resultSession.outcome, summary: '실제로 달라진 완료 결과' };
+    assert.equal(core.isResultReviewComplete(resultSession), false,
+      '실제 결과 내용이 바뀌면 다시 확인할 수 있어야 합니다.');
 
     resultSession.outcome = { ...resultSession.outcome, completedAt: '2026-07-31T02:00:00.000Z', summary: '새 결과' };
     resultSession.updatedAt = '2026-07-31T02:00:00.000Z';
@@ -2259,7 +2339,9 @@ function registerUiContractTests(context) {
       && historyEvents.indexOf('[data-inline-pty-trigger]') < historyEvents.indexOf('[data-open-session]')
       && historyEvents.includes('window.WhiteboxInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger)'),
     '지난 기록 클릭이 팝업보다 먼저 인라인 PTY 경로로 연결되지 않았습니다.');
-    assert.ok(historyEvents.includes('openDrawer(open.dataset.openSession, { context: true })'),
+    assert.ok(historyEvents.includes('openDrawer(open.dataset.openSession, {')
+      && historyEvents.includes('context: true,')
+      && historyEvents.includes('resultReview: true'),
       'PTY가 없는 지난 기록도 진행 중 AI와 같은 컨텍스트 상세 UX로 열려야 합니다.');
     assert.ok(graphFilterSource.includes('state.graphFocusId || state.inlineTerminalSessionId')
       && graphFilterSource.includes('const selectedGraphSession = allById.get(selectedGraphId)')

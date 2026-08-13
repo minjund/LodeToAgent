@@ -34,6 +34,14 @@ jobs:
       - run: npm run check:source
       - run: npm test
       - run: npm run test:accuracy
+      - name: Verify renderer profile recovery and idempotence
+        run: npm run test:brand-profile-recovery
+      - name: Verify cross-version profile locking
+        run: npm run test:interim-profile-guard
+      - name: Verify visible Whitebox name and icons
+        run: npm run test:brand-surface
+      - name: Verify completed-result review persistence
+        run: npm run test:result-review
       - run: npm audit --audit-level=high
       - run: npm run test:terminal
       - run: npm run test:terminal:tmux-pane

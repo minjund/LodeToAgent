@@ -19,6 +19,7 @@ window.WhiteboxAppFactories.createDashboard = function createDashboard(context =
     isRuntimeLoopSession = () => false,
     isControlRoomSession = session => session?.status === "running" || session?.status === "starting",
     controlRoomStatus = session => session?.status,
+    resultReviewTargets = () => [],
     preserveFocusDuringRender = callback => callback(),
   } = context;
 
@@ -313,9 +314,11 @@ window.WhiteboxAppFactories.createDashboard = function createDashboard(context =
     };
     const attentionEntries = (root) => actorsForRoot(root).flatMap((session) => {
       const entries = [];
-      if (typeof context.needsManagementInbox === "function"
+      const pendingResultReview = typeof context.resultReviewTargets === "function"
+        && context.resultReviewTargets(session).length > 0;
+      if (!pendingResultReview && (typeof context.needsManagementInbox === "function"
         ? context.needsManagementInbox(session)
-        : Boolean(session?.attention?.required || session?.attention?.category === "required")) {
+        : Boolean(session?.attention?.required || session?.attention?.category === "required"))) {
         if (!context.isProjectNoticeSeen?.("attention", session)) entries.push({ kind: "attention", session });
       }
       const prompt = window.WhiteboxTerminal?.pendingPromptForSession?.(session) || null;
@@ -630,8 +633,9 @@ window.WhiteboxAppFactories.createDashboard = function createDashboard(context =
           const providerLabel = provider?.label || String(session.provider || "AI").toUpperCase();
           const transcriptSurface = session.presentation?.conversationSurface === "transcript"
             || session.controlCapabilities?.pty === false;
+          const reviewPending = resultReviewTargets(session).length > 0;
           const historyInteraction = transcriptSurface
-            ? `data-open-session="${esc(session.id)}"`
+            ? `data-open-session="${esc(session.id)}" ${reviewPending ? 'data-result-review="true"' : ""}`
             : `data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
           const updatedAt = new Date(session.updatedAt || 0);
           const updatedLabel = Number.isNaN(updatedAt.getTime())

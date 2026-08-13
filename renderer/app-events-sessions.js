@@ -256,9 +256,10 @@ window.WhiteboxAppFactories.createSessionEventBindings = function createSessionE
       const open = event.target.closest("[data-open-session]");
       if (open) {
         const session = (state.snapshot?.sessions || []).find(item => item.id === open.dataset.openSession);
+        const resultReview = open.dataset.resultReview === "true";
         return session?.parentId
-          ? openSubagentConversation(session.id)
-          : openDrawer(open.dataset.openSession, open.dataset.resultReview === "true" ? { tab: "summary" } : {});
+          ? openSubagentConversation(session.id, resultReview ? { resultReview: true } : {})
+          : openDrawer(open.dataset.openSession, resultReview ? { tab: "summary", resultReview: true } : {});
       }
       const bridge = event.target.closest("[data-agent-bridge-copy]");
       if (bridge) return copyBridgeCommand(bridge.dataset.agentBridgeCopy);
@@ -324,7 +325,8 @@ window.WhiteboxAppFactories.createSessionEventBindings = function createSessionE
       const open = event.target.closest("[data-open-session]");
       if (open) {
         const session = (state.snapshot?.sessions || []).find(item => item.id === open.dataset.openSession);
-        return session?.parentId ? openSubagentConversation(session.id) : openDrawer(open.dataset.openSession);
+        const options = open.hasAttribute("data-result-review") ? { tab: "summary", resultReview: true } : {};
+        return session?.parentId ? openSubagentConversation(session.id, options) : openDrawer(open.dataset.openSession, options);
       }
       const quick = event.target.closest("[data-attention-quick]");
       if (quick) return quickRespond(quick.dataset.attentionSessionId, quick.dataset.attentionQuick, $("#attentionInbox"));
@@ -371,7 +373,10 @@ window.WhiteboxAppFactories.createSessionEventBindings = function createSessionE
         return;
       }
       const sessionTarget = event.target.closest("[data-loop-open], [data-automation-session]");
-      if (sessionTarget) openDrawer(sessionTarget.dataset.loopOpen || sessionTarget.dataset.automationSession);
+      if (sessionTarget) openDrawer(
+        sessionTarget.dataset.loopOpen || sessionTarget.dataset.automationSession,
+        sessionTarget.hasAttribute("data-result-review") ? { tab: "summary", resultReview: true } : {},
+      );
     });
     $("#automationOverview").addEventListener("keydown", (event) => {
       const loop = event.target.closest("[data-loop-select]");
@@ -421,14 +426,15 @@ window.WhiteboxAppFactories.createSessionEventBindings = function createSessionE
       if (sessionDragJustEnded) return;
       if (event.target.closest(".memory-record-lineage")) return;
       const card = event.target.closest("[data-session-id]");
-      if (card) openDrawer(card.dataset.sessionId, event.target.closest("[data-result-review]") ? { tab: "summary" } : {});
+      if (card) openDrawer(card.dataset.sessionId, card.hasAttribute("data-result-review") ? { tab: "summary", resultReview: true } : {});
     });
     $("#sessionGrid").addEventListener("keydown", (event) => {
       const card = event.target.closest("[data-session-id]");
       if (!card || event.target !== card) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        openDrawer(card.dataset.sessionId);
+        const options = card.hasAttribute("data-result-review") ? { tab: "summary", resultReview: true } : {};
+        openDrawer(card.dataset.sessionId, options);
       }
     });
   }
@@ -596,7 +602,7 @@ window.WhiteboxAppFactories.createSessionEventBindings = function createSessionE
         event.stopPropagation();
         openDrawer(open.dataset.openSession, {
           context: true,
-          ...(open.hasAttribute("data-result-review") ? { tab: "summary" } : {}),
+          ...(open.hasAttribute("data-result-review") ? { tab: "summary", resultReview: true } : {}),
         });
         return;
       }

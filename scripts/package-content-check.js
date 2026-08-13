@@ -56,12 +56,22 @@ const packageFiles = report.files.map(file => {
   return file.path.replaceAll('\\', '/');
 }).sort();
 const packageFileSet = new Set(packageFiles);
+const requiredRuntimeFiles = [
+  'build/icon.png',
+  'brand-profile-recovery-preload.js',
+  'renderer/brand-profile-recovery.html',
+  'renderer/assets/whitebox-mark.svg',
+  'src/interimProfileGuard.js',
+  'src/interimProfileGuardProcess.js',
+  'src/rendererStateRecovery.js',
+];
 const unexpectedDocs = packageFiles.filter(file => file.startsWith('docs/')
   && !/^docs\/[^/]+\.md$/.test(file)
   && !allowedDocsAssetSet.has(file));
 const draftFiles = unexpectedDocs.filter(file => file.startsWith('docs/assets/ux-drafts/'));
 const otherUnexpectedDocs = unexpectedDocs.filter(file => !draftFiles.includes(file));
 const missingAssets = allowedDocsAssets.filter(file => !packageFileSet.has(file));
+const missingRuntimeFiles = requiredRuntimeFiles.filter(file => !packageFileSet.has(file));
 const tarballsAfter = tarballState();
 const writtenTarballs = [...tarballsAfter]
   .filter(([name, state]) => tarballsBefore.get(name) !== state)
@@ -72,6 +82,7 @@ const problems = [];
 if (draftFiles.length) problems.push(`UX drafts included:\n  ${draftFiles.join('\n  ')}`);
 if (otherUnexpectedDocs.length) problems.push(`Unexpected docs content included:\n  ${otherUnexpectedDocs.join('\n  ')}`);
 if (missingAssets.length) problems.push(`Required docs assets missing:\n  ${missingAssets.join('\n  ')}`);
+if (missingRuntimeFiles.length) problems.push(`Required runtime files missing:\n  ${missingRuntimeFiles.join('\n  ')}`);
 if (writtenTarballs.length) problems.push(`Dry run wrote tarballs:\n  ${writtenTarballs.join('\n  ')}`);
 if (problems.length) throw new Error(`Package content check failed:\n${problems.join('\n')}`);
 

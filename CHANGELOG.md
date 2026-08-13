@@ -10,10 +10,18 @@ GitHub release notes remain the authoritative version history.
 - Rename the product to Whitebox across the desktop app, CLI, packages,
   documentation, build artifacts, and repository links.
 - Replace the desktop, installer, tray, in-app, and README artwork with the
-  Whitebox activity-window icon.
+  Whitebox activity-window icon, including a simplified mark that remains
+  legible beside the product name at compact UI sizes.
 - Preserve existing settings, local UI state, managed tmux work, bridge
   launchers, attention hooks, installer identity, and update paths while users
   cross the product-name transition.
+- Retry transient startup update checks without pinning a failure panel, while
+  keeping explicit manual-check errors actionable.
+- Remember completed results after they are opened so the same result stays
+  reviewed across app restarts, and surface it again only when the result
+  actually changes.
+- Verify the visible product name and icon in the renderer, packaged Windows
+  executable, portable build, and installer as part of desktop CI.
 - Prepare the npm package under the available `whitebox-ai` name while keeping
   `whitebox` as the primary command and a deprecated command alias for existing
   installations.

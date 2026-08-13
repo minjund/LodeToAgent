@@ -179,6 +179,7 @@ window.WhiteboxAppFactories.createSessionRenderer = function createSessionRender
     ].join("");
     return `<article class="session-card memory-record ${reviewPending ? "review-pending" : ""} ${taskCompleted ? "task-completed" : ""} ${statusClass(session.status)}"
       data-session-id="${esc(session.id)}"
+      ${reviewPending ? 'data-result-review="true"' : ""}
       data-motion-key="memory:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}"
@@ -195,7 +196,7 @@ window.WhiteboxAppFactories.createSessionRenderer = function createSessionRender
         ${sessionBadgesHtml(session, { compact: true, includeModel: false })}
       </span>
       ${reviewPending
-        ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}" data-result-review="true"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르면 이 항목이 확인 완료 목록으로 이동합니다.</span><span class="memory-review-help-mobile">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르세요.</span></small></span>`
+        ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}" data-result-review="true"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">결과를 열면 확인 상태가 저장되어 다음 실행 때 다시 나타나지 않습니다.</span><span class="memory-review-help-mobile">결과를 열면 확인 상태가 저장됩니다.</span></small></span>`
         : `<details class="memory-record-lineage">
           <summary><span class="memory-summary-closed">${esc(t("memory.expand_summary"))}</span><span class="memory-summary-open">${esc(t("memory.collapse_summary"))}</span><i aria-hidden="true">⌄</i></summary>
           <small>${esc(t("memory.lineage"))}</small>

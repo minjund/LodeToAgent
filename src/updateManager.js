@@ -244,6 +244,7 @@ class UpdateManager extends EventEmitter {
     this.downloadTimeoutMs = boundedPositiveInteger(options.downloadTimeoutMs, DEFAULT_DOWNLOAD_TIMEOUT_MS);
     this.AbortController = options.AbortController || globalThis.AbortController;
     this.checkPromise = null;
+    this.checkSurfaceErrorRequested = false;
     this.downloadPromise = null;
     this.activeDownloadPaths = new Set();
     this.state = {
@@ -333,15 +334,25 @@ class UpdateManager extends EventEmitter {
     return { removed, reclaimedBytes };
   }
 
-  async check() {
-    if (this.checkPromise) return this.checkPromise;
+  async check(options = {}) {
+    const surfaceError = options.surfaceError !== false;
+    if (this.checkPromise) {
+      if (surfaceError) this.checkSurfaceErrorRequested = true;
+      return this.checkPromise;
+    }
     if (this.blockedReason) return this.getState();
     if (this.state.status === 'unsupported') return this.getState();
-    this.checkPromise = this.performCheck().finally(() => { this.checkPromise = null; });
+    this.checkSurfaceErrorRequested = surfaceError;
+    this.checkPromise = this.performCheck()
+      .finally(() => {
+        this.checkPromise = null;
+        this.checkSurfaceErrorRequested = false;
+      });
     return this.checkPromise;
   }
 
   async performCheck() {
+    const previousState = this.getState();
     this.setState({ status: 'checking', error: '', checkedAt: new Date().toISOString() });
     if (!this.downloadPromise) await this.cleanupManagedDownloads([this.state.downloadedPath]);
     const controller = this.AbortController ? new this.AbortController() : null;
@@ -365,7 +376,12 @@ class UpdateManager extends EventEmitter {
         },
         ...(controller ? { signal: controller.signal } : {}),
       }));
-      if (!response || !response.ok) throw new Error('최신 버전을 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.');
+      if (!response || !response.ok) {
+        const status = Number(response?.status || 0);
+        const rateLimit = String(response?.headers?.get?.('x-ratelimit-remaining') || '').trim();
+        const detail = [status ? `HTTP ${status}` : '', rateLimit ? `rate-limit ${rateLimit}` : ''].filter(Boolean).join(', ');
+        throw new Error(`최신 버전을 확인하지 못했습니다. 인터넷 연결을 확인하고 다시 시도하세요.${detail ? ` (${detail})` : ''}`);
+      }
       const release = await readJsonResponse(response, awaitCheck, this.maxCheckBytes);
       const latest = normalizeVersion(release && release.tag_name);
       if (!latest || release.draft || release.prerelease) throw new Error('공개된 최신 정식 버전 정보가 올바르지 않습니다.');
@@ -396,6 +412,14 @@ class UpdateManager extends EventEmitter {
       });
     } catch (error) {
       if (controller) controller.abort();
+      reportRecoverableError('update-check', error);
+      if (!this.checkSurfaceErrorRequested) {
+        return this.setState({
+          ...previousState,
+          status: previousState.status === 'checking' ? 'idle' : previousState.status,
+          error: previousState.status === 'error' ? previousState.error : '',
+        });
+      }
       return this.setState({ status: 'error', error: error && error.message || '업데이트 확인 중 문제가 발생했습니다.', checkedAt: new Date().toISOString() });
     }
   }

@@ -538,6 +538,12 @@ const api = {
   rendererReady: () => controlled('rendererReady'),
   bootstrap: async () => {
     record('bootstrap');
+    let bootstrapUpdate = clone(update);
+    if (process.env.WHITEBOX_TEST_UPDATE_BOOTSTRAP_RACE === '1') {
+      bootstrapUpdate = { ...bootstrapUpdate, status: 'checking', error: '' };
+      update = clone(currentUpdate);
+      updateStateListeners.forEach(listener => listener(clone(update)));
+    }
     return {
       providers: clone(providers), availability: Object.fromEntries(providers.map(provider => [provider.id, true])),
       workspaces: realTerminalFixture ? [
@@ -557,7 +563,7 @@ const api = {
         localShellLabel: '실제 PTY 통합 검증 명령창',
         nativeTmux: process.platform !== 'win32',
       } : { id: 'win32', label: 'Windows', computerName: '작업용-PC', localShell: 'powershell', localShellLabel: '작업용-PC에서 실행하는 작업', nativeTmux: false },
-      versions: { app: currentUpdate.currentVersion, electron: '31.0.0', node: '20.0.0' }, update: clone(update),
+      versions: { app: currentUpdate.currentVersion, electron: '31.0.0', node: '20.0.0' }, update: bootstrapUpdate,
       attentionPopups: clone(attentionPopups),
     };
   },
