@@ -433,6 +433,7 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     const prompt = String(options.prompt || '').trim();
     const model = String(options.model || '').trim();
     const allowWrites = Boolean(options.allowWrites);
+    const requestedPermissionMode = String(options.permissionMode || '').trim();
     const args = [];
     if (!['claude', 'codex', 'gemini', 'grok'].includes(provider)) {
       throw rejectedError(t('terminal.resume.unsupported_provider', { provider: providerLabel(provider) }));
@@ -441,7 +442,12 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
 
     if (provider === 'claude') {
       if (model) args.push('--model', model);
-      if (allowWrites) args.push('--permission-mode', 'acceptEdits');
+      const permissionModes = new Set(['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']);
+      if (requestedPermissionMode && !permissionModes.has(requestedPermissionMode)) {
+        throw rejectedError(t('terminal.agent.invalid_permission_mode'));
+      }
+      if (requestedPermissionMode) args.push('--permission-mode', requestedPermissionMode);
+      else if (allowWrites) args.push('--permission-mode', 'acceptEdits');
     } else if (provider === 'codex') {
       if (model) args.push('--model', model);
       args.push('--sandbox', allowWrites ? 'workspace-write' : 'read-only');
@@ -645,14 +651,36 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     return { ok: true, target };
   }
 
-  async function openForAgent(agentSession, targetId = '', draft = '') {
+  async function openForAgent(agentSession, targetId = '', draft = '', options = {}) {
     if (agentSession?.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
+    const ensureCurrent = () => {
+      if (!options.isCurrent || options.isCurrent()) return;
+      const error = rejectedError(t('terminal.agent.target_expired'));
+      error.code = 'ATTENTION_ACTIVATION_CANCELLED';
+      throw error;
+    };
+    ensureCurrent();
     await init();
+    ensureCurrent();
     const target = requiredAgentTarget(agentSession, targetId);
     if (target.kind !== 'terminal') throw rejectedError(t('terminal.agent.target_expired'));
+    ensureCurrent();
+    if (typeof options.onTargetReady === 'function') {
+      await options.onTargetReady(target);
+      ensureCurrent();
+    }
     state.mode = 'general';
     moveWorkbench('general');
-    await selectSession(target.terminalId, 'question');
+    const selected = await selectSession(target.terminalId, 'question', {
+      focus: options.focus !== false,
+      isCurrent: options.isCurrent,
+      attentionActivation: options.attentionActivation === true,
+    });
+    if (selected === false) {
+      ensureCurrent();
+      throw rejectedError(t('terminal.agent.target_expired'));
+    }
+    ensureCurrent();
     bindAgent(agentSession, target);
     queueHistoryRefresh(agentSession);
     renderTarget();
@@ -662,7 +690,8 @@ window.LoadToAgentTerminalAgentActions = function createModule(context) {
     input.value = String(draft || '');
     state.commandDrafts.set(target.id, input.value);
     syncComposer?.();
-    input.focus({ preventScroll: true });
+    ensureCurrent();
+    if (options.focus !== false) input.focus({ preventScroll: true });
     notice(t('terminal.agent.session_kept', { target: target.label }), 'success');
     return target;
   }

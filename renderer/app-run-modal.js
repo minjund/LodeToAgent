@@ -25,6 +25,12 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   } = context;
   let runFocusToken = null;
   let pendingRunCreation = null;
+  const CLAUDE_PERMISSION_MODES = new Set(["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+
+  function normalizedClaudePermissionMode(value) {
+    const mode = String(value || "").trim();
+    return CLAUDE_PERMISSION_MODES.has(mode) ? mode : "";
+  }
 
   const restoreRunDraft = (...args) => context.restoreRunDraft?.(...args);
   const clearRunDraft = (...args) => context.clearRunDraft?.(...args);
@@ -34,12 +40,64 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       return context.runCreationFingerprint(options);
     }
     return JSON.stringify([
+      options.sourcePluginId || "direct",
       options.provider,
       options.cwd,
       options.model,
       options.prompt,
       Boolean(options.allowWrites),
+      normalizedClaudePermissionMode(options.permissionMode),
     ]);
+  }
+
+  function sourceStatus(sourceId) {
+    if (sourceId === "direct") return { id: "direct", name: "직접 실행", available: true, state: "ready", reason: "", source: { id: "direct", label: "LoadToAgent" } };
+    return (state.sourcePlugins || []).find(item => item.id === sourceId) || {
+      id: sourceId, name: sourceId === "builtin.omo" ? "OMO · OpenCode" : "Aside Browser",
+      available: false, reason: "연결 상태를 확인하지 못했습니다.", source: { id: sourceId, label: sourceId },
+    };
+  }
+
+  function sourcePickerHtml() {
+    const sources = [sourceStatus("direct"), sourceStatus("builtin.omo"), sourceStatus("builtin.aside")];
+    return sources.map(source => {
+      const selected = state.runSource === source.id;
+      const canConfigureAside = source.id === "builtin.aside" && state.platform.id === "darwin";
+      const available = source.id === "direct" || canConfigureAside || Boolean(source.available && source.capabilities?.start !== false);
+      const canStart = source.id === "direct" || Boolean(source.available && source.capabilities?.start !== false);
+      const mark = source.id === "direct" ? ">_" : source.id === "builtin.omo" ? "OMO" : "A";
+      const label = source.id === "direct" ? "직접 실행" : source.name || source.source?.label || source.id;
+      const detail = canStart
+        ? source.id === "direct" ? "선택한 AI CLI를 LoadToAgent 명령창에서 실행" : "연결된 출처에서 작업 시작"
+        : canConfigureAside ? `${source.reason || "현재 새 작업을 시작할 수 없습니다."} · 읽기 전용 기록 연결 가능` : source.reason || "현재 사용할 수 없습니다.";
+      return `<button type="button" class="run-provider-option run-source-option ${selected ? "selected" : ""}"
+        data-run-source="${esc(source.id)}" role="radio" aria-checked="${selected ? "true" : "false"}"
+        tabindex="${selected ? "0" : "-1"}" ${available ? "" : "disabled"} title="${esc(detail)}">
+        <span class="provider-mini-mark">${esc(mark)}</span><span class="run-provider-copy"><b>${esc(label)}</b><small>${esc(detail)}</small></span>
+        <span class="run-provider-check" aria-hidden="true">✓</span></button>`;
+    }).join("");
+  }
+
+  function ensureRunSourcePicker() {
+    let field = $("#runSourceField");
+    if (!field) {
+      field = document.createElement("div");
+      field.id = "runSourceField";
+      field.className = "run-source-field";
+      field.innerHTML = `<div id="runSourceLabel" class="field-label">어디에서 실행할까요?</div>
+        <div id="runSourcePicker" class="run-provider-picker run-source-picker" role="radiogroup" aria-labelledby="runSourceLabel"></div>
+        <div id="runSourceHelp" class="run-provider-help hidden" role="status"></div>`;
+      $("#runProviderLabel")?.before(field);
+    }
+    const picker = $("#runSourcePicker");
+    if (picker) picker.innerHTML = sourcePickerHtml();
+    return field;
+  }
+
+  function selectedSourceAvailable() {
+    if (state.runSource === "direct") return isProviderVisible(state.runProvider) && Boolean(state.availability[state.runProvider]);
+    const source = sourceStatus(state.runSource);
+    return Boolean(source.available && source.capabilities?.start !== false);
   }
 
   function nextRunCreationId() {
@@ -170,6 +228,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
   }
 
   function syncRunComposer() {
+    ensureRunSourcePicker();
     syncLockedProject();
     const prompt = $("#runPrompt");
     const count = $("#runPromptCount");
@@ -183,23 +242,48 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     }
     const submitLabel = $("#runSubmitLabel");
     const submit = $('#runForm button[type="submit"]');
-    const hasProvider = isProviderVisible(state.runProvider) && Boolean(state.availability[state.runProvider]);
+    const directSource = state.runSource === "direct";
+    const hasProvider = selectedSourceAvailable();
+    $("#runProviderLabel")?.classList.toggle("hidden", !directSource);
+    $("#runProviderPicker")?.classList.toggle("hidden", !directSource);
     const providerHelp = $("#runProviderHelp");
     if (providerHelp) {
       providerHelp.innerHTML = runProviderHelpHtml();
-      providerHelp.classList.toggle(
-        "hidden",
-        visibleProviders().some((provider) => state.availability[provider.id]),
-      );
+      providerHelp.classList.toggle("hidden", !directSource || visibleProviders().some((provider) => state.availability[provider.id]));
+    }
+    const sourceHelp = $("#runSourceHelp");
+    const source = sourceStatus(state.runSource);
+    if (sourceHelp) {
+      const folders = state.sourcePluginSettings?.asideHistoryFolders || [];
+      sourceHelp.innerHTML = state.runSource === "builtin.aside"
+        ? `<div class="run-provider-help-copy"><b>${esc(source.available ? "Aside 연결됨" : "Aside를 사용할 수 없음")}</b><p>${esc(source.reason || "공식 Aside MCP 연결을 사용합니다.")}</p></div>
+          <button type="button" class="provider-recheck" data-source-recheck>↻ 연결 다시 확인</button>
+          <button type="button" class="provider-recheck" data-aside-history-pick>＋ 작업 기록 폴더 연결</button>
+          ${folders.length ? `<div class="aside-history-folders"><small>${esc(`읽기 전용 폴더 ${folders.length}개 연결됨`)}</small>${folders.map(folder => `<button type="button" class="provider-recheck" data-aside-history-remove="${esc(folder)}" title="${esc(folder)}">－ ${esc(folder)}</button>`).join("")}</div>` : ""}`
+        : !source.available ? `<div class="run-provider-help-copy"><b>출처 연결 필요</b><p>${esc(source.reason || "현재 사용할 수 없습니다.")}</p></div><button type="button" class="provider-recheck" data-source-recheck>↻ 다시 확인</button>` : "";
+      sourceHelp.classList.toggle("hidden", state.runSource === "direct" || (source.available && state.runSource !== "builtin.aside"));
     }
     if (submit) submit.disabled = submit.dataset.submitting === "true" || !hasProvider;
     if (submitLabel && submit.dataset.submitting !== "true")
       submitLabel.textContent = hasProvider
-        ? t("provider.assign", { provider: providerInfo(state.runProvider).label })
+        ? state.runSource === "direct" ? t("provider.assign", { provider: providerInfo(state.runProvider).label }) : `${source.name || source.source?.label || "연결된 출처"}에서 시작`
         : visibleProviders().length ? t("run.ai_installation_required") : t("settings.providers.enable_to_run");
+    const claudeSelected = directSource && state.runProvider === "claude";
+    const modeField = $("#runClaudePermissionModeField");
+    const allowWritesField = $("#runAllowWritesField");
+    const modeInput = $("#runClaudePermissionMode");
+    const modeHelp = $("#runClaudePermissionModeHelp");
+    modeField?.classList.toggle("hidden", !claudeSelected);
+    allowWritesField?.classList.toggle("hidden", !directSource || claudeSelected);
+    if (modeInput && !normalizedClaudePermissionMode(modeInput.value)) modeInput.value = "";
+    if (modeHelp) {
+      const mode = normalizedClaudePermissionMode(modeInput?.value);
+      modeHelp.textContent = t(`run.mode.help.${mode || "inherit"}`);
+      modeHelp.dataset.tone = mode === "bypassPermissions" ? "danger" : mode === "auto" ? "warning" : "neutral";
+    }
     const writeIntent = /(고치|수정|추가|구현|변경|삭제|작성|리팩터|fix|implement|update|edit|refactor)/i.test((prompt && prompt.value) || "");
     const permissionHint = $("#runPermissionHint");
-    const permissionNeeded = writeIntent && !$("#allowWrites").checked;
+    const permissionNeeded = directSource && !claudeSelected && writeIntent && !$("#allowWrites").checked;
     permissionHint.classList.toggle("hidden", !permissionNeeded);
     if (permissionNeeded) $("#allowWrites").setAttribute("aria-describedby", "runPermissionHint");
     else $("#allowWrites").removeAttribute("aria-describedby");
@@ -211,14 +295,14 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     const submit = $('#runForm button[type="submit"]');
     if (!submit) return;
     submit.dataset.submitting = submitting ? "true" : "false";
-    submit.disabled = submitting || !isProviderVisible(state.runProvider) || !state.availability[state.runProvider];
+    submit.disabled = submitting || !selectedSourceAvailable();
     submit.setAttribute("aria-busy", submitting ? "true" : "false");
     $("#closeRunModalBtn").disabled = submitting;
     $("#cancelRunBtn").disabled = submitting;
     const label = $("#runSubmitLabel");
     if (label) label.textContent = submitting
       ? t("run.preparing")
-      : t("provider.assign", { provider: providerInfo(state.runProvider).label });
+      : state.runSource === "direct" ? t("provider.assign", { provider: providerInfo(state.runProvider).label }) : `${sourceStatus(state.runSource).name}에서 시작`;
   }
 
   function openRunModal() {
@@ -240,6 +324,7 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     }
     if (!runFocusToken) runFocusToken = rememberDialogTrigger("runModal");
     restoreRunDraft();
+    ensureRunSourcePicker();
     const installed = visibleProviders().find((provider) => state.availability[provider.id]);
     if ((!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) && installed) state.runProvider = installed.id;
     if (!isProviderVisible(state.runProvider)) state.runProvider = visibleProviders()[0]?.id || "";
@@ -342,8 +427,10 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       announce(invalid[0].message);
       return;
     }
-    if (!isProviderVisible(state.runProvider) || !state.availability[state.runProvider]) {
-      $("#runError").textContent = window.LoadToAgentI18n.t("ui.no_ai_cli_is_ready_follow_the_official_setup_guide");
+    if (!selectedSourceAvailable()) {
+      $("#runError").textContent = state.runSource === "direct"
+        ? window.LoadToAgentI18n.t("ui.no_ai_cli_is_ready_follow_the_official_setup_guide")
+        : sourceStatus(state.runSource).reason || "선택한 출처를 사용할 수 없습니다.";
       $("#runError").classList.remove("hidden");
       $("#runError").focus({ preventScroll: true });
       return;
@@ -352,15 +439,21 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
     $("#runError").classList.add("hidden");
     try {
       syncLockedProject();
-      if (typeof window.LoadToAgentTerminal?.startAgent !== "function") {
+      if (state.runSource === "direct" && typeof window.LoadToAgentTerminal?.startAgent !== "function") {
         throw new Error(window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
       }
       const runOptions = {
+        sourcePluginId: state.runSource === "direct" ? "" : state.runSource,
         provider: state.runProvider,
         cwd: $("#runCwd").value.trim(),
         model: $("#runModel").value.trim(),
         prompt: $("#runPrompt").value.trim(),
-        allowWrites: $("#allowWrites").checked,
+        permissionMode: state.runSource === "direct" && state.runProvider === "claude"
+          ? normalizedClaudePermissionMode($("#runClaudePermissionMode")?.value)
+          : "",
+        allowWrites: state.runSource === "direct" && state.runProvider === "claude"
+          ? ["acceptEdits", "auto", "bypassPermissions"].includes(normalizedClaudePermissionMode($("#runClaudePermissionMode")?.value))
+          : $("#allowWrites").checked,
       };
       const creationKey = runCreationKey(runOptions);
       if (typeof context.setPendingRunCreation === "function") {
@@ -369,10 +462,12 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       if (!pendingRunCreation || pendingRunCreation.key !== creationKey) {
         rememberPendingRunCreation({ key: creationKey, id: nextRunCreationId() });
       }
-      const result = await window.LoadToAgentTerminal.startAgent({
-        ...runOptions,
-        creationId: pendingRunCreation.id,
-      });
+      const result = state.runSource === "direct"
+        ? await window.LoadToAgentTerminal.startAgent({ ...runOptions, creationId: pendingRunCreation.id })
+        : await window.loadtoagent.startSourceTask(state.runSource, {
+          ...runOptions,
+          requestId: pendingRunCreation.id,
+        });
       if (!result.ok) {
         const error = new Error(result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"));
         error.creationState = result.creationState || "rejected";
@@ -389,11 +484,12 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
       // startAgent preselects the newly-created PTY. Open that workbench now so
       // provider output, approval prompts, and failures are visible instead of
       // leaving the user on a stale dashboard card.
-      selectView("terminal");
+      selectView(state.runSource === "direct" ? "terminal" : "active");
       toast(result.creationFailed
         ? (result.error || window.LoadToAgentI18n.t("ui.could_not_start_the_task"))
         : result.creationUnavailable
           ? window.LoadToAgentI18n.t("terminal.stopped_record_kept")
+        : state.runSource !== "direct" ? `${sourceStatus(state.runSource).name} 작업을 시작했습니다.`
         : window.LoadToAgentI18n.t(result.deliveryState === "unknown"
           ? "agent.delivery_uncertain"
           : "provider.started", { provider: providerInfo(state.runProvider).label }));
@@ -427,6 +523,8 @@ window.LoadToAgentAppFactories.createRunModal = function createRunModal(context 
 
   return {
     providerPickerHtml,
+    sourcePickerHtml,
+    ensureRunSourcePicker,
     runProviderHelpHtml,
     runWorkspaceSuggestionsHtml,
     syncRunComposer,

@@ -1174,7 +1174,7 @@ app.whenReady().then(async () => {
         const projectSelectionResult = await win.webContents.executeJavaScript(`(() => ({
           menuClosed: document.querySelector('#mobileToolsMenu')?.classList.contains('hidden'),
           expanded: document.querySelector('#mobileMoreBtn')?.getAttribute('aria-expanded'),
-          focusedMain: !document.hasFocus() || document.activeElement?.id === 'mainContent' || Boolean(document.activeElement?.closest?.('[data-session-id], [data-graph-focus], [data-open-session]')),
+          focusedMain: !document.hasFocus() || document.activeElement?.id === 'mainContent' || Boolean(document.activeElement?.closest?.('[data-session-id], [data-graph-focus], [data-open-session], [data-inline-pty-trigger]')),
           activeElement: { id: document.activeElement?.id || '', tag: document.activeElement?.tagName || '', hasFocus: document.hasFocus() },
           focusContext: { appInert: document.querySelector('#appShell')?.inert, mainInert: document.querySelector('#mainContent')?.inert, mainTabIndex: document.querySelector('#mainContent')?.tabIndex, mainRects: document.querySelector('#mainContent')?.getClientRects().length },
           workspace: window.LoadToAgentApp.state.workspace,

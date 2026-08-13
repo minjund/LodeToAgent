@@ -300,7 +300,7 @@ const ACTION_MANIFEST = [
     required: false,
     optionalReason: 'PTY conversations use the native xterm input surface, where Ctrl+C replaces the retired separate composer interrupt button.',
   },
-  { selector: '#drawerTerminalFocusBtn', action: 'drawer:terminal-focus' },
+  { selector: '#drawerTerminalViewport .xterm-helper-textarea', action: 'drawer:terminal-focus' },
   { selector: '#drawerTerminalReconnectBtn', action: 'drawer:terminal-reconnect' },
   { selector: '#runForm', action: 'run:submit' },
   { selector: '#runPrompt', action: 'run:prompt-input' },
@@ -319,6 +319,7 @@ const ACTION_MANIFEST = [
     optionalReason: 'The project-first composer locks execution to the selected project, so its legacy working-directory picker stays hidden and disabled.',
   },
   { selector: '#allowWrites', action: 'run:allow-writes' },
+  { selector: '#runClaudePermissionMode', action: 'run:claude-permission-mode' },
   { selector: '#cancelRunBtn', action: 'run:cancel' },
   { selector: '#clearRunDraftBtn', action: 'run:clear-draft' },
   { selector: '#runForm button[type="submit"]', action: 'run:submit' },
@@ -359,7 +360,7 @@ const ACTION_MANIFEST = [
   { selector: '[data-graph-focus]', action: 'graph:focus' },
   { selector: '[data-inline-pty-trigger]', action: 'agent:inline-pty-toggle' },
   { selector: '[data-workflow-detail-tab]', action: 'agent:progress-detail-tab' },
-  { selector: '[data-inline-terminal-focus]', action: 'agent:inline-pty-focus', required: false, optionalReason: 'The inline PTY toggle path verifies the mounted terminal; direct focus is a secondary keyboard affordance.' },
+  { selector: '[data-workflow-detail-scroll]', action: 'agent:progress-detail-scroll', required: false, optionalReason: 'This shortcut only scrolls to the already visible work-progress details.' },
   { selector: '[data-inline-terminal-reconnect]', action: 'agent:inline-pty-reconnect', required: false, optionalReason: 'Reconnect is only exercised when a fixture reports a disconnected PTY.' },
   { selector: '[data-inline-terminal-close]', action: 'agent:inline-pty-close', required: false, optionalReason: 'The primary close contract is clicking the same AI again.' },
   { selector: '[data-open-session]', action: 'drawer:open-graph' },
@@ -1762,6 +1763,7 @@ async function exerciseProviderVisibility(win, round) {
     tmux: (window.LoadToAgentApp.state.snapshot.tmux?.distros || []).some(d => d.sessions.some(s => s.windows.some(w => w.panes.some(p => p.agent?.provider === 'claude')))),
   }))()`);
   assert(!hidden.rail && !hidden.overview && !hidden.filter && !hidden.session && !hidden.tmux, `숨긴 Claude가 화면에 남았습니다: ${JSON.stringify(hidden)}`);
+  await click(win, '[data-view="all"]', 'nav:all');
   await click(win, '#newRunBtn', 'run:open');
   assert(await win.webContents.executeJavaScript(`!document.querySelector('[data-run-provider="claude"]')`), '숨긴 Claude가 새 작업 선택지에 남았습니다.');
   await click(win, '#closeRunModalBtn', 'run:close-x');
@@ -1912,7 +1914,8 @@ async function exerciseDashboardControls(win, round) {
     attentionProjects: document.querySelectorAll('#projectSidebarList .project-sidebar-group.has-attention').length,
     allProjectsOption: Boolean(document.querySelector('#projectSidebarList [data-workspace="all"]')),
     historyVisible: Boolean(document.querySelector('#projectHistoryRail')?.getBoundingClientRect().height),
-    historyTitles: [...document.querySelectorAll('#projectHistoryList [data-open-session] span')].map(node => node.textContent.trim()),
+    historyTitles: [...document.querySelectorAll('#projectHistoryList :is([data-open-session], [data-inline-pty-trigger]) span')]
+      .map(node => node.textContent.trim()),
     title: document.querySelector('#projectHistoryTitle')?.textContent || '',
   }))()`);
   assert(projectStudio.projects >= 2 && !projectStudio.allProjectsOption && projectStudio.historyVisible && projectStudio.attentionProjects >= 1
@@ -1955,7 +1958,8 @@ async function exerciseDashboardControls(win, round) {
     const currentWork = document.querySelector('#liveSessionGrid');
     const railBox = rail.getBoundingClientRect();
     const currentBox = currentWork.getBoundingClientRect();
-    const sessionIds = [...rail.querySelectorAll('[data-open-session]')].map(node => node.dataset.openSession);
+    const sessionIds = [...rail.querySelectorAll('[data-open-session], [data-inline-pty-trigger]')]
+      .map(node => node.dataset.inlinePtyTrigger || node.dataset.openSession);
     return {
       position: getComputedStyle(rail).position,
       belowCurrentWork: railBox.top >= currentBox.bottom - 2,
@@ -2754,22 +2758,23 @@ async function exerciseRunModal(win, round) {
     document.querySelector('#runPrompt').value = '복원할 새 작업 초안';
     document.querySelector('#runCwd').value = 'C:/draft-fixture';
     document.querySelector('#runModel').value = 'draft-model';
-    document.querySelector('#allowWrites').checked = true;
     for (const element of document.querySelectorAll('#runPrompt, #runCwd, #runModel')) element.dispatchEvent(new Event('input', { bubbles: true }));
-    document.querySelector('#allowWrites').dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#runClaudePermissionMode').value = 'plan';
+    document.querySelector('#runClaudePermissionMode').dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
   await recordExercise(win, '#runPrompt');
   await recordExercise(win, '#runModel');
+  await recordExercise(win, '#runClaudePermissionMode');
   await waitFor(win, `document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly`, '초안 입력이 잠긴 프로젝트 경로를 바꾸었습니다.');
   await click(win, '#closeRunModalBtn', 'run:close-x');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden') && !document.querySelector('#appShell').inert && document.querySelector('#runModal').inert`, '초안 복원 검증을 위해 모달을 닫고 배경 상호작용을 복원하지 못했습니다.');
   mark('run:background-restore');
   await click(win, '#newRunBtn', 'run:open');
-  await waitFor(win, `document.querySelector('#runPrompt').value === '복원할 새 작업 초안' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === 'draft-model' && document.querySelector('#allowWrites').checked`, '새 작업 초안을 복원하면서 선택한 프로젝트 잠금을 유지하지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').value === '복원할 새 작업 초안' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === 'draft-model' && document.querySelector('#runClaudePermissionMode').value === 'plan'`, '새 작업 초안을 복원하면서 선택한 프로젝트 잠금과 Claude 모드를 유지하지 못했습니다.');
   assert(await win.webContents.executeJavaScript(`JSON.parse(sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)).version === 2`), '새 작업 초안에 버전이 저장되지 않았습니다.');
   mark('quality:run-draft-restore');
   await click(win, '#clearRunDraftBtn', 'run:clear-draft');
-  await waitFor(win, `document.querySelector('#runPrompt').value === '' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === '' && !document.querySelector('#allowWrites').checked && document.activeElement?.id === 'runPrompt' && !sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)`, '초안 지우기가 초안 필드·저장값·초점을 초기화하고 선택한 프로젝트를 유지하지 못했습니다.');
+  await waitFor(win, `document.querySelector('#runPrompt').value === '' && document.querySelector('#runCwd').value === 'D:\\\\fixture' && document.querySelector('#runCwd').readOnly && document.querySelector('#runModel').value === '' && !document.querySelector('#allowWrites').checked && document.querySelector('#runClaudePermissionMode').value === '' && document.activeElement?.id === 'runPrompt' && !sessionStorage.getItem(window.LoadToAgentApp.RUN_DRAFT_STORAGE_KEY)`, '초안 지우기가 초안 필드·Claude 모드·저장값·초점을 초기화하고 선택한 프로젝트를 유지하지 못했습니다.');
   const unavailable = await win.webContents.executeJavaScript(`(() => ({
     docs: document.querySelectorAll('[data-provider-docs]').length,
     disabledProviders: document.querySelectorAll('[data-run-provider]:disabled').length,
@@ -2869,17 +2874,29 @@ async function exerciseRunModal(win, round) {
     && payload.args.includes('gpt-fixture') && payload.args.includes('실제 DOM submit 검증')
     && payload.args.includes('workspace-write'), `PTY 시작 payload가 다릅니다: ${JSON.stringify(payload)}`);
 
+  await click(win, '[data-view="all"]', 'nav:all');
   await click(win, '#newRunBtn', 'run:open');
   await click(win, '[data-run-provider="claude"]', 'run:provider');
   await waitFor(win, `document.querySelector('[data-run-provider="claude"]').getAttribute('aria-checked') === 'true'
-    && document.querySelector('#runSubmitLabel').textContent.includes('Claude')`,
+    && document.querySelector('#runSubmitLabel').textContent.includes('Claude')
+    && !document.querySelector('#runClaudePermissionModeField').classList.contains('hidden')
+    && document.querySelector('#runAllowWritesField').classList.contains('hidden')`,
   'Claude 새 작업 선택이 실행 버튼에 반영되지 않았습니다.');
   await win.webContents.executeJavaScript(`(() => {
     document.querySelector('#runModel').value = 'sonnet';
     document.querySelector('#runPrompt').value = 'Claude 실제 DOM submit 검증';
-    document.querySelector('#allowWrites').checked = false;
-    document.querySelector('#allowWrites').dispatchEvent(new Event('change', { bubbles: true }));
+    document.querySelector('#runClaudePermissionMode').value = 'bypassPermissions';
+    document.querySelector('#runClaudePermissionMode').dispatchEvent(new Event('change', { bubbles: true }));
   })()`);
+  await waitFor(win, `document.querySelector('#runClaudePermissionModeHelp').dataset.tone === 'danger'
+    && document.querySelector('#runClaudePermissionModeHelp').textContent.trim().length > 0`,
+  'Claude Bypass 시작 모드의 위험 안내가 표시되지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('#runClaudePermissionMode').value = 'plan';
+    document.querySelector('#runClaudePermissionMode').dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(win, `document.querySelector('#runClaudePermissionModeHelp').textContent.trim().length > 0`,
+    '선택한 Claude 시작 모드 설명이 표시되지 않았습니다.');
   await clearCalls(win);
   await click(win, '#runForm button[type="submit"]', 'run:submit');
   await waitFor(win, `window.interactionTest.getCalls().some(item => item.name === 'terminalCreate')
@@ -2894,11 +2911,13 @@ async function exerciseRunModal(win, round) {
       && claudePayload.initialCommandInArgs === true
       && claudePayload.args.includes('sonnet')
       && claudePayload.args.includes('Claude 실제 DOM submit 검증')
+      && claudePayload.args[claudePayload.args.indexOf('--permission-mode') + 1] === 'plan'
       && !claudePayload.args.includes('acceptEdits'),
     `Claude PTY 시작 payload가 다릅니다: ${JSON.stringify(claudePayload)}`,
   );
   mark('quality:claude-run-submit');
 
+  await click(win, '[data-view="all"]', 'nav:all');
   await click(win, '#newRunBtn', 'run:open');
   await click(win, '#closeRunModalBtn', 'run:close-x');
   await waitFor(win, `document.querySelector('#runModal').classList.contains('hidden')`, 'X 버튼으로 모달이 닫히지 않았습니다.');
@@ -3720,14 +3739,14 @@ async function exerciseAgentControls(win, round) {
   mark('agent:command-submit');
   assert(await callCount(win, 'terminalCommand') === 0, 'PTY 직접 입력이 별도 메시지 command 경로를 호출했습니다.');
   await win.webContents.executeJavaScript(`document.querySelector('#drawerTerminalViewport > .terminal-screen').dataset.interactionTerminalIdentity = 'fixture-root-main'`);
-  await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
+  await click(win, '#drawerTerminalViewport .xterm-helper-textarea', 'drawer:terminal-focus');
   await waitFor(win, `document.activeElement === document.querySelector('#drawerTerminalViewport .xterm-helper-textarea')`,
-  'PTY 초점 버튼이 실제 xterm 입력 커서로 이동하지 않았습니다.');
+  'PTY 화면을 클릭해도 실제 xterm 입력 커서로 이동하지 않았습니다.');
   await writeToEmbeddedXterm(win, '#drawerTerminalViewport', 'TERMINAL_DRAWER_CONTINUE');
   mark('agent:command-submit');
   assert(await callCount(win, 'terminalCommand') === 0, 'PTY 직접 입력이 구조화 메시지 경로를 호출했습니다.');
   await clearCalls(win);
-  await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
+  await click(win, '#drawerTerminalViewport .xterm-helper-textarea', 'drawer:terminal-focus');
   win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'C', modifiers: ['control'] });
   win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'C', modifiers: ['control'] });
   await waitFor(win, `window.interactionTest.getCalls().filter(item => item.name === 'terminalWrite'
@@ -3741,10 +3760,13 @@ async function exerciseAgentControls(win, round) {
   await click(win, '#drawerTerminalReconnectBtn', 'drawer:terminal-reconnect');
   await waitFor(win, `window.LoadToAgentTerminal.embeddedState().connected
     && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'
-    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen[data-interaction-terminal-identity="fixture-root-main"]'))
+    && Boolean(document.querySelector('#drawerTerminalViewport > .terminal-screen .xterm-helper-textarea'))
+    && !document.querySelector('#drawerTerminalViewport > .terminal-screen[data-interaction-terminal-identity="fixture-root-main"]')
+    && window.interactionTest.getCalls().filter(item => item.name === 'terminalRestart'
+      && item.args[0] === 'terminal-main').length === 1
     && window.interactionTest.getCalls().some(item => item.name === 'terminalList')
-    && !window.interactionTest.getCalls().some(item => ['terminalClose', 'terminalStop', 'terminalDetach'].includes(item.name))`,
-  'PTY 다시 연결이 같은 xterm 호스트와 실행 중 프로세스를 유지하지 못했습니다.');
+    && !window.interactionTest.getCalls().some(item => ['terminalCreate', 'terminalReconnect'].includes(item.name))`,
+  'PTY 다시 연결이 기존 terminal ID의 provider 프로세스를 새로 시작하고 xterm을 재수화하지 못했습니다.');
   await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer()`);
   await waitFor(win, `document.querySelector('#drawerBackdrop').classList.contains('hidden')
     && !window.LoadToAgentTerminal.embeddedState().connected
@@ -3848,7 +3870,7 @@ async function exerciseAgentControls(win, round) {
     && document.querySelector('#drawerComposer')?.classList.contains('hidden')
     && !document.querySelector('#drawerComposer')?.children.length`,
   '외부 CLI 세션의 실제 PTY가 같은 대화창에 연결되지 않았습니다.');
-  await click(win, '#drawerTerminalFocusBtn', 'drawer:terminal-focus');
+  await click(win, '#drawerTerminalViewport .xterm-helper-textarea', 'drawer:terminal-focus');
   await win.webContents.executeJavaScript(`(() => {
     window.interactionTest.setSessionRuntimePresence('fixture-root', []);
     window.interactionTest.removeTerminal('terminal-main');
@@ -3968,11 +3990,91 @@ async function exerciseAgentControls(win, round) {
   round.observed.subagentConversationReadOnly = true;
 }
 
+async function readControlRoomCompletedLayout(win, sessionId) {
+  return win.webContents.executeJavaScript(`(() => {
+    const flow = document.querySelector('[data-control-session=${JSON.stringify(sessionId)}] .control-room-flow');
+    const column = flow?.querySelector('.completed-column');
+    if (!flow || !column) return null;
+    const stage = document.querySelector('.main-stage');
+    const flowRect = flow.getBoundingClientRect();
+    const number = value => Math.round(Number(value || 0) * 100) / 100;
+    const viewportBox = element => {
+      const rect = element.getBoundingClientRect();
+      return {
+        left: number(rect.left),
+        top: number(rect.top),
+        width: number(rect.width),
+        height: number(rect.height),
+      };
+    };
+    const layoutBox = element => {
+      const viewport = viewportBox(element);
+      return {
+        flow: {
+          left: number(viewport.left - flowRect.left),
+          top: number(viewport.top - flowRect.top),
+          width: viewport.width,
+          height: viewport.height,
+        },
+        viewport,
+      };
+    };
+    return {
+      scroll: {
+        stageLeft: number(stage?.scrollLeft),
+        stageTop: number(stage?.scrollTop),
+        windowLeft: number(window.scrollX),
+        windowTop: number(window.scrollY),
+      },
+      column: layoutBox(column),
+      nodes: [...column.querySelectorAll('.control-room-node')].map((node, index) => ({
+        key: node.dataset.motionKey
+          || node.dataset.openSubagentChat
+          || node.dataset.openExecutionId
+          || node.dataset.graphFocus
+          || node.getAttribute('aria-label')
+          || String(index),
+        ...layoutBox(node),
+      })),
+    };
+  })()`);
+}
+
+async function settleFiniteAnimations(win) {
+  await win.webContents.executeJavaScript(`(async () => {
+    const nextPaint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await nextPaint();
+    const finite = document.getAnimations().filter(animation => {
+      const iterations = animation.effect?.getTiming?.().iterations;
+      return iterations !== Infinity && animation.playState !== 'finished';
+    });
+    await Promise.allSettled(finite.map(animation => animation.finished));
+    await nextPaint();
+  })()`);
+}
+
+function controlRoomCompletedLayoutMatches(before, after, tolerance = 1.5) {
+  if (!before?.column || !after?.column || before.nodes.length !== after.nodes.length) return false;
+  const close = (left, right) => Math.abs(Number(left || 0) - Number(right || 0)) <= tolerance;
+  const sameBox = (left, right) => ['left', 'top', 'width', 'height'].every(key => close(left[key], right[key]));
+  const sameLayoutBox = (left, right) => sameBox(left?.flow || {}, right?.flow || {})
+    && sameBox(left?.viewport || {}, right?.viewport || {});
+  const sameScroll = Object.keys(before.scroll || {}).every(key => close(before.scroll[key], after.scroll?.[key]));
+  return sameScroll
+    && sameLayoutBox(before.column, after.column)
+    && before.nodes.every((node, index) => (
+      node.key === after.nodes[index]?.key && sameLayoutBox(node, after.nodes[index])
+    ));
+}
+
 async function exerciseInlineTerminal(win, round) {
   win.setSize(1920, 1080);
   await prepareProjectFirstStep(win);
   await click(win, '[data-view="all"]', 'nav:all');
   await waitFor(win, `Boolean(document.querySelector('.control-room-main[data-inline-pty-trigger="fixture-root"]'))`, '처리 중 화면에서 메인 AI를 찾지 못했습니다.');
+  await settleFiniteAnimations(win);
+  const completedLayoutBefore = await readControlRoomCompletedLayout(win, 'fixture-root');
+  assert(completedLayoutBefore?.nodes.length > 0, 'PTY 열기 전 위치를 비교할 완료 노드를 찾지 못했습니다.');
   const openTriggered = await win.webContents.executeJavaScript(`(() => {
     const trigger = document.querySelector('.control-room-main[data-inline-pty-trigger="fixture-root"]');
     if (!trigger) return false;
@@ -4000,25 +4102,64 @@ async function exerciseInlineTerminal(win, round) {
     }))()`);
     throw new Error(`${error.message}: ${JSON.stringify(stateDiagnostic)}`);
   }
+  await settleFiniteAnimations(win);
+  const completedLayoutOpen = await readControlRoomCompletedLayout(win, 'fixture-root');
+  const completedLayoutStableOpen = controlRoomCompletedLayoutMatches(completedLayoutBefore, completedLayoutOpen);
   const diagnostic = await win.webContents.executeJavaScript(`(() => {
     const session = window.LoadToAgentApp.state.snapshot.sessions.find(item => item.id === 'fixture-root');
     const inline = document.querySelector('[data-inline-agent-terminal="fixture-root"]');
     const completed = inline?.closest('.control-room-flow')?.querySelector('.completed-column');
-    const inlineRow = inline ? getComputedStyle(inline).gridRowStart : '';
-    const completedRow = completed ? getComputedStyle(completed).gridRowStart : '';
+    const inlineRect = inline?.getBoundingClientRect();
+    const completedRect = completed?.getBoundingClientRect();
     return {
       targets: window.LoadToAgentTerminal.agentTargets(session),
       drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
       inlineOpen: Boolean(inline),
-      inlineBeforeCompleted: Boolean(inline && completed
-        && (inline.compareDocumentPosition(completed) & Node.DOCUMENT_POSITION_FOLLOWING)
-        && inlineRow === '2' && completedRow === '3'),
-      inlineRow,
-      completedRow,
+      inlineAfterCompleted: Boolean(inline && completed
+        && (completed.compareDocumentPosition(inline) & Node.DOCUMENT_POSITION_FOLLOWING)
+        && inlineRect.top >= completedRect.bottom),
+      inlineTop: inlineRect?.top || 0,
+      completedBottom: completedRect?.bottom || 0,
       embeddedTerminalId: window.LoadToAgentTerminal.embeddedState().terminalId || '',
     };
   })()`);
-  assert(diagnostic.targets.length > 0 && diagnostic.inlineOpen && diagnostic.inlineBeforeCompleted && !diagnostic.drawerOpen && diagnostic.embeddedTerminalId === 'terminal-main', `fixture AI PTY가 클릭한 AI와 지난 기록 사이에 열리지 않았습니다: ${JSON.stringify(diagnostic)}`);
+  diagnostic.completedLayoutStableOpen = completedLayoutStableOpen;
+  assert(diagnostic.targets.length > 0
+    && diagnostic.inlineOpen
+    && diagnostic.inlineAfterCompleted
+    && diagnostic.completedLayoutStableOpen
+    && !diagnostic.drawerOpen
+    && diagnostic.embeddedTerminalId === 'terminal-main',
+  `인라인 PTY를 열면서 완료 노드 위치가 움직였습니다: ${JSON.stringify({ diagnostic, before: completedLayoutBefore, open: completedLayoutOpen })}`);
+  const layoutCloseTriggered = await win.webContents.executeJavaScript(`(() => {
+    const trigger = document.querySelector('.control-room-main[data-inline-pty-trigger="fixture-root"]');
+    if (!trigger) return false;
+    trigger.click();
+    return true;
+  })()`);
+  assert(layoutCloseTriggered, '완료 노드 위치 검증 중 인라인 PTY를 닫지 못했습니다.');
+  await waitFor(win, `!document.querySelector('[data-inline-agent-terminal]') && !window.LoadToAgentTerminal.embeddedState().connected`,
+    '완료 노드 위치 검증 중 인라인 PTY 연결을 해제하지 못했습니다.');
+  await settleFiniteAnimations(win);
+  const completedLayoutClosed = await readControlRoomCompletedLayout(win, 'fixture-root');
+  diagnostic.completedLayoutStableClosed = controlRoomCompletedLayoutMatches(completedLayoutBefore, completedLayoutClosed);
+  assert(diagnostic.completedLayoutStableClosed,
+    `인라인 PTY를 닫으면서 완료 노드 화면 위치가 움직였습니다: ${JSON.stringify({ before: completedLayoutBefore, closed: completedLayoutClosed })}`);
+  const layoutReopenTriggered = await win.webContents.executeJavaScript(`(() => {
+    const trigger = document.querySelector('.control-room-main[data-inline-pty-trigger="fixture-root"]');
+    if (!trigger) return false;
+    trigger.click();
+    return true;
+  })()`);
+  assert(layoutReopenTriggered, '완료 노드 위치 검증 뒤 인라인 PTY를 다시 열지 못했습니다.');
+  await waitFor(win, `Boolean(document.querySelector('.control-room-session.has-inline-terminal [data-inline-agent-terminal="fixture-root"]'))
+    && window.LoadToAgentTerminal.embeddedState().connected
+    && window.LoadToAgentTerminal.embeddedState().terminalId === 'terminal-main'`,
+  '완료 노드 위치 검증 뒤 기존 PTY에 다시 연결하지 못했습니다.', 160);
+  await settleFiniteAnimations(win);
+  const completedLayoutReopened = await readControlRoomCompletedLayout(win, 'fixture-root');
+  assert(controlRoomCompletedLayoutMatches(completedLayoutBefore, completedLayoutReopened),
+    `인라인 PTY를 다시 열면서 완료 노드 화면 위치가 움직였습니다: ${JSON.stringify({ before: completedLayoutBefore, reopened: completedLayoutReopened })}`);
   assert(await win.webContents.executeJavaScript(`!document.querySelector('[data-inline-terminal-composer]')`),
     '인라인 PTY에 별도 메시지 입력란이 남아 있습니다.');
   await writeToEmbeddedXterm(win, '#agentInlineTerminalViewport', '인라인 PTY에서 계속 진행해줘');
@@ -4117,6 +4258,9 @@ async function exerciseInlineTerminal(win, round) {
     && inlineRefreshStability.terminalCreateCalls === 0
     && inlineRefreshStability.terminalGetCalls === 0,
   `연속 snapshot 갱신이 인라인 PTY DOM·입력 포커스·연결을 교체했습니다: ${JSON.stringify(inlineRefreshStability)}`);
+  const completedLayoutAfterRefresh = await readControlRoomCompletedLayout(win, 'fixture-root');
+  assert(controlRoomCompletedLayoutMatches(completedLayoutBefore, completedLayoutAfterRefresh),
+    `인라인 PTY snapshot 갱신 뒤 완료 노드 위치가 움직였습니다: ${JSON.stringify({ before: completedLayoutBefore, afterRefresh: completedLayoutAfterRefresh })}`);
   mark('quality:inline-terminal-snapshot-focus-guard');
   await win.webContents.executeJavaScript(`document.querySelector('[data-inline-agent-terminal="fixture-root"]')?.scrollIntoView({ block: 'center', inline: 'nearest' })`);
   await sleep(180);
@@ -4227,7 +4371,237 @@ async function exerciseInlineTerminal(win, round) {
   await waitFor(win, `Boolean(document.querySelector('#workflowDetail [data-workflow-detail-panel="tokens"]:not([hidden])'))
     && document.querySelectorAll('#workflowDetail [data-workflow-detail-panel="tokens"] article').length >= 5
     && [...document.querySelectorAll('#workflowDetail [data-workflow-detail-panel="tokens"] article b')].every(node => node.textContent.trim())`, '작업 진행 화면의 사용량 탭에 입력·출력 토큰이 없습니다.');
-  round.observed.inlineTerminal = { ...diagnostic, refreshStability: inlineRefreshStability };
+
+  const historySessionId = `fixture-old-history-${round.index}`;
+  const transcriptHistorySessionId = `fixture-old-transcript-${round.index}`;
+  const historyExternalId = `${historySessionId}-external`;
+  const historyWorkspace = `D:\\fixture-history-${round.index}`;
+  const historyTimestamp = new Date(Date.now() - (72 + round.index) * 60 * 60 * 1000).toISOString();
+  const historyPrepared = await win.webContents.executeJavaScript(`(() => {
+    const source = window.interactionTest.getSnapshot().sessions.find(session => session.id === 'fixture-ended');
+    if (!source) return { ok: false, reason: 'fixture-ended missing' };
+    const id = ${JSON.stringify(historySessionId)};
+    const timestamp = ${JSON.stringify(historyTimestamp)};
+    const session = {
+      ...source,
+      id,
+      externalId: ${JSON.stringify(historyExternalId)},
+      provider: 'codex',
+      model: 'gpt-fixture',
+      title: '오래전에 완료한 화면 개선 기록',
+      cwd: ${JSON.stringify(historyWorkspace)},
+      originCwd: ${JSON.stringify(historyWorkspace)},
+      workspace: '오래된 기록 검증',
+      status: 'completed',
+      statusDetail: '작업 완료',
+      startedAt: timestamp,
+      updatedAt: timestamp,
+      completedAt: timestamp,
+      parentId: null,
+      childIds: [],
+      runtimePresence: [],
+      executions: [],
+      runId: '',
+      attention: null,
+      health: { level: 'healthy', signals: [], lastActivityAt: timestamp },
+      messages: [
+        { id: id + '-user', role: 'user', text: '지난 작업을 이어서 진행해줘', timestamp },
+        { id: id + '-assistant', role: 'assistant', text: '이전 작업을 완료했습니다.', timestamp },
+      ],
+      lifecycle: [{ type: 'complete', status: 'completed', label: '작업 완료', detail: '오래된 작업 기록', timestamp }],
+      presentation: { ...(source.presentation || {}), conversationSurface: 'pty' },
+      controlCapabilities: { ...(source.controlCapabilities || {}), pty: true },
+    };
+    const exists = window.interactionTest.getSnapshot().sessions.some(item => item.id === id);
+    const added = exists || window.interactionTest.addSession(session);
+    const transcriptId = ${JSON.stringify(transcriptHistorySessionId)};
+    const transcriptExists = window.interactionTest.getSnapshot().sessions.some(item => item.id === transcriptId);
+    const transcriptAdded = transcriptExists || window.interactionTest.addSession({
+      ...session,
+      id: transcriptId,
+      externalId: '',
+      title: '오래전에 완료한 읽기 전용 기록',
+      presentation: { ...(session.presentation || {}), conversationSurface: 'transcript' },
+      controlCapabilities: { ...(session.controlCapabilities || {}), pty: false },
+      messages: [
+        { id: transcriptId + '-user', role: 'user', text: '지난 읽기 전용 작업을 보여줘', timestamp },
+        { id: transcriptId + '-assistant', role: 'assistant', text: '이 기록은 읽기 전용입니다.', timestamp },
+      ],
+    });
+    window.interactionTest.emitSnapshot();
+    return { ok: added && transcriptAdded, exists, transcriptExists };
+  })()`);
+  assert(historyPrepared?.ok, `오래된 지난 기록 fixture를 만들지 못했습니다: ${JSON.stringify(historyPrepared)}`);
+  await waitFor(win, `window.LoadToAgentApp.state.snapshot.sessions.some(session => session.id === ${JSON.stringify(historySessionId)})`,
+    '오래된 지난 기록 snapshot이 화면에 도착하지 않았습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    window.LoadToAgentInlineTerminal?.close?.({ render: false });
+    const app = window.LoadToAgentApp;
+    app.state.view = 'all';
+    app.state.workspace = ${JSON.stringify(historyWorkspace)};
+    app.state.search = '';
+    app.state.providerFilters.clear();
+    app.state.graphFocusId = null;
+    app.state.inlineTerminalSessionId = null;
+    if (!app.state.workspaces.some(item => item.path === ${JSON.stringify(historyWorkspace)})) {
+      app.state.workspaces.push({ name: '오래된 기록 검증', path: ${JSON.stringify(historyWorkspace)} });
+    }
+    app.render('filter');
+  })()`);
+  try {
+    await waitFor(win, `!window.LoadToAgentApp.isRecentSession(window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === ${JSON.stringify(historySessionId)}))
+      && Boolean(document.querySelector('#projectHistoryList [data-inline-pty-trigger=${JSON.stringify(historySessionId)}]'))`,
+    '24시간 표시 범위를 지난 기록이 프로젝트의 지난 기록 목록에 나타나지 않았습니다.');
+  } catch (error) {
+    const historyRailDiagnostic = await win.webContents.executeJavaScript(`(() => {
+      const app = window.LoadToAgentApp;
+      const id = ${JSON.stringify(historySessionId)};
+      const session = app.state.snapshot.sessions.find(item => item.id === id);
+      return {
+        session: session ? {
+          id: session.id,
+          provider: session.provider,
+          status: session.status,
+          cwd: session.cwd,
+          originCwd: session.originCwd,
+          updatedAt: session.updatedAt,
+          conversationSurface: session.presentation?.conversationSurface,
+          pty: session.controlCapabilities?.pty,
+        } : null,
+        recent: session ? app.isRecentSession(session) : null,
+        workspace: app.state.workspace,
+        workspaceMatch: session ? app.matchesWorkspaceFilter(session) : null,
+        view: app.state.view,
+        buttons: [...document.querySelectorAll('#projectHistoryList button')].map(button => ({
+          inline: button.dataset.inlinePtyTrigger || '',
+          open: button.dataset.openSession || '',
+          text: button.innerText,
+        })),
+        historyHtml: document.querySelector('#projectHistoryList')?.innerHTML || '',
+      };
+    })()`);
+    throw new Error(`${error.message}: ${JSON.stringify(historyRailDiagnostic)}`);
+  }
+  await clearCalls(win);
+  await click(win, `#projectHistoryList [data-inline-pty-trigger=${JSON.stringify(historySessionId)}]`, 'history:inline-pty');
+  await waitFor(win, `window.LoadToAgentApp.state.graphFocusId === ${JSON.stringify(historySessionId)}
+    && window.LoadToAgentApp.state.inlineTerminalSessionId === ${JSON.stringify(historySessionId)}
+    && Boolean(document.querySelector('.agent-workflow-canvas[data-workflow-focus=${JSON.stringify(historySessionId)}]'))
+    && Boolean(document.querySelector('[data-inline-agent-terminal=${JSON.stringify(historySessionId)}]'))
+    && !document.querySelector('#detailDrawer')?.classList.contains('open')
+    && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')
+    && document.querySelector('#activeEmptyState')?.classList.contains('hidden')
+    && window.LoadToAgentTerminal.embeddedState().connected
+    && window.LoadToAgentTerminal.embeddedState().agentSessionId === ${JSON.stringify(historySessionId)}
+    && window.LoadToAgentTerminal.embeddedState().terminalId.startsWith('terminal-created-')
+    && window.interactionTest.getCalls().filter(call => call.name === 'terminalCreate'
+      && call.args[0].bridgeId === ${JSON.stringify(historySessionId)}).length === 1
+    && window.interactionTest.getCalls().some(call => call.name === 'terminalCreate'
+      && call.args[0].provider === 'codex'
+      && call.args[0].args.join(' ') === ${JSON.stringify(`resume ${historyExternalId}`)}
+      && call.args[0].initialCommand === ''
+      && call.args[0].initialCommandInArgs === false)
+    && !window.interactionTest.getCalls().some(call => call.name === 'terminalCommand')`,
+  '지난 기록을 선택한 AI 아래의 실제 PTY로 한 번만 재개하지 못했습니다.', 160);
+  const historyDiagnostic = await win.webContents.executeJavaScript(`(() => {
+    const id = ${JSON.stringify(historySessionId)};
+    const canvas = document.querySelector('.agent-workflow-canvas[data-workflow-focus=' + JSON.stringify(id) + ']');
+    const selected = canvas?.querySelector('.agent-workflow-grid');
+    const inline = canvas?.querySelector('[data-inline-agent-terminal=' + JSON.stringify(id) + ']');
+    const detail = canvas?.querySelector('#workflowDetail');
+    const rail = document.querySelector('#projectHistoryRail');
+    const calls = window.interactionTest.getCalls();
+    const create = calls.find(call => call.name === 'terminalCreate' && call.args[0].bridgeId === id);
+    const embedded = window.LoadToAgentTerminal.embeddedState();
+    return {
+      id,
+      outsideRecentWindow: !window.LoadToAgentApp.isRecentSession(window.LoadToAgentApp.state.snapshot.sessions.find(session => session.id === id)),
+      focusedCanvas: Boolean(canvas),
+      selectedBeforePty: Boolean(selected && inline && (selected.compareDocumentPosition(inline) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      ptyBeforeDetail: Boolean(inline && detail && (inline.compareDocumentPosition(detail) & Node.DOCUMENT_POSITION_FOLLOWING)),
+      railHiddenWhileFocused: Boolean(rail && getComputedStyle(rail).display === 'none'),
+      drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
+      terminalId: embedded.terminalId || '',
+      agentSessionId: embedded.agentSessionId || '',
+      createCount: calls.filter(call => call.name === 'terminalCreate' && call.args[0].bridgeId === id).length,
+      create: create?.args?.[0] || null,
+    };
+  })()`);
+  assert(historyDiagnostic.outsideRecentWindow
+    && historyDiagnostic.focusedCanvas
+    && historyDiagnostic.selectedBeforePty
+    && historyDiagnostic.ptyBeforeDetail
+    && historyDiagnostic.railHiddenWhileFocused
+    && !historyDiagnostic.drawerOpen
+    && historyDiagnostic.agentSessionId === historySessionId
+    && historyDiagnostic.createCount === 1,
+  `지난 기록의 선택 AI → 하단 PTY 배치가 올바르지 않습니다: ${JSON.stringify(historyDiagnostic)}`);
+  await writeToEmbeddedXterm(win, '#agentInlineTerminalViewport', '지난 기록 PTY에서 계속 진행해줘');
+  try {
+    await waitFor(win, `window.LoadToAgentTerminal.embeddedState().agentSessionId === ${JSON.stringify(historySessionId)}
+      && !window.interactionTest.getCalls().some(call => call.name === 'terminalCreate')
+      && !window.interactionTest.getCalls().some(call => call.name === 'terminalCommand')`,
+    '지난 기록 PTY 입력이 별도 명령이나 중복 터미널을 만들었습니다.');
+  } catch (error) {
+    const inputDiagnostic = await win.webContents.executeJavaScript(`(() => ({
+      embedded: window.LoadToAgentTerminal.embeddedState(),
+      calls: window.interactionTest.getCalls().map(call => ({
+        name: call.name,
+        bridgeId: call.args?.[0]?.bridgeId || '',
+        terminalId: typeof call.args?.[0] === 'string' ? call.args[0] : '',
+      })),
+      terminals: window.interactionTest.getTerminals().filter(terminal => terminal.bridgeId === ${JSON.stringify(historySessionId)}),
+      inlineSessionId: window.LoadToAgentApp.state.inlineTerminalSessionId,
+      graphFocusId: window.LoadToAgentApp.state.graphFocusId,
+    }))()`);
+    throw new Error(`${error.message}: ${JSON.stringify(inputDiagnostic)}`);
+  }
+  await click(win, '[data-inline-terminal-close]', 'agent:inline-pty-close');
+  await waitFor(win, `window.LoadToAgentApp.state.inlineTerminalSessionId === null
+    && !document.querySelector('[data-inline-agent-terminal]')
+    && !window.LoadToAgentTerminal.embeddedState().connected`,
+  '지난 기록의 하단 PTY를 닫아 연결을 해제하지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    window.LoadToAgentApp.state.graphFocusId = null;
+    window.LoadToAgentApp.render('focus-back');
+  })()`);
+  await waitFor(win, `Boolean(document.querySelector('#projectHistoryList [data-open-session=${JSON.stringify(transcriptHistorySessionId)}]'))`,
+    '읽기 전용 지난 기록이 안전한 상세 화면 경로로 표시되지 않았습니다.');
+  await clearCalls(win);
+  await click(win, `#projectHistoryList [data-open-session=${JSON.stringify(transcriptHistorySessionId)}]`, 'history:transcript');
+  await waitFor(win, `window.LoadToAgentApp.state.selectedId === ${JSON.stringify(transcriptHistorySessionId)}
+    && document.querySelector('#detailDrawer')?.classList.contains('open')
+    && document.querySelector('#detailDrawer')?.dataset.presentation === 'context'
+    && document.querySelector('#detailDrawer')?.dataset.conversationSurface === 'transcript'
+    && document.querySelector('#drawerBackdrop')?.classList.contains('hidden')
+    && window.LoadToAgentApp.state.inlineTerminalSessionId === null
+    && !window.interactionTest.getCalls().some(call => call.name === 'terminalCreate')`,
+  '읽기 전용 지난 기록이 진행 중 AI와 같은 컨텍스트 상세 화면으로 안전하게 열리지 않았습니다.');
+  const transcriptHistoryDiagnostic = await win.webContents.executeJavaScript(`(() => ({
+    id: ${JSON.stringify(transcriptHistorySessionId)},
+    presentation: document.querySelector('#detailDrawer')?.dataset.presentation || '',
+    conversationSurface: document.querySelector('#detailDrawer')?.dataset.conversationSurface || '',
+    drawerOpen: document.querySelector('#detailDrawer')?.classList.contains('open') || false,
+    backdropHidden: document.querySelector('#drawerBackdrop')?.classList.contains('hidden') || false,
+    inlineSessionId: window.LoadToAgentApp.state.inlineTerminalSessionId,
+    terminalCreateCount: window.interactionTest.getCalls().filter(call => call.name === 'terminalCreate').length,
+  }))()`);
+  await win.webContents.executeJavaScript(`window.LoadToAgentApp.closeDrawer(false)`);
+  await waitFor(win, `!document.querySelector('#detailDrawer')?.classList.contains('open')`,
+    '읽기 전용 지난 기록의 컨텍스트 상세 화면을 닫지 못했습니다.');
+  await win.webContents.executeJavaScript(`(() => {
+    window.interactionTest.removeTerminal(${JSON.stringify(historyDiagnostic.terminalId)});
+    window.interactionTest.emitTerminalState('removed');
+    window.LoadToAgentApp.state.workspaces = window.LoadToAgentApp.state.workspaces
+      .filter(item => item.path !== ${JSON.stringify(historyWorkspace)});
+  })()`);
+  await prepareProjectFirstStep(win);
+  round.observed.inlineTerminal = {
+    ...diagnostic,
+    refreshStability: inlineRefreshStability,
+    history: historyDiagnostic,
+    transcriptHistory: transcriptHistoryDiagnostic,
+  };
 }
 
 async function exerciseTerminal(win, round) {

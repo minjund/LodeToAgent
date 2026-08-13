@@ -7,6 +7,7 @@
     targetSignatures: new Map(),
     autoFailures: new Map(),
     pendingMount: null,
+    pendingReconnect: null,
     focusSessionId: "",
     focusRequestToken: 0,
     focusRequestRevision: 0,
@@ -396,9 +397,87 @@
       setStatus(root, "drawer.terminal_resume_failed", window.LoadToAgentI18n.errorText(error, "drawer.terminal_resume_failed"), "error");
       report("inline-agent-terminal-resume", error);
     } finally {
-      button.removeAttribute("aria-busy");
-      button.disabled = false;
+      if (shell() === root) {
+        button.removeAttribute("aria-busy");
+        button.disabled = false;
+      }
     }
+  }
+
+  async function reconnect(button) {
+    const instance = app();
+    const session = selectedSession();
+    const root = shell();
+    const terminal = window.LoadToAgentTerminal;
+    const embedded = terminal?.embeddedState?.() || {};
+    const terminalId = String(embedded.agentSessionId === session?.id
+      ? embedded.terminalId
+      : local.targetIds.get(session?.id) || '');
+    if (!session || !root || !button || button.getAttribute("aria-busy") === "true") return;
+    if (!isMainSession(session)) return;
+    const sessionId = String(session.id || "");
+    const signature = connectionSignature(session, terminal);
+    const stillCurrent = () => {
+      const currentSession = selectedSession();
+      return instance?.state?.inlineTerminalSessionId === sessionId
+        && shell() === root
+        && root.dataset.inlineAgentTerminal === sessionId
+        && currentSession?.id === sessionId
+        && connectionSignature(currentSession, terminal) === signature;
+    };
+    if (!terminalId || !terminal?.restartForAgent) {
+      // No app-owned PTY exists to restart. Keep creation behind the explicit
+      // resume action so refresh cannot start a competing provider writer.
+      local.autoFailures.set(sessionId, signature);
+      const support = terminal?.resumeSupport?.(session);
+      const resumable = Boolean(support?.supported);
+      setEmpty(
+        root,
+        true,
+        resumable ? "drawer.terminal_resume_available" : "drawer.terminal_unavailable",
+        resumable ? "drawer.terminal_resume_available_help" : "drawer.terminal_unavailable_help",
+        resumable,
+      );
+      setStatus(root, resumable ? "drawer.terminal_resume_available" : "drawer.terminal_unavailable", support?.reason || "", "unavailable");
+      return;
+    }
+    if (local.pendingReconnect?.sessionId === sessionId
+      && local.pendingReconnect.terminalId === terminalId
+      && local.pendingReconnect.signature === signature) return local.pendingReconnect.promise;
+    button.setAttribute("aria-busy", "true");
+    button.disabled = true;
+    clearForeignEmbeddedOwner(sessionId);
+    local.autoFailures.delete(sessionId);
+    requestTerminalFocus(sessionId);
+    setEmpty(root, true);
+    setStatus(root, "drawer.terminal_connecting");
+    const task = (async () => {
+      try {
+        const restarted = await terminal.restartForAgent(session, { terminalId });
+        if (!restarted?.ok) throw new Error(t("agent.reconnect_failed"));
+        if (!stillCurrent()) return;
+        local.targetIds.set(sessionId, terminalId);
+        local.targetSignatures.set(sessionId, signature);
+        terminal.unmountEmbedded?.();
+        await sync({ force: true });
+      } catch (error) {
+        if (!stillCurrent()) return;
+        local.autoFailures.set(sessionId, signature);
+        local.focusSessionId = "";
+        local.focusOrigin = null;
+        setEmpty(root, true, "drawer.terminal_unavailable", "drawer.terminal_unavailable_help");
+        setStatus(root, "drawer.terminal_unavailable", window.LoadToAgentI18n.errorText(error, "drawer.terminal_unavailable"), "error");
+        report("inline-agent-terminal-reconnect", error);
+      } finally {
+        if (local.pendingReconnect?.promise === task) local.pendingReconnect = null;
+        if (shell() === root) {
+          button.removeAttribute("aria-busy");
+          button.disabled = false;
+        }
+      }
+    })();
+    local.pendingReconnect = { sessionId, terminalId, signature, promise: task };
+    return task;
   }
 
   document.addEventListener("click", (event) => {
@@ -407,23 +486,9 @@
       close();
       return;
     }
-    if (event.target.closest("[data-inline-terminal-focus]")) {
-      event.stopPropagation();
-      window.LoadToAgentTerminal?.focusEmbedded?.();
-      return;
-    }
     if (event.target.closest("[data-inline-terminal-reconnect]")) {
       event.stopPropagation();
-      const sessionId = selectedSession()?.id;
-      if (sessionId) {
-        clearForeignEmbeddedOwner(sessionId);
-        local.targetIds.delete(sessionId);
-        local.targetSignatures.delete(sessionId);
-        local.autoFailures.delete(sessionId);
-        requestTerminalFocus(sessionId);
-      }
-      window.LoadToAgentTerminal?.unmountEmbedded?.();
-      sync({ force: true });
+      reconnect(event.target.closest("[data-inline-terminal-reconnect]"));
       return;
     }
     if (event.target.closest("[data-inline-terminal-resume]")) {

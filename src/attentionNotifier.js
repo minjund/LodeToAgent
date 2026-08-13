@@ -3,6 +3,7 @@
 const ACTIVE_STATUSES = new Set(['starting', 'running', 'waiting']);
 const NOTIFIABLE_ATTENTION_SOURCES = new Set(['execution-approval', 'input-tool']);
 const STARTUP_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+const COMPLETION_STABILITY_MS = 2_000;
 
 function timestamp(value) {
   const parsed = Date.parse(value || '');
@@ -50,6 +51,12 @@ function observedCompletionAt(session) {
   return timestamp(session.completedAt || session.endedAt || session.updatedAt);
 }
 
+function completionFingerprint(session) {
+  const completedAt = observedCompletionAt(session);
+  if (!completedAt) return '';
+  return `${completedAt}:${String(session.runId || '')}`;
+}
+
 class AttentionNotifier {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
@@ -66,7 +73,75 @@ class AttentionNotifier {
     this.sessionStatuses = null;
     this.lastSnapshotAt = 0;
     this.promptFingerprints = new Set();
+    this.completionStabilityMs = Math.max(0, Number.isFinite(Number(options.completionStabilityMs))
+      ? Number(options.completionStabilityMs)
+      : COMPLETION_STABILITY_MS);
+    this.setTimer = options.setTimeout || setTimeout;
+    this.clearTimer = options.clearTimeout || clearTimeout;
+    this.pendingCompletions = new Map();
+    this.notifiedCompletionFingerprints = new Set();
+    this.latestSessions = new Map();
     this.notifications = new Set();
+  }
+
+  completionKey(sessionId, fingerprint) {
+    return `${sessionId}\u0000${fingerprint}`;
+  }
+
+  cancelPendingCompletion(sessionId) {
+    const id = String(sessionId || '');
+    const pending = this.pendingCompletions.get(id);
+    if (!pending) return;
+    this.pendingCompletions.delete(id);
+    if (pending.timer != null) this.clearTimer(pending.timer);
+  }
+
+  rememberCompletion(sessionId, fingerprint) {
+    this.notifiedCompletionFingerprints.add(this.completionKey(sessionId, fingerprint));
+    if (this.notifiedCompletionFingerprints.size > 2_000) {
+      this.notifiedCompletionFingerprints.delete(this.notifiedCompletionFingerprints.values().next().value);
+    }
+  }
+
+  scheduleCompletion(session) {
+    const id = String(session && session.id || '');
+    const fingerprint = completionFingerprint(session);
+    if (!id || !fingerprint) {
+      if (id) this.cancelPendingCompletion(id);
+      return false;
+    }
+    if (this.notifiedCompletionFingerprints.has(this.completionKey(id, fingerprint))) return false;
+    const existing = this.pendingCompletions.get(id);
+    if (existing && existing.fingerprint === fingerprint) return false;
+    this.cancelPendingCompletion(id);
+    if (this.completionStabilityMs === 0) {
+      this.rememberCompletion(id, fingerprint);
+      this.notify(session, 'completed');
+      return true;
+    }
+    const pending = { fingerprint, timer: null };
+    this.pendingCompletions.set(id, pending);
+    pending.timer = this.setTimer(() => {
+      if (this.pendingCompletions.get(id) !== pending) return;
+      const current = this.latestSessions.get(id);
+      if (completionFingerprint(current) !== fingerprint) {
+        this.pendingCompletions.delete(id);
+        return;
+      }
+      this.pendingCompletions.delete(id);
+      this.rememberCompletion(id, fingerprint);
+      this.notify(current, 'completed');
+    }, this.completionStabilityMs);
+    if (pending.timer && typeof pending.timer.unref === 'function') pending.timer.unref();
+    return false;
+  }
+
+  reconcilePendingCompletions(nextSessions) {
+    for (const [id, pending] of this.pendingCompletions) {
+      if (completionFingerprint(nextSessions.get(id)) !== pending.fingerprint) {
+        this.cancelPendingCompletion(id);
+      }
+    }
   }
 
   sync(snapshot) {
@@ -74,13 +149,17 @@ class AttentionNotifier {
     const sessions = snapshot && Array.isArray(snapshot.sessions) ? snapshot.sessions.filter(Boolean) : [];
     const nextAttention = new Map();
     const nextStatuses = new Map();
+    const nextSessions = new Map();
     for (const session of sessions) {
       if (!session.id) continue;
       const id = String(session.id);
       const fingerprints = explicitAttentionFingerprints(session);
       if (fingerprints.length) nextAttention.set(id, new Set(fingerprints));
       nextStatuses.set(id, String(session.status || ''));
+      nextSessions.set(id, session);
     }
+    this.latestSessions = nextSessions;
+    this.reconcilePendingCompletions(nextSessions);
 
     const snapshotAt = timestamp(snapshot && snapshot.generatedAt) || Date.now();
     if (this.attentionFingerprints === null || this.sessionStatuses === null) {
@@ -118,8 +197,7 @@ class AttentionNotifier {
       const transitionedFromActive = ACTIVE_STATUSES.has(previousStatus);
       const completedSinceLastSnapshot = !previousStatus && completedAt > this.lastSnapshotAt;
       if (completedAt && (transitionedFromActive || completedSinceLastSnapshot)) {
-        this.notify(session, 'completed');
-        notifiedIds.push(id);
+        if (this.scheduleCompletion(session)) notifiedIds.push(id);
       }
     }
 
@@ -179,11 +257,14 @@ class AttentionNotifier {
   }
 
   dispose() {
+    for (const id of [...this.pendingCompletions.keys()]) this.cancelPendingCompletion(id);
     for (const notification of this.notifications) {
       try { notification.close(); } catch {}
     }
     this.notifications.clear();
     this.notifiedAttentionFingerprints.clear();
+    this.notifiedCompletionFingerprints.clear();
+    this.latestSessions.clear();
   }
 }
 

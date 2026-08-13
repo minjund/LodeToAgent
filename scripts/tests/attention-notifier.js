@@ -41,6 +41,7 @@ function registerAttentionNotifierTests(context) {
     const notifier = new AttentionNotifier({
       Notification: FakeNotification,
       isSupported: () => true,
+      completionStabilityMs: 0,
       copy: (session, event, detail) => ({
         title: event === 'completed' ? '작업 완료' : '확인 필요',
         body: detail || `Claude · ${session.title}`,
@@ -230,6 +231,80 @@ function registerAttentionNotifierTests(context) {
     assert.deepEqual(startup.sync(startupSnapshot), [], '시작 복구 알림은 같은 요청에 한 번만 보내야 합니다.');
     assert.equal(FakeNotification.created.length, 2);
     startup.dispose();
+  });
+
+  test('새 메인 턴이 시작되면 직전 턴의 순간적인 완료 알림 후보를 취소한다', () => {
+    FakeNotification.created = [];
+    const timers = [];
+    const notifier = new AttentionNotifier({
+      Notification: FakeNotification,
+      isSupported: () => true,
+      completionStabilityMs: 2_000,
+      setTimeout: callback => {
+        const timer = { callback, cancelled: false, unref() {} };
+        timers.push(timer);
+        return timer;
+      },
+      clearTimeout: timer => { timer.cancelled = true; },
+    });
+    const running = {
+      id: 'codex:main-turn-race', provider: 'codex', title: '메인 작업', status: 'running',
+      completionObserved: false, completedAt: null, parentId: null,
+      updatedAt: '2026-08-13T01:46:38.000Z',
+    };
+    const childRunning = {
+      ...running, id: 'codex:child-turn', title: '하위 작업', parentId: running.id,
+    };
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:46:38.000Z', sessions: [running, childRunning],
+    }), []);
+
+    const childCompleted = {
+      ...childRunning, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T01:46:39.000Z', updatedAt: '2026-08-13T01:46:39.000Z',
+    };
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:46:39.100Z', sessions: [running, childCompleted],
+    }), []);
+    assert.equal(timers.length, 0, '하위 에이전트 완료는 메인 완료 후보로 등록하면 안 됩니다.');
+    assert.equal(FakeNotification.created.length, 0);
+
+    const transientCompletion = {
+      ...running, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T01:46:39.443Z', updatedAt: '2026-08-13T01:46:39.443Z',
+    };
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:46:39.500Z', sessions: [transientCompletion, childCompleted],
+    }), []);
+    assert.equal(timers.length, 1);
+    assert.equal(FakeNotification.created.length, 0, '첫 completed 관측만으로 알림을 보내면 안 됩니다.');
+
+    const nextTurnRunning = {
+      ...running, updatedAt: '2026-08-13T01:46:39.639Z',
+    };
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:46:39.800Z', sessions: [nextTurnRunning, childCompleted],
+    }), []);
+    assert.equal(timers[0].cancelled, true, '새 턴 시작 시 보류 중인 완료 후보를 취소해야 합니다.');
+    timers[0].callback();
+    assert.equal(FakeNotification.created.length, 0, '취소된 완료 후보가 뒤늦게 알림을 보내면 안 됩니다.');
+
+    const stableCompletion = {
+      ...running, status: 'completed', completionObserved: true,
+      completedAt: '2026-08-13T01:47:00.000Z', updatedAt: '2026-08-13T01:47:00.000Z',
+    };
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:47:00.100Z', sessions: [stableCompletion],
+    }), []);
+    assert.equal(timers.length, 2);
+    timers[1].callback();
+    assert.equal(FakeNotification.created.length, 1, '안정적으로 완료된 메인 작업은 한 번 알려야 합니다.');
+    assert.equal(FakeNotification.created[0].options.title, '작업 완료');
+    assert.deepEqual(notifier.sync({
+      generatedAt: '2026-08-13T01:47:03.000Z', sessions: [stableCompletion],
+    }), []);
+    assert.equal(FakeNotification.created.length, 1, '같은 완료 상태를 중복 알리면 안 됩니다.');
+    notifier.dispose();
   });
 
   test('시스템 알림을 지원하지 않으면 앱 내 대체 알림 경로를 사용한다', () => {

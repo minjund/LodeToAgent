@@ -3168,9 +3168,34 @@ class TerminalManager extends EventEmitter {
     // Calls from protocol-11 clients that predate raw-input delivery IDs keep
     // their exact behavior. A newer client only enables the retry path after
     // the host advertises support during the ready handshake.
+    const hasExpectedOutputSequence = Object.prototype.hasOwnProperty.call(
+      deliveryOptions && typeof deliveryOptions === 'object' ? deliveryOptions : {},
+      'expectedOutputSequence',
+    );
+    const expectedOutputSequence = Number(deliveryOptions?.expectedOutputSequence);
+    if (hasExpectedOutputSequence && (!Number.isSafeInteger(expectedOutputSequence) || expectedOutputSequence < 0)) {
+      throw rejectedDeliveryError(
+        '승인 요청의 출력 순번이 올바르지 않습니다.',
+        'TERMINAL_PROMPT_SEQUENCE_INVALID',
+        deliveryId,
+      );
+    }
+    const assertExpectedOutput = session => {
+      if (!hasExpectedOutputSequence) return;
+      const current = Number.isSafeInteger(session.outputSequence) ? session.outputSequence : 0;
+      if (current !== expectedOutputSequence) {
+        throw rejectedDeliveryError(
+          '승인 요청이 이미 바뀌었거나 새 출력이 도착했습니다.',
+          'TERMINAL_PROMPT_STALE',
+          deliveryId,
+        );
+      }
+    };
+
     if (!deliveryId) {
       const session = this.required(id);
       if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+      assertExpectedOutput(session);
       const data = String(value == null ? '' : value);
       if (data.length > MAX_INPUT_CHARS) throw new Error('한 번에 보낼 수 있는 입력 크기를 초과했습니다.');
       session.process.write(data);
@@ -3211,6 +3236,7 @@ class TerminalManager extends EventEmitter {
     try {
       session = this.required(id);
       if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+      assertExpectedOutput(session);
     } catch (error) {
       throw markDeliveryRejected(error, deliveryId);
     }
@@ -3225,9 +3251,7 @@ class TerminalManager extends EventEmitter {
     return { ok: true, deliveryId, deliveryState: 'accepted' };
   }
 
-  respond(id, choiceKey) {
-    const session = this.required(id);
-    if (!session.process || session.status !== 'running') throw new Error('현재 실행 중인 명령창이 아닙니다.');
+  respond(id, choiceKey, deliveryOptions = {}) {
     const key = String(choiceKey == null ? '' : choiceKey);
     const payload = key === 'Escape'
       ? '\x1b'
@@ -3237,8 +3261,7 @@ class TerminalManager extends EventEmitter {
       error.code = 'TERMINAL_PROMPT_RESPONSE_INVALID';
       throw error;
     }
-    session.process.write(payload);
-    return { ok: true };
+    return this.write(id, payload, deliveryOptions);
   }
 
   command(id, value, deliveryOptions = {}) {

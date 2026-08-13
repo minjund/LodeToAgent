@@ -23,6 +23,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     timeAgo,
     providerInfo,
     providerStyle,
+    sessionBadgesHtml = () => "",
     statusClass,
     currentActivity,
     isLiveSession,
@@ -41,6 +42,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     renderProviderFilter,
     renderRuntimeOverview,
     renderProviderVisibilitySettings = () => {},
+    renderAttentionPopupSettings = () => {},
     visibleSnapshot = () => state.snapshot,
     filteredSessions,
     graphFilteredSessions,
@@ -106,6 +108,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
         <div class="card-head-main"><div class="card-provider-line"><b>${esc(provider.label)}</b><span>${esc(session.model || t("session.model_unknown"))}</span></div></div>
         <span class="status-pill ${statusClass(presentationStatus)} activity-${esc(presentationStatus === "waiting" ? "notification" : session.activityState || "idle")}">${esc(sessionStatusLabel(session, presentationStatus))}</span>
       </div>
+      ${sessionBadgesHtml(session, { compact: true })}
       <h3 id="${accessibleId}-title" class="card-title" title="${esc(titlePreview.full)}">${esc(titlePreview.text)}</h3>
       <div class="card-subtitle"><span class="origin-project" title="${esc(isProjectlessSession(session) ? window.LoadToAgentI18n.t("ui.session_not_linked_to_a_specific_project") : originPath)}"
           aria-label="${esc(t("project.origin_named", { name: originLabel }))}">
@@ -189,6 +192,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
         <b id="${accessibleId}-title" title="${esc(titlePreview.full)}">${esc(t("memory.work_name", { title: titlePreview.text }))}</b>
         ${taskCompleted ? `<span id="${accessibleId}-status" class="memory-review-status completed">${esc(t("memory.current_status_completed"))}</span>` : ""}
         ${titlePreview.text.includes(provider.label) ? "" : `<em>${esc(t("memory.provider", { provider: provider.label }))}${decisionRetained ? ` · ${esc(t("memory.decisions"))}` : ""}</em>`}
+        ${sessionBadgesHtml(session, { compact: true, includeModel: false })}
       </span>
       ${reviewPending
         ? `<span class="memory-review-wrap"><button type="button" class="memory-review-action" data-open-session="${esc(session.id)}" data-result-review="true"><b>${esc(provider.label)} 결과 확인하기 <i aria-hidden="true">→</i></b></button><small><span class="memory-review-help-desktop">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르면 이 항목이 확인 완료 목록으로 이동합니다.</span><span class="memory-review-help-mobile">내용을 확인한 뒤 결과 화면에서 <b>‘확인 완료’</b>를 누르세요.</span></small></span>`
@@ -308,6 +312,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
     }
     if (settingsView) {
       $("#liveSection").classList.add("hidden");
+      renderAttentionPopupSettings();
       renderProviderVisibilitySettings();
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.deactivate();
       if (!deferMotion) playMotionLayout(previousLayout, motionKind);
@@ -353,7 +358,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
       shown: visible.length,
       remaining: Math.max(0, resultCount - visible.length),
     });
-    const activeEmpty = homeView && projectSelected && graphLiveCount === 0;
+    const activeEmpty = homeView && projectSelected && !state.graphFocusId && graphLiveCount === 0;
     $("#activeEmptyState").classList.toggle("hidden", !activeEmpty);
     $("#liveSection").classList.toggle("hidden", !homeView || !projectSelected);
     $("#viewTitle").textContent = memoryView ? t("memory.archive_title") : VIEW_TITLES[state.view] || window.LoadToAgentI18n.t("ui.recent_conversations_and_tasks");
@@ -419,6 +424,7 @@ window.LoadToAgentAppFactories.createSessionRenderer = function createSessionRen
         renderGlobalStats();
         renderProviderOverview();
         renderProviderFilter();
+        renderAttentionPopupSettings();
         renderProviderVisibilitySettings();
         renderSessions(motionKind, true);
         if (state.selectedId && $("#detailDrawer").classList.contains("open")) context.renderDrawer();

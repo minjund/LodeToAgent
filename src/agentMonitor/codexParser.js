@@ -4,7 +4,7 @@ const path = require('path');
 const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createCodexCollaboration } = require('./codexCollaboration');
 const { createExecutionTracker, reconcileExecutionActivities } = require('./executionActivity');
-const { structuredInputRequestText } = require('./responseIntent');
+const { structuredInputRequest, structuredInputRequestText } = require('./responseIntent');
 
 const COLLABORATION_TOOLS = new Set([
   'spawn_agent',
@@ -100,6 +100,7 @@ function createCodexParser(dependencies) {
       pendingUserInputCalls: new Set(),
       pendingUserInputAt: new Map(),
       pendingUserInputText: new Map(),
+      pendingUserInputRequests: new Map(),
       latestTs: session.updatedAt,
       observedWindow: Number(meta.context_window || 0),
       messageObservations: new Map(),
@@ -109,6 +110,15 @@ function createCodexParser(dependencies) {
       activityState: 'idle',
       activityAt: 0,
     };
+  }
+
+  function beginObservedTurn(session, state) {
+    const startingNewTurn = !state.activeTurn || state.lastTurnCompleted;
+    state.activeTurn = true;
+    state.lastTurnCompleted = false;
+    if (startingNewTurn) state.turnHadMeaningfulOutput = false;
+    session.completedAt = null;
+    session.completionObserved = false;
   }
 
   function recordSubagentActivity(session, state, payload, row, timing) {
@@ -155,12 +165,8 @@ function createCodexParser(dependencies) {
 
   function processEventMessage(session, state, row, payload, timing) {
     if (payload.type === 'task_started') {
-      state.activeTurn = true;
-      state.lastTurnCompleted = false;
-      state.turnHadMeaningfulOutput = false;
+      beginObservedTurn(session, state);
       state.latestDelegationNarration = '';
-      session.completedAt = null;
-      session.completionObserved = false;
       observeActivity(state, 'thinking', payload.started_at || row.timestamp);
       addLifecycle(session, {
         id: payload.turn_id,
@@ -179,6 +185,7 @@ function createCodexParser(dependencies) {
       state.pendingUserInputCalls.clear();
       state.pendingUserInputAt.clear();
       state.pendingUserInputText.clear();
+      state.pendingUserInputRequests.clear();
       observeActivity(state, session.completionObserved ? 'attention' : 'idle', payload.completed_at || row.timestamp);
       if (payload.last_agent_message) {
         state.lastFinalAnswer = compactText(payload.last_agent_message, 6000);
@@ -204,11 +211,13 @@ function createCodexParser(dependencies) {
         if (/<codex_internal_context[^>]*\bsource=["']goal["']/i.test(rawUser)) state.goalContexts.add(`${row.timestamp || ''}:${text}`);
         return;
       }
+      beginObservedTurn(session, state);
       state.latestUser = text;
       state.lastConversationRole = 'user';
       state.pendingUserInputCalls.clear();
       state.pendingUserInputAt.clear();
       state.pendingUserInputText.clear();
+      state.pendingUserInputRequests.clear();
       observeActivity(state, 'thinking', row.timestamp);
       const key = `u:${payload.client_id || row.timestamp}:${text}`;
       addCodexMessage(session, state.messageObservations, { id: key, role: 'user', text, timestamp: row.timestamp }, 'event');
@@ -241,6 +250,7 @@ function createCodexParser(dependencies) {
       state.pendingUserInputCalls.clear();
       state.pendingUserInputAt.clear();
       state.pendingUserInputText.clear();
+      state.pendingUserInputRequests.clear();
       session.completedAt = null;
       session.completionObserved = false;
       settleRunningLifecycle(session, row.timestamp);
@@ -335,6 +345,7 @@ function createCodexParser(dependencies) {
       state.pendingUserInputCalls.add(requestId);
       if (!state.pendingUserInputAt.has(requestId)) state.pendingUserInputAt.set(requestId, timestamp(row.timestamp, state.latestTs));
       state.pendingUserInputText.set(requestId, structuredInputRequestText(args));
+      state.pendingUserInputRequests.set(requestId, structuredInputRequest(args, requestId));
     }
 
     let collaborationMessageProtected = false;
@@ -384,6 +395,7 @@ function createCodexParser(dependencies) {
     state.pendingUserInputCalls.delete(String(payload.call_id || ''));
     state.pendingUserInputAt.delete(String(payload.call_id || ''));
     state.pendingUserInputText.delete(String(payload.call_id || ''));
+    state.pendingUserInputRequests.delete(String(payload.call_id || ''));
     const output = jsonObject(payload.output);
     if (call && call.name === 'spawn_agent') {
       const record = state.collaboration.ensureSpawn(payload.call_id);
@@ -446,11 +458,13 @@ function createCodexParser(dependencies) {
       return;
     }
     if (role === 'user') {
+      beginObservedTurn(session, state);
       state.latestUser = text;
       state.lastConversationRole = 'user';
       state.pendingUserInputCalls.clear();
       state.pendingUserInputAt.clear();
       state.pendingUserInputText.clear();
+      state.pendingUserInputRequests.clear();
       observeActivity(state, 'thinking', row.timestamp);
     }
     if (role === 'assistant') {
@@ -530,12 +544,16 @@ function createCodexParser(dependencies) {
       const inputRequestText = structuredInputRequestText([...state.pendingUserInputCalls]
         .map(callId => state.pendingUserInputText.get(callId))
         .filter(Boolean));
+      const inputRequests = [...state.pendingUserInputCalls]
+        .sort()
+        .flatMap(callId => state.pendingUserInputRequests.get(callId) || []);
       const responseIntent = assistantResponseIntent(state.lastAssistantText || state.lastFinalAnswer);
       session.responseIntent = pendingUserInput
         ? {
           category: 'required', required: true, optional: false,
           requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
           requestId: inputRequestId, requestedAt: inputRequestedAt,
+          requests: inputRequests,
           confidence: 'high', source: 'input-tool',
         }
         : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };

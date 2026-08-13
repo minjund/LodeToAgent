@@ -15,6 +15,7 @@
   [
     "createCore",
     "createProviderVisibility",
+    "createAttentionPopupSettings",
     "createDashboard",
     "createRuntimeOverview",
     "createGraphModel",
@@ -38,7 +39,7 @@
   ].forEach(install);
   window.LoadToAgentApp = app;
 
-  const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, toast, refreshProviderUsage = async () => null } = app;
+  const { $, esc, state, loadGuideState, loadQualityState = () => {}, saveDashboardPreferences = () => {}, loadProviderVisibility, loadAttentionPopupSettings = () => {}, bindAttentionPopupSettings = () => {}, projectVisibleSnapshot, visibleSnapshot, isProviderVisible, bindEvents, render, timeOnly, loadSessionDetail, renderUpdateSettings, syncViewChrome, selectView, openDrawer, openSubagentConversation, closeDrawer, toast, refreshProviderUsage = async () => null } = app;
 
   let initializationError = "";
   const setConnectedAt = (value) => {
@@ -93,7 +94,10 @@
     state.providers = bootstrap.providers || [];
     state.providerMap = new Map(state.providers.map((provider) => [provider.id, provider]));
     loadProviderVisibility(bootstrap.providerVisibility);
+    loadAttentionPopupSettings(bootstrap.attentionPopups);
     state.availability = bootstrap.availability || {};
+    state.sourcePlugins = bootstrap.sourcePlugins || [];
+    state.sourcePluginSettings = bootstrap.sourcePluginSettings || state.sourcePluginSettings;
     state.workspaces = bootstrap.workspaces || [];
     state.rawSnapshot = bootstrap.snapshot;
     state.snapshot = projectVisibleSnapshot(bootstrap.snapshot);
@@ -101,23 +105,100 @@
     state.platform = bootstrap.platform || state.platform;
     state.versions = bootstrap.versions || {};
     state.update = bootstrap.update || { status: "idle", currentVersion: state.versions.app || "" };
+    const safeAttentionDrawerOptions = {
+      createTerminalIfMissing: false,
+      mountTerminal: false,
+      attentionActivation: true,
+      acknowledge: false,
+      focus: false,
+    };
+    const showAttentionSession = (session) => {
+      selectView("waiting");
+      if (session.parentId) openSubagentConversation(session.id, safeAttentionDrawerOptions);
+      else openDrawer(session.id, safeAttentionDrawerOptions);
+    };
+    const attentionActivation = window.LoadToAgentAttentionActivation?.createAttentionActivationController({
+      getSessions: () => state.snapshot?.sessions || [],
+      isProviderVisible,
+      acknowledge: result => window.loadtoagent.ackAttentionActivation?.(result),
+      showSession: showAttentionSession,
+      openPty: async (session, activation, operation) => {
+        const terminal = window.LoadToAgentTerminal;
+        if (!terminal?.agentTargets || !terminal?.openForAgent) return { opened: false, retryable: true };
+        try {
+          if (!operation?.isCurrent?.()) return { opened: false, retryable: true };
+          const opened = await terminal.openForAgent(
+            session,
+            activation.targetId,
+            "",
+            {
+              focus: activation.preservePopupFocus !== true,
+              isCurrent: operation.isCurrent,
+              attentionActivation: true,
+              onTargetReady: target => {
+                if (!operation.isCurrent()) return;
+                if (activation.terminalId && target?.terminalId !== activation.terminalId) {
+                  throw new Error("The requested AI terminal changed before it could be opened.");
+                }
+                if ($("#detailDrawer")?.classList.contains("open")) closeDrawer?.(false);
+                selectView("terminal");
+              },
+            },
+          );
+          if (!operation.isCurrent()) return { opened: false, retryable: true };
+          if (activation.terminalId && opened?.terminalId !== activation.terminalId) {
+            throw new Error("The requested AI terminal changed before it could be opened.");
+          }
+          document.querySelector(".main-stage")?.scrollTo({ top: 0, behavior: "auto" });
+          return { opened: true, retryable: false };
+        } catch (error) {
+          if (!["DELIVERY_REJECTED", "ATTENTION_ACTIVATION_CANCELLED"].includes(error?.code)) {
+            window.LoadToAgentRendererUtils.reportRecoverableError("attention-activation-open-pty", error);
+          }
+          const refreshedTargets = terminal.agentTargets(session);
+          return {
+            opened: false,
+            retryable: Boolean(activation.targetId || activation.terminalId || refreshedTargets.length === 0),
+          };
+        }
+      },
+      onError: (scope, error) => window.LoadToAgentRendererUtils.reportRecoverableError(scope, error),
+    });
     const handleAttentionRequested = (payload) => {
+      if (payload?.activationId && attentionActivation) {
+        attentionActivation.handle(payload);
+        return;
+      }
       const sessionId = String(payload && payload.sessionId || '');
       const event = payload && payload.event === 'completed' ? 'completed' : 'attention';
       const session = (state.snapshot && state.snapshot.sessions || []).find(item => item.id === sessionId);
-      if (session && !isProviderVisible(session.provider)) return;
+      if (session && !session.sourcePluginId && !isProviderVisible(session.provider)) return;
       selectView(event === 'completed' ? 'active' : 'waiting');
       if (session) {
-        if (session.parentId) openSubagentConversation(session.id);
-        else openDrawer(session.id);
+        const options = event === 'attention' ? safeAttentionDrawerOptions : {};
+        if (session.parentId) openSubagentConversation(session.id, options);
+        else openDrawer(session.id, options);
       } else toast(t("bootstrap.opened_attention_list"));
     };
+    const handleTerminalPromptResolved = (payload) => {
+      const resolution = window.LoadToAgentTerminal?.resolveAttentionPrompt?.(payload);
+      if (!resolution?.ok || !resolution.requiresText) return;
+      const session = (state.snapshot?.sessions || []).find(item => item.id === resolution.sessionId);
+      if (!session || session.parentId || !isProviderVisible(session.provider)) return;
+      selectView("terminal");
+      Promise.resolve(window.LoadToAgentTerminal.openForAgent(session, resolution.targetId)).catch(error => {
+        window.LoadToAgentRendererUtils.reportRecoverableError("terminal-prompt-follow-up-focus", error);
+        toast(window.LoadToAgentI18n.errorText(error, "agent.open_terminal_failed"));
+      });
+    };
     if (window.loadtoagent.onAttentionRequested) window.loadtoagent.onAttentionRequested(handleAttentionRequested);
+    if (window.loadtoagent.onTerminalPromptResolved) window.loadtoagent.onTerminalPromptResolved(handleTerminalPromptResolved);
     if (window.loadtoagent.onMonitorError) window.loadtoagent.onMonitorError((message) => {
       const detail = String(message || t("ui.connection_failed"));
       showInitializationError(detail);
       toast(detail);
     });
+    bindAttentionPopupSettings();
     bindEvents();
     render();
     refreshProviderUsage().catch(error => {
@@ -133,6 +214,8 @@
     window.loadtoagent.onSnapshot((snapshot) => {
       state.rawSnapshot = snapshot;
       state.snapshot = projectVisibleSnapshot(snapshot);
+      attentionActivation?.retry();
+      if (Array.isArray(snapshot.sourcePlugins)) state.sourcePlugins = snapshot.sourcePlugins;
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       setConnectedAt(snapshot.generatedAt);
       latestSnapshot = snapshot;
@@ -154,6 +237,8 @@
         }
       });
     });
+    window.addEventListener("loadtoagent:terminal-inventory-changed", () => attentionActivation?.retry());
+    window.addEventListener("loadtoagent:terminal-manual-selection", () => attentionActivation?.userNavigated());
     if (window.loadtoagent.rendererReady) await window.loadtoagent.rendererReady();
     if (window.loadtoagent.onUpdateState)
       window.loadtoagent.onUpdateState((update) => {

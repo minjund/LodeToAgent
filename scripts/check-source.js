@@ -6,7 +6,11 @@ const { execFileSync } = require('child_process');
 
 const root = path.join(__dirname, '..');
 const roots = ['bin', 'renderer', 'scripts', 'src'];
-const files = [path.join(root, 'main.js'), path.join(root, 'preload.js')];
+const files = [
+  path.join(root, 'main.js'),
+  path.join(root, 'preload.js'),
+  path.join(root, 'attention-popup-preload.js'),
+];
 
 function collect(dir) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

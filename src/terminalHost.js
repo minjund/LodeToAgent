@@ -1194,14 +1194,18 @@ class TerminalHostClient extends EventEmitter {
       this.rawWriteDeliveries.delete(this.rawWriteDeliveries.keys().next().value);
     }
   }
-  async deliverRawWrite(id, data, deliveryId, target, fingerprint) {
+  async deliverRawWrite(id, data, deliveryId, target, fingerprint, deliveryOptions = {}) {
+    const hostDeliveryOptions = { deliveryId };
+    if (Object.prototype.hasOwnProperty.call(deliveryOptions, 'expectedOutputSequence')) {
+      hostDeliveryOptions.expectedOutputSequence = deliveryOptions.expectedOutputSequence;
+    }
     const firstAttempt = { hostInstance: '', frameSent: false, deliverySupported: false };
     let result;
     try {
       result = await this.requestWithToken(null, 'write', () => {
         firstAttempt.deliverySupported = this.rawWriteDeliverySupported();
         return firstAttempt.deliverySupported
-          ? [id, data, { deliveryId }]
+          ? [id, data, hostDeliveryOptions]
           : [id, data];
       }, firstAttempt);
     } catch (error) {
@@ -1230,7 +1234,7 @@ class TerminalHostClient extends EventEmitter {
             );
           }
           return retryAttempt.deliverySupported
-            ? [id, data, { deliveryId }]
+            ? [id, data, hostDeliveryOptions]
             : [id, data];
         }, retryAttempt);
       } catch (retryError) {
@@ -1299,7 +1303,7 @@ class TerminalHostClient extends EventEmitter {
     const pending = {
       target,
       fingerprint,
-      promise: this.deliverRawWrite(id, payload, deliveryId, target, fingerprint),
+      promise: this.deliverRawWrite(id, payload, deliveryId, target, fingerprint, options),
     };
     this.rawWriteInFlight.set(deliveryId, pending);
     return pending.promise.finally(() => {
@@ -1307,7 +1311,23 @@ class TerminalHostClient extends EventEmitter {
     });
   }
   command(id, command, options) { return this.request('command', id, command, options || {}); }
-  respond(id, choiceKey) { return this.request('respond', id, choiceKey); }
+  respond(id, choiceKey, options = {}) {
+    const hasDeliveryGuard = Boolean(options && (
+      String(options.deliveryId || '').trim()
+      || Object.prototype.hasOwnProperty.call(options, 'expectedOutputSequence')
+    ));
+    if (!hasDeliveryGuard) return this.request('respond', id, choiceKey);
+    const key = String(choiceKey == null ? '' : choiceKey);
+    const payload = key === 'Escape'
+      ? '\x1b'
+      : (key === 'Enter' ? '\r' : (/^[0123456789any]$/u.test(key) ? key : ''));
+    if (!payload) {
+      const error = new Error('허용되지 않은 터미널 승인 응답입니다.');
+      error.code = 'TERMINAL_PROMPT_RESPONSE_INVALID';
+      return Promise.reject(error);
+    }
+    return this.write(id, payload, options);
+  }
   resize(id, cols, rows) { return this.request('resize', id, cols, rows); }
   signal(id, signal) {
     if (this.updateShutdown) throw new Error('업데이트를 준비하는 동안 명령창 신호를 보낼 수 없습니다.');

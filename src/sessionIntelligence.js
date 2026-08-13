@@ -69,6 +69,33 @@ function checkStatus(value) {
 }
 
 function controlCapabilities(session) {
+  if (session.sourcePluginId || session.sourcePlugin?.id) {
+    const source = session.sourceControlCapabilities || session.controlCapabilities || {};
+    const canSend = Boolean(source.sendInstruction || source.continue || source.respond);
+    return {
+      managed: Boolean(source.managed),
+      respond: Boolean(source.respond == null ? canSend : source.respond),
+      approve: Boolean(source.approve),
+      deny: Boolean(source.deny),
+      sendInstruction: canSend,
+      continue: Boolean(source.continue == null ? canSend : source.continue),
+      start: Boolean(source.start),
+      stop: Boolean(source.stop),
+      pause: Boolean(source.pause),
+      resume: Boolean(source.resume),
+      retry: Boolean(source.retry),
+      reassign: Boolean(source.reassign),
+      archive: Boolean(source.archive),
+      delete: Boolean(source.delete),
+      openOrigin: Boolean(source.openOrigin),
+      readConversation: Boolean(source.readConversation),
+      readSteps: Boolean(source.readSteps),
+      readTabs: Boolean(source.readTabs),
+      readArtifacts: Boolean(source.readArtifacts),
+      live: Boolean(source.live),
+      pty: false,
+    };
+  }
   const live = LIVE_STATUSES.has(session.status);
   const managed = Boolean(session.runId);
   const resumable = Boolean(session.externalId && ['claude', 'codex', 'gemini', 'grok'].includes(session.provider));
@@ -80,12 +107,22 @@ function controlCapabilities(session) {
     approve: session.status === 'waiting' && canSend,
     deny: session.status === 'waiting' && canSend,
     sendInstruction: canSend,
+    continue: canSend,
+    start: false,
     stop: managed && (live || session.status === 'paused'),
     pause: managed && session.status === 'running',
     resume: (managed && session.status === 'paused') || (!live && resumable),
     retry: managed && ['failed', 'cancelled'].includes(session.status),
     reassign: Boolean(session.cwd && (session.title || session.sharedGoal || latestMeaningfulText(session))),
+    archive: false,
+    delete: false,
     openOrigin: ['claude-desktop', 'codex-desktop'].includes(session.clientKind),
+    readConversation: true,
+    readSteps: true,
+    readTabs: false,
+    readArtifacts: true,
+    live: true,
+    pty: !session.parentId,
   };
 }
 
@@ -161,6 +198,22 @@ function extractArtifacts(session) {
     seen.add(key);
     artifacts.push({ kind, value: clean, verified });
   };
+  const explicitArtifacts = [
+    ...(Array.isArray(session.artifacts) ? session.artifacts : []),
+    ...(Array.isArray(session.outcome?.artifacts) ? session.outcome.artifacts : []),
+  ];
+  for (const artifact of explicitArtifacts) {
+    if (artifact == null) continue;
+    if (typeof artifact === 'string') {
+      add('file', artifact, false);
+      continue;
+    }
+    add(
+      artifact.kind || artifact.type || 'file',
+      artifact.value || artifact.path || artifact.externalPath || artifact.title || artifact.name,
+      Boolean(artifact.verified),
+    );
+  }
   const filePattern = /(?:[A-Za-z]:\\|\/)?(?:[\w.@-]+[\\/])+[\w.@()+-]+\.[A-Za-z0-9]{1,12}/g;
   for (const match of body.match(filePattern) || []) add(TEST_PATTERN.test(match) ? 'test' : 'file', match, false);
   if (/(?:commit|커밋)/i.test(body)) {

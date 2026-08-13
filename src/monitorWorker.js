@@ -9,10 +9,20 @@ const { ProcessMonitor, applyRuntimePresence, inferredBridgeBindings } = require
 const { scanCodexAutomationHomes } = require('./automationMonitor');
 const { reportRecoverableError } = require('./diagnostics');
 const { enrichSession, enrichSessions } = require('./sessionIntelligence');
+const { SourcePluginMonitorHost } = require('./sourcePlugins/monitorHost');
 
 const tmuxMonitor = new TmuxMonitor();
 tmuxMonitor.scan();
 const processMonitor = new ProcessMonitor();
+const sourcePluginHost = new SourcePluginMonitorHost({
+  home: workerData.home,
+  platform: process.platform,
+  settings: workerData.sourcePluginSettings || {},
+});
+sourcePluginHost.setRuntimeStatuses(workerData.sourcePluginStatuses || []);
+for (const [pluginId, payload] of Object.entries(workerData.sourcePluginSnapshots || {})) {
+  sourcePluginHost.setExternalSnapshot(pluginId, payload);
+}
 
 const monitor = new AgentMonitor({
   runsDir: workerData.runsDir,
@@ -27,6 +37,9 @@ let lastPublishedSessions = [];
 let currentBridges = Array.isArray(workerData.bridges) ? workerData.bridges : [];
 const discoveryWatchers = [];
 let scheduledScanTimer = null;
+let latestCoreSnapshot = null;
+let sourceScanRunning = false;
+let stopping = false;
 
 monitor.setPinnedSessions(currentBridges);
 
@@ -44,6 +57,7 @@ for (const root of [
   path.join(workerData.home, '.codex', 'sessions'),
   path.join(workerData.home, '.gemini', 'tmp'),
   path.join(workerData.home, '.grok', 'sessions'),
+  ...sourcePluginHost.watchRoots(),
 ]) {
   if (!fs.existsSync(root)) continue;
   try {
@@ -194,6 +208,17 @@ function cardSession(session) {
     source: session.source,
     sourceLabel: session.sourceLabel,
     clientKind: session.clientKind || '',
+    sourcePluginId: session.sourcePluginId || '',
+    sourcePlugin: session.sourcePlugin || null,
+    readOnly: Boolean(session.readOnly),
+    controlAuthority: session.controlAuthority || '',
+    importMode: session.importMode || '',
+    orchestrator: session.orchestrator || '',
+    modelProvider: session.modelProvider || '',
+    modelProviderLabel: session.modelProviderLabel || '',
+    provenance: session.provenance || null,
+    terminalBackend: session.terminalBackend || '',
+    presentation: session.presentation || null,
     status: session.status,
     activityState: session.activityState || '',
     statusDetail: clip(session.statusDetail, 180),
@@ -235,14 +260,17 @@ function cardSession(session) {
     progress: session.progress,
     health: session.health,
     controlCapabilities: session.controlCapabilities,
+    sourceControlCapabilities: session.sourceControlCapabilities || null,
+    controlUnavailableReasons: session.controlUnavailableReasons || {},
     evidence: session.evidence,
     outcome: session.outcome,
     messages: selectCardMessages(session.messages),
     lifecycle: (session.lifecycle || []).slice(-2).map(cardLifecycle),
+    resources: session.resources || { browserTabs: [] },
   };
 }
 
-function fingerprint(snapshot, tmux, automations) {
+function fingerprint(snapshot, tmux, automations, sourcePlugins = []) {
   const sessions = snapshot.sessions.map(session => [
     session.id,
     session.updatedAt,
@@ -263,6 +291,10 @@ function fingerprint(snapshot, tmux, automations) {
     session.progress && `${session.progress.stage}:${session.progress.percent}:${session.progress.currentStep}`,
     session.health && `${session.health.level}:${session.health.signals.map(signal => signal.code).join(',')}`,
     session.outcome && `${session.outcome.status}:${session.outcome.artifacts.length}:${session.outcome.checks.length}`,
+    session.sourcePlugin && `${session.sourcePlugin.id}:${session.sourcePlugin.revision}`,
+    session.sourcePluginId && `${session.controlAuthority || ''}:${Boolean(session.readOnly)}:${JSON.stringify(session.sourceControlCapabilities || {})}`,
+    session.provenance && `${session.provenance.source?.id || ''}:${session.provenance.provider?.id || ''}:${session.provenance.environment?.kind || ''}:${session.provenance.runtime?.kind || ''}`,
+    (session.resources?.browserTabs || []).map(tab => `${tab.id || ''}:${tab.title || ''}:${tab.url || ''}:${tab.status || ''}`).join(','),
     (session.runtimePresence || []).map(item => `${item.id}:${item.pid}:${item.terminalId || ''}`).join(','),
   ]);
   const tmuxState = (tmux.distros || []).flatMap(distro => (distro.sessions || []).flatMap(tmuxSession => (tmuxSession.windows || []).flatMap(window => (window.panes || []).map(pane => [
@@ -283,17 +315,28 @@ function fingerprint(snapshot, tmux, automations) {
   const automationState = (automations || []).map(item => [
     item.id, item.name, item.status, item.rrule, item.nextRunAt, item.updatedAt, (item.cwds || []).join('|'),
   ]);
-  return JSON.stringify([Math.floor(Date.now() / 60_000), sessions, tmuxState, automationState]);
+  const sourceState = sourcePlugins.map(item => [
+    item.id,
+    item.state,
+    item.available,
+    item.reason,
+    item.sessionCount,
+    JSON.stringify(item.capabilities || {}),
+    JSON.stringify(item.managedSessionIds || []),
+  ]);
+  return JSON.stringify([Math.floor(Date.now() / 60_000), sessions, tmuxState, automationState, sourceState]);
 }
 
-monitor.on('snapshot', snapshot => {
+async function publishSnapshot(snapshot, sourceSnapshot) {
+  if (stopping) return;
+  const combinedSessions = [...snapshot.sessions, ...sourceSnapshot.sessions];
   const tmuxBase = tmuxMonitor.scan();
   const historyHomes = tmuxMonitor.historyHomes();
   monitor.setHistoryHomes(historyHomes);
-  const tmux = linkAgentSessions(tmuxBase, snapshot.sessions);
+  const tmux = linkAgentSessions(tmuxBase, combinedSessions);
   const processSnapshot = processMonitor.scan();
   const observedAt = Date.now();
-  const observedSessions = applyRuntimePresence(snapshot.sessions, tmux, processSnapshot, observedAt, currentBridges);
+  const observedSessions = applyRuntimePresence(combinedSessions, tmux, processSnapshot, observedAt, currentBridges);
   const sessions = enrichSessions(observedSessions, observedAt);
   const localKind = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
   const automations = scanCodexAutomationHomes({
@@ -306,7 +349,7 @@ monitor.on('snapshot', snapshot => {
     automations,
     summary: buildSummary(sessions, monitor.availability),
   };
-  const nextFingerprint = fingerprint(runtimeSnapshot, tmux, automations);
+  const nextFingerprint = fingerprint(runtimeSnapshot, tmux, automations, sourceSnapshot.statuses);
   if (nextFingerprint === lastFingerprint) return;
   lastFingerprint = nextFingerprint;
   lastPublishedSessions = sessions;
@@ -318,6 +361,7 @@ monitor.on('snapshot', snapshot => {
       sessions: sessions.map(cardSession),
       automations,
       summary: runtimeSnapshot.summary,
+      sourcePlugins: sourceSnapshot.statuses,
       tmux,
       runtime: {
         localProcesses: processSnapshot.processes.length,
@@ -325,6 +369,33 @@ monitor.on('snapshot', snapshot => {
         tmuxProcesses: tmux.summary.aiPanes,
       },
     },
+  });
+}
+
+monitor.on('snapshot', snapshot => {
+  latestCoreSnapshot = snapshot;
+  if (sourceScanRunning) return;
+  sourceScanRunning = true;
+  const drain = async () => {
+    while (latestCoreSnapshot) {
+      let coreSnapshot = latestCoreSnapshot;
+      latestCoreSnapshot = null;
+      const sourceSnapshot = await sourcePluginHost.scan();
+      // Use the newest provider snapshot that arrived while plugin I/O was in
+      // flight. This coalesces bursts without cancelling every slow scan.
+      if (latestCoreSnapshot) {
+        coreSnapshot = latestCoreSnapshot;
+        latestCoreSnapshot = null;
+      }
+      await publishSnapshot(coreSnapshot, sourceSnapshot);
+    }
+  };
+  drain().catch(error => {
+    reportRecoverableError('source-plugin-scan', error);
+    parentPort.postMessage({ type: 'recoverable-error', scope: 'source-plugin-scan', message: String(error && error.message || error) });
+  }).finally(() => {
+    sourceScanRunning = false;
+    if (latestCoreSnapshot) scheduleScan(0);
   });
 });
 parentPort.on('message', message => {
@@ -338,20 +409,35 @@ parentPort.on('message', message => {
     monitor.setPinnedSessions(currentBridges);
     scheduleScan(0);
   }
+  if (message.type === 'source-plugin-state') {
+    sourcePluginHost.setRuntimeStatuses(message.statuses || []);
+    for (const [pluginId, payload] of Object.entries(message.snapshots || {})) {
+      sourcePluginHost.setExternalSnapshot(pluginId, payload);
+    }
+    scheduleScan(0);
+  }
   if (message.type === 'detail') {
     const runtime = lastPublishedSessions.find(item => item.id === message.sessionId) || null;
-    const stored = monitor.detailSession(message.sessionId);
-    const merged = stored && runtime
-      ? { ...stored, status: runtime.status, activityState: runtime.activityState, statusDetail: runtime.statusDetail, statusObserved: runtime.statusObserved, runtimePresence: runtime.runtimePresence || [] }
-      : (stored || runtime);
-    const session = enrichSession(merged, lastPublishedSessions, Date.now());
-    parentPort.postMessage({ type: 'detail-result', requestId: message.requestId, session });
+    Promise.resolve(sourcePluginHost.owns(message.sessionId)
+      ? sourcePluginHost.detail(message.sessionId)
+      : monitor.detailSession(message.sessionId)).then(stored => {
+      const merged = stored && runtime
+        ? { ...stored, status: runtime.status, activityState: runtime.activityState, statusDetail: runtime.statusDetail, statusObserved: runtime.statusObserved, runtimePresence: runtime.runtimePresence || [], controlCapabilities: runtime.controlCapabilities, controlUnavailableReasons: runtime.controlUnavailableReasons || {}, sourceControlCapabilities: runtime.sourceControlCapabilities }
+        : (stored || runtime);
+      const session = enrichSession(merged, lastPublishedSessions, Date.now());
+      parentPort.postMessage({ type: 'detail-result', requestId: message.requestId, session });
+    }).catch(error => {
+      reportRecoverableError('source-plugin-detail', error);
+      parentPort.postMessage({ type: 'detail-result', requestId: message.requestId, session: null, error: String(error && error.message || error) });
+    });
   }
   if (message.type === 'stop') {
+    stopping = true;
     if (scheduledScanTimer) clearTimeout(scheduledScanTimer);
     scheduledScanTimer = null;
     monitor.stop();
     discoveryWatchers.forEach(watcher => watcher.close());
+    Promise.resolve(sourcePluginHost.dispose()).finally(() => parentPort.postMessage({ type: 'stopped' }));
   }
 });
 monitor.start();

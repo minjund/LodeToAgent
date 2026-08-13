@@ -258,6 +258,20 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
 
   function controlButtonsHtml(session) {
     const controls = session.controlCapabilities || {};
+    if (session.sourcePluginId) {
+      const reasons = session.controlUnavailableReasons || {};
+      const button = (action, label, tone = "") => {
+        const supported = Boolean(controls[action]);
+        const reason = reasons[action] || "";
+        if (!supported && !reason) return "";
+        const busy = state.sourceActionRequests.has(`${session.id}:${action}`);
+        return `<button type="button" class="${tone}" data-source-session-action="${action}" data-source-session-id="${esc(session.id)}"
+          ${!supported || busy ? `disabled${busy ? ' aria-busy="true"' : ""}` : ""} ${reason ? `title="${esc(reason)}"` : ""}>${esc(label)}</button>`;
+      };
+      return `<div class="management-control-buttons" aria-label="${esc(t("management.controls"))}">
+        ${button("stop", "중지", "danger")}${button("archive", "보관")}${button("delete", "삭제", "danger")}
+      </div>`;
+    }
     const canReassign = controls.reassign && (context.visibleProviders?.() || state.providers)
       .some(provider => provider.id !== session.provider && state.availability[provider.id]);
     const busy = action => state.runControlRequests.has(`${session.runId || session.id}:${action}`);
@@ -777,6 +791,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
     const evidence = session.evidence || { sources: [] };
     const controls = session.controlCapabilities || {};
     const pendingReviewTargets = resultReviewTargets(session);
+    const browserTabs = Array.isArray(session.resources?.browserTabs) ? session.resources.browserTabs : [];
     return `<div class="management-detail">
       ${pendingReviewTargets.length ? `<section class="management-result-review" aria-labelledby="managementResultReviewTitle">
         <div><span>${esc(t("management.result_review_eyebrow"))}</span><b id="managementResultReviewTitle">${esc(t("management.result_review_title"))}</b><small>${esc(t("management.result_review_help"))}</small></div>
@@ -789,6 +804,7 @@ window.LoadToAgentAppFactories.createManagement = function createManagement(cont
       ${(session.attention?.category && session.attention.category !== "none") || session.attention?.required ? `<section class="management-attention-detail"><header><span>${esc(attentionLabel(session.attention.kind))}</span><b>${esc(session.attention.summary)}</b></header>${quickActionsHtml(session)}${controls.sendInstruction ? context.agentCommandComposer(session) : ""}</section>` : ""}
       ${progressHtml(session)}
       ${healthHtml(session)}
+      ${browserTabs.length ? `<section class="management-browser-tabs"><header><span>브라우저 탭</span><b>${esc(t("common.items", { count: browserTabs.length }))}</b></header><ul>${browserTabs.map(tab => `<li><i aria-hidden="true">↗</i><div><b title="${esc(tab.title || tab.url || "")}">${esc(tab.title || tab.url || "제목 없는 탭")}</b><small title="${esc(tab.url || "")}">${esc(tab.url || "")}</small></div><span>${esc(tab.status || "open")}</span></li>`).join("")}</ul></section>` : ""}
       <section class="management-artifacts"><header><span>${esc(t("management.artifacts"))}</span><b>${esc(t("common.items", { count: (outcome.artifacts || []).length }))}</b></header>${outcome.artifacts?.length ? `<ul>${outcome.artifacts.map(item => `<li><i>${esc(item.kind)}</i><b title="${esc(item.value)}">${esc(item.value)}</b><span>${esc(t("management.detected"))}</span></li>`).join("")}</ul>` : `<p>${esc(t("management.no_artifacts"))}</p>`}</section>
       <section class="management-checks"><header><span>${esc(t("management.verification_checks"))}</span><b>${esc(t("common.items", { count: (outcome.checks || []).length }))}</b></header>${outcome.checks?.length ? `<ul>${outcome.checks.map(check => `<li class="${esc(check.status)}"><i></i><b>${esc(check.label)}</b><span>${esc(t(`management.check.${check.status}`))}</span></li>`).join("")}</ul>` : `<p>${esc(t("management.no_checks"))}</p>`}</section>
       <section class="management-evidence"><header><span>${esc(t("management.evidence_title"))}</span><b>${esc(evidenceLabel(evidence.confidence))}</b></header><dl><div><dt>${esc(t("management.evidence_status"))}</dt><dd>${esc(evidenceLabel(evidence.status))}</dd></div><div><dt>${esc(t("management.evidence_hierarchy"))}</dt><dd>${esc(evidenceLabel(evidence.hierarchy))}</dd></div><div><dt>${esc(t("management.evidence_completion"))}</dt><dd>${esc(evidenceLabel(evidence.completion))}</dd></div></dl><p>${esc((evidence.sources || []).join(" · ") || t("management.signal_unavailable"))}</p></section>

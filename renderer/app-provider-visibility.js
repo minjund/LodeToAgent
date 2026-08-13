@@ -37,7 +37,7 @@ window.LoadToAgentAppFactories.createProviderVisibility = function createProvide
   }
 
   function visibleSessions() {
-    return (state.snapshot?.sessions || []).filter((session) => isProviderVisible(session.provider));
+    return (state.snapshot?.sessions || []).filter((session) => session.sourcePluginId || isProviderVisible(session.provider));
   }
 
   function visibleTmux(tmux = (state.rawSnapshot || state.snapshot)?.tmux) {
@@ -71,7 +71,7 @@ window.LoadToAgentAppFactories.createProviderVisibility = function createProvide
 
   function projectVisibleSnapshot(snapshot = state.rawSnapshot || state.snapshot) {
     if (!snapshot) return snapshot;
-    const sessions = (snapshot.sessions || []).filter((session) => isProviderVisible(session.provider));
+    const sessions = (snapshot.sessions || []).filter((session) => session.sourcePluginId || isProviderVisible(session.provider));
     const usage = Object.fromEntries(USAGE_KEYS.map((key) => [
       key,
       sessions.reduce((sum, session) => sum + Number(session.usage?.[key] || 0), 0),

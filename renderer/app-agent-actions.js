@@ -505,7 +505,12 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     // cached after a refresh failure); never let that stale record keep an old
     // provider session, workspace, environment, or tmux pane writable.
     const selected = { ...detail };
-    for (const field of ["provider", "externalId", "cwd", "environment", "runtimePresence"]) {
+    for (const field of [
+      "provider", "externalId", "cwd", "environment", "runtimePresence", "sourcePluginId", "sourcePlugin",
+      "provenance", "orchestrator", "modelProvider", "modelProviderLabel", "terminalBackend", "presentation",
+      "controlCapabilities", "sourceControlCapabilities", "controlUnavailableReasons", "resources",
+      "readOnly", "controlAuthority", "importMode",
+    ]) {
       selected[field] = snapshot[field];
     }
 
@@ -929,6 +934,55 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     }
   }
 
+  async function controlSourceSession(sessionId, action) {
+    const session = snapshotSession(sessionId) || state.details.get(sessionId);
+    const key = `${sessionId}:${action}`;
+    if (!session?.sourcePluginId || state.sourceActionRequests.has(key)) return;
+    state.sourceActionRequests.add(key);
+    context.renderDrawer?.();
+    try {
+      let input = { requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}` };
+      if (action === "delete") {
+        const prepared = await window.loadtoagent.prepareSourceDelete(sessionId);
+        const label = prepared?.title || session.title || "이 작업";
+        if (!window.confirm(`“${label}” 기록을 삭제할까요?\n\n이 작업은 되돌릴 수 없습니다.`)) return;
+        input = { ...input, deleteToken: prepared.token };
+      }
+      const result = await window.loadtoagent.controlSourceSession(sessionId, action, input);
+      if (!result || result.ok === false) throw new Error(result?.error || `${action} 요청을 처리하지 못했습니다.`);
+      context.toast(action === "delete" ? "기록을 삭제했습니다." : action === "archive" ? "작업을 보관했습니다." : "요청을 전달했습니다.");
+      if (action === "delete") context.closeDrawer?.(false);
+      await window.loadtoagent.refreshSources?.();
+    } catch (error) {
+      context.toast(error?.message || "작업 조작에 실패했습니다.");
+    } finally {
+      state.sourceActionRequests.delete(key);
+      context.renderDrawer?.();
+    }
+  }
+
+  async function sendSourceMessage(sessionId, rawPrompt) {
+    const prompt = String(rawPrompt || "").trim();
+    const key = `${sessionId}:send`;
+    if (!prompt || state.sourceActionRequests.has(key)) return;
+    state.sourceActionRequests.add(key);
+    context.renderDrawer?.();
+    try {
+      const result = await window.loadtoagent.controlSourceSession(sessionId, "send", {
+        prompt,
+        requestId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
+      });
+      if (!result || result.ok === false) throw new Error(result?.error || "지시를 전달하지 못했습니다.");
+      state.sourceMessageDrafts.delete(sessionId);
+      context.toast("이어갈 지시를 전달했습니다.");
+    } catch (error) {
+      context.toast(error?.message || "지시 전송에 실패했습니다.");
+    } finally {
+      state.sourceActionRequests.delete(key);
+      context.renderDrawer?.();
+    }
+  }
+
   function readyQuickResponseForm(sessionId, form, options = {}) {
     const session = snapshotSession(sessionId);
     const input = form?.querySelector?.("[data-agent-command-draft]");
@@ -1115,6 +1169,8 @@ window.LoadToAgentAppFactories.createAgentActions = function createAgentActions(
     openAgentTerminal,
     copyBridgeCommand,
     controlManagedRun,
+    controlSourceSession,
+    sendSourceMessage,
     quickRespond,
     prepareReassignment,
     preconnectProjectAgentTerminals,

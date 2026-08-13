@@ -28,6 +28,7 @@ function createInlineHarness(root, options = {}) {
   };
   const mountCalls = [];
   const resumeCalls = [];
+  const restartCalls = [];
   const focusCalls = [];
   const unmountCalls = [];
   const documentListeners = new Map();
@@ -41,6 +42,15 @@ function createInlineHarness(root, options = {}) {
     setAttribute(name, value) { resumeAttributes.set(name, String(value)); },
     removeAttribute(name) { resumeAttributes.delete(name); },
     closest(selector) { return selector === '[data-inline-terminal-resume]' ? this : null; },
+  };
+  const reconnectAttributes = new Map();
+  const reconnect = {
+    classList: classList(),
+    disabled: false,
+    getAttribute: name => reconnectAttributes.get(name) || null,
+    setAttribute(name, value) { reconnectAttributes.set(name, String(value)); },
+    removeAttribute(name) { reconnectAttributes.delete(name); },
+    closest(selector) { return selector === '[data-inline-terminal-reconnect]' ? this : null; },
   };
   const empty = {
     classList: classList(),
@@ -71,6 +81,7 @@ function createInlineHarness(root, options = {}) {
       if (selector === '[data-inline-terminal-resume]') return resume;
       if (selector === '[data-inline-terminal-status]') return status;
       if (selector === '[data-inline-terminal-meta]') return meta;
+      if (selector === '[data-inline-terminal-reconnect]') return reconnect;
       return null;
     },
   };
@@ -138,6 +149,12 @@ function createInlineHarness(root, options = {}) {
       resumeCalls.push(args);
       return options.resumeForAgent(...args, resumeCalls.length);
     },
+    restartForAgent: async (...args) => {
+      restartCalls.push(args);
+      return options.restartForAgent
+        ? options.restartForAgent(...args, restartCalls.length)
+        : { ok: true, target: connectedTarget };
+    },
     resumeSupport: () => ({ supported: false, reason: 'not resumable in fixture' }),
     unmountEmbedded: () => {
       unmountCalls.push(embedded.terminalId);
@@ -177,6 +194,8 @@ function createInlineHarness(root, options = {}) {
     document,
     focusCalls,
     mountCalls,
+    reconnectButton: reconnect,
+    restartCalls,
     resumeCalls,
     resumeButton: resume,
     inlineViewport: viewport,
@@ -337,6 +356,34 @@ function registerInlineAgentTerminalTests(context) {
     harness.toggle(harness.session.id);
     assert.equal(harness.app.state.inlineTerminalSessionId, null,
       '하위 AI 클릭이 인라인 PTY 상태를 열었습니다.');
+  });
+
+  test('인라인 PTY 새로고침은 같은 terminal ID의 provider 프로세스를 한 번만 재시작한다', async () => {
+    let releaseRestart;
+    const harness = createInlineHarness(root, {
+      mountForAgent: async () => ({
+        ok: true,
+        target: { id: 'terminal:inline-refresh', terminalId: 'terminal:inline-refresh', kind: 'terminal' },
+      }),
+      restartForAgent: () => new Promise(resolve => { releaseRestart = resolve; }),
+    });
+    await harness.sync();
+    harness.mountCalls.length = 0;
+
+    harness.dispatchDocument('click', { target: harness.reconnectButton, stopPropagation() {} });
+    harness.dispatchDocument('click', { target: harness.reconnectButton, stopPropagation() {} });
+    await Promise.resolve();
+    assert.equal(harness.restartCalls.length, 1, '빠른 중복 클릭이 같은 provider PTY를 두 번 재시작했습니다.');
+    assert.equal(harness.restartCalls[0][1].terminalId, 'terminal:inline-refresh');
+    assert.equal(harness.resumeCalls.length, 0, '새로고침이 별도 resume 프로세스를 만들었습니다.');
+
+    releaseRestart({
+      ok: true,
+      target: { id: 'terminal:inline-refresh', terminalId: 'terminal:inline-refresh', kind: 'terminal' },
+    });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(harness.mountCalls.length, 1, '재시작한 PTY를 같은 terminal ID로 다시 마운트하지 않았습니다.');
+    assert.equal(harness.mountCalls[0].options.targetId, 'terminal:inline-refresh');
   });
 
   test('세션 연결 서명이 바뀌면 연결된 오래된 PTY를 재사용하지 않는다', async () => {

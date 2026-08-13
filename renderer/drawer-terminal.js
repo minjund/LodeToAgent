@@ -407,26 +407,27 @@
     setStatus('connecting', 'drawer.terminal_connecting');
   }
 
-  element('drawerTerminalFocusBtn')?.addEventListener('click', () => {
-    if (!window.LoadToAgentTerminal?.focusEmbedded?.()) setStatus('unavailable', 'drawer.terminal_unavailable');
-  });
   element('drawerTerminalReconnectBtn')?.addEventListener('click', async event => {
     const button = event.currentTarget;
     if (!state.session || button.getAttribute('aria-busy') === 'true') return;
     button.setAttribute('aria-busy', 'true');
     try {
+      const session = state.session;
+      const signature = state.connectionSignature || connectionSignature(session);
+      const embedded = window.LoadToAgentTerminal?.embeddedState?.() || {};
+      const terminalId = String(embedded.agentSessionId === session.id
+        ? embedded.terminalId
+        : targetIdOf(state.target));
+      if (!terminalId) return showUnavailable(session);
       clearUnavailable(state.session.id);
       state.connectionFailures.delete(state.session.id);
-      await window.LoadToAgentTerminal?.refresh?.();
-      const missingTargetIds = (window.LoadToAgentTerminal?.agentTargets?.(state.session) || [])
-        .filter(target => target.kind === 'terminal'
-          && !window.LoadToAgentTerminal?.hasTerminalSession?.(targetIdOf(target)))
-        .map(targetIdOf);
-      await mount(state.session, {
+      const restarted = await window.LoadToAgentTerminal?.restartForAgent?.(session, { terminalId });
+      if (!restarted?.ok) throw new Error(t('agent.reconnect_failed'));
+      if (state.session?.id !== session.id || state.connectionSignature !== signature) return;
+      await mount(session, {
         force: true,
-        targetId: selectedTargetId(state.session, true, new Set(missingTargetIds)),
-        createIfMissing: true,
-        excludeTargetIds: missingTargetIds,
+        targetId: terminalId,
+        createIfMissing: false,
       });
     } catch (error) {
       setStatus('error', 'drawer.terminal_failed', window.LoadToAgentI18n.errorText(error, 'drawer.terminal_failed'));

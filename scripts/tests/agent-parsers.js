@@ -410,6 +410,23 @@ function registerClaudeParserTests(context) {
     const session = parseClaude(info);
     assert.equal(session.status, 'running');
     assert.equal(session.statusDetail, '도구 실행 또는 스트리밍 중');
+    assert.equal(session.completionObserved, false);
+    assert.equal(session.completedAt, null);
+
+    const queuedFile = path.join(temp, 'claude', 'project', 'queued-after-complete.jsonl');
+    const queuedInfo = jsonl(queuedFile, [
+      { type: 'user', timestamp: '2026-07-14T02:00:00Z', message: { role: 'user', content: '첫 작업' } },
+      { type: 'assistant', timestamp: '2026-07-14T02:00:01Z', message: { role: 'assistant', stop_reason: 'end_turn', content: [{ type: 'text', text: '첫 작업 완료' }] } },
+      { type: 'system', subtype: 'turn_complete', timestamp: '2026-07-14T02:00:02Z' },
+      { type: 'queue-operation', operation: 'enqueue', timestamp: '2026-07-14T02:00:03Z', content: '두 번째 작업을 계속해줘' },
+    ]);
+    const queuedActive = new Date(Date.now() - 5_000);
+    fs.utimesSync(queuedFile, queuedActive, queuedActive);
+    queuedInfo.mtimeMs = fs.statSync(queuedFile).mtimeMs;
+    const queued = parseClaude(queuedInfo);
+    assert.equal(queued.status, 'running');
+    assert.equal(queued.completionObserved, false);
+    assert.equal(queued.completedAt, null);
   });
 
   test('Claude 내부 명령 안내를 숨기고 최근 실제 요청을 제목으로 사용한다', () => {
@@ -601,7 +618,9 @@ function registerCodexParserTests(context) {
       { timestamp: '2026-07-14T03:10:03Z', type: 'event_msg', payload: { type: 'task_complete', turn_id: 'question-turn', last_agent_message: question } },
       { timestamp: '2026-07-14T03:10:04Z', type: 'event_msg', payload: { type: 'user_message', message: 'WSL로 진행해줘' } },
     ]));
-    assert.notEqual(answered.status, 'waiting');
+    assert.equal(answered.status, 'running');
+    assert.equal(answered.completionObserved, false);
+    assert.equal(answered.completedAt, null);
 
     const restartedSubagent = parseCodex(jsonl(path.join(temp, 'codex', 'rollout-restarted-subagent.jsonl'), [
       { timestamp: '2026-07-14T03:15:00Z', type: 'session_meta', payload: { id: 'restarted-subagent', cwd: 'D:\\repo', source: { subagent: { thread_spawn: { parent_thread_id: 'parent', depth: 1, agent_path: '/root/restarted' } } } } },
