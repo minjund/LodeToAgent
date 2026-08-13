@@ -51,6 +51,9 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     drawerPresentation: "modal",
     drawerExecutionId: null,
     runProvider: "claude",
+    runSource: "direct",
+    sourcePlugins: [],
+    sourcePluginSettings: { version: 1, asideHistoryFolders: [] },
     details: new Map(),
     detailLoadingIds: new Set(),
     drawerForceLatest: false,
@@ -77,6 +80,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     expandedConversationPrompts: new Set(),
     conversationTurnLimits: new Map(),
     stopRequests: new Set(),
+    sourceActionRequests: new Set(),
+    sourceMessageDrafts: new Map(),
     runControlRequests: new Set(),
     managementFilter: "all",
     detailErrors: new Map(),
@@ -878,6 +883,44 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
   function providerStyle(id) {
     return `--provider:${providerInfo(id).accent}`;
   }
+  function sessionDimensions(session = {}) {
+    const provenance = session.provenance || {};
+    const sourceId = String(provenance.source?.id || session.orchestrator || (session.runId ? "loadtoagent" : "direct"));
+    const baseSourceLabel = String(provenance.source?.label || session.sourceLabel || ({
+      omo: "OMO · OpenCode", aside: "Aside Browser", loadtoagent: "LoadToAgent", direct: "Direct",
+    })[sourceId] || sourceId);
+    const sourceLabel = session.controlAuthority === "read-only-import" || session.importMode === "selected-folder"
+      ? `${baseSourceLabel} · 읽기 전용 폴더`
+      : session.controlAuthority === "official-session-id" || session.importMode === "official-mcp"
+        ? `${baseSourceLabel} · 공식 연결`
+        : baseSourceLabel;
+    const actualProviderId = String(provenance.provider?.id || provenance.modelProvider?.id || session.modelProvider || session.provider || "unknown");
+    const actualProviderLabel = String(provenance.provider?.label || provenance.modelProvider?.label || session.modelProviderLabel || providerInfo(session.provider).label || actualProviderId);
+    const rawEnvironment = provenance.environment || session.runtimeEnvironment || session.environment || {};
+    const environmentId = String(rawEnvironment.kind || rawEnvironment.platform || (typeof rawEnvironment === "string" ? rawEnvironment : state.platform.id || "local")).toLowerCase();
+    const environmentLabel = String(rawEnvironment.label || ({ win32: "Windows", windows: "Windows", darwin: "macOS", macos: "macOS", wsl: "WSL", linux: "Linux" })[environmentId] || environmentId);
+    const rawRuntime = provenance.runtime || {};
+    const runtimeId = String(rawRuntime.kind || rawRuntime.backend || session.terminalBackend || (session.runtimePresence?.length ? session.runtimePresence[0].kind : "direct"));
+    const runtimeLabel = String(rawRuntime.label || ({ opencode: "OpenCode", aside: "Aside task", application: "App", "managed-tmux": "tmux · managed" })[runtimeId] || runtimeId);
+    return {
+      source: { id: sourceId, label: sourceLabel },
+      provider: { id: actualProviderId, label: actualProviderLabel },
+      environment: { id: environmentId, label: environmentLabel },
+      runtime: { id: runtimeId, label: runtimeLabel },
+    };
+  }
+  function sessionBadgesHtml(session, options = {}) {
+    const dimensions = sessionDimensions(session);
+    const model = options.includeModel !== false && session.model ? ` · ${session.model}` : "";
+    return `<span class="session-dimensions ${options.compact ? "compact" : ""}"
+      data-session-source="${esc(dimensions.source.id)}" data-session-provider="${esc(dimensions.provider.id)}"
+      data-session-environment="${esc(dimensions.environment.id)}" data-session-runtime="${esc(dimensions.runtime.id)}">
+      <span class="session-dimension source">${esc(dimensions.source.label)}</span>
+      <span class="session-dimension provider">${esc(dimensions.provider.label)}${esc(model)}</span>
+      <span class="session-dimension environment">${esc(dimensions.environment.label)}</span>
+      <span class="session-dimension runtime">${esc(dimensions.runtime.label)}</span>
+    </span>`;
+  }
   function agentRoleLabel(value) {
     const labels = {
       explorer: window.LoadToAgentI18n.t("ui.research"), reviewer: window.LoadToAgentI18n.t("ui.review"),
@@ -1445,6 +1488,8 @@ window.LoadToAgentAppFactories.createCore = function createCore(context = {}) {
     timeOnly,
     providerInfo,
     providerStyle,
+    sessionDimensions,
+    sessionBadgesHtml,
     agentRoleLabel,
     statusClass,
     currentActivity,

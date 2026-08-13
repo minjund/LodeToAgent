@@ -7,11 +7,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
   const {
     $, $$, esc, state, motionPreference, motionState, STATUS, sessionStatusLabel = (session, status = session?.status) => STATUS[status] || status, markGuideStep, rememberDialogTrigger, restoreDialogTrigger, discardDialogTrigger, setDialogOpenState,
-    providerInfo, isLiveSession, controlRoomStatus = session => session?.status, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionOriginPath, sessionWorkspaceLabel,
+    providerInfo, sessionBadgesHtml = () => "", isLiveSession, controlRoomStatus = session => session?.status, subagentWorkState, subagentWorkLabel, isProjectlessSession, sessionOriginPath, sessionWorkspaceLabel,
     readablePreview = value => ({ full: String(value || "").trim(), text: String(value || "").trim(), truncated: false }),
     pendingConversationDelivery = () => null,
     agentResumeSupport, originAppInfo, selectedSession, snapshotSession, loadSessionDetail, loadSubagentParentDetail,
-    lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml, agentCommandComposer,
+    chatHtml, lifecycleHtml, tokensHtml, outcomeHtml, subagentCoordinationEvents, subagentConversationHtml, executionActivityDetailHtml, agentCommandComposer,
     rememberDisclosureStates = () => {}, restoreDisclosureStates = () => {},
     acknowledgeSessionNotices = () => 0, renderWorkspaces = () => {},
   } = context;
@@ -134,54 +134,73 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
   function openDrawer(id, options = {}) {
     const selected = snapshotSession(id) || state.details.get(id);
     if (selected?.parentId) return openSubagentConversation(id, options);
+    if (options.attentionActivation !== true && typeof CustomEvent === "function") {
+      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+    }
     rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = id;
     state.drawerMode = "session";
     state.drawerExecutionId = null;
     state.drawerTab = options.tab === "summary" ? "summary" : "chat";
+    state.drawerCreateTerminalIfMissing = options.createTerminalIfMissing !== false;
+    state.drawerMountTerminal = options.mountTerminal !== false;
     state.drawerForceLatest = state.drawerTab === "chat";
-    if (acknowledgeSessionNotices(selected || id) > 0) renderWorkspaces();
+    if (options.acknowledge !== false && acknowledgeSessionNotices(selected || id) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id, true);
-    setTimeout(
-      () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
-      0,
-    );
+    if (options.focus !== false) {
+      setTimeout(
+        () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
+        0,
+      );
+    }
   }
 
   function openSubagentConversation(id, options = {}) {
     const child = snapshotSession(id) || state.details.get(id);
     if (!child || !child.parentId) return openDrawer(id, options);
+    if (options.attentionActivation !== true && typeof CustomEvent === "function") {
+      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+    }
     rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = id;
     state.drawerMode = "subagent";
     state.drawerExecutionId = null;
     state.drawerTab = "chat";
+    state.drawerCreateTerminalIfMissing = false;
+    state.drawerMountTerminal = false;
     state.agentCommandRoutes.delete(id);
     state.drawerForceLatest = true;
-    if (acknowledgeSessionNotices(child) > 0) renderWorkspaces();
+    if (options.acknowledge !== false && acknowledgeSessionNotices(child) > 0) renderWorkspaces();
     openDrawerSurface(resolvedPresentation(options));
     renderDrawer();
     loadSessionDetail(id);
     loadSubagentParentDetail(child);
-    setTimeout(
-      () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
-      0,
-    );
+    if (options.focus !== false) {
+      setTimeout(
+        () => (state.drawerPresentation === "modal" ? $("#closeDrawerBtn") : $("#drawerBackToFlowBtn")).focus({ preventScroll: true }),
+        0,
+      );
+    }
   }
 
   function openExecutionActivity(ownerId, executionId) {
     const owner = snapshotSession(ownerId) || state.details.get(ownerId);
     if (!owner) return;
+    if (typeof CustomEvent === "function") {
+      window.dispatchEvent(new CustomEvent("loadtoagent:terminal-manual-selection"));
+    }
     rememberDrawerTrigger();
     markGuideStep("detail");
     state.selectedId = ownerId;
     state.drawerMode = "execution";
     state.drawerExecutionId = executionId;
     state.drawerTab = "chat";
+    state.drawerCreateTerminalIfMissing = true;
+    state.drawerMountTerminal = true;
     state.drawerForceLatest = false;
     openDrawerSurface("modal");
     renderDrawer();
@@ -245,8 +264,11 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     // A top-level session's conversation is the PTY itself. The terminal
     // surface stays visible while it connects or reports that no PTY exists;
     // it must never fall back to a second transcript/chat transport.
+    const conversationSurface = session.presentation?.conversationSurface
+      || (session.controlCapabilities?.pty === false ? "transcript" : "pty");
     const ptyConversation = conversationTab && !session.parentId && !subagentMode && !executionMode;
-    const terminalTargets = ptyConversation
+    const terminalPtyConversation = ptyConversation && conversationSurface === "pty";
+    const terminalTargets = terminalPtyConversation
       ? (window.LoadToAgentTerminal?.agentTargets?.(session) || [])
       : [];
     const savedTargetId = state.agentCommandTargets.get(session.id) || "";
@@ -270,7 +292,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
       && embeddedTerminal.agentSessionId === session.id
       && (!terminalId || embeddedTerminal.terminalId === terminalId)
       && Boolean(embeddedInventoryTarget || embeddedJustConnected);
-    const actualTerminalChat = conversationTab && !session.parentId && !subagentMode && !executionMode;
+    const actualTerminalChat = terminalPtyConversation;
     const readOnlyConversation = conversationTab && !actualTerminalChat;
     const terminalConnectionFailed = actualTerminalChat
       && drawerTerminalState.sessionId === session.id
@@ -319,15 +341,26 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
           ${stopping ? 'disabled aria-busy="true"' : ""}>
           ${esc(t(stopping ? "drawer.stop_requested" : "drawer.stop_run"))}</button>`
         : "";
-    const reset = `<button type="button" class="meta-chip session-reset-button" data-session-reset="${esc(session.id)}"
+    const reset = session.sourcePluginId ? "" : `<button type="button" class="meta-chip session-reset-button" data-session-reset="${esc(session.id)}"
       aria-label="${esc(t("session.reset"))}" title="${esc(t("session.reset_help"))}">↻ <b>${esc(t("session.reset"))}</b></button>`;
     const runtime = session.runtimePresence || [];
     const resume =
-      !isLiveSession(session) && agentResumeSupport(session).supported
+      !session.sourcePluginId && !isLiveSession(session) && agentResumeSupport(session).supported
         ? `<button type="button" class="meta-chip resume-agent" data-resume-agent="${esc(session.id)}">▶
           <b>${esc(t(originAppInfo(session) ? "drawer.continue_background_terminal" : "drawer.resume_in_terminal"))}</b>
         </button>`
         : "";
+    const sourceControls = session.sourcePluginId ? ["stop", "archive", "delete"].map(action => {
+      const supported = Boolean(session.controlCapabilities?.[action]);
+      const reason = session.controlUnavailableReasons?.[action] || "";
+      if (!supported && !reason) return "";
+      const label = action === "stop" ? "중지" : action === "archive" ? "보관" : "삭제";
+      const busy = state.sourceActionRequests.has(`${session.id}:${action}`);
+      return `<button type="button" class="meta-chip source-session-action ${action === "delete" ? "danger" : ""}"
+        data-source-session-action="${action}" data-source-session-id="${esc(session.id)}"
+        ${!supported || busy ? `disabled${busy ? ' aria-busy="true"' : ""}` : ""}
+        ${reason ? `title="${esc(reason)}" aria-label="${esc(`${label} · ${reason}`)}"` : ""}><b>${esc(label)}</b></button>`;
+    }).join("") : "";
     const originPath = sessionOriginPath(session);
     const copyWorkspace = !isProjectlessSession(session) && originPath
       ? `<button type="button" class="meta-chip meta-copy origin-project-meta" data-copy-text="${esc(originPath)}" aria-label="${esc(t("quality.copy_workspace"))}">${esc(t("project.origin"))} <b>${esc(sessionWorkspaceLabel(session))}</b><span aria-hidden="true">⧉</span></button>`
@@ -341,7 +374,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
         <b>${esc(subagentWorkLabel(session))}</b>
         </span>
         <span class="meta-chip">${esc(t("drawer.model"))} <b>${esc(session.model || t("drawer.unknown"))}</b></span>${resume}`
-      : `<span class="meta-chip">${esc(t("drawer.model"))} <b>${esc(session.model || t("drawer.unknown"))}</b>
+      : `${sessionBadgesHtml(session)}<span class="meta-chip">${esc(t("drawer.model"))} <b>${esc(session.model || t("drawer.unknown"))}</b>
         </span>
         ${copyWorkspace || `<span class="meta-chip origin-project-meta">${esc(t("project.origin"))} <b>${esc(sessionWorkspaceLabel(session))}</b></span>`}
         ${
@@ -354,7 +387,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
             ? `<span class="meta-chip runtime-meta">● <b>${esc(t("session.running_programs", { count: runtime.length }))}</b>
         </span>`
             : ""
-        }${resume}${stop}${reset}`;
+        }${resume}${stop}${sourceControls}${reset}`;
     $$(".drawer-tab").forEach((tab) => {
       const hidden = (subagentMode || executionMode) && tab.dataset.tab !== "chat";
       tab.classList.toggle("hidden", hidden);
@@ -424,7 +457,7 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
           : state.drawerTab === "summary"
             ? outcomeHtml(session)
             : state.drawerTab === "chat"
-            ? ""
+            ? chatHtml(session)
             : state.drawerTab === "lifecycle"
               ? lifecycleHtml(session)
               : tokensHtml(session);
@@ -445,14 +478,20 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
     }
     const composer = $("#drawerComposer");
     composer.dataset.mode = actualTerminalChat ? "terminal" : "conversation";
+    if (session.sourcePluginId && conversationSurface === "transcript") composer.dataset.mode = "source";
+    const showSourceComposer = Boolean(session.sourcePluginId && conversationSurface === "transcript" && session.controlCapabilities?.sendInstruction);
     const showComposer = !session.parentId
       && !executionMode
       && conversationTab
       && !actualTerminalChat
-      && typeof agentCommandComposer === "function"
-      && liveTerminalChat;
+      && (showSourceComposer || (typeof agentCommandComposer === "function" && liveTerminalChat));
     composer.classList.toggle("hidden", !showComposer);
-    const nextComposerHtml = showComposer ? agentCommandComposer.call(null, session, {
+    const sourceDraft = state.sourceMessageDrafts.get(session.id) || "";
+    const sourceBusy = state.sourceActionRequests.has(`${session.id}:send`);
+    const nextComposerHtml = showSourceComposer ? `<form class="agent-command-composer source-message-composer" data-source-message-form="${esc(session.id)}">
+      <label class="agent-command-input"><span class="sr-only">이어갈 지시</span><textarea rows="2" data-source-message-input="${esc(session.id)}" placeholder="이 작업에 이어서 지시하기" ${sourceBusy ? "disabled" : ""}>${esc(sourceDraft)}</textarea></label>
+      <div class="agent-command-actions"><button type="submit" ${sourceBusy || !sourceDraft.trim() ? "disabled" : ""} ${sourceBusy ? 'aria-busy="true"' : ""}>${sourceBusy ? "전송 중…" : "전송"}</button></div>
+    </form>` : showComposer ? agentCommandComposer.call(null, session, {
       conversation: true,
       terminal: actualTerminalChat,
       terminalStyle: conversationTab,
@@ -510,11 +549,15 @@ window.LoadToAgentAppFactories.createDrawer = function createDrawer(context = {}
         ? "agent.stopping_short"
         : terminalInterrupt ? "agent.terminal_interrupt" : "agent.stop_short");
     }
-    if (actualTerminalChat && terminalTarget) {
-      window.LoadToAgentDrawerTerminal?.mount?.(session, { targetId: terminalTarget.id, createIfMissing: true });
-    } else if (actualTerminalChat && attachableTerminalTargets.length === 0) {
-      window.LoadToAgentDrawerTerminal?.mount?.(session, { createIfMissing: true });
-    } else if (actualTerminalChat) {
+    const createTerminalIfMissing = state.drawerCreateTerminalIfMissing !== false;
+    if (state.drawerMountTerminal !== false && actualTerminalChat && terminalTarget) {
+      window.LoadToAgentDrawerTerminal?.mount?.(session, {
+        targetId: terminalTarget.id,
+        createIfMissing: createTerminalIfMissing,
+      });
+    } else if (state.drawerMountTerminal !== false && actualTerminalChat && attachableTerminalTargets.length === 0) {
+      window.LoadToAgentDrawerTerminal?.mount?.(session, { createIfMissing: createTerminalIfMissing });
+    } else if (state.drawerMountTerminal !== false && actualTerminalChat) {
       window.LoadToAgentDrawerTerminal?.mount?.(session, {
         targetId: attachableTerminalTargets[0].id,
         createIfMissing: false,

@@ -1,5 +1,24 @@
 'use strict';
 
+window.LoadToAgentTerminalEventKeys = {
+  handleClaudeModeCycle(event, context = {}) {
+    const modeCycleKey = event?.type === 'keydown'
+      && event.key === 'Tab'
+      && event.shiftKey
+      && !event.altKey
+      && !event.ctrlKey
+      && !event.metaKey;
+    if (!modeCycleKey
+      || context.provider !== 'claude'
+      || !context.isAiSession
+      || !context.sendRawInput?.('\u001b[Z')) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    context.closeMenu?.();
+    return true;
+  },
+};
+
 /** Bind terminal DOM/preload events using dependencies owned by terminal.js. */
 window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
   const t = (key, params) => window.LoadToAgentI18n.t(key, params);
@@ -9,7 +28,7 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
     refreshSessions, renderHistoryPanel, fitEntry, attachTmux, currentTmux, manageTmux,
     closeTmuxModal, errorMessage, notice, reorderSession, moveSessionByOffset,
     setTerminalFontSize, toggleTerminalFocusMode, focusComputerWorkInput,
-    isAiTerminalSession,
+    isAiTerminalSession, sendRawInputToCurrentSession, currentTerminalProvider = () => '',
     schedulePendingPromptRefresh = () => {},
     composer,
   } = context;
@@ -342,6 +361,17 @@ window.LoadToAgentTerminalEvents = function bindTerminalEvents(context) {
       composer?.sync();
     });
     $('#terminalCommandInput').addEventListener('keydown', event => {
+      if (window.LoadToAgentTerminalEventKeys.handleClaudeModeCycle(event, {
+        provider: currentTerminalProvider(),
+        isAiSession: isAiTerminalSession(currentSession()),
+        sendRawInput: sendRawInputToCurrentSession,
+        closeMenu: () => composer?.closeMenu(),
+      })) {
+        // The command composer is intentionally focused after selecting or
+        // starting an AI. Forward Claude's backtab control sequence to the PTY
+        // before the slash menu or browser focus navigation can consume it.
+        return;
+      }
       if (composer?.handleKeydown(event)) return;
       if (window.LoadToAgentImeSubmit?.handleKeydown(event, event.currentTarget)) return;
       if (event.key === 'Escape' && event.currentTarget.value) {

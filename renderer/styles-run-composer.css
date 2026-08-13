@@ -423,6 +423,69 @@ html[data-theme="light"] .run-modal-project-name {
   grid-column: 2;
 }
 
+.run-permission-mode {
+  margin-top: 13px;
+  padding: 12px;
+  border-radius: 13px;
+  background: #0a1118;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.07);
+}
+
+.run-permission-mode label {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) minmax(210px, .72fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.run-permission-mode label > span {
+  margin: 0;
+}
+
+.run-permission-mode label strong,
+.run-permission-mode label small {
+  display: block;
+}
+
+.run-permission-mode label small {
+  margin-top: 4px;
+  color: #71808e;
+  line-height: 1.4;
+}
+
+.run-permission-mode select {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 34px 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: #111a23;
+  color: #d9e2ec;
+  box-shadow: inset 0 0 0 1px #273541;
+  font: inherit;
+}
+
+.run-permission-mode > p {
+  margin: 9px 0 0;
+  color: #8795a3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.run-permission-mode > p[data-tone="warning"] {
+  color: #e7bd70;
+}
+
+.run-permission-mode > p[data-tone="danger"] {
+  color: #ff9b91;
+}
+
+@media (max-width: 620px) {
+  .run-permission-mode label {
+    grid-template-columns: 1fr;
+  }
+}
+
 .run-advanced {
   margin: 0 22px;
   border-radius: 13px;

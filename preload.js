@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   setLocale: locale => ipcRenderer.invoke('app:set-locale', locale),
   setThemeAppearance: theme => ipcRenderer.invoke('app:set-theme-appearance', theme),
   setProviderVisibility: preference => ipcRenderer.invoke('app:set-provider-visibility', preference),
+  setAttentionPopups: preference => ipcRenderer.invoke('app:set-attention-popups', preference),
+  ackAttentionActivation: result => ipcRenderer.invoke('app:ack-attention-activation', result),
+  syncAttentionPrompts: prompts => ipcRenderer.invoke('app:sync-attention-prompts', prompts),
   notifyAttentionPrompt: prompt => ipcRenderer.invoke('app:notify-attention-prompt', prompt),
   checkForUpdate: () => ipcRenderer.invoke('app:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('app:update-download'),
@@ -41,6 +44,13 @@ contextBridge.exposeInMainWorld('loadtoagent', {
   retryAgent: runId => ipcRenderer.invoke('agents:retry', runId),
   activeRuns: () => ipcRenderer.invoke('agents:active-runs'),
   probeProviders: () => ipcRenderer.invoke('providers:probe'),
+  listSources: () => ipcRenderer.invoke('sources:list'),
+  refreshSources: () => ipcRenderer.invoke('sources:refresh'),
+  startSourceTask: (pluginId, input) => ipcRenderer.invoke('sources:start', pluginId, input),
+  controlSourceSession: (sessionId, action, input) => ipcRenderer.invoke('sources:control', sessionId, action, input),
+  prepareSourceDelete: sessionId => ipcRenderer.invoke('sources:prepare-delete', sessionId),
+  pickAsideHistoryFolder: () => ipcRenderer.invoke('sources:pick-history-folder'),
+  removeAsideHistoryFolder: folder => ipcRenderer.invoke('sources:remove-history-folder', folder),
   providerUsage: options => ipcRenderer.invoke('providers:usage', options),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   addWorkspaces: () => ipcRenderer.invoke('workspaces:add'),
@@ -111,6 +121,11 @@ contextBridge.exposeInMainWorld('loadtoagent', {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('agents:attention-requested', handler);
     return () => ipcRenderer.removeListener('agents:attention-requested', handler);
+  },
+  onTerminalPromptResolved: callback => {
+    const handler = (_event, payload) => callback(payload);
+    ipcRenderer.on('agents:terminal-prompt-resolved', handler);
+    return () => ipcRenderer.removeListener('agents:terminal-prompt-resolved', handler);
   },
   onUpdateState: callback => {
     const handler = (_event, update) => callback(update);

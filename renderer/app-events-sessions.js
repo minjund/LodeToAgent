@@ -6,7 +6,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
   const {
     $, state, selectView, renderProviderOverview, renderProviderFilter, toggleProviderFilter, announceProviderFilter, renderSessions, renderTmuxMap, openDrawer, openSubagentConversation, openExecutionActivity,
     dispatchAgentCommand, interruptAgentTerminal, openAgentTerminal, copyBridgeCommand, saveDashboardPreferences = () => {},
-    controlManagedRun, quickRespond, prepareReassignment,
+    controlManagedRun, controlSourceSession = async () => {}, quickRespond, prepareReassignment,
     copyText = async () => false,
     announce = () => {},
     moveSessionOrder = () => false,
@@ -266,6 +266,8 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       if (terminal) return openAgentTerminal(terminal.dataset.agentTerminalOpen);
       const managed = event.target.closest("[data-managed-run-action]");
       if (managed) return controlManagedRun(managed.dataset.managementSessionId, managed.dataset.managedRunAction);
+      const sourceAction = event.target.closest("[data-source-session-action]");
+      if (sourceAction) return controlSourceSession(sourceAction.dataset.sourceSessionId, sourceAction.dataset.sourceSessionAction);
       const reassign = event.target.closest("[data-reassign-session]");
       if (reassign) return prepareReassignment(reassign.dataset.reassignSession);
       const filter = event.target.closest("[data-management-filter]");
@@ -328,6 +330,8 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
       if (quick) return quickRespond(quick.dataset.attentionSessionId, quick.dataset.attentionQuick, $("#attentionInbox"));
       const managed = event.target.closest("[data-managed-run-action]");
       if (managed) return controlManagedRun(managed.dataset.managementSessionId, managed.dataset.managedRunAction);
+      const sourceAction = event.target.closest("[data-source-session-action]");
+      if (sourceAction) return controlSourceSession(sourceAction.dataset.sourceSessionId, sourceAction.dataset.sourceSessionAction);
       const reassign = event.target.closest("[data-reassign-session]");
       if (reassign) prepareReassignment(reassign.dataset.reassignSession);
     });
@@ -458,7 +462,7 @@ window.LoadToAgentAppFactories.createSessionEventBindings = function createSessi
         return;
       }
       const inlineTerminal = event.target.closest("[data-inline-pty-trigger]");
-      if (inlineTerminal) {
+      if (inlineTerminal && !inlineTerminal.hasAttribute("data-transcript-source")) {
         event.stopPropagation();
         window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger, {
           focus: !inlineTerminal.closest(".control-room-session"),

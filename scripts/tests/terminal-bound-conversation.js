@@ -460,7 +460,25 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
     manager.respond(created.id, 'y');
     manager.respond(created.id, 'Escape');
     manager.respond(created.id, '7');
-    assert.deepStrictEqual(writes, ['직접 입력', '\r', '일반 질문입니다\r', '\x03', 'y', '\x1b', '7']);
+    const guarded = manager.respond(created.id, 'a', {
+      deliveryId: 'attention:approval-once',
+      expectedOutputSequence: 0,
+    });
+    assert.equal(guarded.deliveryState, 'accepted');
+    assert.equal(manager.respond(created.id, 'a', {
+      deliveryId: 'attention:approval-once',
+      expectedOutputSequence: 0,
+    }).duplicate, true, '같은 승인 전달 ID는 PTY에 두 번 쓰면 안 됩니다.');
+    assert.deepStrictEqual(writes, ['직접 입력', '\r', '일반 질문입니다\r', '\x03', 'y', '\x1b', '7', 'a']);
+    manager.sessions.get(created.id).process.dataCallback('새 프롬프트 출력');
+    assert.throws(
+      () => manager.respond(created.id, 'y', {
+        deliveryId: 'attention:stale-approval',
+        expectedOutputSequence: 0,
+      }),
+      error => error.code === 'TERMINAL_PROMPT_STALE' && error.deliveryState === 'rejected',
+    );
+    assert.deepStrictEqual(writes, ['직접 입력', '\r', '일반 질문입니다\r', '\x03', 'y', '\x1b', '7', 'a']);
     assert.throws(() => manager.respond(created.id, 'z'), error => error.code === 'TERMINAL_PROMPT_RESPONSE_INVALID');
   });
 
@@ -642,7 +660,7 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
     }
   });
 
-  test('bound PTY UI는 별도 메시지 입력란 없이 xterm stdin과 전용 respond API를 노출한다', () => {
+  test('bound PTY UI는 중복 포커스 버튼 없이 xterm stdin과 전용 respond API를 노출한다', () => {
     const workbench = fs.readFileSync(path.join(root, 'renderer', 'terminal-workbench.js'), 'utf8');
     const drawer = fs.readFileSync(path.join(root, 'renderer', 'drawer-terminal.js'), 'utf8');
     const drawerView = fs.readFileSync(path.join(root, 'renderer', 'app-drawer.js'), 'utf8');
@@ -653,12 +671,11 @@ function registerTerminalBoundConversationTests({ test, root, temp }) {
     assert.match(workbench, /inputDisabled = readOnly;/u);
     assert.match(workbench, /const inputDisabled = false;/u);
     assert.match(workbench, /if \(!inputDisabled\) \{\s*terminal\.onData/u);
-    const focusHandler = drawer.slice(drawer.indexOf("element('drawerTerminalFocusBtn')"), drawer.indexOf("element('drawerTerminalReconnectBtn')"));
-    assert.match(focusHandler, /focusEmbedded/u);
-    assert.equal(focusHandler.includes('data-agent-command-draft'), false);
+    assert.equal(drawer.includes('drawerTerminalFocusBtn'), false);
     assert.match(drawerView, /&& !actualTerminalChat/u);
     assert.equal(graph.includes('data-inline-terminal-composer'), false);
-    assert.match(messages, /터미널 입력으로 이동/u);
+    assert.equal(graph.includes('data-inline-terminal-focus'), false);
+    assert.equal(messages.includes('"drawer.terminal_focus"'), false);
     assert.match(messages, /실제 PTY 출력 및 스크롤 기록/u);
     assert.match(terminal, /loadtoagent\.terminalRespond/u);
     assert.equal((fixturePreload.match(/terminalRespond:/gu) || []).length, 2,

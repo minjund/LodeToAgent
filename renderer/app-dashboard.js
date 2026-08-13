@@ -628,12 +628,17 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
         ? latestHistorySessions.map((session) => {
           const provider = state.providerMap.get(session.provider);
           const providerLabel = provider?.label || String(session.provider || "AI").toUpperCase();
+          const transcriptSurface = session.presentation?.conversationSurface === "transcript"
+            || session.controlCapabilities?.pty === false;
+          const historyInteraction = transcriptSurface
+            ? `data-open-session="${esc(session.id)}"`
+            : `data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
           const updatedAt = new Date(session.updatedAt || 0);
           const updatedLabel = Number.isNaN(updatedAt.getTime())
             ? ""
             : updatedAt.toLocaleDateString(uiLocale(), { month: "short", day: "numeric" });
           const title = readablePreview(session.title || t("studio.session.untitled"), 54);
-          return `<button type="button" data-open-session="${esc(session.id)}" title="${esc(title.full || title.text)}">
+          return `<button type="button" ${historyInteraction} title="${esc(title.full || title.text)}">
             <span><b>${esc(shortText(session.title, 54))}</b><small>${esc([providerLabel, updatedLabel].filter(Boolean).join(" · "))}</small></span><i aria-hidden="true">›</i>
           </button>`;
         }).join("")
@@ -1221,7 +1226,23 @@ window.LoadToAgentAppFactories.createDashboard = function createDashboard(contex
       );
     const allById = new Map(visibleSessions().map((session) => [String(session.id || ""), session]));
     const contextual = new Map(sessions.map((session) => [String(session.id || ""), session]));
-    for (const session of sessions.filter(isControlRoomSession)) {
+    const selectedGraphId = String(state.graphFocusId || state.inlineTerminalSessionId || "");
+    const selectedGraphSession = allById.get(selectedGraphId);
+    if (selectedGraphSession && matchesWorkspaceFilter(selectedGraphSession)) {
+      const pending = [selectedGraphSession];
+      const selectedFamily = new Set();
+      while (pending.length) {
+        const current = pending.shift();
+        const currentId = String(current?.id || "");
+        if (!currentId || selectedFamily.has(currentId)) continue;
+        selectedFamily.add(currentId);
+        if (!matchesWorkspaceFilter(current)) continue;
+        contextual.set(currentId, current);
+        if (current.parentId) pending.push(allById.get(String(current.parentId || "")));
+        for (const childId of current.childIds || []) pending.push(allById.get(String(childId || "")));
+      }
+    }
+    for (const session of [...contextual.values()].filter(isControlRoomSession)) {
       let current = session;
       const seen = new Set();
       while (current?.parentId && !seen.has(String(current.id || ""))) {

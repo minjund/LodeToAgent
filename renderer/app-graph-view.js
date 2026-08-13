@@ -15,6 +15,7 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     timeOnly,
     providerInfo,
     providerStyle,
+    sessionBadgesHtml = () => "",
     isProviderVisible = () => true,
     visibleProviders = () => state.providers,
     agentRoleLabel,
@@ -94,20 +95,23 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
           role: session.agentRole ? ` / ${agentRoleLabel(session.agentRole)}` : "",
         })
       : t("graph.assigned_ai");
+    const transcriptSurface = session.presentation?.conversationSurface === "transcript" || session.controlCapabilities?.pty === false;
     const inlinePtyAttributes = session.parentId
       ? ""
       : ` data-inline-pty-trigger="${esc(session.id)}" aria-expanded="${state.inlineTerminalSessionId === session.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
+    const conversationAttributes = transcriptSurface ? ` data-open-session="${esc(session.id)}"` : inlinePtyAttributes;
     return `<article class="agent-node ${running ? "running" : ""} ${session.parentId ? "child-agent" : "root-agent"} ${options.focus ? "is-focus" : ""}"
       data-motion-key="agent:${esc(session.id)}"
       data-motion-value="${esc(session.updatedAt || "")}:${usage.total || 0}:${esc(session.status || "")}"
       style="${providerStyle(session.provider)}">
-      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}"${inlinePtyAttributes} aria-label="${esc(t("graph.focus_relationships", { role }))}">
+      <button class="agent-node-main" type="button" data-graph-focus="${esc(session.id)}"${conversationAttributes} aria-label="${esc(t("graph.focus_relationships", { role }))}">
         <span class="agent-node-top">
           <span class="provider-mark">${esc(provider.mark)}</span>
           <span class="agent-identity"><b>${esc(role)}</b><small>${esc(provider.label)}${session.model && session.model !== provider.label ? ` · ${esc(session.model)}` : ""}</small></span>
           ${executionModeBadge(session, true)}
           <span class="status-pill ${statusClass(presentationStatus)} activity-${esc(presentationStatus === "waiting" ? "notification" : session.activityState || "idle")}">${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, session))}</span>
         </span>
+        ${sessionBadgesHtml(session, { compact: true })}
         <span class="agent-task-label">
           ${session.parentId ? t("graph.assigned_task", { source: "" }) : t("graph.current_goal")}
         </span>
@@ -675,14 +679,18 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
     const current = controlRoomSummary(delivery ? t(deliverySummaryKey(delivery.phase)) : latestWorkCopy(root) || root.statusDetail || root.title, 74);
     const title = controlRoomAgentGoal(root, 64);
     const unitCount = activeUnits.length;
+    const transcriptSurface = root.presentation?.conversationSurface === "transcript" || root.controlCapabilities?.pty === false;
     const controlRoomPtyAttributes = root.parentId
       ? ""
       : ` data-inline-pty-trigger="${esc(root.id)}" aria-expanded="${state.inlineTerminalSessionId === root.id ? "true" : "false"}" aria-controls="agentInlineTerminal"`;
+    const controlRoomConversationAttributes = transcriptSurface ? ` data-open-session="${esc(root.id)}"` : controlRoomPtyAttributes;
     const main = `<button type="button" class="control-room-main"${controlRoomPtyAttributes}
+      ${transcriptSurface ? `data-open-session="${esc(root.id)}" data-transcript-source="true"` : ""}
       data-control-summary="${esc(title.text)}"
       data-motion-key="control-main:${esc(root.id)}" data-motion-value="${esc(root.updatedAt || "")}:${esc(root.status || "")}"
       style="${providerStyle(root.provider)}">
       <span class="control-main-top"><span class="provider-mark">${esc(provider.mark)}</span><span><b>${esc(provider.label)}${root.model && root.model !== provider.label ? ` · ${esc(root.model)}` : ""}</b></span><em><i aria-hidden="true"></i>${esc(delivery ? t(deliveryLabelKey(delivery.phase)) : statusLabel(presentationStatus, root))}</em></span>
+      ${sessionBadgesHtml(root, { compact: true })}
       <strong title="${esc(title.full)}">${esc(title.text)}</strong>
       <span class="control-main-now"><small>${esc(t("graph.current_work"))}</small><b title="${esc(current.full)}">${esc(current.text)}</b></span>
       <span class="control-main-meta"><small>${esc(t("control.unit_counts", { helpers: activeChildren.length, executions: activeExecutions.length }))}</small><b>PTY ${state.inlineTerminalSessionId === root.id ? "↑" : "↓"}</b></span>
@@ -717,9 +725,9 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <section class="control-room-column main-column"><span class="control-column-label">${esc(t("control.main_work_column"))}</span>${main}</section>
         <span class="control-flow-link live" aria-hidden="true"><i></i></span>
         <section class="control-room-column activity-column"><span class="control-column-label">${esc(t("control.running_work_column_counts", { delegated: activeChildren.length, executions: activeExecutions.length }))}</span><div class="control-room-node-list">${active}</div></section>
-        ${inlineSession ? inlineTerminalPanel(inlineSession) : ""}
         <span class="control-flow-link complete" aria-hidden="true"><i></i></span>
         <section class="control-room-column completed-column"><span class="control-column-label">${esc(t("control.completed_work_column_counts", { done: Math.max(0, completedUnits.length - completedWaitingCount), completed: completedUnits.length, waiting: completedWaitingCount }))}</span><div class="control-room-node-list completed-list">${completed}</div></section>
+        ${inlineSession ? inlineTerminalPanel(inlineSession) : ""}
       </div>
     </article>`;
   }
@@ -1200,7 +1208,6 @@ window.LoadToAgentAppFactories.createGraphView = function createGraphView(contex
         <span class="agent-inline-terminal-title"><b>${esc(provider.label)} · PTY</b><small>${esc(t("graph.selected_ai"))} · ${esc(t("graph.current_work"))}</small></span>
         <span class="agent-inline-terminal-state"><i aria-hidden="true"></i><b data-inline-terminal-status>${esc(t("drawer.terminal_connecting"))}</b><small data-inline-terminal-meta></small></span>
         <span class="agent-inline-terminal-actions">
-          <button type="button" data-inline-terminal-focus title="${esc(t("drawer.terminal_focus"))}" aria-label="${esc(t("drawer.terminal_focus"))}">⌨</button>
           <button type="button" data-inline-terminal-reconnect title="${esc(t("drawer.terminal_reconnect"))}" aria-label="${esc(t("drawer.terminal_reconnect"))}">↻</button>
           <button type="button" data-inline-terminal-close title="${esc(t("common.close"))}" aria-label="${esc(t("common.close"))}">×</button>
         </span>

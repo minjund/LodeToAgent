@@ -57,9 +57,56 @@
     return detectCodexEditApproval(value);
   }
 
+  function normalizePromptResolution(value) {
+    const raw = value && typeof value === 'object' ? value : {};
+    const sessionId = String(raw.sessionId || '').trim().slice(0, 512);
+    const terminalId = String(raw.terminalId || '').trim().slice(0, 512);
+    const targetId = String(raw.targetId || '').trim().slice(0, 512);
+    const fingerprint = String(raw.fingerprint || '').trim().slice(0, 1_000);
+    if (!sessionId || !terminalId || !targetId || targetId !== terminalId || !fingerprint) return null;
+    return {
+      sessionId,
+      terminalId,
+      targetId,
+      fingerprint,
+      choiceId: String(raw.choiceId || '').trim().slice(0, 120),
+      requiresText: raw.requiresText === true,
+    };
+  }
+
+  function applyPromptResolution(pendingPrompts, promptDismissals, value) {
+    const resolution = normalizePromptResolution(value);
+    if (!resolution || !(pendingPrompts instanceof Map) || !(promptDismissals instanceof Map)) {
+      return { ok: false, changed: false, requiresText: false };
+    }
+    const pending = pendingPrompts.get(resolution.sessionId) || null;
+    const matches = Boolean(pending
+      && String(pending.fingerprint || '') === resolution.fingerprint
+      && String(pending.target?.id || '') === resolution.targetId
+      && String(pending.target?.terminalId || '') === resolution.terminalId);
+    promptDismissals.set(resolution.targetId, resolution.fingerprint);
+    if (matches) pendingPrompts.delete(resolution.sessionId);
+    return { ok: true, changed: matches, ...resolution };
+  }
+
+  function reconcilePromptDismissals(promptDismissals, observedTargets) {
+    if (!(promptDismissals instanceof Map) || !(observedTargets instanceof Map)) return 0;
+    let removed = 0;
+    for (const [targetId, fingerprint] of [...promptDismissals]) {
+      if (!observedTargets.has(targetId)) continue;
+      if (observedTargets.get(targetId) === fingerprint) continue;
+      promptDismissals.delete(targetId);
+      removed += 1;
+    }
+    return removed;
+  }
+
   return {
+    applyPromptResolution,
     detectCodexEditApproval,
     detectPendingPrompt,
+    normalizePromptResolution,
+    reconcilePromptDismissals,
     stripTerminalControls,
   };
 });

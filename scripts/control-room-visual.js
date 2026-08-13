@@ -397,7 +397,8 @@ app.whenReady().then(async () => {
         const current = document.querySelector('#liveSessionGrid');
         const railBox = rail?.getBoundingClientRect();
         const currentBox = current?.getBoundingClientRect();
-        const sessionIds = [...(rail?.querySelectorAll('[data-open-session]') || [])].map(node => node.dataset.openSession);
+        const sessionIds = [...(rail?.querySelectorAll('[data-open-session], [data-inline-pty-trigger]') || [])]
+          .map(node => node.dataset.inlinePtyTrigger || node.dataset.openSession);
         return {
           visible: Boolean(railBox && railBox.width > 0 && railBox.height > 0),
           position: rail ? getComputedStyle(rail).position : '',

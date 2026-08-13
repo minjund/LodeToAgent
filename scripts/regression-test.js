@@ -22,6 +22,11 @@ const { registerTmuxControlProxyLifecycleTests } = require('./tests/tmux-control
 const { registerTerminalBoundConversationTests } = require('./tests/terminal-bound-conversation');
 const { registerBridgeBackpressureTests } = require('./tests/bridge-backpressure');
 const { registerProjectPtyPreconnectTests } = require('./tests/project-pty-preconnect');
+const { registerAttentionPopupManagerTests } = require('./tests/attention-popup-manager');
+const { registerAttentionActivationTests } = require('./tests/attention-activation');
+const { registerAttentionHookTests } = require('./tests/attention-hook');
+const { registerStructuredInputRequestTests } = require('./tests/structured-input-request');
+const { registerSourcePluginTests } = require('./tests/source-plugins');
 
 const root = path.resolve(__dirname, '..');
 const fixtures = createRegressionFixtures(root);
@@ -44,12 +49,17 @@ registerTmuxControlProxyLifecycleTests(context);
 registerTerminalBoundConversationTests(context);
 registerBridgeBackpressureTests(context);
 registerProjectPtyPreconnectTests(context);
+registerAttentionPopupManagerTests(context);
+registerAttentionActivationTests(context);
+registerAttentionHookTests(context);
+registerStructuredInputRequestTests(context);
+registerSourcePluginTests(context);
 registerAgentParserTests(context);
 registerRuntimeTerminalBridgeTests(context);
 registerUiContractSuite(context);
 
-if (harness.count() !== 267) {
-  throw new Error(`회귀 테스트 등록 수가 267개가 아닙니다: ${harness.count()}`);
+if (harness.count() !== 326) {
+  throw new Error(`회귀 테스트 등록 수가 326개가 아닙니다: ${harness.count()}`);
 }
 
 harness.run({ cleanup: fixtures.cleanup }).catch(error => {

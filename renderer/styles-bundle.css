@@ -45,3 +45,64 @@
     white-space: nowrap;
   }
 }
+
+@layer cards {
+  .session-dimensions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .session-card > .session-dimensions,
+  .agent-node-main > .session-dimensions,
+  .control-room-main > .session-dimensions {
+    padding: 0 16px;
+  }
+
+  .session-dimension {
+    display: inline-flex;
+    align-items: center;
+    max-width: 220px;
+    min-height: 22px;
+    padding: 2px 7px;
+    overflow: hidden;
+    border: 1px solid color-mix(in srgb, var(--provider, #8fa2b7) 24%, var(--line-soft));
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--provider, #8fa2b7) 8%, transparent);
+    color: var(--text-muted, #a9b4c2);
+    font-size: 11px;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .session-dimension.source { color: var(--text, #eef3f8); font-weight: 700; }
+  .session-dimension.provider { border-style: dashed; }
+  .session-dimensions.compact .session-dimension { max-width: 150px; min-height: 19px; padding: 1px 6px; font-size: 10px; }
+  .memory-record-intent .session-dimensions { margin-top: 6px; }
+}
+
+@layer management {
+  .management-browser-tabs {
+    padding: 16px;
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    background: var(--surface-raised, rgba(255,255,255,.025));
+  }
+
+  .management-browser-tabs > header,
+  .management-browser-tabs li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .management-browser-tabs > header { justify-content: space-between; margin-bottom: 10px; }
+  .management-browser-tabs ul { display: grid; gap: 7px; padding: 0; margin: 0; list-style: none; }
+  .management-browser-tabs li { min-width: 0; padding: 9px; border-radius: 8px; background: rgba(255,255,255,.035); }
+  .management-browser-tabs li div { display: grid; min-width: 0; flex: 1; }
+  .management-browser-tabs li b,
+  .management-browser-tabs li small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source-session-action.danger { color: var(--danger, #ff7777); }
+}

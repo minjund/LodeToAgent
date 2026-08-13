@@ -3,7 +3,7 @@
 const path = require('path');
 const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createExecutionTracker, reconcileExecutionActivities } = require('./executionActivity');
-const { structuredInputRequestText } = require('./responseIntent');
+const { structuredInputRequest, structuredInputRequestText } = require('./responseIntent');
 
 function createClaudeParser(dependencies) {
   const {
@@ -430,6 +430,7 @@ function createClaudeParser(dependencies) {
           state.pendingUserInputCalls.delete(callId);
           state.pendingUserInputAt.delete(callId);
           state.pendingUserInputText.delete(callId);
+          state.pendingUserInputRequests.delete(callId);
         });
       if (!internalUserRow && toolResults.length === 0) state.failure = null;
       const rawUser = content
@@ -445,6 +446,7 @@ function createClaudeParser(dependencies) {
           state.pendingUserInputCalls.clear();
           state.pendingUserInputAt.clear();
           state.pendingUserInputText.clear();
+          state.pendingUserInputRequests.clear();
           session.utilityKind = '';
           state.latestUser = visibleUser;
           state.lastConversationRole = 'user';
@@ -467,6 +469,7 @@ function createClaudeParser(dependencies) {
           state.pendingUserInputCalls.add(callId);
           if (!state.pendingUserInputAt.has(callId)) state.pendingUserInputAt.set(callId, timestamp(row.timestamp, state.latestTs));
           state.pendingUserInputText.set(callId, structuredInputRequestText(item.input));
+          state.pendingUserInputRequests.set(callId, structuredInputRequest(item.input, callId));
         });
       if (String(row.message.stop_reason || '').toLowerCase() === 'end_turn') {
         state.lastTurnFinished = true;
@@ -483,6 +486,13 @@ function createClaudeParser(dependencies) {
     }
   }
 
+  function beginObservedTurn(session, state) {
+    state.lastTurnFinished = false;
+    state.subagentCompletedAt = null;
+    session.completedAt = null;
+    session.completionObserved = false;
+  }
+
   function processRows(session, rows) {
     const state = {
       requestUsage: new Map(),
@@ -493,6 +503,7 @@ function createClaudeParser(dependencies) {
       pendingUserInputCalls: new Set(),
       pendingUserInputAt: new Map(),
       pendingUserInputText: new Map(),
+      pendingUserInputRequests: new Map(),
       toolCalls: new Map(),
       executionTracker: createExecutionTracker({ compactText, timestamp }),
       claudeMessageCalls: new Map(),
@@ -519,9 +530,11 @@ function createClaudeParser(dependencies) {
           ? compactText(visibleUser.split(/\r?\n/)[0], 6000)
           : visibleUser;
         if (queueTitle) {
+          beginObservedTurn(session, state);
           state.pendingUserInputCalls.clear();
           state.pendingUserInputAt.clear();
           state.pendingUserInputText.clear();
+          state.pendingUserInputRequests.clear();
           session.utilityKind = '';
           state.latestUser = queueTitle;
           state.lastRole = 'user';
@@ -579,12 +592,16 @@ function createClaudeParser(dependencies) {
     const inputRequestText = structuredInputRequestText([...state.pendingUserInputCalls]
       .map(callId => state.pendingUserInputText.get(callId))
       .filter(Boolean));
+    const inputRequests = [...state.pendingUserInputCalls]
+      .sort()
+      .flatMap(callId => state.pendingUserInputRequests.get(callId) || []);
     const responseIntent = assistantResponseIntent(state.lastAssistantText);
     session.responseIntent = pendingUserInput
       ? {
         category: 'required', required: true, optional: false,
         requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
         requestId: inputRequestId, requestedAt: inputRequestedAt,
+        requests: inputRequests,
         confidence: 'high', source: 'input-tool',
       }
       : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };

@@ -140,6 +140,7 @@ function createWorkbench(root, options = {}) {
         onScroll() {}
         onData(callback) { this.dataHandler = callback; }
         onResize() {}
+        attachCustomKeyEventHandler(callback) { this.keyEventHandler = callback; }
         focus() { this.helperTextarea?.focus(); }
         write(data, callback) { this.writes.push(String(data)); callback?.(); }
         dispose() {}
@@ -358,6 +359,85 @@ function registerTerminalInteractionTests(context) {
     assert.notEqual(rawWrites[0][2].deliveryId, rawWrites[1][2].deliveryId);
   });
 
+  test('Shift+Tab은 PTY backtab으로 보내면서 브라우저 포커스 이동을 막는다', async () => {
+    const frames = [];
+    const session = { id: 'terminal:shift-tab', type: 'agent', status: 'running', title: 'Mode switch PTY' };
+    const { state, workbench, terminalInstances, rawWrites } = createWorkbench(root, {
+      session,
+      requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
+    });
+    const entry = await workbench.ensureSessionTerminal(session);
+    entry.host.classList.remove('hidden');
+    state.active = true;
+    const terminal = terminalInstances[0];
+    let defaultPrevented = false;
+    let propagationStopped = false;
+    const accepted = terminal.keyEventHandler({
+      type: 'keydown', key: 'Tab', shiftKey: true,
+      altKey: false, ctrlKey: false, metaKey: false,
+      preventDefault() { defaultPrevented = true; },
+      stopPropagation() { propagationStopped = true; },
+    });
+
+    assert.equal(accepted, true, 'custom handler가 xterm의 Shift+Tab 처리를 막았습니다.');
+    assert.equal(defaultPrevented, true, 'Chromium의 역방향 포커스 이동을 취소하지 않았습니다.');
+    assert.equal(propagationStopped, true, '상위 dialog 포커스 트랩까지 Shift+Tab이 전파됐습니다.');
+
+    // xterm 6 converts the accepted Shift+Tab event to the VT backtab
+    // sequence before raising onData. Verify the app preserves that sequence.
+    terminal.dataHandler('\u001b[Z');
+    frames.shift()();
+    await entry.writeQueue;
+    assert.equal(rawWrites.length, 1);
+    assert.equal(rawWrites[0][1], '\u001b[Z');
+
+    // The app normally focuses its separate command composer after selecting
+    // an AI. That surface must route the same backtab sequence through the
+    // selected PTY's ordered raw-input queue.
+    assert.equal(workbench.sendRawInputToCurrentSession('\u001b[Z'), true);
+    frames.shift()();
+    await entry.writeQueue;
+    assert.equal(rawWrites.length, 2);
+    assert.equal(rawWrites[1][1], '\u001b[Z');
+    assert.match(rawWrites[1][2]?.deliveryId || '', /^delivery:raw:/);
+
+    const eventSource = fs.readFileSync(path.join(root, 'renderer', 'terminal-events.js'), 'utf8');
+    const eventSandbox = { window: {} };
+    vm.runInNewContext(eventSource, eventSandbox, { filename: 'terminal-events.js' });
+    const handleModeCycle = eventSandbox.window.LoadToAgentTerminalEventKeys.handleClaudeModeCycle;
+    const composerWrites = [];
+    let composerDefaultPrevented = 0;
+    let composerPropagationStopped = 0;
+    let menuClosed = 0;
+    const composerEvent = {
+      type: 'keydown', key: 'Tab', shiftKey: true,
+      altKey: false, ctrlKey: false, metaKey: false,
+      preventDefault() { composerDefaultPrevented += 1; },
+      stopPropagation() { composerPropagationStopped += 1; },
+    };
+    assert.equal(handleModeCycle(composerEvent, {
+      provider: 'claude',
+      isAiSession: true,
+      sendRawInput: data => { composerWrites.push(data); return true; },
+      closeMenu: () => { menuClosed += 1; },
+    }), true);
+    assert.deepStrictEqual(composerWrites, ['\u001b[Z']);
+    assert.equal(composerDefaultPrevented, 1);
+    assert.equal(composerPropagationStopped, 1);
+    assert.equal(menuClosed, 1);
+
+    for (const provider of ['codex', 'gemini', 'grok']) {
+      assert.equal(handleModeCycle(composerEvent, {
+        provider,
+        isAiSession: true,
+        sendRawInput: data => { composerWrites.push(data); return true; },
+      }), false);
+    }
+    assert.deepStrictEqual(composerWrites, ['\u001b[Z'], '비-Claude PTY에 mode 제어문자를 보내면 안 됩니다.');
+    assert.equal(composerDefaultPrevented, 1, '비-Claude 입력창의 역방향 포커스 이동을 막으면 안 됩니다.');
+    assert.equal(composerPropagationStopped, 1, '비-Claude Shift+Tab 전파를 막으면 안 됩니다.');
+  });
+
   test('창이 hidden으로 바뀌면 대기 중인 raw 입력을 animation frame 없이 즉시 전달한다', async () => {
     const frames = [];
     const session = { id: 'terminal:raw-input-hidden', type: 'agent', status: 'running', title: 'Hidden input PTY' };
@@ -549,6 +629,32 @@ function registerTerminalInteractionTests(context) {
       [32 * 1024, 1],
       'large replay must yield between bounded xterm writes',
     );
+  });
+
+  test('취소된 attention 이동은 느린 PTY hydration 뒤 이전 화면을 표시하지 않는다', async () => {
+    let resolveGet;
+    let current = true;
+    const pendingGet = new Promise(resolve => { resolveGet = resolve; });
+    const session = { id: 'terminal:attention-stale', type: 'agent', status: 'running', title: 'Stale attention PTY' };
+    const { state, workbench } = createWorkbench(root, {
+      session,
+      terminalGet: () => pendingGet,
+    });
+    state.active = true;
+
+    const selecting = workbench.selectSession(session.id, 'question', {
+      attentionActivation: true,
+      focus: false,
+      isCurrent: () => current,
+    });
+    await Promise.resolve();
+    const entry = state.terminals.get(session.id);
+    assert.ok(entry);
+    current = false;
+    resolveGet({ replay: 'stale\r\n', outputSequence: 1 });
+
+    assert.equal(await selecting, false);
+    assert.equal(entry.host.classList.contains('hidden'), true);
   });
 
   test('질문 모드는 일반 셸에 질문을 명령으로 보내지 않는다', async () => {

@@ -15,6 +15,8 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   const RUN_DRAFT_VERSION = 2;
   const QUALITY_PREF_VERSION = 3;
   const MAX_QUALITY_TEXT = 180;
+  const CLAUDE_PERMISSION_MODES = new Set(["default", "acceptEdits", "plan", "auto", "bypassPermissions"]);
+  const CLAUDE_WRITE_PERMISSION_MODES = new Set(["acceptEdits", "auto", "bypassPermissions"]);
   let activeCommandIndex = 0;
   let visibleCommands = [];
   let quickFocusToken = null;
@@ -43,12 +45,21 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   }
 
   function normalizedRunCreationOptions(value = {}) {
+    const provider = String(value.provider || "").trim().toLowerCase().slice(0, 40);
+    const sourcePluginId = /^(?:direct|builtin\.(?:omo|aside))$/.test(String(value.sourcePluginId || "direct"))
+      ? String(value.sourcePluginId || "direct") : "direct";
+    const directClaude = sourcePluginId === "direct" && provider === "claude";
+    const permissionMode = directClaude && CLAUDE_PERMISSION_MODES.has(value.permissionMode)
+      ? value.permissionMode
+      : "";
     return [
-      String(value.provider || "").trim().toLowerCase().slice(0, 40),
+      sourcePluginId,
+      provider,
       String(value.cwd || "").trim().slice(0, 2_000),
       String(value.model || "").trim().slice(0, 160),
       String(value.prompt || "").trim().slice(0, 8_000),
-      Boolean(value.allowWrites),
+      directClaude ? CLAUDE_WRITE_PERMISSION_MODES.has(permissionMode) : Boolean(value.allowWrites),
+      permissionMode,
     ];
   }
 
@@ -154,17 +165,26 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
 
     const draft = safeParse(sessionStorage, RUN_DRAFT_STORAGE_KEY);
     if (draft?.version === RUN_DRAFT_VERSION) {
+      const provider = typeof draft.provider === "string" && /^[a-z0-9_-]{1,40}$/i.test(draft.provider) ? draft.provider : "";
+      const sourcePluginId = /^(?:direct|builtin\.(?:omo|aside))$/.test(String(draft.sourcePluginId || "direct")) ? String(draft.sourcePluginId || "direct") : "direct";
       const restoredDraft = {
+        sourcePluginId,
         prompt: typeof draft.prompt === "string" ? draft.prompt.slice(0, 8_000) : "",
         cwd: typeof draft.cwd === "string" ? draft.cwd.slice(0, 2_000) : "",
         model: typeof draft.model === "string" ? draft.model.slice(0, 160) : "",
         allowWrites: draft.allowWrites === true,
-        provider: typeof draft.provider === "string" && /^[a-z0-9_-]{1,40}$/i.test(draft.provider) ? draft.provider : "",
+        permissionMode: sourcePluginId === "direct" && provider === "claude" && CLAUDE_PERMISSION_MODES.has(draft.permissionMode)
+          ? draft.permissionMode
+          : sourcePluginId === "direct" && provider === "claude" && !Object.hasOwn(draft, "permissionMode") && draft.allowWrites === true
+            ? "acceptEdits"
+            : "",
+        provider,
       };
       const pendingCreation = normalizedPendingCreation(draft, runCreationFingerprint(restoredDraft));
       state.runDraft = pendingCreation ? { ...restoredDraft, ...pendingCreation } : restoredDraft;
       if (state.runDraft.provider) state.runProvider = state.runDraft.provider;
-    } else state.runDraft = { prompt: "", cwd: "", model: "", allowWrites: false, provider: "" };
+      state.runSource = state.runDraft.sourcePluginId || "direct";
+    } else state.runDraft = { sourcePluginId: "direct", prompt: "", cwd: "", model: "", allowWrites: false, permissionMode: "", provider: "" };
   }
 
   function saveDashboardPreferences() {
@@ -186,13 +206,20 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
   }
 
   function currentRunDraft() {
+    const provider = String(state.runProvider || "").slice(0, 40);
+    const directClaude = (state.runSource || "direct") === "direct" && provider === "claude";
+    const permissionMode = directClaude && CLAUDE_PERMISSION_MODES.has($("#runClaudePermissionMode")?.value)
+      ? $("#runClaudePermissionMode").value
+      : "";
     const draft = {
       version: RUN_DRAFT_VERSION,
+      sourcePluginId: state.runSource || "direct",
       prompt: $("#runPrompt")?.value.slice(0, 8_000) || "",
       cwd: $("#runCwd")?.value.slice(0, 2_000) || "",
       model: $("#runModel")?.value.slice(0, 160) || "",
-      allowWrites: Boolean($("#allowWrites")?.checked),
-      provider: String(state.runProvider || "").slice(0, 40),
+      allowWrites: directClaude ? CLAUDE_WRITE_PERMISSION_MODES.has(permissionMode) : Boolean($("#allowWrites")?.checked),
+      permissionMode,
+      provider,
     };
     const pendingCreation = normalizedPendingCreation(
       state.runDraft,
@@ -250,13 +277,21 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     if ($("#runCwd") && !$("#runCwd").value) $("#runCwd").value = draft.cwd || "";
     if ($("#runModel") && !$("#runModel").value) $("#runModel").value = draft.model || "";
     if ($("#allowWrites")) $("#allowWrites").checked = Boolean(draft.allowWrites);
+    if ($("#runClaudePermissionMode")) {
+      const restoredMode = (draft.sourcePluginId || "direct") === "direct" && draft.provider === "claude" && CLAUDE_PERMISSION_MODES.has(draft.permissionMode)
+        ? draft.permissionMode
+        : "";
+      $("#runClaudePermissionMode").value = restoredMode;
+    }
     if (draft.provider) state.runProvider = draft.provider;
+    if (/^(?:direct|builtin\.(?:omo|aside))$/.test(String(draft.sourcePluginId || ""))) state.runSource = draft.sourcePluginId;
   }
 
   function clearRunDraft(options = {}) {
     clearTimeout(runDraftTimer);
     runDraftTimer = 0;
-    state.runDraft = { prompt: "", cwd: "", model: "", allowWrites: false, provider: "" };
+    state.runDraft = { sourcePluginId: "direct", prompt: "", cwd: "", model: "", allowWrites: false, permissionMode: "", provider: "" };
+    state.runSource = "direct";
     try {
       sessionStorage.removeItem(RUN_DRAFT_STORAGE_KEY);
     } catch (error) {
@@ -266,6 +301,7 @@ window.LoadToAgentAppFactories.createQualityEnhancements = function createQualit
     if ($("#runCwd")) $("#runCwd").value = "";
     if ($("#runModel")) $("#runModel").value = "";
     if ($("#allowWrites")) $("#allowWrites").checked = false;
+    if ($("#runClaudePermissionMode")) $("#runClaudePermissionMode").value = "";
     $("#runForm")?.querySelectorAll('[aria-invalid="true"]').forEach((element) => element.removeAttribute("aria-invalid"));
     $("#runError")?.classList.add("hidden");
     context.syncRunComposer?.();

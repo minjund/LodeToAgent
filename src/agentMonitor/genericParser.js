@@ -3,7 +3,7 @@
 const path = require('path');
 const { finalizedActivityState, observeActivity } = require('./activityState');
 const { createExecutionTracker } = require('./executionActivity');
-const { structuredInputRequestText } = require('./responseIntent');
+const { structuredInputRequest, structuredInputRequestText } = require('./responseIntent');
 
 const TOOL_START_PATTERN = /tool_use|tool-call|tool_start/;
 const TOOL_END_PATTERN = /tool_result|tool-result|tool_end/;
@@ -144,6 +144,7 @@ function createGenericParser(dependencies) {
       pendingUserInputCalls: new Set(),
       pendingUserInputAt: new Map(),
       pendingUserInputText: new Map(),
+      pendingUserInputRequests: new Map(),
       toolCalls: new Map(),
       executionTracker: createExecutionTracker({ compactText, timestamp }),
       activityState: 'idle',
@@ -159,6 +160,7 @@ function createGenericParser(dependencies) {
         state.pendingUserInputCalls.clear();
         state.pendingUserInputAt.clear();
         state.pendingUserInputText.clear();
+        state.pendingUserInputRequests.clear();
       }
       if (state.completed && (TOOL_START_PATTERN.test(type)
         || /^(?:user_message|prompt|request|turn_start|session_start)$/.test(type))) {
@@ -186,6 +188,7 @@ function createGenericParser(dependencies) {
           state.pendingUserInputCalls.add(requestId);
           if (!state.pendingUserInputAt.has(requestId)) state.pendingUserInputAt.set(requestId, timestamp(event.timestamp, session.updatedAt));
           state.pendingUserInputText.set(requestId, structuredInputRequestText(event.parameters || event.args || event.input || event));
+          state.pendingUserInputRequests.set(requestId, structuredInputRequest(event.parameters || event.args || event.input || event, requestId));
         }
       }
       if (TOOL_END_PATTERN.test(type)) {
@@ -195,6 +198,7 @@ function createGenericParser(dependencies) {
         state.pendingUserInputCalls.delete(requestId);
         state.pendingUserInputAt.delete(requestId);
         state.pendingUserInputText.delete(requestId);
+        state.pendingUserInputRequests.delete(requestId);
       }
       if (/^(?:user_message|prompt|request|turn_start|session_start)$/.test(type)
         || /reasoning|thinking/.test(type)) observeActivity(state, 'thinking', event.timestamp);
@@ -213,6 +217,7 @@ function createGenericParser(dependencies) {
         state.pendingUserInputCalls.clear();
         state.pendingUserInputAt.clear();
         state.pendingUserInputText.clear();
+        state.pendingUserInputRequests.clear();
         observeActivity(state, 'attention', event.timestamp);
       }
       if (type === 'error' || event.error) {
@@ -310,6 +315,9 @@ function createGenericParser(dependencies) {
     const inputRequestText = structuredInputRequestText([...eventState.pendingUserInputCalls]
       .map(callId => eventState.pendingUserInputText.get(callId))
       .filter(Boolean));
+    const inputRequests = [...eventState.pendingUserInputCalls]
+      .sort()
+      .flatMap(callId => eventState.pendingUserInputRequests.get(callId) || []);
     const responseIntent = assistantResponseIntent(messageState.lastAssistantText);
     if (messageState.lastConversationRole === 'user') observeActivity(eventState, 'thinking', messageState.lastConversationAt);
     session.responseIntent = pendingUserInput
@@ -317,6 +325,7 @@ function createGenericParser(dependencies) {
         category: 'required', required: true, optional: false,
         requestText: inputRequestText || responseIntent.requestText || '선택 또는 입력이 필요합니다.',
         requestId: inputRequestId, requestedAt: inputRequestedAt,
+        requests: inputRequests,
         confidence: 'high', source: 'input-tool',
       }
       : { ...responseIntent, source: responseIntent.category === 'none' ? 'none' : 'assistant-message' };

@@ -3,7 +3,13 @@
 const USER_INPUT_TOOL_PATTERN = /^(?:request_user_input|ask_user_question|askuserquestion|request_input|get_user_input)$/i;
 const STRUCTURED_REQUEST_MAX_CHARS = 420;
 const STRUCTURED_REQUEST_MAX_BYTES = 32_000;
-const STRUCTURED_REQUEST_MAX_ITEMS = 8;
+const STRUCTURED_REQUEST_MAX_QUESTIONS = 3;
+const STRUCTURED_REQUEST_MAX_OPTIONS = 4;
+const STRUCTURED_REQUEST_MAX_ID_CHARS = 180;
+const STRUCTURED_REQUEST_MAX_COMPOSITE_ID_CHARS = (STRUCTURED_REQUEST_MAX_ID_CHARS * 2) + 1;
+const STRUCTURED_REQUEST_MAX_HEADER_CHARS = 80;
+const STRUCTURED_REQUEST_MAX_LABEL_CHARS = 160;
+const STRUCTURED_REQUEST_MAX_DESCRIPTION_CHARS = 280;
 
 function isUserInputTool(name) {
   return USER_INPUT_TOOL_PATTERN.test(String(name || '').trim());
@@ -39,6 +45,86 @@ function structuredInputValue(value) {
   }
 }
 
+function boundedStructuredText(value, maxChars) {
+  return normalizedStructuredText(value).slice(0, maxChars).trim();
+}
+
+function firstStructuredText(value, keys, maxChars) {
+  for (const key of keys) {
+    const text = boundedStructuredText(safeField(value, key), maxChars);
+    if (text) return text;
+  }
+  return '';
+}
+
+function structuredBoolean(value) {
+  return value === true || value === 1 || (typeof value === 'string' && value.toLowerCase() === 'true');
+}
+
+function structuredQuestionId(value, fallbackId, index) {
+  const questionId = firstStructuredText(value, ['id', 'key'], STRUCTURED_REQUEST_MAX_ID_CHARS);
+  const callId = boundedStructuredText(fallbackId, STRUCTURED_REQUEST_MAX_ID_CHARS);
+  const localId = questionId || String(index + 1);
+  return boundedStructuredText(callId ? `${callId}:${localId}` : localId, STRUCTURED_REQUEST_MAX_COMPOSITE_ID_CHARS);
+}
+
+function structuredQuestionOptions(value) {
+  const rawOptions = safeField(value, 'options');
+  if (!Array.isArray(rawOptions)) return [];
+  const options = [];
+  for (const option of rawOptions.slice(0, STRUCTURED_REQUEST_MAX_OPTIONS)) {
+    const label = option && typeof option === 'object'
+      ? boundedStructuredText(safeField(option, 'label'), STRUCTURED_REQUEST_MAX_LABEL_CHARS)
+      : boundedStructuredText(option, STRUCTURED_REQUEST_MAX_LABEL_CHARS);
+    if (!label) continue;
+    const description = option && typeof option === 'object'
+      ? boundedStructuredText(safeField(option, 'description'), STRUCTURED_REQUEST_MAX_DESCRIPTION_CHARS)
+      : '';
+    options.push({ label, description });
+  }
+  return options;
+}
+
+/**
+ * Keeps only the provider-owned fields needed to display an input request.
+ * The result is intentionally bounded and contains no arbitrary tool payload
+ * properties. `fallbackId` should be the provider call id so questions without
+ * their own id still have a stable identity across monitor snapshots.
+ */
+function structuredInputRequest(value, fallbackId = '') {
+  const root = structuredInputValue(value);
+  const callId = boundedStructuredText(fallbackId, STRUCTURED_REQUEST_MAX_ID_CHARS);
+  let candidates;
+  if (Array.isArray(root)) {
+    candidates = root;
+  } else if (root && typeof root === 'object') {
+    const questions = safeField(root, 'questions');
+    candidates = Array.isArray(questions) ? questions : [root];
+  } else if (root == null || root === '') {
+    candidates = [];
+  } else {
+    candidates = [root];
+  }
+
+  const questions = [];
+  for (const [index, candidate] of candidates.slice(0, STRUCTURED_REQUEST_MAX_QUESTIONS).entries()) {
+    const record = candidate && typeof candidate === 'object' ? candidate : { question: candidate };
+    const header = boundedStructuredText(safeField(record, 'header'), STRUCTURED_REQUEST_MAX_HEADER_CHARS);
+    const question = firstStructuredText(record, ['question', 'prompt', 'message'], STRUCTURED_REQUEST_MAX_CHARS)
+      || header.slice(0, STRUCTURED_REQUEST_MAX_CHARS);
+    if (!question) continue;
+    questions.push({
+      id: structuredQuestionId(record, callId, index),
+      callId,
+      header,
+      question,
+      multiSelect: structuredBoolean(safeField(record, 'multiSelect') ?? safeField(record, 'multi_select')),
+      options: structuredQuestionOptions(record),
+    });
+  }
+  return questions;
+}
+
 /**
  * Extracts only provider-owned user-input fields. This intentionally ignores
  * option descriptions and arbitrary object keys so a notification cannot leak
@@ -46,54 +132,17 @@ function structuredInputValue(value) {
  */
 function structuredInputRequestText(value, maxChars = STRUCTURED_REQUEST_MAX_CHARS) {
   const limit = Math.max(1, Math.min(Number(maxChars) || STRUCTURED_REQUEST_MAX_CHARS, STRUCTURED_REQUEST_MAX_CHARS));
-  const root = structuredInputValue(value);
-  const parts = [];
-  const seenParts = new Set();
-  const seenObjects = new Set();
-
-  const add = (candidate) => {
-    const text = normalizedStructuredText(candidate);
-    if (!text || seenParts.has(text)) return false;
-    seenParts.add(text);
-    parts.push(text);
-    return true;
-  };
-
-  const extractPreferred = (candidate, depth = 0) => {
-    if (depth > 4 || candidate == null) return false;
-    if (typeof candidate !== 'object') return add(candidate);
-    if (seenObjects.has(candidate)) return false;
-    seenObjects.add(candidate);
-    for (const key of ['question', 'prompt', 'message', 'header']) {
-      const field = safeField(candidate, key);
-      if (field == null) continue;
-      if (extractPreferred(field, depth + 1)) return true;
-    }
-    return false;
-  };
-
-  const extractQuestions = (candidate, depth = 0) => {
-    if (depth > 4 || candidate == null) return;
-    if (!Array.isArray(candidate)) {
-      extractPreferred(candidate, depth);
-      return;
-    }
-    for (const item of candidate.slice(0, STRUCTURED_REQUEST_MAX_ITEMS)) {
-      extractPreferred(item, depth + 1);
-    }
-  };
-
-  if (Array.isArray(root)) {
-    extractQuestions(root);
-  } else if (root && typeof root === 'object') {
-    const questions = safeField(root, 'questions');
-    if (questions != null) extractQuestions(questions);
-    if (!parts.length) extractPreferred(root);
-  } else {
-    add(root);
-  }
-
-  return parts.join('\n').slice(0, limit).trim();
+  const seen = new Set();
+  return structuredInputRequest(value)
+    .map(item => item.question)
+    .filter((question) => {
+      if (seen.has(question)) return false;
+      seen.add(question);
+      return true;
+    })
+    .join('\n')
+    .slice(0, limit)
+    .trim();
 }
 
 function conversationalTail(value) {
@@ -184,5 +233,6 @@ module.exports = {
   conversationalTail,
   isUserInputTool,
   requestExcerpt,
+  structuredInputRequest,
   structuredInputRequestText,
 };

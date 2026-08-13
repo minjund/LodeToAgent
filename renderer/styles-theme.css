@@ -2246,6 +2246,7 @@ html[data-theme] :is(
 html[data-theme] :is(
   .settings-help-card,
   .settings-meta-grid,
+  .attention-popup-settings-card,
   .provider-visibility-option,
   .provider-visibility-option.enabled,
   .update-notice
@@ -2261,7 +2262,7 @@ html[data-theme] .settings-help-card {
     var(--theme-surface);
 }
 
-html[data-theme] :is(.language-settings-mark, .settings-emblem) {
+html[data-theme] :is(.language-settings-mark, .attention-popup-settings-mark, .settings-emblem) {
   border-color: var(--theme-accent-border);
   background: var(--theme-accent-soft);
   color: var(--theme-accent);
@@ -2269,6 +2270,7 @@ html[data-theme] :is(.language-settings-mark, .settings-emblem) {
 
 html[data-theme] :is(
   .language-settings-copy > span,
+  .attention-popup-settings-copy > span,
   .settings-help-copy > span,
   .provider-visibility-copy > span,
   .language-select > span
@@ -2278,6 +2280,7 @@ html[data-theme] :is(
 
 html[data-theme] :is(
   .language-settings-copy h3,
+  .attention-popup-settings-copy h3,
   .settings-help-copy h3,
   .provider-visibility-copy h3,
   .provider-visibility-name b
@@ -2287,6 +2290,7 @@ html[data-theme] :is(
 
 html[data-theme] :is(
   .language-settings-copy p,
+  .attention-popup-settings-copy p,
   .settings-help-copy p,
   .provider-visibility-copy p,
   .provider-visibility-name small
@@ -2357,6 +2361,7 @@ html[data-theme] :is(
   .run-folder-field,
   .run-provider-help,
   .run-advanced,
+  .run-permission-mode,
   .run-composer .permission-toggle
 ) {
   border-color: var(--theme-border);
@@ -2445,6 +2450,38 @@ html[data-theme] .run-composer .permission-toggle .toggle-track {
 html[data-theme] .run-composer .permission-toggle input:checked + .toggle-track {
   border-color: var(--theme-accent-border);
   background: var(--theme-accent-soft);
+}
+
+html[data-theme] body[data-current-view="settings"] .attention-popup-switch {
+  border-color: var(--theme-border-strong);
+  background: var(--theme-surface-raised);
+}
+
+html[data-theme] body[data-current-view="settings"] .attention-popup-switch b { color: var(--theme-text); }
+html[data-theme] body[data-current-view="settings"] .attention-popup-switch small { color: var(--theme-text-muted); }
+
+html[data-theme] .run-permission-mode select {
+  border-color: var(--theme-border);
+  background: var(--theme-surface);
+  color: var(--theme-text);
+  box-shadow: inset 0 0 0 1px var(--theme-border);
+}
+
+html[data-theme] .run-permission-mode label strong {
+  color: var(--theme-text);
+}
+
+html[data-theme] .run-permission-mode label small,
+html[data-theme] .run-permission-mode > p {
+  color: var(--theme-text-muted);
+}
+
+html[data-theme] .run-permission-mode > p[data-tone="warning"] {
+  color: var(--theme-warning);
+}
+
+html[data-theme] .run-permission-mode > p[data-tone="danger"] {
+  color: var(--theme-danger);
 }
 
 html[data-theme] .run-advanced > summary {
@@ -3087,7 +3124,7 @@ body[data-current-view="settings"] #settingsSection > * {
   order: 0;
 }
 
-body[data-current-view="settings"] :is(.settings-head, .provider-visibility-card, .update-panel) {
+body[data-current-view="settings"] :is(.settings-head, .attention-popup-settings-card, .provider-visibility-card, .update-panel) {
   grid-column: 1 / -1;
 }
 
@@ -3128,7 +3165,7 @@ body[data-current-view="settings"] :is(.language-settings-mark, .theme-settings-
   height: 44px;
 }
 
-body[data-current-view="settings"] :is(.language-settings-copy h3, .theme-settings-copy h3, .provider-visibility-copy h3) {
+body[data-current-view="settings"] :is(.language-settings-copy h3, .theme-settings-copy h3, .attention-popup-settings-copy h3, .provider-visibility-copy h3) {
   margin: 0;
   color: var(--theme-text);
   font-size: 18px;
@@ -3139,7 +3176,7 @@ body[data-current-view="settings"] .theme-settings-copy > span {
   display: none;
 }
 
-body[data-current-view="settings"] :is(.language-settings-copy p, .theme-settings-copy p, .provider-visibility-copy p) {
+body[data-current-view="settings"] :is(.language-settings-copy p, .theme-settings-copy p, .attention-popup-settings-copy p, .provider-visibility-copy p) {
   margin-top: 7px;
   color: var(--theme-text-secondary);
   font-size: 13px;
@@ -3286,7 +3323,7 @@ body[data-current-view="settings"] .update-panel:is(
     grid-template-columns: minmax(0, 1fr);
   }
 
-  body[data-current-view="settings"] :is(.settings-head, .provider-visibility-card, .update-panel) {
+  body[data-current-view="settings"] :is(.settings-head, .attention-popup-settings-card, .provider-visibility-card, .update-panel) {
     grid-column: auto;
   }
 }
@@ -3297,7 +3334,7 @@ body[data-current-view="settings"] .update-panel:is(
     margin-top: 0;
   }
 
-  body[data-current-view="settings"] :is(.language-settings-card, .theme-settings-card, .provider-visibility-card) {
+  body[data-current-view="settings"] :is(.language-settings-card, .theme-settings-card, .attention-popup-settings-card, .provider-visibility-card) {
     min-height: 0;
     padding: 18px;
   }

@@ -189,6 +189,20 @@
           <div id="appConnectionState"><b></b><small id="lastSync"></small></div>
         </div>
 
+        <section id="attentionPopupSettingsCard" class="attention-popup-settings-card" data-enabled="true" aria-labelledby="attentionPopupSettingsTitle">
+          <div class="attention-popup-settings-mark" aria-hidden="true">↗</div>
+          <div class="attention-popup-settings-copy">
+            <span data-i18n="settings.attention_popups.eyebrow">권한과 질문</span>
+            <h3 id="attentionPopupSettingsTitle" data-i18n="settings.attention_popups.title">오른쪽 아래 응답 창</h3>
+            <p id="attentionPopupSettingsDescription" data-i18n="settings.attention_popups.description">AI가 권한이나 답변을 요청하면 다른 창 위에서도 바로 확인하고 응답할 수 있는 작은 창을 표시합니다.</p>
+          </div>
+          <label class="attention-popup-switch" for="attentionPopupEnabled">
+            <input id="attentionPopupEnabled" type="checkbox" role="switch" aria-describedby="attentionPopupSettingsDescription attentionPopupStatus" checked />
+            <span class="attention-popup-toggle" aria-hidden="true"><i></i></span>
+            <span><b data-i18n="settings.attention_popups.toggle_label">권한·질문 팝업</b><small id="attentionPopupStatus" aria-live="polite">켜짐</small></span>
+          </label>
+        </section>
+
         <section class="provider-visibility-card" aria-labelledby="providerVisibilityTitle">
           <div class="provider-visibility-copy">
             <span data-i18n="settings.providers.eyebrow"></span>
@@ -530,8 +544,7 @@
       <header class="drawer-terminal-statusbar" data-tone="connecting">
         <span class="drawer-terminal-connection"><i aria-hidden="true"></i><b id="drawerTerminalStatus" data-i18n="drawer.terminal_connecting">PTY 연결 중</b><small id="drawerTerminalMeta"></small></span>
         <span class="drawer-terminal-tools">
-          <button id="drawerTerminalFocusBtn" type="button" title="터미널 입력으로 이동" aria-label="터미널 입력으로 이동" data-i18n-title="drawer.terminal_focus" data-i18n-aria-label="drawer.terminal_focus"><span aria-hidden="true">⌨</span></button>
-          <button id="drawerTerminalReconnectBtn" type="button" title="PTY 다시 연결" aria-label="PTY 다시 연결" data-i18n-title="drawer.terminal_reconnect" data-i18n-aria-label="drawer.terminal_reconnect"><span aria-hidden="true">↻</span></button>
+          <button id="drawerTerminalReconnectBtn" type="button" title="PTY 새로 연결" aria-label="PTY 새로 연결" data-i18n-title="drawer.terminal_reconnect" data-i18n-aria-label="drawer.terminal_reconnect"><span aria-hidden="true">↻</span></button>
         </span>
       </header>
       <div id="drawerTerminalViewport" class="drawer-terminal-viewport" aria-label="현재 AI 작업의 실제 PTY 출력 및 스크롤 기록" data-i18n-aria-label="drawer.terminal_viewport">
@@ -584,7 +597,18 @@
         <div id="runProviderLabel" class="field-label" data-i18n="ui.which_ai_should_handle_it">어떤 AI에게 맡길까요?</div>
         <div id="runProviderPicker" class="run-provider-picker" role="radiogroup" aria-labelledby="runProviderLabel"></div>
         <div id="runProviderHelp" class="run-provider-help hidden" role="status"></div>
-        <label class="permission-toggle"><input id="allowWrites" type="checkbox" /><span class="toggle-track"></span><div><strong data-i18n="ui.allow_ai_to_edit_files">AI가 파일을 고칠 수 있게 허용</strong><small data-i18n="ui.when_enabled_the_ai_can_directly_edit_files_in_the">켜면 선택한 폴더의 파일을 직접 수정합니다.</small></div></label>
+        <div id="runClaudePermissionModeField" class="run-permission-mode hidden">
+          <label for="runClaudePermissionMode"><span><strong data-i18n="run.mode.label">Claude 시작 모드</strong><small data-i18n="run.mode.cycle_help">실행 중에는 터미널에서 Shift+Tab으로 사용 가능한 모드를 바꿀 수 있습니다.</small></span><select id="runClaudePermissionMode" aria-describedby="runClaudePermissionModeHelp">
+            <option value="" data-i18n="run.mode.inherit">Claude 기본 설정 사용</option>
+            <option value="default" data-i18n="run.mode.default">Manual · 작업마다 확인</option>
+            <option value="acceptEdits" data-i18n="run.mode.accept_edits">Accept edits · 파일 수정 자동 허용</option>
+            <option value="plan" data-i18n="run.mode.plan">Plan · 조사와 계획만</option>
+            <option value="auto" data-i18n="run.mode.auto">Auto · 안전 검사 후 자동 실행</option>
+            <option value="bypassPermissions" data-i18n="run.mode.bypass">Bypass · 권한 검사 건너뛰기</option>
+          </select></label>
+          <p id="runClaudePermissionModeHelp" role="status"></p>
+        </div>
+        <label id="runAllowWritesField" class="permission-toggle"><input id="allowWrites" type="checkbox" /><span class="toggle-track"></span><div><strong data-i18n="ui.allow_ai_to_edit_files">AI가 파일을 고칠 수 있게 허용</strong><small data-i18n="ui.when_enabled_the_ai_can_directly_edit_files_in_the">켜면 선택한 폴더의 파일을 직접 수정합니다.</small></div></label>
         <div id="runPermissionHint" class="run-permission-hint hidden" role="status" data-i18n="ui.this_request_appears_to_need_file_changes_without_edit_permission">이 요청은 파일 수정이 필요해 보여요. 위의 수정 허용을 켜지 않으면 AI가 코드 변경 없이 검토만 합니다.</div>
       </section>
       <details class="run-advanced" data-disclosure-key="run:advanced">
@@ -635,6 +659,7 @@
   <script src="ime-submit.js"></script>
   <script src="app.js"></script>
   <script src="app-provider-visibility.js"></script>
+  <script src="app-attention-popup-settings.js"></script>
   <script src="app-dashboard.js"></script>
   <script src="app-runtime-overview.js"></script>
   <script src="app-graph-model.js"></script>
@@ -655,6 +680,7 @@
   <script src="app-events-filters.js"></script>
   <script src="app-events-dialogs.js"></script>
   <script src="app-events.js"></script>
+  <script src="attention-activation.js"></script>
   <script src="app-bootstrap.js"></script>
   <script src="terminal-workbench.js"></script>
   <script src="terminal-agent.js"></script>

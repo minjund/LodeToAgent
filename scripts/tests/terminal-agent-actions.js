@@ -18,15 +18,29 @@ function registerTerminalAgentActionTests(context) {
     });
 
     const claude = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Claude PTY', model: 'sonnet', allowWrites: true });
+    const claudeInherited = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Inherited mode' });
+    const claudeDefault = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Manual mode', permissionMode: 'default' });
+    const claudePlan = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Plan mode', permissionMode: 'plan' });
+    const claudeAuto = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Auto mode', permissionMode: 'auto' });
+    const claudeBypass = actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Bypass mode', permissionMode: 'bypassPermissions' });
     const codex = actions.freshAgentLaunchOptions({ provider: 'codex', prompt: 'Codex PTY', model: 'gpt-5.6', allowWrites: false });
     const gemini = actions.freshAgentLaunchOptions({ provider: 'gemini', prompt: 'Gemini PTY', allowWrites: true });
     const grok = actions.freshAgentLaunchOptions({ provider: 'grok', prompt: 'Grok PTY', model: 'grok-code', allowWrites: true });
 
     assert.deepStrictEqual(Array.from(claude.args), ['--model', 'sonnet', '--permission-mode', 'acceptEdits', 'Claude PTY']);
+    assert.deepStrictEqual(Array.from(claudeInherited.args), ['Inherited mode']);
+    assert.deepStrictEqual(Array.from(claudeDefault.args), ['--permission-mode', 'default', 'Manual mode']);
+    assert.deepStrictEqual(Array.from(claudePlan.args), ['--permission-mode', 'plan', 'Plan mode']);
+    assert.deepStrictEqual(Array.from(claudeAuto.args), ['--permission-mode', 'auto', 'Auto mode']);
+    assert.deepStrictEqual(Array.from(claudeBypass.args), ['--permission-mode', 'bypassPermissions', 'Bypass mode']);
     assert.deepStrictEqual(Array.from(codex.args), ['--model', 'gpt-5.6', '--sandbox', 'read-only', 'Codex PTY']);
     assert.deepStrictEqual(Array.from(gemini.args), ['--yolo', '--prompt-interactive', 'Gemini PTY']);
     assert.equal(grok.initialCommandInArgs, false);
     assert.deepStrictEqual(Array.from(grok.args), ['--no-auto-update', '--model', 'grok-code', '--always-approve']);
+    assert.throws(
+      () => actions.freshAgentLaunchOptions({ provider: 'claude', prompt: 'Invalid mode', permissionMode: 'dangerouslyInvented' }),
+      error => error.message === 'terminal.agent.invalid_permission_mode',
+    );
     assert.equal(Object.hasOwn(claude, 'recoveryArgs'), false, '새 대화에는 아직 복구할 대화 ID가 없으므로 복구 인자를 만들지 않아야 합니다.');
   });
 
@@ -476,6 +490,10 @@ function registerTerminalAgentActionTests(context) {
         '#runCwd': makeElement(),
         '#runModel': makeElement(),
         '#allowWrites': makeElement(),
+        '#runAllowWritesField': makeElement(),
+        '#runClaudePermissionModeField': makeElement({ classes: ['hidden'] }),
+        '#runClaudePermissionMode': makeElement(),
+        '#runClaudePermissionModeHelp': makeElement(),
         '#runError': makeElement({ classes: ['hidden'] }),
         '#runForm': makeElement(),
         '#runForm button[type="submit"]': makeElement(),
@@ -494,6 +512,7 @@ function registerTerminalAgentActionTests(context) {
       };
       const state = {
         providerFilters: new Set(),
+        runSource: 'direct',
         runProvider: 'grok',
         availability: { grok: true },
         workspace: 'D:\\workspace',
@@ -625,6 +644,64 @@ function registerTerminalAgentActionTests(context) {
     const tamperedReload = makeModalApp();
     assert.equal(Object.hasOwn(tamperedReload.state.runDraft, 'creationId'), false,
       '길이 제한을 넘은 persisted creationId를 renderer가 신뢰하면 안 됩니다.');
+
+    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify({
+      version: 2, sourcePluginId: 'direct', provider: 'claude', prompt: '손상 모드', cwd: 'D:\\workspace',
+      model: '', allowWrites: true, permissionMode: 'dangerouslyInvented',
+    }));
+    const invalidModePage = makeModalApp();
+    invalidModePage.app.restoreRunDraft();
+    assert.equal(invalidModePage.elements['#runClaudePermissionMode'].value, '',
+      '손상된 persisted Claude 모드를 쓰기 허용 모드로 승격하면 안 됩니다.');
+
+    runDraftStore.set('loadtoagent:run-draft:v2', JSON.stringify({
+      version: 2, sourcePluginId: 'direct', provider: 'claude', prompt: '레거시 초안', cwd: 'D:\\workspace',
+      model: '', allowWrites: true,
+    }));
+    const legacyModePage = makeModalApp();
+    legacyModePage.app.restoreRunDraft();
+    assert.equal(legacyModePage.elements['#runClaudePermissionMode'].value, 'acceptEdits',
+      'permissionMode 도입 전 쓰기 허용 초안은 Accept edits로 안전하게 이전해야 합니다.');
+
+    runDraftStore.delete('loadtoagent:run-draft:v2');
+    const claudeLaunches = [];
+    modalSandbox.window.LoadToAgentTerminal.startAgent = async options => {
+      claudeLaunches.push(options);
+      const error = new Error('provider command rejected after creation');
+      error.creationState = 'accepted';
+      error.deliveryState = 'rejected';
+      throw error;
+    };
+    const claudePage = makeModalApp();
+    claudePage.state.runProvider = 'claude';
+    claudePage.state.availability.claude = true;
+    claudePage.state.providers.push({ id: 'claude', label: 'Claude', company: 'Anthropic', mark: 'C' });
+    setDraft(claudePage, '모드까지 보존하는 Claude 작업');
+    claudePage.elements['#runClaudePermissionMode'].value = 'plan';
+    await claudePage.app.handleRun({ preventDefault: () => {} });
+    const planCreationId = claudeLaunches.at(-1).creationId;
+    assert.equal(claudeLaunches.at(-1).permissionMode, 'plan');
+    assert.equal(claudeLaunches.at(-1).allowWrites, false);
+
+    claudePage.elements['#runClaudePermissionMode'].value = 'auto';
+    await claudePage.app.handleRun({ preventDefault: () => {} });
+    const autoCreationId = claudeLaunches.at(-1).creationId;
+    assert.equal(claudeLaunches.at(-1).permissionMode, 'auto');
+    assert.equal(claudeLaunches.at(-1).allowWrites, true);
+    assert.notEqual(autoCreationId, planCreationId, 'Claude 시작 모드가 바뀌면 새 생성 payload로 취급해야 합니다.');
+    const persistedClaudeDraft = JSON.parse(runDraftStore.get('loadtoagent:run-draft:v2'));
+    assert.equal(persistedClaudeDraft.permissionMode, 'auto');
+    assert.equal(persistedClaudeDraft.allowWrites, true);
+    assert.equal(persistedClaudeDraft.creationId, autoCreationId);
+
+    const reloadedClaudePage = makeModalApp();
+    reloadedClaudePage.state.availability.claude = true;
+    reloadedClaudePage.state.providers.push({ id: 'claude', label: 'Claude', company: 'Anthropic', mark: 'C' });
+    reloadedClaudePage.app.restoreRunDraft();
+    assert.equal(reloadedClaudePage.elements['#runClaudePermissionMode'].value, 'auto');
+    await reloadedClaudePage.app.handleRun({ preventDefault: () => {} });
+    assert.equal(claudeLaunches.at(-1).creationId, autoCreationId,
+      'Claude auto 모드 초안을 재로드한 뒤 같은 생성 ID를 재사용해야 합니다.');
   });
 
   test('대화창 Enter 전송은 숨겨진 일회성 프로세스 대신 지속형 관리 터미널을 만든다', async () => {

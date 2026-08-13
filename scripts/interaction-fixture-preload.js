@@ -494,6 +494,7 @@ const currentUpdate = {
 
 let terminals = clone(initialTerminals);
 let update = clone(availableUpdate);
+let attentionPopups = { enabled: true, hookStatus: 'installed', hookDetail: '' };
 let calls = [];
 let failures = new Map();
 let delays = new Map();
@@ -504,6 +505,7 @@ let terminalSequence = 0;
 let tmuxCaptureSequence = 0;
 const snapshotListeners = new Set();
 const attentionListeners = new Set();
+const terminalPromptResolutionListeners = new Set();
 const terminalDataListeners = new Set();
 const terminalStateListeners = new Set();
 const terminalErrorListeners = new Set();
@@ -556,6 +558,7 @@ const api = {
         nativeTmux: process.platform !== 'win32',
       } : { id: 'win32', label: 'Windows', computerName: '작업용-PC', localShell: 'powershell', localShellLabel: '작업용-PC에서 실행하는 작업', nativeTmux: false },
       versions: { app: currentUpdate.currentVersion, electron: '31.0.0', node: '20.0.0' }, update: clone(update),
+      attentionPopups: clone(attentionPopups),
     };
   },
   checkForUpdate: async () => {
@@ -614,6 +617,12 @@ const api = {
     },
   }),
   setProviderVisibility: preference => controlled('setProviderVisibility', [preference]),
+  setAttentionPopups: async preference => {
+    await controlled('setAttentionPopups', [preference]);
+    attentionPopups = { ...attentionPopups, enabled: preference?.enabled === true };
+    return clone(attentionPopups);
+  },
+  syncAttentionPrompts: prompts => controlled('syncAttentionPrompts', [prompts], { ok: true, count: Array.isArray(prompts) ? prompts.length : 0 }),
   listWorkspaces: async () => realTerminalFixture ? [
     { name: '실제 PTY 통합 검증', path: realTerminalFixture.cwd },
   ] : [
@@ -727,8 +736,12 @@ const api = {
   terminalRestart: async id => {
     await controlled('terminalRestart', [id]);
     const terminal = terminals.find(item => item.id === id);
-    if (terminal) terminal.status = 'running';
-    return { ok: true };
+    if (terminal) {
+      terminal.status = 'running';
+      terminal.replay = `RESTARTED_PTY:${id}\r\n`;
+      terminal.outputSequence = Number(terminal.outputSequence || 0) + 1;
+    }
+    return clone(terminal || { id, status: 'running' });
   },
   terminalReconnect: async id => {
     await controlled('terminalReconnect', [id]);
@@ -781,6 +794,7 @@ const api = {
   onTerminalConnection: callback => { terminalConnectionListeners.add(callback); return () => terminalConnectionListeners.delete(callback); },
   onSnapshot: callback => { snapshotListeners.add(callback); return () => snapshotListeners.delete(callback); },
   onAttentionRequested: callback => { attentionListeners.add(callback); return () => attentionListeners.delete(callback); },
+  onTerminalPromptResolved: callback => { terminalPromptResolutionListeners.add(callback); return () => terminalPromptResolutionListeners.delete(callback); },
   onUpdateState: callback => { updateStateListeners.add(callback); return () => updateStateListeners.delete(callback); },
 };
 
@@ -909,6 +923,10 @@ const testApi = {
   restoreUpdate: () => { update = clone(availableUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   restoreCurrentUpdate: () => { update = clone(currentUpdate); updateStateListeners.forEach(listener => listener(clone(update))); return clone(update); },
   triggerAttention: sessionId => { attentionListeners.forEach(listener => listener({ sessionId })); return attentionListeners.size; },
+  resolveTerminalPrompt: payload => {
+    terminalPromptResolutionListeners.forEach(listener => listener(clone(payload || {})));
+    return terminalPromptResolutionListeners.size;
+  },
   emitSnapshot: () => { snapshotListeners.forEach(listener => listener(clone(snapshot))); return snapshotListeners.size; },
   emitTerminalData: (id, data) => {
     const terminal = terminals.find(item => item.id === id);

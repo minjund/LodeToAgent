@@ -149,7 +149,6 @@ const REQUIRED_UI_IDS = [
   'drawerTerminalSurface',
   'drawerTerminalViewport',
   'drawerTerminalStatus',
-  'drawerTerminalFocusBtn',
   'drawerTerminalReconnectBtn',
   'drawerTerminalResumeBtn',
   'drawerTabSummary',
@@ -167,7 +166,10 @@ const REQUIRED_UI_IDS = [
   'updateStateTitle',
 ];
 
-const RUN_COMPOSER_IDS = ['runPromptCount', 'runWorkspaceSuggestions'];
+const RUN_COMPOSER_IDS = [
+  'runPromptCount', 'runWorkspaceSuggestions',
+  'runClaudePermissionModeField', 'runClaudePermissionMode', 'runClaudePermissionModeHelp',
+];
 const TMUX_ONLY_IDS = ['newTmuxSessionBtn', 'terminalTmuxList', 'tmuxControlSection'];
 
 const BEGINNER_GUIDE_LABELS = [
@@ -556,7 +558,8 @@ const DRAWER_TERMINAL_CONTRACTS = [
   'terminalSurface.setAttribute("aria-labelledby", "drawerTabChat")',
   'terminalStyle: conversationTab',
   'window.LoadToAgentDrawerTerminal?.mount?.(session',
-  'createIfMissing: true',
+  'state.drawerCreateTerminalIfMissing = options.createTerminalIfMissing !== false',
+  'createIfMissing: createTerminalIfMissing',
   'ensureForAgent',
   'resumeForAgent',
   'window.LoadToAgentDrawerTerminal?.unmount?.()',
@@ -845,6 +848,9 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'form.dataset.aiTarget',
   'form.dataset.longDraft',
   'composer?.handleKeydown(event)',
+  'function sendRawInputToCurrentSession',
+  "context.sendRawInput?.('\\u001b[Z')",
+  "context.provider !== 'claude'",
 ];
 
 const IPC_MODULE_FILES = [
@@ -954,6 +960,7 @@ const PRELOAD_IPC_CONTRACTS = [
   'installDownloadedUpdate',
   'onUpdateState',
   'onAttentionRequested',
+  'onTerminalPromptResolved',
   'onTerminalConnection',
   'async function terminalWrite(id, data, options)',
   "ipcRenderer.invoke('terminals:write', id, data, options)",
@@ -1182,6 +1189,11 @@ function registerUiContractTests(context) {
     const drawerTerminalSource = fs.readFileSync(path.join(root, 'renderer', 'drawer-terminal.js'), 'utf8');
     const terminalSource = fs.readFileSync(path.join(root, 'renderer', 'terminal.js'), 'utf8');
     const terminalAgentSource = fs.readFileSync(path.join(root, 'renderer', 'terminal-agent.js'), 'utf8');
+    assert.match(
+      terminalAgentSource,
+      /async function openForAgent\(agentSession, targetId = '', draft = '', options = \{\}\)[\s\S]*selectSession\(target\.terminalId, 'question', \{[\s\S]*focus: options\.focus !== false,[\s\S]*isCurrent: options\.isCurrent/,
+      '자동 질문 이동은 PTY를 열되 질문 팝업의 텍스트 포커스를 보존할 수 있어야 합니다.',
+    );
     assert.equal(html.includes('id="drawerTabTerminal"'), false, '대화와 분리된 터미널 탭을 다시 만들면 안 됩니다.');
     assert.ok(html.includes('id="drawerTabChat"'), '대화 탭이 없습니다.');
     assert.equal(drawerSource.includes('state.drawerTab === "terminal"'), false, '별도 터미널 탭 상태 분기가 남아 있습니다.');
@@ -1200,8 +1212,8 @@ function registerUiContractTests(context) {
     );
     assert.match(
       drawerSource,
-      /LoadToAgentDrawerTerminal\?\.mount\?\.\(session,\s*\{[^}]*createIfMissing:\s*true/s,
-      '정상 대화창을 열 때 기존 PTY mount 또는 prompt 없는 PTY 생성을 보장해야 합니다.',
+      /state\.drawerCreateTerminalIfMissing\s*=\s*options\.createTerminalIfMissing\s*!==\s*false[\s\S]*LoadToAgentDrawerTerminal\?\.mount\?\.\(session,\s*\{[^}]*createIfMissing:\s*createTerminalIfMissing/s,
+      '일반 대화창은 PTY 생성을 허용하고 자동 알람 이동은 생성 없이 mount할 수 있어야 합니다.',
     );
     const sessionSwitchIndex = drawerTerminalSource.indexOf('if (switchingSession)');
     const sessionSwitchUnmountIndex = drawerTerminalSource.indexOf('unmountEmbedded', sessionSwitchIndex);
@@ -2165,21 +2177,28 @@ function registerUiContractTests(context) {
   test('메인 담당 AI만 바로 아래 PTY를 토글하고 실행·도움 노드는 기존 상세를 연다', () => {
     const graph = fs.readFileSync(path.join(root, 'renderer', 'app-graph-view.js'), 'utf8');
     const events = fs.readFileSync(path.join(root, 'renderer', 'app-events-sessions.js'), 'utf8');
+    const dashboard = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
+    const filterEvents = fs.readFileSync(path.join(root, 'renderer', 'app-events-filters.js'), 'utf8');
+    const sessionRenderer = fs.readFileSync(path.join(root, 'renderer', 'app-session-render.js'), 'utf8');
     const orchestration = fs.readFileSync(path.join(root, 'renderer', 'app-graph-orchestration.js'), 'utf8');
     const inlineTerminal = fs.readFileSync(path.join(root, 'renderer', 'inline-agent-terminal.js'), 'utf8');
     const workbench = fs.readFileSync(path.join(root, 'renderer', 'terminal-workbench.js'), 'utf8');
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const styles = fs.readFileSync(path.join(root, 'renderer', 'styles-workflow-map.css'), 'utf8');
+    const controlRoomStyles = fs.readFileSync(path.join(root, 'renderer', 'styles-control-room.css'), 'utf8');
 
     const graphNodeSource = graph.slice(graph.indexOf('function graphNode('), graph.indexOf('function compactGraphNode('));
     const compactGraphSource = graph.slice(graph.indexOf('function compactGraphNode('), graph.indexOf('function providerFlowLane('));
     const helperNodeSource = graph.slice(graph.indexOf('function controlRoomChildNode('), graph.indexOf('function controlRoomExecutionNode('));
     const executionNodeSource = graph.slice(graph.indexOf('function controlRoomExecutionNode('), graph.indexOf('function controlRoomRetainedDecision('));
     const controlRoomSource = graph.slice(graph.indexOf('function controlRoomSession('), graph.indexOf('function runtimeSeparatedOverview('));
+    const historySource = dashboard.slice(dashboard.indexOf('if (historyList) {'), dashboard.indexOf('const projectSelect ='));
+    const graphFilterSource = dashboard.slice(dashboard.indexOf('function graphFilteredSessions()'), dashboard.indexOf('function renderProviderVisibilitySettings()'));
+    const historyEvents = filterEvents.slice(filterEvents.indexOf('$("#projectHistoryRail")'), filterEvents.indexOf('const controlProjectSelect'));
 
-    assert.match(graphNodeSource, /const inlinePtyAttributes = session\.parentId\s*\? ""\s*:\s*` data-inline-pty-trigger=/,
+    assert.match(graphNodeSource, /const inlinePtyAttributes = session\.parentId[\s\S]*data-inline-pty-trigger=/,
       '선택 흐름의 PTY 트리거가 메인 담당 AI로 제한되지 않았습니다.');
-    assert.match(controlRoomSource, /const controlRoomPtyAttributes = root\.parentId\s*\? ""\s*:\s*` data-inline-pty-trigger=/,
+    assert.match(controlRoomSource, /const controlRoomPtyAttributes = root\.parentId[\s\S]*data-inline-pty-trigger=/,
       '처리 중 화면의 PTY 트리거가 메인 담당 AI로 제한되지 않았습니다.');
     assert.match(controlRoomSource, /class="control-room-main"\$\{controlRoomPtyAttributes\}/,
       '처리 중 화면의 메인 담당 AI에 PTY 토글 속성을 연결하지 않았습니다.');
@@ -2199,6 +2218,26 @@ function registerUiContractTests(context) {
     assert.ok(graph.includes('tab("summary"'), '작업 상세 화면에 요약 탭이 없습니다.');
     assert.ok(graph.includes('tab("tokens"'), '작업 상세 화면에 토큰 사용량 탭이 없습니다.');
     assert.ok(events.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger') && events.includes('focus: !inlineTerminal.closest(".control-room-session")'), 'AI 클릭이 현재 화면의 인라인 PTY 토글로 연결되지 않았습니다.');
+    assert.ok(historySource.includes('data-inline-pty-trigger=') && historySource.includes('data-open-session='),
+      '지난 기록이 PTY 가능 여부에 따라 인라인 터미널 또는 읽기 전용 상세로 연결되지 않았습니다.');
+    assert.ok(historySource.includes('session.presentation?.conversationSurface === "transcript"')
+      && historySource.includes('session.controlCapabilities?.pty === false'),
+    'PTY가 없는 지난 기록을 쓰기 가능한 화면으로 잘못 열 수 있습니다.');
+    assert.ok(historyEvents.indexOf('[data-inline-pty-trigger]') >= 0
+      && historyEvents.indexOf('[data-inline-pty-trigger]') < historyEvents.indexOf('[data-open-session]')
+      && historyEvents.includes('window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger)'),
+    '지난 기록 클릭이 팝업보다 먼저 인라인 PTY 경로로 연결되지 않았습니다.');
+    assert.ok(historyEvents.includes('openDrawer(open.dataset.openSession, { context: true })'),
+      'PTY가 없는 지난 기록도 진행 중 AI와 같은 컨텍스트 상세 UX로 열려야 합니다.');
+    assert.ok(graphFilterSource.includes('state.graphFocusId || state.inlineTerminalSessionId')
+      && graphFilterSource.includes('const selectedGraphSession = allById.get(selectedGraphId)')
+      && graphFilterSource.includes('contextual.set(currentId, current)'),
+    '최근 표시 기간을 지난 선택 기록을 포커스 그래프에 유지하는 계약이 없습니다.');
+    assert.ok(fs.readFileSync(path.join(root, 'renderer', 'app-graph-model.js'), 'utf8')
+      .includes('included.add(requestedFocus.id)'),
+    '사용자가 직접 선택한 보관 기록을 라이브 그래프 규칙이 다시 제외할 수 있습니다.');
+    assert.ok(sessionRenderer.includes('!state.graphFocusId && graphLiveCount === 0'),
+      '지난 기록 포커스 화면 위에 활성 작업 없음 안내가 겹칠 수 있습니다.');
     assert.equal(events.includes('if (state.graphFocusId === node.dataset.graphFocus) openDrawer'), false, '같은 AI 재클릭이 오른쪽 드로어를 다시 열고 있습니다.');
     assert.ok(orchestration.includes('window.LoadToAgentInlineTerminal?.sync?.()'), '작업 흐름 갱신 후 PTY 재마운트 계약이 없습니다.');
     assert.match(
@@ -2222,6 +2261,23 @@ function registerUiContractTests(context) {
     assert.ok(html.includes('<script src="inline-agent-terminal.js"></script>'), '인라인 PTY 런타임이 로드되지 않습니다.');
     assert.ok(styles.includes('.agent-inline-terminal-link'), '선택한 AI와 PTY의 시각적 연결 표시가 없습니다.');
     assert.ok(styles.indexOf('.agent-inline-terminal') < styles.indexOf('.workflow-detail'), 'PTY가 작업 상세보다 먼저 배치된 시각 계약이 없습니다.');
+    const stableLayoutStart = controlRoomStyles.indexOf('/* Opening the PTY must not move work units that are already on screen. */');
+    const stableLayoutEnd = controlRoomStyles.indexOf('@keyframes control-room-spawn', stableLayoutStart);
+    const stableLayoutSource = controlRoomStyles.slice(stableLayoutStart, stableLayoutEnd);
+    assert.ok(stableLayoutStart >= 0 && stableLayoutEnd > stableLayoutStart, 'PTY 위치 고정 스타일 계약을 찾을 수 없습니다.');
+    assert.match(stableLayoutSource, /\.agent-inline-terminal\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;/,
+      'PTY가 기존 작업 행 뒤의 전체 폭 행에 배치되지 않았습니다.');
+    assert.doesNotMatch(stableLayoutSource, /\.control-room-flow|\.completed-column|\.control-flow-link|grid-row:/,
+      'PTY open 상태가 기존 작업 열이나 행을 재배치하고 있습니다.');
+    const allOpenStateRules = [...controlRoomStyles.matchAll(/\.control-room-session\.has-inline-terminal[^{}]*\{[^{}]*\}/g)]
+      .map(match => match[0])
+      .join('\n');
+    assert.doesNotMatch(allOpenStateRules, /\.control-room-flow|\.completed-column|\.control-flow-link|grid-row:/,
+      '반응형 PTY open 스타일이 기존 완료 노드의 위치를 재배치하고 있습니다.');
+    const overviewInlineIndex = controlRoomSource.indexOf('${inlineSession ? inlineTerminalPanel(inlineSession) : ""}');
+    const overviewCompletedIndex = controlRoomSource.indexOf('class="control-room-column completed-column"');
+    assert.ok(overviewCompletedIndex >= 0 && overviewInlineIndex > overviewCompletedIndex,
+      'PTY가 완료 노드 뒤에 배치되지 않아 시각 순서와 키보드 탐색 순서가 어긋납니다.');
   });
 
   test('프로젝트 선택은 화면 렌더를 기다리게 하지 않고 최상위 AI PTY 사전 연결을 시작한다', () => {
@@ -2503,6 +2559,9 @@ function registerUiContractTests(context) {
   test('설정 화면은 변경 가능한 항목만 읽기 쉬운 순서로 표시한다', () => {
     const html = fs.readFileSync(path.join(root, 'renderer', 'index.html'), 'utf8');
     const themeStyles = fs.readFileSync(path.join(root, 'renderer', 'styles-theme.css'), 'utf8');
+    const settingsStyles = fs.readFileSync(path.join(root, 'renderer', 'styles-settings.css'), 'utf8');
+    const popupSettingsSource = fs.readFileSync(path.join(root, 'renderer', 'app-attention-popup-settings.js'), 'utf8');
+    const i18nSource = fs.readFileSync(path.join(root, 'renderer', 'i18n-messages.js'), 'utf8');
     const dashboard = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
     const settings = html.slice(html.indexOf('id="settingsSection"'), html.indexOf('id="terminalSection"'));
     assert.equal(settings.includes('settings-meta-grid'), false, '설정과 무관한 설치 진단 정보가 다시 노출되면 안 됩니다.');
@@ -2523,6 +2582,75 @@ function registerUiContractTests(context) {
     const providersIndex = settings.indexOf('provider-visibility-card');
     const updateIndex = settings.indexOf('id="updatePanel"');
     assert.ok(languageIndex < themeIndex && themeIndex < providersIndex && providersIndex < updateIndex, '설정 항목의 읽기 순서가 언어, 화면, AI 목록, 업데이트 순이어야 합니다.');
+
+    const elements = {
+      attentionPopupSettingsCard: { dataset: {} },
+      attentionPopupEnabled: { checked: false, disabled: false, setAttribute() {}, addEventListener() {} },
+      attentionPopupStatus: { textContent: '' },
+    };
+    const popupSandbox = { window: { LoadToAgentAppFactories: {} } };
+    vm.runInNewContext(i18nSource, popupSandbox, { filename: 'i18n-messages.js' });
+    const messages = popupSandbox.window.LoadToAgentMessages;
+    popupSandbox.window.LoadToAgentI18n = {
+      t(key, params = {}) {
+        return String(messages[key]?.en || key).replace(/\{([a-zA-Z][\w]*)\}/g, (match, name) => (
+          Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
+        ));
+      },
+    };
+    vm.runInNewContext(popupSettingsSource, popupSandbox, { filename: 'app-attention-popup-settings.js' });
+    const popupState = {};
+    const popupSettings = popupSandbox.window.LoadToAgentAppFactories.createAttentionPopupSettings({
+      state: popupState,
+      $: selector => elements[String(selector).replace(/^#/, '')] || null,
+    });
+    popupSettings.loadAttentionPopupSettings({});
+    popupSettings.renderAttentionPopupSettings();
+    assert.equal(elements.attentionPopupEnabled.checked, true, '팝업 설정이 없으면 기본값은 켜짐이어야 합니다.');
+    assert.equal(elements.attentionPopupSettingsCard.dataset.enabled, 'true');
+    popupSettings.loadAttentionPopupSettings({ enabled: false });
+    popupSettings.renderAttentionPopupSettings();
+    assert.equal(elements.attentionPopupEnabled.checked, false, '사용자가 명시적으로 끈 값은 보존해야 합니다.');
+    popupSettings.loadAttentionPopupSettings({
+      enabled: true,
+      hookStatus: 'warning',
+      hookDetail: `\u0000\u202e${'x'.repeat(400)}`,
+    });
+    popupSettings.renderAttentionPopupSettings();
+    assert.equal(elements.attentionPopupSettingsCard.dataset.hookStatus, 'warning');
+    assert.match(elements.attentionPopupStatus.textContent, /^On · response connection warning: /);
+    assert.equal((elements.attentionPopupStatus.textContent.match(/x+$/) || [''])[0].length, 240, '훅 세부 정보는 안전한 표시 길이로 제한해야 합니다.');
+    assert.doesNotMatch(elements.attentionPopupStatus.textContent, /[\u0000\u202e]/, '훅 세부 정보의 제어 문자를 설정 화면에 표시하면 안 됩니다.');
+    for (const [hookStatus, expectedCopy] of [
+      ['error', 'response connection error'],
+      ['review-required', 'connection settings need review'],
+    ]) {
+      popupSettings.loadAttentionPopupSettings({ enabled: true, hookStatus, hookDetail: 'Review the hook configuration.' });
+      popupSettings.renderAttentionPopupSettings();
+      assert.equal(elements.attentionPopupSettingsCard.dataset.hookStatus, hookStatus);
+      assert.ok(elements.attentionPopupStatus.textContent.includes(expectedCopy));
+      assert.ok(elements.attentionPopupStatus.textContent.includes('Review the hook configuration.'));
+    }
+    popupSettings.loadAttentionPopupSettings({ enabled: true, hookStatus: 'installed', hookDetail: 'hidden' });
+    popupSettings.renderAttentionPopupSettings();
+    assert.equal(elements.attentionPopupStatus.textContent, messages['settings.attention_popups.enabled'].en);
+    popupSettings.loadAttentionPopupSettings({ enabled: false, hookStatus: 'error', hookDetail: 'hidden' });
+    popupSettings.renderAttentionPopupSettings();
+    assert.equal(elements.attentionPopupSettingsCard.dataset.hookStatus, 'disabled');
+    assert.equal(elements.attentionPopupStatus.textContent, messages['settings.attention_popups.disabled'].en);
+    for (const key of [
+      'settings.attention_popups.hook_warning',
+      'settings.attention_popups.hook_error',
+      'settings.attention_popups.hook_review_required',
+    ]) {
+      assert.ok(messages[key]?.ko && messages[key]?.en, `${key} 한국어·영어 번역이 필요합니다.`);
+    }
+    assert.ok(
+      settingsStyles.includes('[data-hook-status="warning"]')
+        && settingsStyles.includes('[data-hook-status="review-required"]')
+        && settingsStyles.includes('[data-hook-status="error"]'),
+      '훅 경고·오류 상태를 구분하는 설정 카드 스타일이 필요합니다.',
+    );
   });
 
   test('AI 표시 설정은 기본값·저장값·세션과 tmux 투영을 일관되게 적용한다', () => {

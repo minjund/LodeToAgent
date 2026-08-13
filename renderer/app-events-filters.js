@@ -244,9 +244,17 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
       });
     });
     $("#projectHistoryRail")?.addEventListener("click", (event) => {
+      const inlineTerminal = event.target.closest("[data-inline-pty-trigger]");
+      if (inlineTerminal) {
+        event.preventDefault();
+        event.stopPropagation();
+        if ($("#detailDrawer")?.classList.contains("open")) closeDrawer(false);
+        window.LoadToAgentInlineTerminal?.toggle?.(inlineTerminal.dataset.inlinePtyTrigger);
+        return;
+      }
       const open = event.target.closest("[data-open-session]");
       if (open) {
-        openDrawer(open.dataset.openSession);
+        openDrawer(open.dataset.openSession, { context: true });
         return;
       }
       if (event.target.closest("#openProjectHistoryBtn")) selectView("active", { motionKind: "view" });
@@ -446,7 +454,7 @@ window.LoadToAgentAppFactories.createFilterEventBindings = function createFilter
         || state.details.get(state.selectedId);
       setProviderVisible(providerId, input.checked);
       state.visibleLimit = 30;
-      if (state.selectedId && selectedBeforeChange && state.hiddenProviders.has(selectedBeforeChange.provider)) closeDrawer();
+      if (state.selectedId && selectedBeforeChange && !selectedBeforeChange.sourcePluginId && state.hiddenProviders.has(selectedBeforeChange.provider)) closeDrawer();
       if (window.LoadToAgentTerminal) window.LoadToAgentTerminal.updateSnapshot(visibleSnapshot(), state.workspaces);
       render("filter");
       try {

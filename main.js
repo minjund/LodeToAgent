@@ -1,9 +1,10 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, net, Notification, screen } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const { fileURLToPath, pathToFileURL } = require('url');
 const { Worker } = require('worker_threads');
 const { execFile } = require('child_process');
@@ -34,10 +35,20 @@ const { registerAgentIpc } = require('./src/ipc/registerAgentIpc');
 const { registerTerminalIpc } = require('./src/ipc/registerTerminalIpc');
 const { registerTmuxIpc } = require('./src/ipc/registerTmuxIpc');
 const { registerWorkspaceIpc } = require('./src/ipc/registerWorkspaceIpc');
+const { registerSourcePluginIpc } = require('./src/ipc/registerSourcePluginIpc');
 const { reportRecoverableError } = require('./src/diagnostics');
 const { AttentionNotifier } = require('./src/attentionNotifier');
 const { ProviderVisibilityStore } = require('./src/providerVisibilityStore');
+const { AttentionPopupManager } = require('./src/attentionPopupManager');
+const { AttentionPopupPreferenceStore } = require('./src/attentionPopupPreferenceStore');
+const { AttentionHookServer } = require('./src/attentionHookServer');
+const { AttentionHookInstaller } = require('./src/attentionHookInstaller');
+const { AttentionActivationCoordinator } = require('./src/attentionActivationCoordinator');
 const { macPathEntries } = require('./src/platformPath');
+const { SourcePluginControlHost } = require('./src/sourcePlugins/controlHost');
+const { SourcePluginSettingsStore } = require('./src/sourcePlugins/settingsStore');
+const { normalizeSourceSession } = require('./src/sourcePlugins/contracts');
+const { ASIDE_MANIFEST } = require('./src/sourcePlugins/bundled');
 const packageMetadata = require('./package.json');
 const pendingUpdateRelaunch = readUpdateRelaunchRequest(process.env);
 delete process.env[READY_PATH_ENV];
@@ -57,6 +68,7 @@ if (process.platform === 'win32') app.setAppUserModelId('com.wincube.loadtoagent
 
 const demoCapture = process.env.LOADTOAGENT_DEMO_CAPTURE === '1';
 const DESKTOP_NOTIFICATIONS_ENABLED = true;
+const ATTENTION_ACTIVATION_HANDOFF_MS = 8_000;
 const UPDATE_HELPER_CANCELLATION_GUARD_MS = 65_000;
 let mainWindow = null;
 let monitorWorker = null;
@@ -78,6 +90,21 @@ let quitCleanupPromise = null;
 let quitCleanupComplete = false;
 let appLocale = DEFAULT_LOCALE;
 let providerVisibilityStore = null;
+let attentionPopupPreferenceStore = null;
+let attentionPopupManager = null;
+let attentionHookServer = null;
+let attentionHookInstaller = null;
+let attentionHookIdentity = null;
+let attentionHookStatus = { status: 'idle', detail: '' };
+let attentionActivationCoordinator = null;
+const attentionActivationHandoffs = new Map();
+let terminalAttentionPrompts = new Map();
+const terminalAttentionDismissals = new Map();
+const hookAttentionRequests = new Map();
+const pendingTerminalPromptResolutions = new Map();
+let sourcePluginControlHost = null;
+let sourcePluginSettingsStore = null;
+let sourcePluginRefreshTimer = null;
 let pendingAttentionSessionId = '';
 let pendingAttentionEvent = 'attention';
 let rendererBootstrapped = false;
@@ -263,13 +290,17 @@ function loadProviderVisibility() {
 function saveProviderVisibility(value = {}) {
   if (!providerVisibilityStore) loadProviderVisibility();
   const saved = providerVisibilityStore.save(value);
+  for (const request of attentionHookServer?.getPendingRequests?.() || []) {
+    if (!isProviderVisible(request.provider)) attentionHookServer.resolve(request.key, { action: 'none' });
+  }
   updateBackgroundTrayMenu();
+  reconcileAttentionPopups();
   sendSnapshot(visibleSnapshotSessions(lastSnapshot));
   return saved;
 }
 
 function visibleSnapshotSessions(snapshot = lastSnapshot) {
-  return { ...snapshot, sessions: (snapshot.sessions || []).filter(session => isProviderVisible(session.provider)) };
+  return { ...snapshot, sessions: (snapshot.sessions || []).filter(session => session.sourcePluginId || isProviderVisible(session.provider)) };
 }
 
 function saveWorkspaces(items) {
@@ -411,7 +442,10 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.webContents.on('did-start-loading', () => { rendererBootstrapped = false; });
+  mainWindow.webContents.on('did-start-loading', () => {
+    rendererBootstrapped = false;
+    attentionActivationCoordinator?.rendererUnavailable();
+  });
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -440,6 +474,9 @@ function createWindow() {
   mainWindow.on('closed', () => {
     clearTimeout(showFallback);
     mainWindow = null;
+    if (process.platform !== 'darwin' && !backgroundWorkloadCount()) {
+      attentionPopupManager?.setEnabled(false);
+    }
   });
 }
 
@@ -466,6 +503,7 @@ function visibleTerminalSessions(sessions) {
 
 function showMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  if (attentionPopupPreferenceStore?.getEnabled()) attentionPopupManager?.setEnabled(true);
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -531,6 +569,47 @@ function sendTerminal(channel, payload) {
   const contents = mainWindow.webContents;
   if (!contents || contents.isDestroyed() || contents.isLoadingMainFrame()) return;
   try { mainWindow.webContents.send(channel, payload); } catch (error) { reportRecoverableError(`ipc-send:${channel}`, error); }
+}
+
+function terminalPromptResolutionKey(payload = {}) {
+  return [payload.sessionId, payload.terminalId, payload.fingerprint]
+    .map(value => popupText(value, 1_000))
+    .join('\u0000');
+}
+
+function flushTerminalPromptResolutions() {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererBootstrapped) return false;
+  const contents = mainWindow.webContents;
+  if (!contents || contents.isDestroyed() || contents.isLoadingMainFrame()) return false;
+  for (const [key, payload] of [...pendingTerminalPromptResolutions]) {
+    try {
+      contents.send('agents:terminal-prompt-resolved', payload);
+      pendingTerminalPromptResolutions.delete(key);
+    } catch (error) {
+      reportRecoverableError('ipc-send:agents:terminal-prompt-resolved', error);
+      return false;
+    }
+  }
+  return true;
+}
+
+function publishTerminalPromptResolution(payload = {}) {
+  const normalized = {
+    sessionId: popupText(payload.sessionId, 512),
+    terminalId: popupText(payload.terminalId, 512),
+    targetId: popupText(payload.targetId, 512),
+    fingerprint: popupText(payload.fingerprint, 1_000),
+    choiceId: popupText(payload.choiceId, 120),
+    requiresText: payload.requiresText === true,
+  };
+  const key = terminalPromptResolutionKey(normalized);
+  if (!normalized.sessionId || !normalized.terminalId || !normalized.targetId || !normalized.fingerprint || !key) return false;
+  pendingTerminalPromptResolutions.set(key, normalized);
+  while (pendingTerminalPromptResolutions.size > 48) {
+    pendingTerminalPromptResolutions.delete(pendingTerminalPromptResolutions.keys().next().value);
+  }
+  if (normalized.requiresText) showMainWindow();
+  return flushTerminalPromptResolutions();
 }
 
 function refreshMonitor() {
@@ -622,6 +701,7 @@ function startMonitorWorker() {
         lastSnapshot = snapshotWithoutSessions(message.snapshot, bindingResult.failedSessionIds, availability);
         const snapshot = visibleSnapshotSessions(lastSnapshot);
         attentionNotifier.sync(visibleSnapshotSessions(lastSnapshot));
+        reconcileAttentionPopups();
         sendSnapshot(snapshot);
       }).catch(error => reportRecoverableError('monitor-snapshot-binding', error));
     }
@@ -631,6 +711,9 @@ function startMonitorWorker() {
         pendingDetails.delete(message.requestId);
         pending.resolve(message.session);
       }
+    }
+    if (message && message.type === 'recoverable-error') {
+      reportRecoverableError(message.scope || 'monitor-worker-recoverable', new Error(String(message.message || 'Source plugin monitor error')));
     }
   });
   worker.once('error', error => {
@@ -642,12 +725,474 @@ function startMonitorWorker() {
   });
   worker.once('exit', code => {
     if (monitorWorker === worker) monitorWorker = null;
-    if (isQuitting) return;
+    if (isQuitting || worker.__loadtoagentIntentionalRestart) return;
     if (code !== 0 && !worker.__loadtoagentErrorReported) sendMonitorError(new Error(`Monitor worker exited with code ${code}.`));
     rejectPendingDetails();
     scheduleMonitorWorkerRestart();
   });
   return worker;
+}
+
+function loadAttentionPopupPreference() {
+  attentionPopupPreferenceStore = new AttentionPopupPreferenceStore(
+    userFile('attention-popup.json'),
+    { onError: error => reportRecoverableError('attention-popup-preference-load', error) },
+  );
+  return attentionPopupPreferenceStore.load();
+}
+
+function attentionPopupPreferenceSnapshot() {
+  const preference = attentionPopupPreferenceStore
+    ? attentionPopupPreferenceStore.snapshot()
+    : { enabled: true };
+  return {
+    ...preference,
+    hookStatus: attentionHookStatus.status,
+    hookDetail: attentionHookStatus.detail,
+  };
+}
+
+function popupText(value, limit = 1_000) {
+  return String(value == null ? '' : value).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').trim().slice(0, limit);
+}
+
+function popupProviderLabel(providerId) {
+  return providerList().find(provider => provider.id === providerId)?.label || popupText(providerId, 80) || 'AI';
+}
+
+function sessionForAttention(sessionId, provider = '', agentId = '') {
+  const id = popupText(agentId || sessionId, 512);
+  const normalizedProvider = popupText(provider, 80).toLowerCase();
+  return (lastSnapshot.sessions || []).find(session => (
+    (!normalizedProvider || String(session.provider || '').toLowerCase() === normalizedProvider)
+    && [session.id, session.externalId].some(value => String(value || '') === id)
+  )) || null;
+}
+
+function popupSessionCopy(session, provider = '') {
+  return {
+    provider: popupProviderLabel(session?.provider || provider),
+    project: popupText(session?.workspace || session?.title || '', 180),
+  };
+}
+
+function hookPopupRequest(request) {
+  const session = sessionForAttention(request.sessionId, request.provider, request.agentId);
+  const displaySessionId = session?.id || request.agentId || request.sessionId;
+  const base = {
+    id: request.key,
+    requestId: request.requestId || request.key,
+    sessionId: displaySessionId,
+    locale: appLocale,
+    createdAt: request.createdAt,
+    title: popupText(request.title, 180),
+    detail: popupText(request.detail, 8_000),
+    ...popupSessionCopy(session, request.provider),
+    context: {
+      kind: 'hook', hookKey: request.key, sessionId: displaySessionId,
+      rawSessionId: request.sessionId, agentId: request.agentId || '', provider: request.provider,
+    },
+  };
+  if (request.kind === 'question') {
+    return {
+      ...base,
+      type: 'question',
+      body: popupText(request.detail, 2_000),
+      questions: (request.questions || []).map(question => ({
+        ...question,
+        allowOther: true,
+      })),
+      submitLabel: appLocale === 'ko' ? '답변 보내기' : appLocale === 'zh-CN' ? '发送回答' : 'Send answer',
+    };
+  }
+  return {
+    ...base,
+    type: 'permission',
+    body: appLocale === 'ko'
+      ? `${popupText(request.toolName, 160) || 'AI 작업'} 실행을 허용할까요?`
+      : appLocale === 'zh-CN'
+        ? `允许执行 ${popupText(request.toolName, 160) || 'AI 操作'}吗？`
+        : `Allow ${popupText(request.toolName, 160) || 'this AI action'}?`,
+    allowLabel: appLocale === 'ko' ? '허용' : appLocale === 'zh-CN' ? '允许' : 'Allow',
+    denyLabel: appLocale === 'ko' ? '거부' : appLocale === 'zh-CN' ? '拒绝' : 'Deny',
+  };
+}
+
+function terminalPromptKey(sessionId, targetId, fingerprint) {
+  return `${popupText(sessionId, 512)}:${popupText(targetId, 512)}:${popupText(fingerprint, 1_000)}`;
+}
+
+function terminalPromptDismissalKey(sessionId, targetId) {
+  return `${popupText(sessionId, 512)}\u0000${popupText(targetId, 512)}`;
+}
+
+function normalizeTerminalAttentionPrompts(value) {
+  const requests = Array.isArray(value) ? value.slice(0, 48) : [];
+  const normalized = new Map();
+  const observedTargets = new Set();
+  for (const raw of requests) {
+    const sessionId = popupText(raw?.sessionId, 512);
+    const fingerprint = popupText(raw?.fingerprint, 1_000);
+    const targetId = popupText(raw?.target?.id, 512);
+    const terminalId = popupText(raw?.target?.terminalId, 512);
+    const session = (lastSnapshot.sessions || []).find(item => String(item.id || '') === sessionId);
+    if (!session || session.parentId || !isProviderVisible(session.provider)
+      || raw?.target?.kind !== 'terminal' || !targetId || targetId !== terminalId || !fingerprint) continue;
+    const terminal = terminalManager?.list?.().find(item => String(item.id || '') === terminalId);
+    if (!terminal || terminal.type !== 'agent' || terminal.status !== 'running'
+      || terminal.backend !== 'direct' || terminal.conversationBound !== true
+      || String(terminal.bridgeId || '') !== sessionId
+      || String(terminal.provider || '').toLowerCase() !== String(session.provider || '').toLowerCase()) continue;
+    const dismissalKey = terminalPromptDismissalKey(sessionId, targetId);
+    observedTargets.add(dismissalKey);
+    const dismissedFingerprint = terminalAttentionDismissals.get(dismissalKey);
+    if (dismissedFingerprint === fingerprint) continue;
+    if (dismissedFingerprint) terminalAttentionDismissals.delete(dismissalKey);
+    const choices = (Array.isArray(raw?.choices) ? raw.choices : []).slice(0, 8).map(choice => ({
+      id: popupText(choice?.id, 120),
+      label: popupText(choice?.label, 180),
+      tone: choice?.tone === 'approve' ? 'allow'
+        : choice?.tone === 'remember' ? 'primary'
+          : choice?.tone === 'reject' ? 'deny'
+            : ['allow', 'deny', 'primary', 'neutral'].includes(choice?.tone) ? choice.tone : 'neutral',
+    })).filter(choice => choice.id && choice.label);
+    if (!choices.length) continue;
+    const id = terminalPromptKey(sessionId, targetId, fingerprint);
+    normalized.set(id, {
+      id,
+      type: 'terminal-approval',
+      locale: appLocale,
+      sessionId,
+      terminalId,
+      title: popupText(raw?.title, 180) || '터미널 승인 요청',
+      body: popupText(raw?.question, 1_000),
+      detail: popupText(raw?.detail, 4_000),
+      choices,
+      ...popupSessionCopy(session),
+      context: { kind: 'terminal', promptId: id, sessionId, terminalId, targetId, fingerprint },
+    });
+  }
+  for (const key of terminalAttentionDismissals.keys()) {
+    if (!observedTargets.has(key)) terminalAttentionDismissals.delete(key);
+  }
+  return normalized;
+}
+
+function syncTerminalAttentionPrompts(value = []) {
+  terminalAttentionPrompts = normalizeTerminalAttentionPrompts(value);
+  reconcileAttentionPopups();
+  return { ok: true, count: terminalAttentionPrompts.size };
+}
+
+function structuredRequestDetail(requests = []) {
+  return requests.map(request => {
+    const options = (request.options || []).map(option => option.label).filter(Boolean);
+    return `${request.header ? `${request.header}\n` : ''}${request.question || ''}${options.length ? `\n${options.join(' · ')}` : ''}`;
+  }).filter(Boolean).join('\n\n').slice(0, 8_000);
+}
+
+function snapshotPopupRequests() {
+  const hookSessions = new Set([...hookAttentionRequests.values()].flatMap(request => {
+    const session = sessionForAttention(request.sessionId, request.provider, request.agentId);
+    const identities = request.agentId
+      ? [request.agentId, session?.id, session?.externalId]
+      : [request.sessionId, session?.id, session?.externalId];
+    const semanticKind = request.kind === 'question' ? 'input' : 'approval';
+    return identities.filter(Boolean).map(value => `${request.provider}:${value}:${semanticKind}`);
+  }));
+  const requests = [];
+  for (const session of lastSnapshot.sessions || []) {
+    if (session.parentId || !isProviderVisible(session.provider)) continue;
+    const attention = session.attention || {};
+    if (!attention.required || !['input-tool', 'execution-approval'].includes(attention.source)) continue;
+    const semanticKind = attention.source === 'input-tool' ? 'input' : 'approval';
+    if (hookSessions.has(`${session.provider}:${String(session.id || '')}:${semanticKind}`)
+      || hookSessions.has(`${session.provider}:${String(session.externalId || '')}:${semanticKind}`)) continue;
+    const responseRequests = Array.isArray(session.responseIntent?.requests) ? session.responseIntent.requests : [];
+    const callGroups = new Map();
+    for (const request of responseRequests) {
+      const callId = popupText(request?.callId, 240) || popupText(attention.requestId, 240) || 'input';
+      if (!callGroups.has(callId)) callGroups.set(callId, []);
+      callGroups.get(callId).push(request);
+    }
+    if (attention.source === 'input-tool') {
+      const ids = callGroups.size
+        ? [...callGroups.keys()]
+        : popupText(attention.requestId, 240).split('|').map(value => value.trim()).filter(Boolean);
+      for (const callId of ids.length ? ids : ['input']) {
+        const structured = callGroups.get(callId) || [];
+        requests.push({
+          id: `${session.id}:input:${callId}`,
+          type: 'input',
+          locale: appLocale,
+          sessionId: session.id,
+          requestId: callId,
+          title: appLocale === 'ko' ? 'AI에 입력이 필요합니다' : appLocale === 'zh-CN' ? 'AI 需要输入' : 'AI needs input',
+          body: popupText(structured[0]?.question || attention.summary || session.responseIntent?.requestText, 1_000),
+          detail: structuredRequestDetail(structured),
+          openMain: true,
+          openMainLabel: appLocale === 'ko' ? 'LoadToAgent에서 답하기' : appLocale === 'zh-CN' ? '在 LoadToAgent 中回答' : 'Answer in LoadToAgent',
+          createdAt: attention.requestedAt,
+          ...popupSessionCopy(session),
+          context: { kind: 'snapshot', sessionId: session.id, attentionSource: 'input-tool' },
+        });
+      }
+      continue;
+    }
+    requests.push({
+      id: `${session.id}:approval:${attention.requestId || 'current'}`,
+      type: 'input',
+      locale: appLocale,
+      sessionId: session.id,
+      requestId: attention.requestId || '',
+      title: appLocale === 'ko' ? '권한 확인이 필요합니다' : appLocale === 'zh-CN' ? '需要确认权限' : 'Permission needs confirmation',
+      body: popupText(attention.summary || session.statusDetail, 1_000),
+      openMain: true,
+      openMainLabel: appLocale === 'ko' ? 'LoadToAgent에서 확인' : appLocale === 'zh-CN' ? '在 LoadToAgent 中确认' : 'Review in LoadToAgent',
+      createdAt: attention.requestedAt,
+      ...popupSessionCopy(session),
+      context: { kind: 'snapshot', sessionId: session.id, attentionSource: 'execution-approval' },
+    });
+  }
+  return requests;
+}
+
+function attentionActivationRecord(source, popupRequest, hookRequest = null) {
+  const context = popupRequest?.context || {};
+  const providerHint = popupText(hookRequest?.provider || context.provider || '', 80).toLowerCase();
+  const rawSessionId = popupText(hookRequest?.sessionId || context.rawSessionId || popupRequest?.sessionId, 512);
+  const agentId = popupText(hookRequest?.agentId || context.agentId, 512);
+  const session = sessionForAttention(
+    popupRequest?.sessionId || rawSessionId,
+    providerHint,
+    agentId,
+  );
+  const provider = popupText(session?.provider || providerHint, 80).toLowerCase();
+  if (!provider || !isProviderVisible(provider)) return null;
+  const sessionIdentity = popupText(agentId || session?.externalId || rawSessionId || session?.id, 512);
+  if (!sessionIdentity) return null;
+  const semanticKind = source === 'terminal'
+    ? 'terminal'
+    : (popupRequest?.type === 'question' || context.attentionSource === 'input-tool') ? 'input' : 'approval';
+  const requestIdentity = source === 'hook'
+    ? popupText(hookRequest?.requestIdExplicit ? hookRequest.requestId : hookRequest?.key, 512)
+    : popupText(popupRequest?.requestId || popupRequest?.id, 1_000);
+  if (!requestIdentity) return null;
+  const digest = crypto.createHash('sha256').update(JSON.stringify([
+    provider,
+    sessionIdentity,
+    semanticKind,
+    requestIdentity,
+  ])).digest('hex').slice(0, 40);
+  return {
+    activationId: `attention:${provider}:${semanticKind}:${digest}`,
+    source,
+    provider,
+    sessionId: popupText(session?.id || popupRequest?.sessionId || agentId || rawSessionId, 512),
+    rawSessionId,
+    agentId,
+    targetId: popupText(context.targetId, 512),
+    terminalId: popupText(popupRequest?.terminalId || context.terminalId, 512),
+    requestId: requestIdentity,
+    semanticKind,
+    preservePopupFocus: Boolean(source === 'hook' && hookRequest?.kind === 'question'),
+    event: 'attention',
+    createdAt: popupRequest?.createdAt || hookRequest?.createdAt || '',
+  };
+}
+
+function attentionActivationHandoffKey(value = {}) {
+  const provider = popupText(value.provider, 80).toLowerCase();
+  const mapped = sessionForAttention(value.rawSessionId || value.sessionId, provider, value.agentId);
+  const identity = popupText(value.agentId || mapped?.externalId || value.rawSessionId || value.sessionId, 512);
+  const kind = popupText(value.semanticKind, 80);
+  return provider && identity && kind ? `${provider}\u0000${identity}\u0000${kind}` : '';
+}
+
+function pruneAttentionActivationHandoffs(now = Date.now()) {
+  for (const [key, expiresAt] of attentionActivationHandoffs) {
+    if (expiresAt <= now) attentionActivationHandoffs.delete(key);
+  }
+}
+
+function reconcileAttentionPopups() {
+  pruneAttentionActivationHandoffs();
+  const hookRows = [...hookAttentionRequests.values()].map(request => ({
+    request,
+    popup: hookPopupRequest(request),
+  }));
+  const terminalRows = [...terminalAttentionPrompts.values()];
+  const snapshotRows = snapshotPopupRequests().filter(popup => {
+    const activation = attentionActivationRecord('snapshot', popup);
+    const handoffKey = attentionActivationHandoffKey(activation || {});
+    return !handoffKey || Number(attentionActivationHandoffs.get(handoffKey) || 0) <= Date.now();
+  });
+  if (attentionActivationCoordinator) {
+    const activations = new Map();
+    for (const popup of snapshotRows) {
+      const activation = attentionActivationRecord('snapshot', popup);
+      if (activation) activations.set(activation.activationId, activation);
+    }
+    for (const popup of terminalRows) {
+      const activation = attentionActivationRecord('terminal', popup);
+      if (activation) activations.set(activation.activationId, activation);
+    }
+    for (const row of hookRows) {
+      const activation = attentionActivationRecord('hook', row.popup, row.request);
+      if (activation) activations.set(activation.activationId, activation);
+    }
+    attentionActivationCoordinator.reconcile([...activations.values()]);
+  }
+  attentionPopupManager?.reconcile('hook', hookRows.map(row => row.popup));
+  attentionPopupManager?.reconcile('terminal', terminalRows);
+  attentionPopupManager?.reconcile('snapshot', snapshotRows);
+}
+
+async function respondToTerminalAttention(request, decision, callback = {}) {
+  const context = callback.context || {};
+  const pending = terminalAttentionPrompts.get(String(context.promptId || ''));
+  if (!pending || decision.action !== 'choice') throw new Error('현재 승인 요청을 찾을 수 없습니다.');
+  const session = (lastSnapshot.sessions || []).find(item => String(item.id || '') === pending.sessionId);
+  const terminal = terminalManager ? await terminalManager.get(pending.terminalId, true) : null;
+  if (!session || !terminal || terminal.type !== 'agent' || terminal.status !== 'running'
+    || terminal.backend !== 'direct' || terminal.conversationBound !== true
+    || String(terminal.bridgeId || '') !== String(session.id || '')
+    || String(terminal.provider || '').toLowerCase() !== String(session.provider || '').toLowerCase()) {
+    terminalAttentionPrompts.delete(pending.id);
+    reconcileAttentionPopups();
+    throw new Error('승인 요청의 실제 AI 명령창 연결이 더 이상 유효하지 않습니다.');
+  }
+  const detected = require('./renderer/terminal-prompt').detectPendingPrompt(terminal.replay);
+  if (!detected || detected.fingerprint !== context.fingerprint) {
+    terminalAttentionPrompts.delete(pending.id);
+    reconcileAttentionPopups();
+    throw new Error('승인 요청이 이미 바뀌었거나 해결되었습니다.');
+  }
+  const selected = detected.choices?.find(choice => choice.id === decision.choiceId);
+  if (!selected) throw new Error('선택할 수 없는 승인 응답입니다.');
+  const deliveryId = `attention:${crypto.createHash('sha256').update(JSON.stringify([
+    pending.sessionId,
+    pending.terminalId,
+    context.fingerprint,
+    selected.id,
+  ])).digest('hex')}`;
+  await Promise.resolve(terminalManager.respond(pending.terminalId, selected.key, {
+    deliveryId,
+    expectedOutputSequence: terminal.outputSequence,
+  }));
+  terminalAttentionDismissals.set(
+    terminalPromptDismissalKey(pending.sessionId, context.targetId),
+    context.fingerprint,
+  );
+  terminalAttentionPrompts.delete(pending.id);
+  reconcileAttentionPopups();
+  publishTerminalPromptResolution({
+    sessionId: pending.sessionId,
+    terminalId: pending.terminalId,
+    targetId: context.targetId,
+    fingerprint: context.fingerprint,
+    choiceId: selected.id,
+    requiresText: selected.requiresText === true,
+  });
+  return { ok: true };
+}
+
+async function handleAttentionPopupDecision(request, decision, callback = {}) {
+  const context = callback.context || {};
+  if (context.kind === 'hook') {
+    if (!attentionHookServer?.resolve(context.hookKey, decision)) throw new Error('이 권한 또는 질문 요청은 이미 해결되었습니다.');
+    return { ok: true };
+  }
+  if (context.kind === 'terminal') return respondToTerminalAttention(request, decision, callback);
+  throw new Error('이 요청은 LoadToAgent 본 창에서 확인해야 합니다.');
+}
+
+function handleAttentionPopupDismiss(_request, meta = {}, callback = {}) {
+  const context = callback.context || {};
+  if (context.kind === 'hook' && meta.reason !== 'disabled') attentionHookServer?.resolve(context.hookKey, { action: 'none' });
+  return { ok: true };
+}
+
+function handleAttentionPopupOpenMain(_request, callback = {}) {
+  const context = callback.context || {};
+  const session = sessionForAttention(
+    context.rawSessionId || context.sessionId,
+    context.provider,
+    context.agentId,
+  );
+  if (session) openAttentionSession(session);
+  else showMainWindow();
+  return { ok: true };
+}
+
+async function syncAttentionHookInstallation(enabled) {
+  if (!attentionHookInstaller || !attentionHookServer) return;
+  try {
+    const result = enabled
+      ? attentionHookInstaller.sync(true, attentionHookIdentity || await attentionHookServer.start())
+      : attentionHookInstaller.sync(false);
+    const reviewRequired = result.review?.required === true || result.review?.state === 'review-required';
+    attentionHookStatus = {
+      status: reviewRequired ? 'review-required' : result.warnings?.length ? 'warning' : (enabled ? 'installed' : 'disabled'),
+      detail: (result.warnings || []).join(' '),
+    };
+  } catch (error) {
+    attentionHookStatus = { status: 'error', detail: popupText(error?.message || error, 1_000) };
+    reportRecoverableError('attention-hook-installation', error);
+  }
+}
+
+async function saveAttentionPopupPreference(value = {}) {
+  if (!attentionPopupPreferenceStore) loadAttentionPopupPreference();
+  const saved = attentionPopupPreferenceStore.save(value);
+  attentionActivationCoordinator?.setEnabled(saved.enabled);
+  attentionPopupManager?.setEnabled(saved.enabled);
+  attentionHookServer?.setEnabled(saved.enabled);
+  await syncAttentionHookInstallation(saved.enabled);
+  reconcileAttentionPopups();
+  return attentionPopupPreferenceSnapshot();
+}
+
+function syncSourcePluginMonitorState() {
+  if (!sourcePluginControlHost) return;
+  const state = sourcePluginControlHost.monitorState();
+  if (monitorWorker) monitorWorker.postMessage({ type: 'source-plugin-state', ...state });
+}
+
+async function restartMonitorWorkerForSourceSettings() {
+  if (!monitorWorkerConfig || demoCapture || isQuitting) return;
+  monitorWorkerConfig.sourcePluginSettings = sourcePluginSettingsStore ? sourcePluginSettingsStore.snapshot() : {};
+  monitorWorkerConfig.sourcePluginStatuses = sourcePluginControlHost ? sourcePluginControlHost.listSources() : [];
+  monitorWorkerConfig.sourcePluginSnapshots = sourcePluginControlHost ? sourcePluginControlHost.monitorState().snapshots : {};
+  const worker = monitorWorker;
+  if (worker) {
+    worker.__loadtoagentIntentionalRestart = true;
+    if (monitorWorker === worker) monitorWorker = null;
+    rejectPendingDetails();
+    try { worker.postMessage({ type: 'stop' }); } catch {}
+    await worker.terminate().catch(error => reportRecoverableError('source-plugin-worker-restart', error));
+  }
+  startMonitorWorker();
+}
+
+function stopMonitorWorkerGracefully(worker, timeoutMs = 1_500) {
+  if (!worker) return Promise.resolve();
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker.off('message', onMessage);
+      Promise.resolve(worker.terminate()).catch(error => reportRecoverableError('monitor-worker-terminate', error)).finally(resolve);
+    };
+    const onMessage = message => {
+      if (message && message.type === 'stopped') finish();
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    worker.on('message', onMessage);
+    try { worker.postMessage({ type: 'stop' }); } catch { finish(); }
+  });
 }
 
 function openAttentionSession(session, event = 'attention') {
@@ -670,8 +1215,29 @@ function openAttentionSession(session, event = 'attention') {
   }
 }
 
+function sendAttentionActivation(payload) {
+  if (!mainWindow || mainWindow.isDestroyed() || !rendererBootstrapped) return false;
+  const contents = mainWindow.webContents;
+  if (!contents || contents.isDestroyed() || contents.isLoadingMainFrame()) return false;
+  try {
+    contents.send('agents:attention-requested', payload);
+    return true;
+  } catch (error) {
+    reportRecoverableError('ipc-send:agents:attention-requested', error);
+    return false;
+  }
+}
+
+function acknowledgeAttentionActivation(value = {}) {
+  return attentionActivationCoordinator?.acknowledge(value)
+    || { ok: false, acknowledged: false };
+}
+
 async function markRendererReady() {
   rendererBootstrapped = true;
+  reconcileAttentionPopups();
+  attentionActivationCoordinator?.rendererReady();
+  flushTerminalPromptResolutions();
   if (pendingUpdateRelaunch) showMainWindow();
   if (pendingAttentionSessionId && mainWindow && !mainWindow.isDestroyed()) {
     const sessionId = pendingAttentionSessionId;
@@ -713,6 +1279,7 @@ function createAttentionNotifier() {
     onOpen: openAttentionSession,
     onFallback: (session, event) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.flashFrame(true);
+      if (event !== 'completed') return;
       openAttentionSession(session, event);
     },
   });
@@ -909,8 +1476,68 @@ function installDownloadedUpdate() {
   return updateInstallPromise;
 }
 
+async function setupAttentionPopupRuntime() {
+  const preference = loadAttentionPopupPreference();
+  attentionActivationCoordinator = new AttentionActivationCoordinator({
+    enabled: preference.enabled,
+    onShow: showMainWindow,
+    onDeliver: sendAttentionActivation,
+    onCancel: sendAttentionActivation,
+    onError: (error, detail) => reportRecoverableError(
+      `attention-activation:${detail?.phase || 'runtime'}`,
+      error,
+    ),
+  });
+  if (rendererBootstrapped) attentionActivationCoordinator.rendererReady();
+  attentionPopupManager = new AttentionPopupManager({
+    BrowserWindow,
+    screen,
+    preloadPath: path.join(__dirname, 'attention-popup-preload.js'),
+    htmlPath: path.join(__dirname, 'renderer', 'attention-popup.html'),
+    enabled: preference.enabled,
+    onDecide: handleAttentionPopupDecision,
+    onDismiss: handleAttentionPopupDismiss,
+    onOpenMain: handleAttentionPopupOpenMain,
+    onError: (error, detail) => reportRecoverableError(`attention-popup:${detail?.phase || 'runtime'}`, error),
+  });
+  attentionHookServer = new AttentionHookServer({
+    enabled: preference.enabled,
+    getEnabled: () => attentionPopupPreferenceStore?.getEnabled() === true,
+    runtimeFile: userFile('attention-hook-runtime.json'),
+    onRequest: request => {
+      if (!isProviderVisible(request.provider)) return { action: 'none' };
+      hookAttentionRequests.set(request.key, request);
+      reconcileAttentionPopups();
+      return undefined;
+    },
+    onResolved: ({ request }) => {
+      const mapped = hookPopupRequest(request);
+      const activation = attentionActivationRecord('hook', mapped, request);
+      const semanticKind = request.kind === 'question' ? 'input' : 'approval';
+      const handoffKey = attentionActivationHandoffKey({ ...activation, semanticKind });
+      if (handoffKey) attentionActivationHandoffs.set(
+        handoffKey,
+        Date.now() + ATTENTION_ACTIVATION_HANDOFF_MS,
+      );
+      hookAttentionRequests.delete(request.key);
+      reconcileAttentionPopups();
+    },
+    onError: (error, detail) => reportRecoverableError(`attention-hook:${detail?.phase || 'runtime'}`, error),
+  });
+  attentionHookInstaller = new AttentionHookInstaller();
+  try {
+    attentionHookIdentity = await attentionHookServer.start();
+  } catch (error) {
+    attentionHookStatus = { status: 'error', detail: popupText(error?.message || error, 1_000) };
+    reportRecoverableError('attention-hook-start', error);
+  }
+  if (attentionHookIdentity || !preference.enabled) await syncAttentionHookInstallation(preference.enabled);
+  reconcileAttentionPopups();
+}
+
 async function setupRuntime() {
   loadProviderVisibility();
+  await setupAttentionPopupRuntime();
   const runsDir = userFile('agent-runs');
   runner = new AgentRunner({ runsDir });
   const terminalStoreFile = userFile('terminal-sessions.json');
@@ -998,6 +1625,23 @@ async function setupRuntime() {
   });
   updateManager.on('state', sendUpdateState);
   attentionNotifier = createAttentionNotifier();
+  sourcePluginSettingsStore = new SourcePluginSettingsStore(userFile('source-plugins.json'));
+  sourcePluginControlHost = new SourcePluginControlHost({
+    platform: process.platform,
+    home: os.homedir(),
+    settingsStore: sourcePluginSettingsStore,
+  });
+  sourcePluginControlHost.on('changed', () => {
+    syncSourcePluginMonitorState();
+    refreshMonitor();
+  });
+  await sourcePluginControlHost.initialize();
+  if (process.platform === 'darwin') {
+    sourcePluginRefreshTimer = setInterval(() => {
+      sourcePluginControlHost?.refresh().catch(error => reportRecoverableError('source-plugin-refresh', error));
+    }, 2_500);
+    if (typeof sourcePluginRefreshTimer.unref === 'function') sourcePluginRefreshTimer.unref();
+  }
   updateManager.check().catch(error => reportRecoverableError('startup-update-check', error));
   if (demoCapture) {
     availability = Object.fromEntries(providerList().map(provider => [provider.id, true]));
@@ -1010,7 +1654,16 @@ async function setupRuntime() {
     reportRecoverableError('bridge-launcher-install', error);
   }
   availability = probeProviders();
-  monitorWorkerConfig = { runsDir, home: os.homedir(), intervalMs: MONITOR_INTERVAL_MS, availability };
+  const sourcePluginState = sourcePluginControlHost.monitorState();
+  monitorWorkerConfig = {
+    runsDir,
+    home: os.homedir(),
+    intervalMs: MONITOR_INTERVAL_MS,
+    availability,
+    sourcePluginSettings: sourcePluginSettingsStore.snapshot(),
+    sourcePluginStatuses: sourcePluginState.statuses,
+    sourcePluginSnapshots: sourcePluginState.snapshots,
+  };
   startMonitorWorker();
   runner.on('changed', () => {
     if (monitorWorker) monitorWorker.postMessage({ type: 'scan' });
@@ -1060,14 +1713,26 @@ function bootstrapState() {
     bridgeCli: bridgeLauncher,
     update: updateManager ? updateManager.getState() : null,
     providerVisibility: providerVisibilityStore ? providerVisibilityStore.snapshot() : { hidden: [] },
+    attentionPopups: attentionPopupPreferenceSnapshot(),
+    sourcePlugins: sourcePluginControlHost ? sourcePluginControlHost.listSources() : [],
+    sourcePluginSettings: sourcePluginSettingsStore ? sourcePluginSettingsStore.snapshot() : { version: 1, asideHistoryFolders: [] },
   };
 }
 
-function requestAgentDetail(sessionId) {
+async function requestAgentDetail(sessionId) {
+  const sourceCard = (lastSnapshot.sessions || []).find(session => session.id === String(sessionId || ''));
+  if (sourceCard?.sourcePluginId === ASIDE_MANIFEST.id && sourcePluginControlHost) {
+    try {
+      const detail = await sourcePluginControlHost.detail(sourceCard);
+      if (detail) return { ...sourceCard, ...normalizeSourceSession({ ...sourceCard, ...detail }, ASIDE_MANIFEST, { platform: process.platform }) };
+    } catch (error) {
+      reportRecoverableError('aside-session-detail', error);
+    }
+  }
   return new Promise(resolve => {
     if (!monitorWorker || String(sessionId || '').length > 500) return resolve(null);
     const card = (lastSnapshot.sessions || []).find(session => session.id === String(sessionId || ''));
-    if (card && !isProviderVisible(card.provider)) return resolve(null);
+    if (card && !card.sourcePluginId && !isProviderVisible(card.provider)) return resolve(null);
     const requestId = ++detailRequestId;
     const timer = setTimeout(() => {
       if (!pendingDetails.has(requestId)) return;
@@ -1100,10 +1765,14 @@ function registerIpcHandlers() {
     setLocale: locale => {
       appLocale = ['ko', 'en', 'zh-CN'].includes(locale) ? locale : DEFAULT_LOCALE;
       updateBackgroundTrayMenu();
+      reconcileAttentionPopups();
       return { locale: appLocale };
     },
     setThemeAppearance: setAppearanceTheme,
     setProviderVisibility: saveProviderVisibility,
+    setAttentionPopups: saveAttentionPopupPreference,
+    ackAttentionActivation: acknowledgeAttentionActivation,
+    syncAttentionPrompts: syncTerminalAttentionPrompts,
     notifyAttentionPrompt: notifyTerminalPrompt,
     updateManager: () => updateManager,
     installUpdate: installDownloadedUpdate,
@@ -1119,6 +1788,32 @@ function registerIpcHandlers() {
       if (monitorWorker) monitorWorker.postMessage({ type: 'availability', availability });
       refreshMonitor();
       return availability;
+    },
+  });
+  registerSourcePluginIpc({
+    handleTrusted,
+    host: () => sourcePluginControlHost,
+    resolveSession: sessionId => {
+      if (!sessionId || sessionId.length > 500) throw new Error('source session ID가 올바르지 않습니다.');
+      const session = (lastSnapshot.sessions || []).find(item => item.id === sessionId && item.sourcePluginId);
+      if (!session) throw new Error('source session을 찾을 수 없습니다.');
+      return session;
+    },
+    pickAsideHistoryFolder: async () => {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        properties: ['openDirectory'],
+        title: 'Aside 작업 기록 폴더 선택',
+        message: '사용자가 직접 선택한 Aside 작업 폴더만 읽기 전용으로 연결합니다.',
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true, settings: sourcePluginSettingsStore.snapshot() };
+      const settings = sourcePluginSettingsStore.addAsideHistoryFolder(result.filePaths[0]);
+      await restartMonitorWorkerForSourceSettings();
+      return { ok: true, settings };
+    },
+    removeAsideHistoryFolder: async folder => {
+      const settings = sourcePluginSettingsStore.removeAsideHistoryFolder(folder);
+      await restartMonitorWorkerForSourceSettings();
+      return { ok: true, settings };
     },
   });
   handleTrusted('providers:usage', options => collectProviderUsage(options || {}));
@@ -1193,6 +1888,15 @@ function registerIpcHandlers() {
       return { ok: false };
     },
   });
+  const popupManager = () => {
+    if (!attentionPopupManager) throw new Error('권한·질문 팝업 기능이 아직 준비되지 않았습니다.');
+    return attentionPopupManager;
+  };
+  ipcMain.handle('attention-popup:ready', (event, payload) => popupManager().handleReady(event, payload));
+  ipcMain.handle('attention-popup:resize', (event, payload) => popupManager().handleResize(event, payload));
+  ipcMain.handle('attention-popup:decide', (event, payload) => popupManager().handleDecide(event, payload));
+  ipcMain.handle('attention-popup:dismiss', event => popupManager().handleDismiss(event));
+  ipcMain.handle('attention-popup:open-main', event => popupManager().handleOpenMain(event));
 }
 
 registerIpcHandlers();
@@ -1232,6 +1936,14 @@ async function cleanupBeforeQuit() {
     quitCleanupTask('agent-runner', () => runner && runner.dispose())
       .then(result => reportAgentRunnerCleanupErrors('before-quit:agent-runner', result)),
     quitCleanupTask('attention-notifier', () => attentionNotifier && attentionNotifier.dispose()),
+    quitCleanupTask('attention-activation', () => attentionActivationCoordinator && attentionActivationCoordinator.dispose()),
+    quitCleanupTask('attention-popup-manager', () => attentionPopupManager && attentionPopupManager.dispose()),
+    quitCleanupTask('attention-hook-server', () => attentionHookServer && attentionHookServer.dispose()),
+    quitCleanupTask('source-plugin-controls', () => sourcePluginControlHost && sourcePluginControlHost.dispose()),
+    quitCleanupTask('source-plugin-refresh-timer', () => {
+      if (sourcePluginRefreshTimer) clearInterval(sourcePluginRefreshTimer);
+      sourcePluginRefreshTimer = null;
+    }),
     quitCleanupTask('terminal-manager', () => {
       if (terminalManager instanceof TerminalHostClient) return terminalManager.dispose({ shutdownIfIdle: true });
       if (terminalManager) return terminalManager.dispose({ preserveSessions: true });
@@ -1239,8 +1951,9 @@ async function cleanupBeforeQuit() {
     }),
     quitCleanupTask('monitor-worker', () => {
       if (!monitorWorker) return;
-      monitorWorker.postMessage({ type: 'stop' });
-      return monitorWorker.terminate();
+      const worker = monitorWorker;
+      monitorWorker = null;
+      return stopMonitorWorkerGracefully(worker);
     }),
     quitCleanupTask('monitor-restart-timer', () => {
       if (monitorWorkerRestartTimer) clearTimeout(monitorWorkerRestartTimer);

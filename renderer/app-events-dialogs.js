@@ -15,13 +15,65 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     dispatchAgentCommand, interruptConversation, interruptAgentTerminal, openAgentTerminal, controlManagedRun, quickRespond, prepareReassignment, openSubagentConversation,
     resetAgentSession = async () => {},
     markResultReviewComplete = () => 0,
+    controlSourceSession = async () => {},
+    sendSourceMessage = async () => {},
   } = context;
 
   function bindRunComposerEvents() {
+    const bindSourcePicker = () => {
+      const picker = $("#runSourcePicker");
+      if (!picker || picker.dataset.bound === "true") return;
+      picker.dataset.bound = "true";
+      picker.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-run-source]");
+        if (!button || button.disabled) return;
+        state.runSource = button.dataset.runSource;
+        picker.innerHTML = context.sourcePickerHtml?.() || "";
+        syncRunComposer();
+        saveRunDraft();
+      });
+      picker.addEventListener("keydown", (event) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+        const options = [...picker.querySelectorAll("[data-run-source]:not(:disabled)")];
+        const current = Math.max(0, options.indexOf(event.target.closest("[data-run-source]")));
+        const next = event.key === "Home" ? 0 : event.key === "End" ? options.length - 1
+          : (current + (["ArrowRight", "ArrowDown"].includes(event.key) ? 1 : -1) + options.length) % options.length;
+        event.preventDefault();
+        options[next]?.click();
+        options[next]?.focus();
+      });
+    };
     $("#newRunBtn").addEventListener("click", openRunModal);
     $$("[data-open-run]").forEach((button) => button.addEventListener("click", openRunModal));
     $("#closeRunModalBtn").addEventListener("click", () => closeRunModal());
     $("#cancelRunBtn").addEventListener("click", () => closeRunModal());
+    context.ensureRunSourcePicker?.();
+    bindSourcePicker();
+    $("#runSourceHelp")?.addEventListener("click", async (event) => {
+      const recheck = event.target.closest("[data-source-recheck]");
+      if (recheck) {
+        const sources = await performUiAction(() => window.loadtoagent.refreshSources(), "출처 연결을 다시 확인하지 못했습니다.", recheck);
+        if (sources) state.sourcePlugins = sources;
+        context.ensureRunSourcePicker?.();
+        bindSourcePicker();
+        syncRunComposer();
+        return;
+      }
+      const pickFolder = event.target.closest("[data-aside-history-pick]");
+      if (pickFolder) {
+        const result = await performUiAction(() => window.loadtoagent.pickAsideHistoryFolder(), "Aside 작업 폴더를 연결하지 못했습니다.", pickFolder);
+        if (result?.settings) state.sourcePluginSettings = result.settings;
+        syncRunComposer();
+        return;
+      }
+      const removeFolder = event.target.closest("[data-aside-history-remove]");
+      if (removeFolder) {
+        const folder = removeFolder.dataset.asideHistoryRemove;
+        const result = await performUiAction(() => window.loadtoagent.removeAsideHistoryFolder(folder), "Aside 작업 폴더 연결을 해제하지 못했습니다.", removeFolder);
+        if (result?.settings) state.sourcePluginSettings = result.settings;
+        syncRunComposer();
+      }
+    });
     if (safeBackdrop) safeBackdrop($("#runModal"), () => closeRunModal());
     else $("#runModal").addEventListener("click", (event) => {
       if (event.target === $("#runModal")) closeRunModal();
@@ -106,6 +158,10 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
     });
     $("#runCwd").addEventListener("input", syncRunComposer);
     $("#allowWrites").addEventListener("change", syncRunComposer);
+    $("#runClaudePermissionMode")?.addEventListener("change", () => {
+      syncRunComposer();
+      saveRunDraft();
+    });
     $("#pickRunCwdBtn").addEventListener("click", async () => {
       if ($("#runCwd").readOnly) return;
       const folder = await performUiAction(() => window.loadtoagent.pickWorkspace(), t("workspace.pick_failed"), $("#pickRunCwdBtn"));
@@ -507,6 +563,11 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
         await controlManagedRun(managedAction.dataset.managementSessionId || state.selectedId, managedAction.dataset.managedRunAction);
         return;
       }
+      const sourceAction = event.target.closest("[data-source-session-action]");
+      if (sourceAction) {
+        await controlSourceSession(sourceAction.dataset.sourceSessionId || state.selectedId, sourceAction.dataset.sourceSessionAction);
+        return;
+      }
       const reassign = event.target.closest("[data-reassign-session]");
       if (reassign) {
         prepareReassignment(reassign.dataset.reassignSession);
@@ -557,6 +618,13 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       if (stop) await controlManagedRun(state.selectedId, "stop");
     });
     $("#detailDrawer").addEventListener("input", (event) => {
+      const sourceInput = event.target.closest("[data-source-message-input]");
+      if (sourceInput) {
+        state.sourceMessageDrafts.set(sourceInput.dataset.sourceMessageInput, sourceInput.value);
+        const submit = sourceInput.closest("form")?.querySelector('button[type="submit"]');
+        if (submit && !submit.matches('[aria-busy="true"]')) submit.disabled = !sourceInput.value.trim();
+        return;
+      }
       const input = event.target.closest("[data-agent-command-draft]");
       if (input) {
         state.agentCommandDrafts.set(input.dataset.agentCommandDraft, input.value);
@@ -601,6 +669,12 @@ window.LoadToAgentAppFactories.createDialogEventBindings = function createDialog
       }, 0);
     });
     $("#detailDrawer").addEventListener("submit", async (event) => {
+      const sourceForm = event.target.closest("[data-source-message-form]");
+      if (sourceForm) {
+        event.preventDefault();
+        await sendSourceMessage(sourceForm.dataset.sourceMessageForm, sourceForm.querySelector("[data-source-message-input]")?.value || "");
+        return;
+      }
       const form = event.target.closest("[data-agent-command-form]");
       if (!form) return;
       event.preventDefault();

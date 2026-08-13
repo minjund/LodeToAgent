@@ -147,7 +147,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
 
   function enqueueRawInput(entry, key, value) {
     const data = String(value || '');
-    if (!data || entry.inputClosed) return;
+    if (!data || entry.inputClosed) return false;
     if (entry.inputPumpHalted) entry.inputPumpHalted = false;
     const available = Math.max(0, MAX_RAW_INPUT_QUEUE_CHARS - entry.inputQueueChars);
     if (data.length > RAW_INPUT_BATCH_CHARS || data.length > available) {
@@ -157,11 +157,12 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
         entry.inputOverflowNotified = true;
         notice(t('terminal.error.input_failed'), 'error');
       }
-      return;
+      return false;
     }
     entry.inputQueue.push(data);
     entry.inputQueueChars += data.length;
     scheduleRawInputPump(entry, key);
+    return true;
   }
 
   function relativeTime(value) {
@@ -194,6 +195,25 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     const fit = new window.FitAddon.FitAddon();
     terminal.loadAddon(fit);
     terminal.open(host);
+    if (!readOnly && typeof terminal.attachCustomKeyEventHandler === 'function') {
+      terminal.attachCustomKeyEventHandler(event => {
+        // In screen-reader mode xterm intentionally leaves browser keyboard
+        // defaults enabled. Shift+Tab still emits the terminal backtab
+        // sequence, but Chromium also moves focus out of the PTY and the app's
+        // dialog focus trap can consume the key. Cancel only that browser
+        // behavior while returning true so xterm still sends ESC [ Z.
+        if (event.type === 'keydown'
+          && event.key === 'Tab'
+          && event.shiftKey
+          && !event.altKey
+          && !event.ctrlKey
+          && !event.metaKey) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        return true;
+      });
+    }
     const entry = {
       terminal, fit, host, readOnly, inputDisabled, fixedGrid, userScrollRevision: 0, outputWritePending: 0,
       outputRestoreGeneration: 0, wheelLineRemainder: 0,
@@ -733,15 +753,17 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     renderHistoryPanel();
   }
 
-  async function showSelection() {
+  async function showSelection(options = {}) {
     const generation = state.captureGeneration;
     const expectedMode = state.mode;
     const expectedSessionId = state.selectedId;
     const expectedTmuxId = state.selectedTmux?.pane?.id || state.selectedTmux?.pane?.nativeId || '';
-    const selectionIsCurrent = () => generation === state.captureGeneration
+    const selectionIsCurrent = () => (!options.isCurrent || options.isCurrent())
+      && generation === state.captureGeneration
       && expectedMode === state.mode
       && expectedSessionId === state.selectedId
       && expectedTmuxId === (state.selectedTmux?.pane?.id || state.selectedTmux?.pane?.nativeId || '');
+    if (!selectionIsCurrent()) return false;
     const session = currentSession();
     const remote = currentTmux();
     const visibleEntry = session
@@ -756,7 +778,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     if (!keepVisible) hideScreens();
     if (session) {
       const entry = await ensureSessionTerminal(session);
-      if (!selectionIsCurrent()) return;
+      if (!selectionIsCurrent()) return false;
       for (const [id, other] of state.terminals) {
         if (id !== session.id) other.host.classList.add('hidden');
       }
@@ -766,7 +788,7 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       if (!keepVisible || entry !== visibleEntry) fitEntry(entry, session.id);
       stopCapture();
     } else if (remote) {
-      if (!selectionIsCurrent()) return;
+      if (!selectionIsCurrent()) return false;
       const entry = ensureRemoteTerminal();
       for (const other of state.terminals.values()) other.host.classList.add('hidden');
       $('#terminalEmpty').classList.add('hidden');
@@ -774,15 +796,21 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       if (!keepVisible || entry !== visibleEntry) fitEntry(entry);
       startCapture();
     } else {
-      if (!selectionIsCurrent()) return;
+      if (!selectionIsCurrent()) return false;
       hideScreens();
       $('#terminalEmpty').classList.remove('hidden');
       stopCapture();
     }
+    if (!selectionIsCurrent()) return false;
     renderTarget();
+    return true;
   }
 
-  async function selectSession(id, interactionMode = '') {
+  async function selectSession(id, interactionMode = '', options = {}) {
+    if (options.isCurrent && !options.isCurrent()) return false;
+    if (options.attentionActivation !== true && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-manual-selection'));
+    }
     saveCurrentDraft();
     const generation = ++state.captureGeneration;
     state.selectedId = id;
@@ -791,13 +819,20 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     state.selectedTmux = null;
     renderSessions();
     renderTmuxResources();
-    await showSelection();
-    if (!state.active || state.captureGeneration !== generation || state.selectedId !== id || state.mode !== 'general') return;
+    if (await showSelection(options) === false) return false;
+    if (options.isCurrent && !options.isCurrent()) return false;
+    if (!state.active || state.captureGeneration !== generation || state.selectedId !== id || state.mode !== 'general') return false;
     restoreCurrentDraft();
-    if (!$('#terminalCommandInput')?.disabled) $('#terminalCommandInput').focus({ preventScroll: true });
+    if (options.focus !== false && !$('#terminalCommandInput')?.disabled) {
+      $('#terminalCommandInput').focus({ preventScroll: true });
+    }
+    return true;
   }
 
   async function selectTmux(distroName, paneId, interactionMode = '') {
+    if (typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-manual-selection'));
+    }
     const row = tmuxRows().find(item => item.distro.name === distroName && item.pane.nativeId === paneId);
     if (!row) return notice(t('terminal.error.selected_split_missing'), 'error');
     saveCurrentDraft();
@@ -899,6 +934,9 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
       const documentFocused = typeof document.hasFocus !== 'function' || document.hasFocus();
       const documentVisible = !document.visibilityState || document.visibilityState === 'visible';
       if (entry && focusStayedPassive && documentFocused && documentVisible) entry.terminal.focus();
+    }
+    if (typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-inventory-changed'));
     }
     return true;
   }
@@ -1235,5 +1273,13 @@ window.LoadToAgentTerminalWorkbench = function createModule(context) {
     return true;
   }
 
-  return { createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput };
+  function sendRawInputToCurrentSession(value) {
+    const session = currentSession();
+    if (!session || session.status !== 'running' || !isAiTerminalSession(session)) return false;
+    const entry = state.terminals.get(session.id);
+    if (!entry || entry.readOnly || entry.inputDisabled) return false;
+    return enqueueRawInput(entry, session.id, value);
+  }
+
+  return { createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput, sendRawInputToCurrentSession };
 };

@@ -49,7 +49,10 @@
  * @property {{category:'required'|'optional'|'risk'|'none',required:boolean,actionable:boolean,kind:string,summary:string,requestId:string,requestedAt:string|null,source:string,confidence:string}} attention Mutually exclusive classification for a blocking response, optional follow-up, run risk, or no action.
  * @property {{stage:string,percent:number,completedSteps:number,failedSteps:number,totalSteps:number,currentStep:string,blocker:string,lastActivityAt:string|null,source:string,checkpoints:Array<Object>}} progress Recent lifecycle-event completion ratio; it is not whole-plan progress.
  * @property {{level:string,score:number,signals:Array<Object>,lastActivityAt:string|null,ageSeconds:number|null}} health Detected status signals. The legacy score is internal and is not presented as a validated health metric.
- * @property {{managed:boolean,respond:boolean,approve:boolean,deny:boolean,sendInstruction:boolean,stop:boolean,pause:boolean,resume:boolean,retry:boolean,reassign:boolean,openOrigin:boolean}} controlCapabilities Safe provider-aware actions available for this session.
+ * @property {{managed:boolean,respond:boolean,approve:boolean,deny:boolean,sendInstruction:boolean,continue:boolean,start:boolean,stop:boolean,pause:boolean,resume:boolean,retry:boolean,reassign:boolean,archive:boolean,delete:boolean,openOrigin:boolean,readConversation:boolean,readSteps:boolean,readTabs:boolean,readArtifacts:boolean,live:boolean,pty:boolean}} controlCapabilities Safe provider-aware or source-plugin-aware actions available for this session.
+ * @property {{source:{id:string,label:string,pluginId:string},provider:{id:string,label:string,family:string},environment:{kind:string,label:string},runtime:{kind:string,label:string,id:string,managed:boolean}} [provenance] Independent source, model provider, environment, and runtime dimensions.
+ * @property {{id:string,version:string,revision:string}} [sourcePlugin] Trusted bundled source plugin ownership metadata.
+ * @property {{browserTabs:Array<Object>}} [resources] Source-specific visible resources such as Aside browser tabs.
  * @property {{confidence:string,status:string,hierarchy:string,completion:string,sources:Array<string>}} evidence Confirmation method for status, hierarchy, and completion signals; not result-quality confidence.
  * @property {{status:string,summary:string,verified:boolean,verification:string,completedAt:string|null,artifacts:Array<Object>,checks:Array<Object>}} outcome Completion summary, log-derived artifact candidates and test records, plus whether a completion signal was received.
  */
@@ -76,6 +79,7 @@
  * @property {{app:string,electron:string,node:string}} versions
  * @property {Object} platform
  * @property {Object|null} update
+ * @property {{enabled:boolean,hookStatus?:string,hookDetail?:string}} attentionPopups Interactive bottom-right permission and question popup preference.
  */
 
 module.exports = {};

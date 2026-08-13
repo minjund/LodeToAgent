@@ -759,7 +759,7 @@
   }
 
   const {
-    createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput,
+    createXtermHost, fitEntry, ensureSessionTerminal, ensureRemoteTerminal, hideScreens, linkedAgentSession, isAiTerminalSession, renderSessions, renderTmuxResources, renderTarget, showSelection, selectSession, selectTmux, selectTmuxById, renderAll, refreshSessions, createTerminal, captureRemote, startCapture, stopCapture, sendCommand, sendSignal, openTmuxModal, closeTmuxModal, refreshSnapshot, attachTmux, manageTmux, focusComputerWorkInput, sendRawInputToCurrentSession,
   } = window.LoadToAgentTerminalWorkbench({
     $, state, notice, setConnectionState, currentSession, currentTmux, saveCurrentDraft, restoreCurrentDraft,
     renderHistoryPanel, terminalTypeMark, terminalTypeLabel, providerLabel, xtermOptions, preferredWorkspace, firstDistro, guarded,
@@ -922,6 +922,62 @@
     return true;
   }
 
+  async function restartForAgent(agentSession, options = {}) {
+    if (!agentSession?.id || agentSession.parentId) {
+      return { ok: false, reason: agentSession?.parentId ? 'parent-controlled' : 'invalid-session' };
+    }
+    await init();
+    const signature = agentConnectionSignature(agentSession);
+    const requestedTerminalId = String(options.terminalId || state.embeddedTerminalId || '');
+    await refreshSessions();
+    const targets = agentTargets(agentSession);
+    const target = targets.find(item => item.kind === 'terminal'
+      && (!requestedTerminalId || String(item.terminalId || item.id || '') === requestedTerminalId)) || null;
+    if (!target || !bindAgentConnection(agentSession, target)) {
+      return { ok: false, reason: requestedTerminalId ? 'target-expired' : 'no-target', targets };
+    }
+    const terminalId = String(target.terminalId || target.id || '');
+    const terminal = state.sessions.find(item => item.id === terminalId) || null;
+    if (!terminal || terminal.status !== 'running') {
+      return { ok: false, reason: 'target-expired', target, targets };
+    }
+
+    const restarted = await window.loadtoagent.terminalRestart(terminalId);
+    if (!restarted || restarted.ok === false) {
+      throw new Error(restarted?.error || t('agent.reconnect_failed'));
+    }
+
+    const activeSignature = agentConnectionSignature(agentSession);
+    if (activeSignature !== signature) return { ok: false, reason: 'stale-identity', target, targets };
+    // A process restart is also a transport boundary for xterm. Reuse the
+    // host reconnect rehydration path so pending raw-input tails, old replay,
+    // and the former helper textarea cannot leak into the new provider PTY.
+    let listed = await window.loadtoagent.terminalList();
+    let restartedTerminal = listed.find(item => item.id === terminalId) || null;
+    const deadline = Date.now() + 10_000;
+    while (restartedTerminal && restartedTerminal.status === 'starting' && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      listed = await window.loadtoagent.terminalList();
+      restartedTerminal = listed.find(item => item.id === terminalId) || null;
+    }
+    if (!restartedTerminal || restartedTerminal.status !== 'running') {
+      throw new Error(restartedTerminal?.statusDetail || t('agent.reconnect_failed'));
+    }
+    await refreshSessions({ change: 'reconnected', sessions: listed });
+    const currentTarget = agentTargets(agentSession).find(item => item.kind === 'terminal'
+      && String(item.terminalId || item.id || '') === terminalId) || null;
+    if (!currentTarget || !bindAgentConnection(agentSession, currentTarget)) {
+      return { ok: false, reason: 'target-expired', target: currentTarget || target, targets: agentTargets(agentSession) };
+    }
+    return {
+      ok: true,
+      restarted: true,
+      target: currentTarget,
+      targets: agentTargets(agentSession),
+      terminal: state.sessions.find(item => item.id === terminalId) || restarted,
+    };
+  }
+
   function pendingPromptForSession(sessionOrId) {
     const id = typeof sessionOrId === 'object' ? sessionOrId?.id : sessionOrId;
     return state.pendingPrompts.get(String(id || '')) || null;
@@ -935,9 +991,47 @@
     ]).sort((left, right) => left[0].localeCompare(right[0])));
   }
 
+  function serializedPendingPrompts(prompts = state.pendingPrompts) {
+    return [...prompts.entries()].map(([sessionId, prompt]) => ({
+      sessionId: String(sessionId || ''),
+      provider: String(prompt?.provider || ''),
+      fingerprint: String(prompt?.fingerprint || ''),
+      kind: String(prompt?.kind || ''),
+      title: String(prompt?.title || ''),
+      question: String(prompt?.question || ''),
+      detail: String(prompt?.detail || ''),
+      target: {
+        id: String(prompt?.target?.id || ''),
+        kind: String(prompt?.target?.kind || ''),
+        terminalId: String(prompt?.target?.terminalId || ''),
+        distro: String(prompt?.target?.distro || ''),
+        paneNativeId: String(prompt?.target?.paneNativeId || ''),
+        label: String(prompt?.target?.label || ''),
+      },
+      choices: (prompt?.choices || []).map(choice => ({
+        id: String(choice?.id || ''),
+        label: String(choice?.label || ''),
+        key: String(choice?.key || ''),
+        tone: String(choice?.tone || ''),
+        requiresText: choice?.requiresText === true,
+      })),
+    }));
+  }
+
+  function syncPendingPromptsToMain(prompts = state.pendingPrompts) {
+    if (!window.loadtoagent?.syncAttentionPrompts) return Promise.resolve({ ok: false });
+    return Promise.resolve(window.loadtoagent.syncAttentionPrompts(serializedPendingPrompts(prompts)))
+      .catch(error => {
+        reportRecoverableError('terminal-prompt-sync', error);
+        return { ok: false };
+      });
+  }
+
   async function scanPendingPrompts() {
     const detector = window.LoadToAgentTerminalPrompts?.detectPendingPrompt;
-    if (typeof detector !== 'function' || !state.snapshot?.sessions) return new Map();
+    if (typeof detector !== 'function' || !state.snapshot?.sessions) {
+      return { prompts: new Map(), observedTargets: new Map(), failedTargets: new Set() };
+    }
     const mappings = [];
     for (const agent of state.snapshot.sessions) {
       for (const target of agentTargets(agent)) {
@@ -948,9 +1042,11 @@
       try {
         const output = (await window.loadtoagent.terminalGet(target.terminalId))?.replay;
         const prompt = detector(output);
-        if (!prompt || state.promptDismissals.get(target.id) === prompt.fingerprint) return null;
+        if (!prompt) return { targetId: target.id, sessionId: agent.id, prompt: null, failed: false };
         return {
+          targetId: target.id,
           sessionId: agent.id,
+          failed: false,
           prompt: {
             ...prompt,
             provider: agent.provider,
@@ -966,14 +1062,36 @@
         };
       } catch (error) {
         reportRecoverableError(`terminal-prompt-scan:${target.id}`, error);
-        return null;
+        return { targetId: target.id, sessionId: agent.id, prompt: null, failed: true };
       }
     }));
-    return new Map(detected.filter(Boolean).map(item => [item.sessionId, item.prompt]));
+    const prompts = new Map();
+    const observedTargets = new Map();
+    const failedTargets = new Set();
+    for (const item of detected) {
+      if (item.failed) {
+        failedTargets.add(item.targetId);
+        continue;
+      }
+      observedTargets.set(item.targetId, item.prompt?.fingerprint || '');
+      if (!item.prompt) continue;
+      if (state.promptDismissals.get(item.prompt.target.id) !== item.prompt.fingerprint) {
+        prompts.set(item.sessionId, item.prompt);
+      }
+    }
+    return { prompts, observedTargets, failedTargets };
   }
 
   function schedulePendingPromptRefresh(force = false) {
-    if (!state.initialized || !state.snapshot?.sessions?.length) return;
+    if (!state.initialized) return;
+    if (!state.snapshot?.sessions?.length) {
+      if (state.pendingPrompts.size) {
+        state.pendingPrompts = new Map();
+        window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+      }
+      void syncPendingPromptsToMain(new Map());
+      return;
+    }
     const elapsed = Date.now() - state.promptLastRefreshAt;
     if (!force && elapsed < 2_500) return;
     if (state.promptRefreshInFlight) {
@@ -984,11 +1102,23 @@
     state.promptLastRefreshAt = Date.now();
     const previousSignature = promptMapSignature(state.pendingPrompts);
     const previousPrompts = state.pendingPrompts;
-    scanPendingPrompts().then(prompts => {
+    scanPendingPrompts().then(result => {
+      const prompts = result.prompts;
+      for (const [sessionId, prompt] of previousPrompts) {
+        if (result.failedTargets.has(prompt.target?.id)
+          && state.promptDismissals.get(prompt.target?.id) !== prompt.fingerprint) {
+          prompts.set(sessionId, prompt);
+        }
+      }
+      window.LoadToAgentTerminalPrompts?.reconcilePromptDismissals?.(
+        state.promptDismissals,
+        result.observedTargets,
+      );
       for (const [sessionId, prompt] of prompts) {
         if (state.promptDismissals.get(prompt.target?.id) === prompt.fingerprint) prompts.delete(sessionId);
       }
       state.pendingPrompts = prompts;
+      void syncPendingPromptsToMain(prompts);
       if (state.promptNotificationsPrimed) {
         for (const [sessionId, prompt] of prompts) {
           const previous = previousPrompts.get(sessionId);
@@ -1018,6 +1148,18 @@
     });
   }
 
+  function resolveAttentionPrompt(payload = {}) {
+    const result = window.LoadToAgentTerminalPrompts?.applyPromptResolution?.(
+      state.pendingPrompts,
+      state.promptDismissals,
+      payload,
+    ) || { ok: false, changed: false, requiresText: false };
+    if (result.changed) {
+      window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
+    }
+    return result;
+  }
+
   function rejectedPromptError(message, code = 'DELIVERY_REJECTED') {
     const error = new Error(message);
     error.code = code;
@@ -1036,11 +1178,13 @@
       target = requiredAgentTarget(agentSession, prompt.target.id);
     } catch (error) {
       state.pendingPrompts.delete(String(sessionId || ''));
+      void syncPendingPromptsToMain();
       window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
       throw error;
     }
     if (target.kind !== 'terminal' || target.terminalId !== prompt.target.terminalId) {
       state.pendingPrompts.delete(String(sessionId || ''));
+      void syncPendingPromptsToMain();
       window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
       throw rejectedPromptError('이 승인 요청의 실제 PTY 연결이 더 이상 현재 대화와 일치하지 않습니다.');
     }
@@ -1048,6 +1192,7 @@
     if (!result || result.ok === false) throw new Error(result?.error || '승인 선택을 전달하지 못했습니다.');
     state.promptDismissals.set(prompt.target.id, prompt.fingerprint);
     state.pendingPrompts.delete(String(sessionId || ''));
+    void syncPendingPromptsToMain();
     window.dispatchEvent(new CustomEvent('loadtoagent:terminal-prompts-changed'));
     setTimeout(() => {
       state.promptLastRefreshAt = 0;
@@ -1086,7 +1231,9 @@
       setTerminalFontSize,
       toggleTerminalFocusMode,
       focusComputerWorkInput,
+      sendRawInputToCurrentSession,
       isAiTerminalSession,
+      currentTerminalProvider: () => String(visibleBoundAgent()?.provider || currentSession()?.provider || '').toLowerCase(),
       schedulePendingPromptRefresh,
       composer,
     });
@@ -1323,12 +1470,14 @@
     bindAgentConnection,
     hasTerminalSession: terminalId => state.sessions.some(item => item.id === String(terminalId || '')),
     resetForAgent,
+    restartForAgent,
     mountForAgent,
     unmountEmbedded,
     embeddedState,
     focusEmbedded,
     startAgent,
     pendingPromptForSession,
+    resolveAttentionPrompt,
     respondToPrompt,
     refreshPendingPrompts: () => schedulePendingPromptRefresh(true),
     scrollTmuxToLine,

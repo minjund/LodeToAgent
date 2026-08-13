@@ -280,6 +280,38 @@ async function run() {
     await waitForRenderer(win, `${terminalTextExpression}.includes(${JSON.stringify(hydrationMarker)})`,
       'terminalGet replay가 인라인 xterm에 hydrate되지 않았습니다.');
 
+    const focused = await rendererValue(win, `(() => {
+      window.interactionTest.clearCalls();
+      return window.LoadToAgentTerminal.focusEmbedded()
+        && document.activeElement === document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
+    })()`);
+    assert(focused, '인라인 PTY의 실제 xterm 입력 커서에 포커스하지 못했습니다.');
+
+    const writesBeforeShiftTab = await rendererValue(win,
+      `window.interactionTest.getCalls().filter(call => call.name === 'terminalWrite').length`);
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab', modifiers: ['shift'] });
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab', modifiers: ['shift'] });
+    await waitForRenderer(win, `window.interactionTest.getCalls()
+      .filter(call => call.name === 'terminalWrite').length === ${writesBeforeShiftTab + 1}`,
+    'Shift+Tab이 PTY raw 입력으로 정확히 한 번 전달되지 않았습니다.');
+    const shiftTabResult = await rendererValue(win, `(() => {
+      const input = document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
+      const writes = window.interactionTest.getCalls().filter(call => call.name === 'terminalWrite');
+      const call = writes[${writesBeforeShiftTab}];
+      return {
+        focused: document.activeElement === input,
+        terminalId: call?.args?.[0] || '',
+        data: call?.args?.[1] || '',
+      };
+    })()`);
+    assert(shiftTabResult.focused, 'Shift+Tab 뒤 xterm 입력 포커스가 브라우저의 이전 컨트롤로 이동했습니다.');
+    assert(shiftTabResult.terminalId === terminalId && shiftTabResult.data === '\u001b[Z',
+      `Shift+Tab raw 입력이 정확한 PTY backtab 한 번이 아닙니다: ${JSON.stringify(shiftTabResult)}`);
+    if (process.env.LOADTOAGENT_SHIFT_TAB_ONLY === '1') {
+      process.stdout.write(`✓ xterm Shift+Tab → PTY backtab 통합 검증\n${JSON.stringify(shiftTabResult, null, 2)}\n`);
+      return;
+    }
+
     const scrollStateExpression = `(() => {
       const screen = document.querySelector('#agentInlineTerminalViewport > .terminal-screen');
       return {
@@ -323,12 +355,6 @@ async function run() {
       && remountResult.state.baseY > 0 && remountResult.state.viewportY < remountResult.state.baseY,
     `PTY를 다시 맞춘 뒤 마우스 휠 scrollback 위치가 맨 아래로 돌아갔습니다: ${JSON.stringify({ scrolledState, remountResult })}`);
 
-    const focused = await rendererValue(win, `(() => {
-      window.interactionTest.clearCalls();
-      return window.LoadToAgentTerminal.focusEmbedded()
-        && document.activeElement === document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
-    })()`);
-    assert(focused, '인라인 PTY의 실제 xterm 입력 커서에 포커스하지 못했습니다.');
     const pasted = await rendererValue(win, `(() => {
       const input = document.querySelector('#agentInlineTerminalViewport .xterm-helper-textarea');
       if (!input) return false;
@@ -390,6 +416,7 @@ async function run() {
       liveMarker,
       scrolledState,
       rendererTerminalWriteCalls: rendererWrites.length,
+      shiftTab: shiftTabResult,
       ipcOperations: ipcCalls.map(call => call.operation),
     };
     log(`passed ${JSON.stringify(summary)}`);

@@ -5,6 +5,23 @@ GitHub release notes remain the authoritative version history.
 
 ## Unreleased
 
+## 1.6.22 - 2026-08-13
+
+- Let Claude tasks start in Manual, Accept edits, Plan, Auto, or Bypass mode,
+  and keep Shift+Tab mode switching inside the selected PTY without losing focus.
+- Make PTY refresh restart the existing app-owned provider process, then
+  rehydrate its xterm under the same terminal ID without spawning a competing
+  resume connection.
+- Remove the redundant keyboard-focus buttons from embedded PTY headers;
+  clicking or tabbing into xterm remains the direct-input path.
+- Stabilize main-agent completion notifications so a new turn that begins
+  immediately after the previous turn cannot trigger a false completion alert.
+- Add default-on permission and structured-question popups for supported Claude
+  and Codex hooks, with automatic Codex hook activation, safe terminal-prompt
+  responses, and no-decision fallback.
+- Bring LoadToAgent to the responsible AI when an actionable alert arrives and
+  open only its existing signed PTY, without starting a competing resume process.
+
 ## 1.6.21 - 2026-08-12
 
 - Preconnect top-level AI terminals when a project is selected while keeping

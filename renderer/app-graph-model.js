@@ -54,6 +54,9 @@ window.LoadToAgentAppFactories.createGraphModel = function createGraphModel(cont
     };
     const requestedFocus = focusId && byId.get(focusId);
     if (requestedFocus) {
+      // A record chosen explicitly from history must remain visible even when
+      // it was previously archived out of the live control-room overview.
+      included.add(requestedFocus.id);
       includeAncestors(requestedFocus);
       includeDescendants(requestedFocus);
     }
