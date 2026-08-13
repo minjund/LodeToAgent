@@ -526,7 +526,11 @@ function registerAttentionHookTests(context) {
     );
     const ownCodex = Object.values(codexInstalled.hooks).flatMap(groups => groups)
       .flatMap(group => group.hooks).find(isOwnCodexHandler);
-    assert.match(decodePowerShellCommand(ownCodex.command), /--loadtoagent-attention-hook/u);
+    if (process.platform === 'win32') {
+      assert.match(decodePowerShellCommand(ownCodex.command), /--loadtoagent-attention-hook/u);
+    } else {
+      assert.match(ownCodex.command, /--loadtoagent-attention-hook/u);
+    }
     assert.match(decodePowerShellCommand(ownCodex.commandWindows), /--loadtoagent-attention-hook/u);
     const configInstalled = fs.readFileSync(codexConfigPath, 'utf8');
     assert.match(configInstalled, /\[features\]\r\nhooks = true\r\n/u);
