@@ -57,6 +57,7 @@ const packageFiles = report.files.map(file => {
 }).sort();
 const packageFileSet = new Set(packageFiles);
 const requiredRuntimeFiles = [
+  'build/icon.ico',
   'build/icon.png',
   'brand-profile-recovery-preload.js',
   'renderer/brand-profile-recovery.html',

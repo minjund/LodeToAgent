@@ -31,6 +31,7 @@ const { readUpdateRelaunchRequest, signalRendererReady } = require('../../src/up
 const { normalizeWorkspaces, readWorkspaces, removeWorkspace, writeWorkspaces } = require('../../src/workspaceStore');
 const { macPathEntries, preferredNvmBin } = require('../../src/platformPath');
 const { ensureMacNodePtyRuntime, unpackedAsarPath } = require('../../src/nodePtyRuntime');
+const { WINDOWS_APP_USER_MODEL_ID, registerWindowsShellIdentity } = require('../../src/windowsShellIdentity');
 const afterPack = require('../after-pack');
 
 function macHelperReadyPath(root, token) {
@@ -371,6 +372,41 @@ function registerCliAndUpdateTests(context) {
       afterPack(contextFor(missingPrebuild, 'darwin', 1)),
       /darwin-x64 prebuild 디렉터리를 찾을 수 없습니다/,
     );
+  });
+
+  test('패키지된 Windows 앱은 작업 표시줄 아이콘 ID와 실행 파일을 등록한다', async () => {
+    const calls = [];
+    const execFile = (command, args, options, callback) => {
+      calls.push({ command, args, options });
+      setImmediate(() => callback(null, '', ''));
+    };
+    const executable = 'C:\\Program Files\\Whitebox\\Whitebox.exe';
+    const result = await registerWindowsShellIdentity({
+      platform: 'win32',
+      executable,
+      systemRoot: 'C:\\Windows',
+      execFile,
+    });
+    assert.equal(result.registered, true);
+    assert.equal(result.refreshed, true);
+    assert.equal(result.appId, WINDOWS_APP_USER_MODEL_ID);
+    assert.equal(calls.length, 3);
+    assert.deepStrictEqual(calls[0].args, [
+      'ADD', `HKCU\\Software\\Classes\\AppUserModelId\\${WINDOWS_APP_USER_MODEL_ID}`,
+      '/v', 'DisplayName', '/t', 'REG_SZ', '/d', 'Whitebox', '/f',
+    ]);
+    assert.deepStrictEqual(calls[1].args, [
+      'ADD', `HKCU\\Software\\Classes\\AppUserModelId\\${WINDOWS_APP_USER_MODEL_ID}`,
+      '/v', 'IconUri', '/t', 'REG_SZ', '/d', path.resolve(executable), '/f',
+    ]);
+    assert.match(calls[2].command, /ie4uinit\.exe$/i);
+    assert.deepStrictEqual(calls[2].args, ['-show']);
+
+    const skipped = await registerWindowsShellIdentity({
+      platform: 'win32', enabled: false, executable, execFile,
+    });
+    assert.deepStrictEqual(skipped, { registered: false, refreshed: false });
+    assert.equal(calls.length, 3);
   });
 
   test('macOS node-pty 런타임은 현재 아키텍처 helper 권한과 ASAR 경로를 자가 복구한다', () => {
