@@ -1,6 +1,6 @@
 {
   "name": "whitebox-ai",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "A local-first desktop control room for seeing and steering Claude, Codex, Gemini, and Grok at work.",
   "main": "main.js",
   "author": "wincube AX",
@@ -34,6 +34,7 @@
   "files": [
     "bin",
     "build/icon.png",
+    "build/icon.ico",
     "main.js",
     "preload.js",
     "attention-popup-preload.js",
@@ -132,6 +133,7 @@
       "attention-popup-preload.js",
       "brand-profile-recovery-preload.js",
       "build/icon.png",
+      "build/icon.ico",
       "bin/**/*",
       "src/**/*",
       "renderer/**/*",

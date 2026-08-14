@@ -57,6 +57,7 @@ const { SourcePluginControlHost } = require('./src/sourcePlugins/controlHost');
 const { SourcePluginSettingsStore } = require('./src/sourcePlugins/settingsStore');
 const { normalizeSourceSession } = require('./src/sourcePlugins/contracts');
 const { ASIDE_MANIFEST } = require('./src/sourcePlugins/bundled');
+const { WINDOWS_APP_USER_MODEL_ID, registerWindowsShellIdentity } = require('./src/windowsShellIdentity');
 const packageMetadata = require('./package.json');
 const pendingUpdateRelaunch = readUpdateRelaunchRequest(process.env);
 delete process.env[READY_PATH_ENV];
@@ -66,6 +67,8 @@ delete process.env[LEGACY_READY_TOKEN_ENV];
 
 const PRODUCT_NAME = 'Whitebox';
 const BRAND_ICON_PATH = path.join(__dirname, 'build', 'icon.png');
+const BRAND_WINDOWS_ICON_PATH = path.join(__dirname, 'build', 'icon.ico');
+const BRAND_WINDOW_ICON_PATH = process.platform === 'win32' ? BRAND_WINDOWS_ICON_PATH : BRAND_ICON_PATH;
 const DEFAULT_LOCALE = 'en';
 const MONITOR_INTERVAL_MS = 5_000;
 const WSL_DISTRO_CACHE_MS = 60_000;
@@ -75,7 +78,7 @@ const ALLOW_UNSIGNED_MAC_UPDATES = packageMetadata.whitebox?.distributionChannel
   && packageMetadata.whitebox?.allowUnsignedMacUpdates === true;
 app.setName(PRODUCT_NAME);
 process.title = PRODUCT_NAME;
-if (process.platform === 'win32') app.setAppUserModelId('com.wincube.whitebox');
+if (process.platform === 'win32') app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
 const brandUserData = selectBrandUserData({ userDataPath: app.getPath('userData') });
 for (const selectionError of brandUserData.errors) {
   reportRecoverableError(`brand-user-data:${selectionError.operation}:${selectionError.path}`, new Error(selectionError.message));
@@ -494,13 +497,14 @@ function persistDirectRunsForWindowsSessionEnd() {
 
 function createWindow() {
   rendererBootstrapped = false;
+  const brandWindowIcon = nativeImage.createFromPath(BRAND_WINDOW_ICON_PATH);
   mainWindow = new BrowserWindow({
     width: 1600,
     height: 980,
     minWidth: 360,
     minHeight: 520,
     title: 'Whitebox · AI 작업 도우미',
-    icon: BRAND_ICON_PATH,
+    icon: brandWindowIcon.isEmpty() ? BRAND_ICON_PATH : brandWindowIcon,
     backgroundColor: appearanceBackground(readAppearanceTheme()),
     show: false,
     webPreferences: {
@@ -515,6 +519,19 @@ function createWindow() {
     rendererBootstrapped = false;
     attentionActivationCoordinator?.rendererUnavailable();
   });
+  if (!brandWindowIcon.isEmpty() && typeof mainWindow.setIcon === 'function') mainWindow.setIcon(brandWindowIcon);
+  if (process.platform === 'win32' && typeof mainWindow.setAppDetails === 'function') {
+    const relaunchCommand = app.isPackaged
+      ? `"${process.execPath}"`
+      : `"${process.execPath}" "${app.getAppPath()}"`;
+    mainWindow.setAppDetails({
+      appId: WINDOWS_APP_USER_MODEL_ID,
+      appIconPath: app.isPackaged ? process.execPath : BRAND_WINDOWS_ICON_PATH,
+      appIconIndex: 0,
+      relaunchCommand,
+      relaunchDisplayName: PRODUCT_NAME,
+    });
+  }
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   const allowedUrl = pathToFileURL(path.join(__dirname, 'renderer', 'index.html')).href;
@@ -2083,6 +2100,17 @@ app.whenReady().then(async () => {
     if (!sourceDockIcon.isEmpty()) app.dock.setIcon(sourceDockIcon);
   }
   if (!interimProfileGuardRequest) return;
+  try {
+    await registerWindowsShellIdentity({
+      platform: process.platform,
+      enabled: process.env.WHITEBOX_TEST_INSTANCE !== '1',
+      executable: process.execPath,
+      iconUri: app.isPackaged ? process.execPath : BRAND_WINDOWS_ICON_PATH,
+      displayName: PRODUCT_NAME,
+    });
+  } catch (error) {
+    reportRecoverableError('windows-shell-identity', error);
+  }
   hydratePlatformPath();
   brandProfileRecoveryInProgress = true;
   interimProfileGuard = await interimProfileGuardRequest;

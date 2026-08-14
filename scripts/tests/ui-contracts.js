@@ -27,6 +27,7 @@ const SYNTAX_CHECK_FILES = [
   'src/sessionIntelligence.js',
   'src/providerVisibilityStore.js',
   'src/updateInstaller.js',
+  'src/windowsShellIdentity.js',
   'src/ipc/registerAppIpc.js',
   'src/ipc/registerAgentIpc.js',
   'src/ipc/registerTerminalIpc.js',
@@ -1602,10 +1603,16 @@ function registerUiContractTests(context) {
     assert.equal(pkg.build.appId, 'com.wincube.whitebox');
     assert.equal(pkg.build.win.icon, 'build/icon.ico');
     assert.equal(pkg.build.mac.icon, 'build/icon.png');
+    assert.ok(pkg.files.includes('build/icon.ico'));
+    assert.ok(pkg.build.files.includes('build/icon.ico'));
     assert.equal(pkg.build.portable.unpackDirName, false);
     assert.ok(mainEntry.includes("app.setName(PRODUCT_NAME)"));
-    assert.ok(mainEntry.includes("app.setAppUserModelId('com.wincube.whitebox')"));
-    assert.ok(mainEntry.includes("icon: BRAND_ICON_PATH"));
+    assert.ok(mainEntry.includes('app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID)'));
+    assert.ok(mainEntry.includes("const BRAND_WINDOWS_ICON_PATH = path.join(__dirname, 'build', 'icon.ico')"));
+    assert.ok(mainEntry.includes('icon: brandWindowIcon.isEmpty() ? BRAND_ICON_PATH : brandWindowIcon'));
+    assert.ok(mainEntry.includes("typeof mainWindow.setAppDetails === 'function'"));
+    assert.ok(mainEntry.includes('appIconPath: app.isPackaged ? process.execPath : BRAND_WINDOWS_ICON_PATH'));
+    assert.ok(mainEntry.includes('await registerWindowsShellIdentity({'));
     assert.ok(mainEntry.includes("new Tray(icon)"));
     assert.ok(mainEntry.includes("app.dock.setIcon(sourceDockIcon)"));
     assert.ok(html.includes('id="brandIcon"'));
