@@ -115,7 +115,8 @@ window.WhiteboxAppFactories.createDashboard = function createDashboard(context =
     normalized = normalized.replace(/^\/\/\?\/([a-z]:\/)/i, "$1");
     const wslWindowsMount = normalized.match(/^\/mnt\/([a-z])(?:\/(.*))?$/i);
     if (wslWindowsMount) normalized = `${wslWindowsMount[1]}:/${wslWindowsMount[2] || ""}`;
-    return normalized.replace(/\/+$/, "").toLocaleLowerCase();
+    normalized = normalized.replace(/\/+$/, "");
+    return normalized ? normalized.toLocaleLowerCase() : "/";
   }
 
   function projectContainsPath(projectPath, candidatePath) {
