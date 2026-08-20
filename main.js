@@ -15,7 +15,7 @@ const { AgentRunner, probeProviders } = require('./src/agentRunner');
 const { snapshotWithoutSessions } = require('./src/agentMonitor');
 const { providerList, blankUsage } = require('./src/providerRegistry');
 const { collectProviderUsage } = require('./src/providerUsage');
-const { TerminalManager } = require('./src/terminalManager');
+const { TerminalManager, isInternalTerminalProjectionSessionId } = require('./src/terminalManager');
 const { TerminalHostClient, launchTerminalHost, resolveTerminalHostExecutable } = require('./src/terminalHost');
 const { TmuxController } = require('./src/tmuxController');
 const { normalizeWslList } = require('./src/tmuxMonitor');
@@ -1868,7 +1868,12 @@ function bridgePresence() {
   if (!terminalManager) return [];
   const localEnvironment = process.platform === 'win32' ? 'windows' : (process.platform === 'darwin' ? 'macos' : 'linux');
   return terminalManager.list()
-    .filter(session => !session.transient && session.type === 'agent' && (session.status === 'running' || session.status === 'starting'))
+    .filter(session => !session.transient
+      && session.type === 'agent'
+      && (session.status === 'running' || session.status === 'starting')
+      // A still-running v1.7.3 host may retain these records until its next
+      // safe restart. Do not project the recursive chain into agent cards.
+      && !isInternalTerminalProjectionSessionId(session.bridgeId))
     .map(session => ({
       id: session.bridgeId || session.id,
       bridgeId: session.bridgeId || '',

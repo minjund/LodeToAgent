@@ -252,9 +252,25 @@
     return `<div class="terminal-history-copy">${blocks.join('')}</div>`;
   }
 
+  function isWhiteboxBridgeProjection(agentSession) {
+    return String(agentSession?.source || '').toLowerCase() === 'whitebox-bridge'
+      || String(agentSession?.clientKind || '').toLowerCase() === 'whitebox-bridge';
+  }
+
   function resumeSupport(agentSession) {
     if (!agentSession) return { supported: false, reason: t('terminal.resume.no_session_info') };
     if (agentSession.parentId) return { supported: false, parentControlled: true, reason: t('terminal.resume.parent_controlled') };
+    // This card projects a PTY bridge that Whitebox already owns. Resuming its
+    // terminal id as a provider history recursively creates bridge:bridge:...
+    // sessions instead of reconnecting the original conversation.
+    if (isWhiteboxBridgeProjection(agentSession)) {
+      return {
+        supported: false,
+        originOwned: true,
+        code: 'WHITEBOX_BRIDGE_PROJECTION_ORIGIN_OWNED',
+        reason: t('terminal.agent.no_input_target'),
+      };
+    }
     if (String(agentSession.provider || '').toLowerCase() === 'codex'
       && String(agentSession.clientKind || '').toLowerCase() === 'codex-desktop') {
       return {

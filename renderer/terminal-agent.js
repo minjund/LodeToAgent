@@ -242,11 +242,33 @@ window.WhiteboxTerminalAgentActions = function createModule(context) {
       && String(agentSession?.clientKind || '').toLowerCase() === 'codex-desktop';
   }
 
+  function isWhiteboxBridgeProjection(agentSession) {
+    return String(agentSession?.source || '').toLowerCase() === 'whitebox-bridge'
+      || String(agentSession?.clientKind || '').toLowerCase() === 'whitebox-bridge';
+  }
+
+  function isOriginOwnedSession(agentSession) {
+    return isCodexDesktopSession(agentSession) || isWhiteboxBridgeProjection(agentSession);
+  }
+
   function codexDesktopOriginOwnedError() {
     return rejectedError(
       t('terminal.resume.codex_desktop_live'),
       'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
     );
+  }
+
+  function whiteboxBridgeProjectionOriginOwnedError() {
+    return rejectedError(
+      t('terminal.agent.no_input_target'),
+      'WHITEBOX_BRIDGE_PROJECTION_ORIGIN_OWNED',
+    );
+  }
+
+  function originOwnedSessionError(agentSession) {
+    if (isCodexDesktopSession(agentSession)) return codexDesktopOriginOwnedError();
+    if (isWhiteboxBridgeProjection(agentSession)) return whiteboxBridgeProjectionOriginOwnedError();
+    return null;
   }
 
   function resultError(result, fallback) {
@@ -400,7 +422,7 @@ window.WhiteboxTerminalAgentActions = function createModule(context) {
   function agentTargets(agentSession) {
     if (!agentSession || !agentSession.id) return [];
     if (agentSession.parentId) return [];
-    if (isCodexDesktopSession(agentSession)) return [];
+    if (isOriginOwnedSession(agentSession)) return [];
     const targets = [];
     const connectionSignature = agentConnectionSignature(agentSession);
     const blockedTerminalIds = new Set(state.sessions
@@ -796,7 +818,8 @@ window.WhiteboxTerminalAgentActions = function createModule(context) {
     // completed/idle/attention state describes only the latest turn and is not
     // evidence that the app-server released its writer, so never start an
     // independent resume for this origin.
-    if (isCodexDesktopSession(agentSession)) throw codexDesktopOriginOwnedError();
+    const originOwnedError = originOwnedSessionError(agentSession);
+    if (originOwnedError) throw originOwnedError;
     await initializeBeforeDelivery();
     const connectionSignature = agentConnectionSignature(agentSession);
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
@@ -1033,7 +1056,8 @@ window.WhiteboxTerminalAgentActions = function createModule(context) {
   async function ensureForAgent(agentSession, options = {}) {
     if (!agentSession?.id) throw rejectedError(t('terminal.resume.no_session_info'));
     if (agentSession.parentId) throw rejectedError(t('terminal.resume.parent_controlled'));
-    if (isCodexDesktopSession(agentSession)) throw codexDesktopOriginOwnedError();
+    const originOwnedError = originOwnedSessionError(agentSession);
+    if (originOwnedError) throw originOwnedError;
 
     const signature = agentConnectionSignature(agentSession);
     const excludedTerminalIds = new Set((options.excludeTerminalIds || []).map(value => String(value || '')).filter(Boolean));
@@ -1118,9 +1142,9 @@ window.WhiteboxTerminalAgentActions = function createModule(context) {
     const candidates = [...unique.values()];
     if (!candidates.length) return [];
     // Do not initialize the terminal host just to reject a batch containing
-    // only Codex Desktop-owned threads.
-    if (candidates.every(isCodexDesktopSession)) {
-      return candidates.map(() => ({ status: 'rejected', reason: codexDesktopOriginOwnedError() }));
+    // only projections whose writer/runtime Whitebox must not duplicate.
+    if (candidates.every(isOriginOwnedSession)) {
+      return candidates.map(session => ({ status: 'rejected', reason: originOwnedSessionError(session) }));
     }
     const shouldStart = typeof options.shouldStart === 'function' ? options.shouldStart : () => true;
     const mayStart = () => {

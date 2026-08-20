@@ -4603,7 +4603,7 @@ function registerTerminalLifecycleTests(context) {
     afterCrash.dispose();
   });
 
-  test('세션 ID가 없는 재개 인자와 과거 질문이 붙은 Grok 인자는 안전하게 복구한다', () => {
+  test('내부 bridge ID·세션 ID 없는 재개 인자와 과거 질문이 붙은 Grok 인자는 안전하게 복구한다', () => {
     const storeFile = path.join(temp, 'terminal-safe-resume-arguments.json');
     const now = '2026-08-01T00:00:00.000Z';
     fs.writeFileSync(storeFile, JSON.stringify({
@@ -4618,6 +4618,28 @@ function registerTerminalLifecycleTests(context) {
           id: 'terminal:bad-claude',
           options: { type: 'agent', provider: 'claude', cwd: root, args: ['--resume', '--'], sessionBackend: 'direct' },
           status: 'running', createdAt: now, updatedAt: now, replay: '',
+        },
+        {
+          id: 'terminal:recursive-bridge-one',
+          options: {
+            type: 'agent', provider: 'claude', cwd: root,
+            args: ['--resume', 'terminal:whitebox-runtime'],
+            bridgeId: 'bridge:terminal:whitebox-runtime',
+            agentConnectionSignature: 'acs1:legacy-recursive-bridge',
+            sessionBackend: 'direct',
+          },
+          status: 'running', createdAt: now, updatedAt: now, replay: 'legacy bridge replay',
+        },
+        {
+          id: 'terminal:recursive-bridge-two',
+          options: {
+            type: 'agent', provider: 'claude', cwd: root,
+            args: ['--resume', 'bridge:terminal:whitebox-runtime'],
+            bridgeId: 'bridge:bridge:terminal:whitebox-runtime',
+            agentConnectionSignature: 'acs1:legacy-recursive-bridge-two',
+            sessionBackend: 'direct',
+          },
+          status: 'running', createdAt: now, updatedAt: now, replay: 'deeper legacy bridge replay',
         },
         {
           id: 'terminal:safe-grok',
@@ -4675,6 +4697,14 @@ function registerTerminalLifecycleTests(context) {
     assert.equal(recovered[0].id, 'terminal:safe-grok');
     assert.equal(manager.get('terminal:bad-codex').recoverySkippedReason, 'unsafe-agent-restart');
     assert.equal(manager.get('terminal:bad-claude').recoverySkippedReason, 'unsafe-agent-restart');
+    for (const id of ['terminal:recursive-bridge-one', 'terminal:recursive-bridge-two']) {
+      assert.equal(manager.get(id).status, 'exited');
+      assert.equal(manager.get(id).recoverySkippedReason, 'internal-terminal-projection');
+      assert.deepStrictEqual(manager.sessions.get(id).options.args, []);
+      assert.equal(manager.sessions.get(id).options.bridgeId, '');
+      assert.equal(manager.sessions.get(id).options.agentConnectionSignature, '');
+      assert.match(manager.get(id, true).replay, /legacy bridge replay/);
+    }
     assert.deepStrictEqual(spawns[0].args, ['--resume', 'grok-session-7']);
     assert.deepStrictEqual(spawns[1].args, ['--resume', 'gemini-session-8']);
     assert.deepStrictEqual(spawns[2].args, ['--resume', 'claude-session-9']);
@@ -4694,6 +4724,63 @@ function registerTerminalLifecycleTests(context) {
       .find(session => session.id === created.id);
     assert.deepStrictEqual(storedCreated.options.args, ['--resume', 'canonical-recovery']);
     manager.dispose();
+  });
+
+  test('저장된 내부 bridge binding은 정리 후 다시 로드해도 재개 identity로 복원되지 않는다', () => {
+    const storeFile = path.join(temp, 'terminal-recursive-bridge-binding.json');
+    const now = '2026-08-19T02:01:23.000Z';
+    const promptHash = 'a'.repeat(64);
+    fs.writeFileSync(storeFile, JSON.stringify({
+      version: 2,
+      sessions: [{
+        id: 'terminal:recursive-bridge-binding',
+        options: {
+          type: 'agent', provider: 'claude', cwd: root,
+          args: ['--resume', 'terminal:whitebox-runtime'],
+          bridgeId: 'bridge:terminal:whitebox-runtime',
+          agentConnectionSignature: `acs1:${'b'.repeat(64)}`,
+          sessionBackend: 'direct',
+        },
+        status: 'running', createdAt: now, updatedAt: now,
+        replay: 'preserved recursive bridge replay',
+        initialPromptFingerprint: promptHash,
+        agentBinding: {
+          sessionId: 'claude:terminal:whitebox-runtime',
+          externalId: 'terminal:whitebox-runtime',
+          provider: 'claude',
+          environment: 'macos',
+          distro: '',
+          promptFingerprint: promptHash,
+          linkScore: 20_000,
+          boundAt: now,
+        },
+      }],
+    }), 'utf8');
+    let spawnCount = 0;
+    const options = {
+      platform: 'darwin',
+      storeFile,
+      killTree: () => {},
+      ptyModule: { spawn: () => { spawnCount += 1; throw new Error('internal projection was resumed'); } },
+    };
+
+    const firstLoad = new TerminalManager(options);
+    assert.deepStrictEqual(firstLoad.recoverPersistedSessions(), []);
+    assert.equal(firstLoad.get('terminal:recursive-bridge-binding').recoverySkippedReason, 'internal-terminal-projection');
+    assert.match(firstLoad.get('terminal:recursive-bridge-binding', true).replay, /preserved recursive bridge replay/);
+    const sanitized = JSON.parse(fs.readFileSync(storeFile, 'utf8')).sessions[0];
+    assert.deepStrictEqual(sanitized.options.args, []);
+    assert.equal(sanitized.options.bridgeId, '');
+    assert.equal(sanitized.options.agentConnectionSignature, '');
+    assert.equal(sanitized.agentBinding, null);
+    firstLoad.dispose({ preserveSessions: true });
+
+    const secondLoad = new TerminalManager(options);
+    assert.deepStrictEqual(secondLoad.recoverPersistedSessions(), []);
+    assert.deepStrictEqual(secondLoad.sessions.get('terminal:recursive-bridge-binding').options.args, []);
+    assert.equal(secondLoad.sessions.get('terminal:recursive-bridge-binding').agentBinding, null);
+    assert.equal(spawnCount, 0);
+    secondLoad.dispose({ preserveSessions: true });
   });
 
   test('자연 종료 상태는 즉시 저장해 직후 호스트가 죽어도 끝난 셸을 되살리지 않는다', async () => {
@@ -6066,6 +6153,12 @@ function registerTerminalFailureTests(context) {
     }, 'win32'), /한 번만 지정/);
     assert.throws(() => normalizeLaunchOptions({
       type: 'agent', provider: 'claude', args: ['--resume', 'x|whoami'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /AI 대화 ID 형식/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'terminal:whitebox-runtime'], cwd: batchDir, sessionBackend: 'direct',
+    }, 'win32'), /AI 대화 ID 형식/);
+    assert.throws(() => normalizeLaunchOptions({
+      type: 'agent', provider: 'claude', args: ['--resume', 'bridge:terminal:whitebox-runtime'], cwd: batchDir, sessionBackend: 'direct',
     }, 'win32'), /AI 대화 ID 형식/);
     assert.throws(() => normalizeLaunchOptions({
       type: 'agent', provider: 'claude', args: ['--resume', 'safe-id', '--resume', 'x&whoami'], cwd: batchDir, sessionBackend: 'direct',
