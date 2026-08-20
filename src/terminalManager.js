@@ -198,11 +198,34 @@ function restoredRawInputDeliveries(value) {
   }).filter(Boolean);
 }
 
+function isInternalTerminalProjectionSessionId(value) {
+  return /^(?:bridge|terminal):/i.test(String(value == null ? '' : value).trim());
+}
+
+function rawAgentResumeSessionId(options = {}) {
+  if (options.type !== 'agent') return '';
+  const provider = cleanText(options.provider, 30).toLowerCase();
+  const args = normalizedArguments(options.args, MAX_AGENT_ARGUMENT_CHARS);
+  if (provider === 'codex' && args[0] === 'resume') {
+    return String(args[args[1] === '--' ? 2 : 1] || '').trim();
+  }
+  if (!['claude', 'gemini', 'grok'].includes(provider)) return '';
+  const resumeIndex = args.indexOf('--resume');
+  return resumeIndex >= 0 ? String(args[resumeIndex + 1] || '').trim() : '';
+}
+
+function hasInternalTerminalProjectionResume(options = {}) {
+  return isInternalTerminalProjectionSessionId(rawAgentResumeSessionId(options));
+}
+
 function validAgentSessionId(value) {
   const sessionId = String(value == null ? '' : value);
   return sessionId.length > 0
     && sessionId.length <= MAX_AGENT_SESSION_ID_CHARS
-    && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(sessionId);
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(sessionId)
+    // terminal:* and bridge:* belong to Whitebox runtime projections, never
+    // to a provider's durable conversation namespace.
+    && !isInternalTerminalProjectionSessionId(sessionId);
 }
 
 function replaceStoreFileSync(fileSystem, source, destination) {
@@ -351,6 +374,7 @@ function normalizeAgentBinding(value, options, initialPromptFingerprint, platfor
     || provider !== options.provider
     || !validAgentSessionId(sessionId)
     || !externalId
+    || isInternalTerminalProjectionSessionId(externalId)
     || sessionId !== `${provider}:${externalId}`
     || environment !== expectedEnvironment
     || (environment === 'wsl' && distro.toLowerCase() !== expectedDistro)
@@ -1563,8 +1587,19 @@ class TerminalManager extends EventEmitter {
           if (!shouldRetainTerminalSession(value, this.retentionDays, this.now())) continue;
           const id = cleanText(value?.id, 200);
           if (!id || this.sessions.has(id)) continue;
+          const internalProjectionResume = hasInternalTerminalProjectionResume(value?.options)
+            || isInternalTerminalProjectionSessionId(value?.agentBinding?.externalId);
           const restored = restoredOptions(value?.options, this.platform, parsed.version);
           if (!restored) throw new Error('저장된 명령창 실행 설정을 읽을 수 없습니다.');
+          // v1.7.3 could persist a recursive --resume terminal:* chain after
+          // treating its own unresolved bridge card as provider history. Keep
+          // the replay, but remove every writable/recoverable identity before
+          // normalizing or restarting that legacy record.
+          if (internalProjectionResume) {
+            restored.args = [];
+            restored.bridgeId = '';
+            restored.agentConnectionSignature = '';
+          }
           const options = normalizeLaunchOptions(restored, this.platform);
           const now = new Date().toISOString();
           const createdAt = validTimestamp(value.createdAt, now);
@@ -1577,14 +1612,19 @@ class TerminalManager extends EventEmitter {
             || Boolean(creationId) !== Boolean(creationPayloadFingerprint)) {
             throw new Error('저장된 명령창 생성 요청 식별자가 올바르지 않습니다.');
           }
-          const agentBinding = normalizeAgentBinding(
+          let agentBinding = normalizeAgentBinding(
             value.agentBinding,
             options,
             initialPromptFingerprint,
             this.platform,
           );
+          if (internalProjectionResume) agentBinding = null;
           const invalidAgentBinding = Boolean(value.agentBinding && !agentBinding);
-          if (invalidAgentBinding) {
+          if (internalProjectionResume) {
+            options.bridgeId = '';
+            options.agentConnectionSignature = '';
+            options.args = [];
+          } else if (invalidAgentBinding) {
             // Preserve the terminal/replay but fail closed on a corrupt or
             // stale inferred conversation identity. The canonical resume args
             // and signature were derived from that binding, so retaining them
@@ -1638,12 +1678,15 @@ class TerminalManager extends EventEmitter {
             agentBinding,
             process: null,
             generation: 0,
-            recoveryPending: !invalidAgentBinding
+            recoveryPending: !internalProjectionResume
+              && !invalidAgentBinding
               && !terminationUncertain
               && !(options.type === 'tmux' && options.tmuxPane && (!options.tmuxWindow || !options.tmuxPanePid))
               && (value.status === 'running' || value.status === 'starting'),
             recoveredAfterHostRestart: false,
-            recoverySkippedReason: invalidAgentBinding ? 'invalid-agent-binding' : '',
+            recoverySkippedReason: internalProjectionResume
+              ? 'internal-terminal-projection'
+              : (invalidAgentBinding ? 'invalid-agent-binding' : ''),
             terminationPending: false,
             terminationIntent: restoredTerminationIntent(value.terminationIntent),
             terminationUncertain,
@@ -3909,6 +3952,7 @@ module.exports = {
   killPtyTree,
   AGENT_PROVIDERS,
   promptFingerprint,
+  isInternalTerminalProjectionSessionId,
   resolveWindowsCommand,
   resolvePosixShell,
 };

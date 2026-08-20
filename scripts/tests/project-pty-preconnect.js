@@ -224,7 +224,11 @@ function registerProjectPtyPreconnectTests(context) {
 
   test('프로젝트 사전 연결은 선택한 프로젝트의 활성 최상위 AI만 background batch에 넘긴다', async () => {
     const rootA = { id: 'codex:root-a', externalId: 'root-a', provider: 'codex', cwd: 'D:\\project-a', status: 'running', parentId: null };
-    const rootB = { id: 'claude:root-b', externalId: 'root-b', provider: 'claude', cwd: 'D:\\project-a\\nested', status: 'running', parentId: null };
+    const rootB = {
+      id: 'claude:root-b', externalId: 'root-b', provider: 'claude', source: 'local-history',
+      cwd: 'D:\\project-a\\nested', status: 'running', parentId: null,
+      runtimePresence: [{ kind: 'bridge', terminalId: 'terminal:root-b' }],
+    };
     const child = { id: 'codex:child', externalId: 'child', provider: 'codex', cwd: 'D:\\project-a', status: 'running', parentId: rootA.id };
     const grandchild = { id: 'codex:grandchild', externalId: 'grandchild', provider: 'codex', cwd: 'D:\\project-a', status: 'running', parentId: child.id };
     const otherRoot = { id: 'codex:other-root', externalId: 'other-root', provider: 'codex', cwd: 'D:\\project-b', status: 'running', parentId: null };
@@ -233,7 +237,14 @@ function registerProjectPtyPreconnectTests(context) {
       id: 'codex:desktop-root', externalId: 'desktop-root', provider: 'codex', clientKind: 'codex-desktop',
       cwd: 'D:\\project-a', status: 'running', parentId: null,
     };
-    const harness = createProjectPreconnectHarness(root, [rootA, rootB, child, grandchild, otherRoot, completedRoot, desktopRoot]);
+    const bridgeProjection = {
+      id: 'bridge:terminal:seed', externalId: 'terminal:seed', provider: 'claude',
+      source: 'whitebox-bridge', clientKind: 'whitebox-bridge', cwd: 'D:\\project-a',
+      status: 'running', activityState: 'working', parentId: null,
+    };
+    const harness = createProjectPreconnectHarness(root, [
+      rootA, rootB, child, grandchild, otherRoot, completedRoot, desktopRoot, bridgeProjection,
+    ]);
 
     await harness.actions.preconnectProjectAgentTerminals(harness.state.workspace);
 
@@ -241,7 +252,7 @@ function registerProjectPtyPreconnectTests(context) {
     assert.deepStrictEqual(
       Array.from(harness.preconnectCalls[0].candidates, session => session.id),
       [rootA.id, rootB.id],
-      '하위 AI·다른 프로젝트·종료 기록·실행 중인 Codex Desktop 대화가 PTY 사전 연결 batch에 포함됐습니다.',
+      '하위 AI·다른 프로젝트·종료 기록·origin-owned projection이 PTY 사전 연결 batch에 포함됐습니다.',
     );
     assert.equal(typeof harness.preconnectCalls[0].options?.shouldStart, 'function');
     assert.equal(harness.preconnectCalls[0].options.shouldStart(), true);
@@ -291,6 +302,45 @@ function registerProjectPtyPreconnectTests(context) {
 
     assert.equal(harness.initCalls(), 0, 'Desktop 소유권 거절 전에 terminal init을 시작했습니다.');
     assert.deepStrictEqual(harness.ensureCalls, [], 'Desktop 소유 대화에 codex resume PTY를 만들었습니다.');
+  });
+
+  test('Whitebox bridge projection은 독립 resume·ensure·preconnect 대상으로 재사용하지 않는다', async () => {
+    const harness = createTerminalPreconnectHarness(root);
+    const bridgeProjection = {
+      id: 'bridge:terminal:seed',
+      externalId: 'terminal:seed',
+      provider: 'claude',
+      source: 'whitebox-bridge',
+      clientKind: 'whitebox-bridge',
+      cwd: 'D:\\project-a',
+      status: 'running',
+      activityState: 'working',
+      parentId: null,
+      runtimePresence: [{
+        id: 'terminal:seed',
+        terminalId: 'terminal:seed',
+        provider: 'claude',
+        kind: 'bridge',
+      }],
+    };
+    const isOriginOwnedRejection = error => error?.code === 'WHITEBOX_BRIDGE_PROJECTION_ORIGIN_OWNED'
+      && error?.deliveryState === 'rejected'
+      && error?.message === 'terminal.agent.no_input_target';
+
+    await assert.rejects(
+      () => harness.actions.resumeForAgent(bridgeProjection, '', false, { focus: false }),
+      isOriginOwnedRejection,
+    );
+    await assert.rejects(
+      () => harness.actions.ensureForAgent(bridgeProjection),
+      isOriginOwnedRejection,
+    );
+    const [preconnect] = await harness.actions.preconnectForAgents([bridgeProjection]);
+    assert.equal(preconnect?.status, 'rejected');
+    assert.equal(isOriginOwnedRejection(preconnect?.reason), true);
+    assert.deepStrictEqual(Array.from(harness.actions.agentTargets(bridgeProjection)), []);
+    assert.equal(harness.initCalls(), 0, 'bridge projection 거절 전에 terminal init을 시작했습니다.');
+    assert.deepStrictEqual(harness.ensureCalls, [], 'bridge terminal id를 Claude resume id로 재사용했습니다.');
   });
 
   test('PTY 사전 연결은 같은 canonical identity를 합치고 identity 변경은 별도 요청으로 시작한다', async () => {

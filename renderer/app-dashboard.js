@@ -111,17 +111,22 @@ window.WhiteboxAppFactories.createDashboard = function createDashboard(context =
   }
 
   function normalizedProjectPath(value) {
-    let normalized = String(value || "").trim().replace(/\\/g, "/");
+    let normalized = String(value ?? "").trim().replace(/\\/g, "/");
+    if (!normalized) return "";
+    const posixRoot = /^\/+$/u.test(normalized);
     normalized = normalized.replace(/^\/\/\?\/([a-z]:\/)/i, "$1");
     const wslWindowsMount = normalized.match(/^\/mnt\/([a-z])(?:\/(.*))?$/i);
     if (wslWindowsMount) normalized = `${wslWindowsMount[1]}:/${wslWindowsMount[2] || ""}`;
-    return normalized.replace(/\/+$/, "").toLocaleLowerCase();
+    normalized = normalized.replace(/\/+$/, "");
+    return (normalized || (posixRoot ? "/" : "")).toLocaleLowerCase();
   }
 
   function projectContainsPath(projectPath, candidatePath) {
     const project = normalizedProjectPath(projectPath);
     const candidate = normalizedProjectPath(candidatePath);
-    return Boolean(project && candidate && (candidate === project || candidate.startsWith(`${project}/`)));
+    if (!project || !candidate) return false;
+    if (candidate === project) return true;
+    return project === "/" ? candidate.startsWith("/") : candidate.startsWith(`${project}/`);
   }
 
   function projectName(projectPath) {

@@ -818,6 +818,7 @@ const TERMINAL_RUNTIME_CONTRACTS = [
   'function resumeSupport',
   'parentControlled: true',
   'CODEX_DESKTOP_SESSION_ORIGIN_OWNED',
+  'WHITEBOX_BRIDGE_PROJECTION_ORIGIN_OWNED',
   "['codex', 'claude', 'gemini', 'grok']",
   "promptMode: provider === 'grok' ? 'terminal' : 'arguments'",
   "terminal.type === 'agent'",
@@ -891,6 +892,7 @@ const MAIN_PROCESS_CONTRACTS = [
   'quitCleanupComplete = true',
   'setImmediate(() => app.quit())',
   "session.status === 'running' || session.status === 'starting'",
+  '!isInternalTerminalProjectionSessionId(session.bridgeId)',
   "terminalSessions: sessions.filter(session => ['running', 'starting', 'stopping'].includes(session.status))",
   "session.status === 'detached'",
   'event.preventDefault()',
@@ -1051,6 +1053,32 @@ function registerSyntaxContractTests(context) {
 
 function registerUiContractTests(context) {
   const { test, root } = context;
+  test('프로젝트 경로 정규화는 빈 경로와 POSIX 루트를 구분한다', () => {
+    const source = fs.readFileSync(path.join(root, 'renderer', 'app-dashboard.js'), 'utf8');
+    const helperStart = source.indexOf('function normalizedProjectPath(value)');
+    const helperEnd = source.indexOf('function projectName(projectPath)', helperStart);
+    assert.ok(helperStart >= 0 && helperEnd > helperStart, '프로젝트 경로 helper를 찾을 수 없습니다.');
+    const sandbox = {};
+    vm.runInNewContext(`${source.slice(helperStart, helperEnd)}\nthis.helpers = { normalizedProjectPath, projectContainsPath };`, sandbox, {
+      filename: 'app-dashboard-project-path-helpers.js',
+    });
+    const { normalizedProjectPath, projectContainsPath } = sandbox.helpers;
+
+    assert.equal(normalizedProjectPath(''), '');
+    assert.equal(normalizedProjectPath(undefined), '');
+    assert.equal(normalizedProjectPath('/'), '/');
+    assert.equal(normalizedProjectPath('///'), '/');
+    assert.equal(normalizedProjectPath('C:\\'), 'c:');
+    assert.equal(normalizedProjectPath('/mnt/C/Users/Example/'), 'c:/users/example');
+    assert.equal(projectContainsPath('/', '/workspace/project'), true);
+    assert.equal(projectContainsPath('/', '/'), true);
+    assert.equal(projectContainsPath('/', ''), false);
+    assert.equal(projectContainsPath('', '/workspace/project'), false);
+    assert.equal(projectContainsPath('/workspace', '/workspace/project'), true);
+    assert.equal(projectContainsPath('/workspace', '/workspace-other'), false);
+    assert.equal(projectContainsPath('C:\\', 'c:\\Users\\Example'), true);
+  });
+
   test('최신 AI 요청에 답이 없으면 지난 답변을 새 응답처럼 붙이지 않는다', () => {
     const source = fs.readFileSync(path.join(root, 'renderer', 'app-session-render.js'), 'utf8');
     const sandbox = {

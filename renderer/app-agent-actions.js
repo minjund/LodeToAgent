@@ -42,6 +42,9 @@ window.WhiteboxAppFactories.createAgentActions = function createAgentActions(con
       if (!terminal || typeof terminal.preconnectForAgents !== "function") return [];
       const candidates = controlRoomRootSessions().filter((session) => {
         if (!session?.id || session.parentId || !isLiveSession(session)) return false;
+        // An unresolved Whitebox PTY bridge is a runtime projection, not a
+        // provider transcript that can be resumed as a new conversation.
+        if (isWhiteboxBridgeProjection(session)) return false;
         // A Codex Desktop thread is owned by that app's private writer.
         // Project selection must not silently start an independent resume.
         if (isCodexDesktopSession(session)) return false;
@@ -118,6 +121,11 @@ window.WhiteboxAppFactories.createAgentActions = function createAgentActions(con
   function isCodexDesktopSession(session) {
     return String(session?.provider || "").toLowerCase() === "codex"
       && String(session?.clientKind || "").toLowerCase() === "codex-desktop";
+  }
+
+  function isWhiteboxBridgeProjection(session) {
+    return String(session?.source || "").toLowerCase() === "whitebox-bridge"
+      || String(session?.clientKind || "").toLowerCase() === "whitebox-bridge";
   }
 
   function agentCommandRouteOptions(session) {
